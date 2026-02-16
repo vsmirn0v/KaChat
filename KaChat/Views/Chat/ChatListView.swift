@@ -24,87 +24,95 @@ struct ChatListView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if chatService.conversations.isEmpty {
-                    emptyStateView
-                } else {
-                    conversationsList
-                }
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    ConnectionStatusIndicator()
-                }
-                ToolbarItem(placement: .principal) {
-                    balanceToolbarView
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showAddContact = true
-                    } label: {
-                        Image(systemName: "person.badge.plus")
+            chatListContent
+                .navigationTitle("")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        ConnectionStatusIndicator()
+                    }
+                    ToolbarItem(placement: .principal) {
+                        balanceToolbarView
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            showAddContact = true
+                        } label: {
+                            Image(systemName: "person.badge.plus")
+                        }
                     }
                 }
-            }
-            .searchable(text: $searchText, prompt: "Search chats")
-            .refreshable {
-                await chatService.fetchNewMessages()
-            }
-            .toast(message: toastMessage, style: toastStyle)
-            .sheet(isPresented: $showAddContact) {
-                AddContactView { contact in
-                    _ = chatService.getOrCreateConversation(for: contact)
-                    selectedContact = contact
-                    showAddContact = false
+                .searchable(text: $searchText, prompt: "Search chats")
+                .refreshable {
+                    await chatService.fetchNewMessages()
                 }
+                .toast(message: toastMessage, style: toastStyle)
+                .sheet(isPresented: $showAddContact) {
+                    AddContactView { contact in
+                        _ = chatService.getOrCreateConversation(for: contact)
+                        selectedContact = contact
+                        showAddContact = false
+                    }
+                }
+                .navigationDestination(item: $selectedContact) { contact in
+                    ChatDetailView(contact: contact)
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var chatListContent: some View {
+        Group {
+            if chatService.conversations.isEmpty {
+                emptyStateView
+            } else {
+                conversationsList
             }
-            .navigationDestination(item: $selectedContact) { contact in
-                ChatDetailView(contact: contact)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
-                handleOpenChatNotification(notification)
-            }
-            .onAppear {
-                checkPendingNavigation()
-                requestNotificationPermissionIfNeeded()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
+            handleOpenChatNotification(notification)
+        }
+        .onAppear {
+            checkPendingNavigation()
+            requestNotificationPermissionIfNeeded()
+            loadedConversationCount = conversationPageSize
+            refreshFilteredConversations()
+            Task { _ = try? await walletManager.refreshBalance() }
+        }
+        .onChange(of: searchText) { _, newValue in
+            if newValue.isEmpty {
                 loadedConversationCount = conversationPageSize
-                refreshFilteredConversations()
-                Task { _ = try? await walletManager.refreshBalance() }
-            }
-            .onChange(of: searchText) { _, newValue in
-                if newValue.isEmpty {
-                    loadedConversationCount = conversationPageSize
-                    scheduleFilteredConversationsRefresh(debounce: false)
-                } else {
-                    scheduleFilteredConversationsRefresh(debounce: true)
-                }
-            }
-            .onChange(of: chatService.conversations) { _, _ in
                 scheduleFilteredConversationsRefresh(debounce: false)
+            } else {
+                scheduleFilteredConversationsRefresh(debounce: true)
             }
-            .onChange(of: contactsManager.contacts) { _, _ in
-                scheduleFilteredConversationsRefresh(debounce: false)
+        }
+        .onChange(of: chatService.conversations) { _, _ in
+            scheduleFilteredConversationsRefresh(debounce: false)
+        }
+        .onChange(of: contactsManager.contacts) { _, _ in
+            scheduleFilteredConversationsRefresh(debounce: false)
+        }
+        .onChange(of: settingsViewModel.settings.hideAutoCreatedPaymentChats) { _, _ in
+            scheduleFilteredConversationsRefresh(debounce: false)
+        }
+        .onDisappear {
+            searchFilterTask?.cancel()
+        }
+        .task {
+            await contactsManager.fetchKNSDomainsForAllContacts()
+        }
+        .onChange(of: chatService.pendingChatNavigation) { _, newValue in
+            if newValue != nil && selectedContact == nil {
+                checkPendingNavigation()
             }
-            .onChange(of: settingsViewModel.settings.hideAutoCreatedPaymentChats) { _, _ in
-                scheduleFilteredConversationsRefresh(debounce: false)
-            }
-            .onDisappear {
-                searchFilterTask?.cancel()
-            }
-            .task {
-                // Fetch KNS domains for all contacts
-                await contactsManager.fetchKNSDomainsForAllContacts()
-            }
-            .onChange(of: chatService.pendingChatNavigation) { _, newValue in
-                if newValue != nil && selectedContact == nil {
-                    checkPendingNavigation()
-                }
-            }
-            .onChange(of: selectedContact) { _, newValue in
-                if newValue == nil && chatService.pendingChatNavigation != nil {
-                    // Chat view just dismissed — navigate to pending chat
+        }
+        .onChange(of: selectedContact) { _, newValue in
+            if newValue == nil && chatService.pendingChatNavigation != nil {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    guard selectedContact == nil,
+                          chatService.pendingChatNavigation != nil else { return }
                     checkPendingNavigation()
                 }
             }

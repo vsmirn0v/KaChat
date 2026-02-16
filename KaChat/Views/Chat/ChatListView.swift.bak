@@ -98,8 +98,20 @@ struct ChatListView: View {
                 await contactsManager.fetchKNSDomainsForAllContacts()
             }
             .onChange(of: chatService.pendingChatNavigation) { _, newValue in
-                if newValue != nil {
+                if newValue != nil && selectedContact == nil {
                     checkPendingNavigation()
+                }
+            }
+            .onChange(of: selectedContact) { _, newValue in
+                if newValue == nil && chatService.pendingChatNavigation != nil {
+                    // Chat view just dismissed — wait for the pop animation to
+                    // finish before pushing the new destination.
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                        guard selectedContact == nil,
+                              chatService.pendingChatNavigation != nil else { return }
+                        checkPendingNavigation()
+                    }
                 }
             }
         }
@@ -128,14 +140,16 @@ struct ChatListView: View {
         }
         guard let target = contact else { return }
 
-        // If already viewing a different chat, pop back first then push the new one
-        if selectedContact != nil && selectedContact?.address != address {
-            selectedContact = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                selectedContact = target
-            }
-        } else {
+        if selectedContact == nil {
+            // No chat open — navigate directly
             selectedContact = target
+        } else if selectedContact?.address == address {
+            // Already viewing this chat — nothing to do
+        } else {
+            // Viewing a different chat — ChatDetailView will dismiss itself
+            // via its own .onReceive(.openChat). Store the target so
+            // checkPendingNavigation() picks it up on reappear.
+            chatService.pendingChatNavigation = address
         }
     }
 
