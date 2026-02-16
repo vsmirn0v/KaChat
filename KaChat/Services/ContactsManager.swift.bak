@@ -80,18 +80,10 @@ final class ContactsManager: ObservableObject {
         let addresses = contacts.map { $0.address }
         await knsService.refreshIfNeeded(for: addresses, network: network)
 
-        // Update aliases for contacts that have auto-generated names or stale .kas names,
-        // but never overwrite a linked iCloud contact name (system contact takes priority).
+        // Update aliases for contacts that have auto-generated names or stale .kas names
         for contact in contacts {
             if let knsInfo = knsService.domainCache[contact.address],
                let primaryDomain = knsInfo.primaryDomain {
-                // Skip KNS alias update if contact has a linked system contact name
-                if contact.systemContactId != nil,
-                   let snapshot = contact.systemDisplayNameSnapshot,
-                   !snapshot.isEmpty,
-                   contact.alias == snapshot {
-                    continue
-                }
                 // Check if alias is auto-generated (matches last 8 chars of address)
                 let autoAlias = Contact.generateDefaultAlias(from: contact.address)
                 if contact.alias == autoAlias || contact.alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -342,12 +334,10 @@ final class ContactsManager: ObservableObject {
         Task {
             if let knsInfo = await knsService.fetchInfo(for: address),
                let primaryDomain = knsInfo.primaryDomain {
-                // If alias is auto-generated AND no system contact linked, update to KNS domain.
-                // iCloud contact name takes priority over KNS domain.
+                // If alias is auto-generated, update to KNS domain
                 let autoAlias = Contact.generateDefaultAlias(from: address)
                 if let index = contacts.firstIndex(where: { $0.address == address }),
-                   contacts[index].alias == autoAlias,
-                   contacts[index].systemContactId == nil {
+                   contacts[index].alias == autoAlias {
                     contacts[index].alias = primaryDomain
                     saveContacts(publishContacts: true)
                 }
@@ -515,9 +505,7 @@ final class ContactsManager: ObservableObject {
 
                 let autoAlias = Contact.generateDefaultAlias(from: current.address)
                 let trimmedAlias = current.alias.trimmingCharacters(in: .whitespacesAndNewlines)
-                // iCloud contact name takes priority over auto-generated aliases AND KNS domain names
-                let isAutoOrKNS = trimmedAlias.isEmpty || trimmedAlias == autoAlias || trimmedAlias.lowercased().hasSuffix(".kas")
-                if isAutoOrKNS {
+                if trimmedAlias.isEmpty || trimmedAlias == autoAlias {
                     if contacts[index].alias != candidate.displayName {
                         contacts[index].alias = candidate.displayName
                         updated = true
@@ -580,8 +568,7 @@ final class ContactsManager: ObservableObject {
         let current = contacts[index]
         let autoAlias = Contact.generateDefaultAlias(from: current.address)
         let trimmedAlias = current.alias.trimmingCharacters(in: .whitespacesAndNewlines)
-        // iCloud contact name takes priority over auto-generated aliases and KNS domain names
-        let shouldAdoptSystemName = updateAlias || trimmedAlias.isEmpty || trimmedAlias == autoAlias || trimmedAlias.lowercased().hasSuffix(".kas")
+        let shouldAdoptSystemName = updateAlias || trimmedAlias.isEmpty || trimmedAlias == autoAlias
         let previousId = contacts[index].systemContactId
         let previousSource = contacts[index].systemContactLinkSource
         contacts[index].systemContactId = candidate.contactIdentifier
@@ -620,8 +607,7 @@ final class ContactsManager: ObservableObject {
         let current = contacts[index]
         let autoAlias = Contact.generateDefaultAlias(from: current.address)
         let trimmedAlias = current.alias.trimmingCharacters(in: .whitespacesAndNewlines)
-        // iCloud contact name takes priority over auto-generated aliases and KNS domain names
-        let shouldAdoptSystemName = updateAlias || trimmedAlias.isEmpty || trimmedAlias == autoAlias || trimmedAlias.lowercased().hasSuffix(".kas")
+        let shouldAdoptSystemName = updateAlias || trimmedAlias.isEmpty || trimmedAlias == autoAlias
         let previousId = contacts[index].systemContactId
         let previousSource = contacts[index].systemContactLinkSource
         contacts[index].systemContactId = target.contactIdentifier
