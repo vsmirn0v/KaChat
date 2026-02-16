@@ -1,0 +1,1 @@
+Support KaChat developer by sending KAS donation to kachat-donate.kas address (kaspa:qp4jkz5jmajtdgtf4k8r5hrgwzal3ge7j3z92zv62qux5dhvgcrsxwhh5r7z4)
