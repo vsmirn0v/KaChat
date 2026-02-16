@@ -1,0 +1,19 @@
+# Kaspa wRPC Resolver Configuration
+# Source: https://github.com/kaspanet/rusty-kaspa/blob/master/rpc/wrpc/client/Resolvers.toml
+# This file is bundled with the app and lazy-updated at runtime
+
+[[group]]
+template = "https://*.kaspa.stream"
+nodes = ["eric","maxim","sean","troy"]
+
+[[group]]
+template = "https://*.kaspa.red"
+nodes = ["john", "mike", "paul", "alex"]
+
+[[group]]
+template = "https://*.kaspa.green"
+nodes = ["jake", "mark", "adam", "liam"]
+
+[[group]]
+template = "https://*.kaspa.blue"
+nodes = ["noah", "ryan", "jack", "luke"]

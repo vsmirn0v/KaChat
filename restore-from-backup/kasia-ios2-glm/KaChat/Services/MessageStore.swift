@@ -1,0 +1,3084 @@
+import Foundation
+import CoreData
+import CryptoKit
+import CloudKit
+import OSLog
+#if canImport(SQLite3)
+import SQLite3
+#endif
+#if !targetEnvironment(macCatalyst)
+import UIKit
+#endif
+
+struct StoredMessage {
+    let contactAddress: String
+    let message: ChatMessage
+}
+
+struct ConversationMeta {
+    let contactAddress: String
+    let id: UUID
+    let unreadCount: Int
+    let lastMessageAt: Date?
+    // Read status sync fields
+    let lastReadTxId: String?
+    let lastReadBlockTime: Int64
+    let lastReadAt: Date?
+}
+
+final class MessageStore {
+    static let shared = MessageStore()
+    static let dpiCorruptionWarningKey = "messageStoreDpiCorruptionWarning"
+    static let dpiCorruptionWarningEndpointKey = "messageStoreDpiCorruptionEndpoint"
+    static let dpiCorruptionWarningDateKey = "messageStoreDpiCorruptionDate"
+
+    private let containerId = "iCloud.com.kachat.app"
+    private let container: NSPersistentCloudKitContainer
+    private var isLoaded = false
+    private var didLogMissingStore = false
+    private let inMemoryMode: Bool
+
+    /// Current wallet address. Each wallet has its own SQLite store and CloudKit zone.
+    /// Call `setCurrentWallet()` to switch wallets - this reloads the persistent store.
+    private(set) var currentWalletAddress: String?
+
+    /// CloudKit initial sync status
+    enum CloudKitSyncStatus {
+        case notStarted
+        case syncing
+        case synced
+        case disabled
+        case failed
+    }
+
+    /// Current CloudKit sync status. Becomes `.synced` after first import event or timeout.
+    private(set) var cloudKitSyncStatus: CloudKitSyncStatus = .notStarted
+
+    /// Continuations for waitForCloudKitSync() callers, keyed by UUID
+    private var cloudKitSyncContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var cloudKitEventObserver: NSObjectProtocol?
+
+    /// Continuations waiting for a CloudKit import event after a given date
+    private struct CloudKitImportWaiter {
+        let after: Date?
+        let continuation: CheckedContinuation<Bool, Never>
+        let timeoutTask: Task<Void, Never>?
+    }
+    private var cloudKitImportWaiters: [UUID: CloudKitImportWaiter] = [:]
+    private var lastCloudKitImportEndDate: Date?
+    @MainActor private var cloudKitImportCallInFlight = false
+    @MainActor private var cloudKitImportCallWaiters: [CheckedContinuation<Bool, Never>] = []
+    @MainActor private var lastCloudKitImportKickAt: Date?
+    private let cloudKitImportKickMinInterval: TimeInterval = 3.0
+
+    /// Background task identifiers for CloudKit export operations (iOS only)
+    /// Keyed by event start date to match export start/end events
+    #if !targetEnvironment(macCatalyst)
+    private var cloudKitExportTasks: [Date: UIBackgroundTaskIdentifier] = [:]
+    #endif
+
+    /// Last CloudKit import request time (for request coalescing)
+    private var lastCloudKitImportRequestAt: Date?
+    #if targetEnvironment(macCatalyst)
+    private let cloudKitImportRequestMinInterval: TimeInterval = 8.0
+    #else
+    private let cloudKitImportRequestMinInterval: TimeInterval = 2.0
+    #endif
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.kachat.app",
+        category: "MessageStore"
+    )
+
+    private func logInfo(_ format: String, _ args: CVarArg...) {
+        let message: String
+        if args.isEmpty {
+            message = format
+        } else {
+            message = String(format: format, arguments: args)
+        }
+        logger.info("\(message, privacy: .public)")
+    }
+
+    func markDpiCorruptionWarning(endpoint: String) {
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: MessageStore.dpiCorruptionWarningKey)
+        defaults.set(endpoint, forKey: MessageStore.dpiCorruptionWarningEndpointKey)
+        defaults.set(Date().timeIntervalSince1970, forKey: MessageStore.dpiCorruptionWarningDateKey)
+    }
+
+    func clearDpiCorruptionWarning() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: MessageStore.dpiCorruptionWarningKey)
+        defaults.removeObject(forKey: MessageStore.dpiCorruptionWarningEndpointKey)
+        defaults.removeObject(forKey: MessageStore.dpiCorruptionWarningDateKey)
+    }
+
+    func clearCloudKitHistoryAndVacuum() async -> Bool {
+        guard let store = container.persistentStoreCoordinator.persistentStores.first else {
+            self.logInfo("[MessageStore] Clear history failed: no persistent store")
+            return false
+        }
+        let storeURL = store.url
+        do {
+            let context = container.newBackgroundContext()
+            try await context.perform {
+                let request = NSPersistentHistoryChangeRequest.deleteHistory(before: Date())
+                request.resultType = .statusOnly
+                try context.execute(request)
+            }
+            UserDefaults.standard.removeObject(forKey: historyTokenKey())
+            if let storeURL {
+                vacuumSQLite(at: storeURL)
+            }
+            self.logInfo("[MessageStore] Cleared CloudKit history and vacuumed store")
+            return true
+        } catch {
+            self.logInfo("[MessageStore] Clear history failed: %@", error.localizedDescription)
+            return false
+        }
+    }
+
+    private func vacuumSQLite(at url: URL) {
+#if canImport(SQLite3)
+        var db: OpaquePointer?
+        if sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE, nil) != SQLITE_OK {
+            self.logInfo("[MessageStore] Vacuum failed to open DB")
+            return
+        }
+        defer { sqlite3_close(db) }
+        _ = sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE);", nil, nil, nil)
+        _ = sqlite3_exec(db, "VACUUM;", nil, nil, nil)
+        self.logInfo("[MessageStore] Vacuum completed")
+#endif
+    }
+
+    func destroyLocalStoreFiles() async {
+        stopCloudKitSyncObservation()
+        resetViewContextBeforeStoreRemoval()
+        let coordinator = container.persistentStoreCoordinator
+        for store in coordinator.persistentStores {
+            do {
+                try coordinator.remove(store)
+            } catch {
+                self.logInfo("[MessageStore] Failed to remove store before delete: %@", error.localizedDescription)
+            }
+        }
+
+        let url = storeURLForWallet(currentWalletAddress)
+        let walURL = url.appendingPathExtension("-wal")
+        let shmURL = url.appendingPathExtension("-shm")
+
+        for fileURL in [url, walURL, shmURL] {
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                do {
+                    try FileManager.default.removeItem(at: fileURL)
+                    self.logInfo("[MessageStore] Deleted store file %@", fileURL.lastPathComponent)
+                } catch {
+                    self.logInfo("[MessageStore] Failed to delete %@: %@", fileURL.lastPathComponent, error.localizedDescription)
+                }
+            }
+        }
+
+        isLoaded = false
+        didLogMissingStore = false
+    }
+
+    /// UserDefaults key for persistent history token, keyed by store URL hash
+    private func historyTokenKey() -> String {
+        guard let storeURL = container.persistentStoreCoordinator.persistentStores.first?.url else {
+            return "MessageStore.historyToken.default"
+        }
+        let hash = SHA256.hash(data: storeURL.absoluteString.data(using: .utf8) ?? Data())
+        let hashPrefix = hash.prefix(8).map { String(format: "%02x", $0) }.joined()
+        return "MessageStore.historyToken.\(hashPrefix)"
+    }
+
+    private func resetViewContextBeforeStoreRemoval() {
+        viewContext.performAndWait {
+            if viewContext.hasChanges {
+                viewContext.rollback()
+            }
+            viewContext.reset()
+        }
+    }
+
+    /// Last processed persistent history token (for delta processing)
+    private var lastHistoryToken: NSPersistentHistoryToken? {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: historyTokenKey()) else { return nil }
+            return try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSPersistentHistoryToken.self, from: data)
+        }
+        set {
+            if let token = newValue,
+               let data = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true) {
+                UserDefaults.standard.set(data, forKey: historyTokenKey())
+            } else {
+                UserDefaults.standard.removeObject(forKey: historyTokenKey())
+            }
+        }
+    }
+
+    var viewContext: NSManagedObjectContext { container.viewContext }
+    var isStoreLoaded: Bool { isLoaded }
+
+    /// Returns the CloudKit zone name for a wallet address
+    func zoneNameForWallet(_ walletAddress: String) -> String {
+        // Use first 16 chars of SHA256 hash for zone name (privacy + uniqueness)
+        let hash = SHA256.hash(data: walletAddress.data(using: .utf8) ?? Data())
+        let hashPrefix = hash.prefix(8).map { String(format: "%02x", $0) }.joined()
+        return "wallet-\(hashPrefix)"
+    }
+
+    /// Returns the store file URL for a wallet address
+    private func storeURLForWallet(_ walletAddress: String?) -> URL {
+        guard let walletAddress = walletAddress else {
+            // Legacy/default store for when no wallet is set
+            return Self.defaultStoreURL()
+        }
+        let hash = SHA256.hash(data: walletAddress.data(using: .utf8) ?? Data())
+        let hashPrefix = hash.prefix(8).map { String(format: "%02x", $0) }.joined()
+        return NSPersistentContainer.defaultDirectoryURL()
+            .appendingPathComponent("KasiaMessages-\(hashPrefix).sqlite")
+    }
+
+    init(inMemory: Bool = false) {
+        self.inMemoryMode = inMemory
+        let model = Self.makeModel()
+        container = NSPersistentCloudKitContainer(name: "KasiaMessages", managedObjectModel: model)
+
+        // Start with no stores - will be loaded when setCurrentWallet is called
+        container.persistentStoreDescriptions = []
+
+        // Load a temporary default store for initial state (will be replaced when wallet is set)
+        // IMPORTANT: Don't enable CloudKit on this temporary store to avoid race condition
+        // when setCurrentWallet() removes the store while CloudKit is still setting up
+        let description = NSPersistentStoreDescription()
+        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+        if inMemory {
+            description.url = URL(fileURLWithPath: "/dev/null")
+        } else {
+            description.url = Self.defaultStoreURL()
+        }
+
+        // Disable CloudKit on temporary store - it will be enabled on wallet-specific store
+        configureStoreDescription(description, walletAddress: nil, enableCloud: false)
+        container.persistentStoreDescriptions = [description]
+        loadPersistentStores(primaryDescription: description, completion: nil)
+    }
+
+    // MARK: - Wallet Switching
+
+    /// Switch to a different wallet's message store.
+    /// Each wallet has its own SQLite file and CloudKit zone for complete isolation.
+    /// - Parameter walletAddress: The wallet's public address, or nil to use default store
+    func setCurrentWallet(_ walletAddress: String?) {
+        // Skip if already on this wallet
+        guard walletAddress != currentWalletAddress else { return }
+
+        self.logInfo("[MessageStore] Switching wallet store: \(currentWalletAddress ?? "none") → \(walletAddress ?? "none")")
+
+        // Stop CloudKit sync observation before removing stores
+        stopCloudKitSyncObservation()
+        resetViewContextBeforeStoreRemoval()
+
+        // Remove existing stores
+        let coordinator = container.persistentStoreCoordinator
+        for store in coordinator.persistentStores {
+            do {
+                try coordinator.remove(store)
+            } catch {
+                self.logInfo("[MessageStore] Failed to remove store: \(error)")
+            }
+        }
+
+        // Update current wallet
+        currentWalletAddress = walletAddress
+        isLoaded = false
+        didLogMissingStore = false
+
+        // Create new store description for this wallet
+        let storeURL = inMemoryMode ? URL(fileURLWithPath: "/dev/null") : storeURLForWallet(walletAddress)
+        let description = NSPersistentStoreDescription(url: storeURL)
+        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+
+        let settings = AppSettings.load()
+        configureStoreDescription(description, walletAddress: walletAddress, enableCloud: settings.storeMessagesInICloud)
+
+        container.persistentStoreDescriptions = [description]
+        loadPersistentStores(primaryDescription: description, completion: nil)
+
+        self.logInfo("[MessageStore] Wallet store loaded: \(storeURL.lastPathComponent), zone: \(walletAddress.map { zoneNameForWallet($0) } ?? "default")")
+    }
+
+    /// Switch wallet store asynchronously with completion callback
+    func setCurrentWallet(_ walletAddress: String?, completion: (() -> Void)?) {
+        guard walletAddress != currentWalletAddress else {
+            completion?()
+            return
+        }
+
+        self.logInfo("[MessageStore] Switching wallet store async: \(currentWalletAddress ?? "none") → \(walletAddress ?? "none")")
+
+        // Stop CloudKit sync observation before removing stores
+        stopCloudKitSyncObservation()
+        resetViewContextBeforeStoreRemoval()
+
+        let coordinator = container.persistentStoreCoordinator
+        for store in coordinator.persistentStores {
+            do {
+                try coordinator.remove(store)
+            } catch {
+                self.logInfo("[MessageStore] Failed to remove store: \(error)")
+            }
+        }
+
+        currentWalletAddress = walletAddress
+        isLoaded = false
+        didLogMissingStore = false
+
+        let storeURL = inMemoryMode ? URL(fileURLWithPath: "/dev/null") : storeURLForWallet(walletAddress)
+        let description = NSPersistentStoreDescription(url: storeURL)
+        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+
+        let settings = AppSettings.load()
+        configureStoreDescription(description, walletAddress: walletAddress, enableCloud: settings.storeMessagesInICloud)
+
+        container.persistentStoreDescriptions = [description]
+        loadPersistentStores(primaryDescription: description, completion: completion)
+    }
+
+    /// Switch wallet store asynchronously
+    func setCurrentWallet(_ walletAddress: String?) async {
+        await withCheckedContinuation { continuation in
+            setCurrentWallet(walletAddress) {
+                continuation.resume()
+            }
+        }
+    }
+
+    func observeRemoteChanges(_ handler: @escaping () -> Void) -> NSObjectProtocol {
+        NotificationCenter.default.addObserver(
+            forName: .NSPersistentStoreRemoteChange,
+            object: container.persistentStoreCoordinator,
+            queue: .main
+        ) { _ in
+            // Note: This fires on ALL store changes including our own saves
+            // Handler should debounce to avoid feedback loops
+            handler()
+        }
+    }
+
+    func fetchConversationMeta() -> [String: ConversationMeta] {
+        guard ensureStoreLoaded() else { return [:] }
+        var result: [String: ConversationMeta] = [:]
+        viewContext.performAndWait {
+            let request = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
+            request.includesPendingChanges = true
+            // Filter by wallet address if set
+            if let walletAddress = currentWalletAddress {
+                request.predicate = NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", walletAddress)
+            }
+            do {
+                let conversations = try viewContext.fetch(request)
+                for conversation in conversations {
+                    let id = conversation.conversationId ?? UUID()
+                    let unread = Int(conversation.unreadCount)
+                    let candidate = ConversationMeta(
+                        contactAddress: conversation.contactAddress,
+                        id: id,
+                        unreadCount: unread,
+                        lastMessageAt: conversation.lastMessageAt,
+                        lastReadTxId: conversation.lastReadTxId,
+                        lastReadBlockTime: conversation.lastReadBlockTime,
+                        lastReadAt: conversation.lastReadAt
+                    )
+                    if let existing = result[conversation.contactAddress] {
+                        // Merge duplicate rows deterministically:
+                        // 1) higher read cursor wins
+                        // 2) for equal cursor, prefer lower unread (avoid badge resurrection)
+                        // 3) then newest update timestamp
+                        let useCandidate: Bool
+                        if candidate.lastReadBlockTime != existing.lastReadBlockTime {
+                            useCandidate = candidate.lastReadBlockTime > existing.lastReadBlockTime
+                        } else if candidate.unreadCount != existing.unreadCount {
+                            useCandidate = candidate.unreadCount < existing.unreadCount
+                        } else {
+                            useCandidate = (candidate.lastReadAt ?? .distantPast) > (existing.lastReadAt ?? .distantPast)
+                        }
+                        result[conversation.contactAddress] = useCandidate ? candidate : existing
+                    } else {
+                        result[conversation.contactAddress] = candidate
+                    }
+                }
+            } catch {
+                self.logInfo("[MessageStore] Failed to fetch conversation meta: \(error)")
+            }
+        }
+        return result
+    }
+
+    func fetchAllMessages(decryptionKey: SymmetricKey) -> [StoredMessage] {
+        guard ensureStoreLoaded() else { return [] }
+        var results: [StoredMessage] = []
+        viewContext.performAndWait {
+            let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+            request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: true)]
+            request.includesPendingChanges = true
+            // Filter by wallet address if set
+            if let walletAddress = currentWalletAddress {
+                request.predicate = NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", walletAddress)
+            }
+            do {
+                let records = try viewContext.fetch(request)
+                results = records.compactMap { record in
+                    guard let message = decodeMessage(record, key: decryptionKey) else { return nil }
+                    return StoredMessage(contactAddress: record.contactAddress, message: message)
+                }
+            } catch {
+                self.logInfo("[MessageStore] Failed to fetch messages: \(error)")
+            }
+        }
+        return results
+    }
+
+    struct MessagePageCursor: Equatable {
+        let blockTime: Int64
+        let timestamp: Date
+        let txId: String
+    }
+
+    struct MessagePage {
+        let messages: [ChatMessage]
+        let oldestCursor: MessagePageCursor?
+        let hasMore: Bool
+    }
+
+    /// Fetch a single conversation page using keyset pagination.
+    /// `olderThan` is an exclusive cursor ("load older than this message").
+    func fetchMessagesPage(
+        contactAddress: String,
+        decryptionKey: SymmetricKey,
+        limit: Int,
+        olderThan cursor: MessagePageCursor? = nil
+    ) -> MessagePage {
+        guard ensureStoreLoaded() else { return MessagePage(messages: [], oldestCursor: nil, hasMore: false) }
+        guard limit > 0 else { return MessagePage(messages: [], oldestCursor: nil, hasMore: false) }
+
+        var result = MessagePage(messages: [], oldestCursor: nil, hasMore: false)
+        viewContext.performAndWait {
+            let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+            request.predicate = pagedMessagesPredicate(
+                contactAddress: contactAddress,
+                walletAddress: currentWalletAddress,
+                olderThan: cursor
+            )
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "blockTime", ascending: false),
+                NSSortDescriptor(key: "timestamp", ascending: false),
+                NSSortDescriptor(key: "txId", ascending: false)
+            ]
+            request.fetchLimit = limit + 1
+            request.includesPendingChanges = true
+
+            do {
+                let records = try viewContext.fetch(request)
+                result = makePageResult(from: records, key: decryptionKey, limit: limit)
+            } catch {
+                self.logInfo("[MessageStore] Failed to fetch messages page for %@: %@", contactAddress, error.localizedDescription)
+            }
+        }
+        return result
+    }
+
+    /// Async/background keyset page fetch.
+    func fetchMessagesPageAsync(
+        contactAddress: String,
+        decryptionKey: SymmetricKey,
+        limit: Int,
+        olderThan cursor: MessagePageCursor? = nil
+    ) async -> MessagePage {
+        guard ensureStoreLoaded() else { return MessagePage(messages: [], oldestCursor: nil, hasMore: false) }
+        guard limit > 0 else { return MessagePage(messages: [], oldestCursor: nil, hasMore: false) }
+
+        let walletAddress = currentWalletAddress
+        return await withCheckedContinuation { continuation in
+            container.performBackgroundTask { context in
+                let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+                request.predicate = self.pagedMessagesPredicate(
+                    contactAddress: contactAddress,
+                    walletAddress: walletAddress,
+                    olderThan: cursor
+                )
+                request.sortDescriptors = [
+                    NSSortDescriptor(key: "blockTime", ascending: false),
+                    NSSortDescriptor(key: "timestamp", ascending: false),
+                    NSSortDescriptor(key: "txId", ascending: false)
+                ]
+                request.fetchLimit = limit + 1
+                request.includesPendingChanges = false
+
+                do {
+                    let records = try context.fetch(request)
+                    continuation.resume(returning: self.makePageResult(from: records, key: decryptionKey, limit: limit))
+                } catch {
+                    self.logInfo("[MessageStore] Failed to fetch messages page async for %@: %@", contactAddress, error.localizedDescription)
+                    continuation.resume(returning: MessagePage(messages: [], oldestCursor: nil, hasMore: false))
+                }
+            }
+        }
+    }
+
+    private func pagedMessagesPredicate(
+        contactAddress: String,
+        walletAddress: String?,
+        olderThan cursor: MessagePageCursor?
+    ) -> NSPredicate {
+        let basePredicate: NSPredicate
+        if let walletAddress {
+            basePredicate = NSPredicate(
+                format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)",
+                contactAddress,
+                walletAddress
+            )
+        } else {
+            basePredicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+        }
+
+        guard let cursor else { return basePredicate }
+
+        let olderPredicate = NSPredicate(
+            format: "(blockTime < %lld) OR (blockTime == %lld AND timestamp < %@) OR (blockTime == %lld AND timestamp == %@ AND txId < %@)",
+            cursor.blockTime,
+            cursor.blockTime,
+            cursor.timestamp as NSDate,
+            cursor.blockTime,
+            cursor.timestamp as NSDate,
+            cursor.txId
+        )
+        return NSCompoundPredicate(andPredicateWithSubpredicates: [basePredicate, olderPredicate])
+    }
+
+    private func makePageResult(from records: [CDMessage], key: SymmetricKey, limit: Int) -> MessagePage {
+        guard !records.isEmpty else {
+            return MessagePage(messages: [], oldestCursor: nil, hasMore: false)
+        }
+
+        let decoded = records.compactMap { decodeMessage($0, key: key) }
+        guard !decoded.isEmpty else {
+            return MessagePage(messages: [], oldestCursor: nil, hasMore: false)
+        }
+
+        let hasMore = decoded.count > limit
+        let pageSlice = hasMore ? Array(decoded.prefix(limit)) : decoded
+        let oldest = pageSlice.last
+        let cursor = oldest.map {
+            MessagePageCursor(
+                blockTime: Int64($0.blockTime),
+                timestamp: $0.timestamp,
+                txId: $0.txId
+            )
+        }
+
+        // Query order is newest-first. Return oldest-first for prepend merges.
+        return MessagePage(messages: Array(pageSlice.reversed()), oldestCursor: cursor, hasMore: hasMore)
+    }
+
+    /// Count messages for a single conversation in current wallet scope.
+    func countMessages(contactAddress: String) -> Int {
+        guard ensureStoreLoaded() else { return 0 }
+        var result = 0
+        viewContext.performAndWait {
+            let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+            if let walletAddress = currentWalletAddress {
+                request.predicate = NSPredicate(
+                    format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)",
+                    contactAddress,
+                    walletAddress
+                )
+            } else {
+                request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+            }
+            request.includesPendingChanges = true
+            do {
+                result = try viewContext.count(for: request)
+            } catch {
+                self.logInfo("[MessageStore] Failed to count messages for %@: %@", contactAddress, error.localizedDescription)
+            }
+        }
+        return result
+    }
+
+    func fetchMessage(txId: String, decryptionKey: SymmetricKey) -> ChatMessage? {
+        guard ensureStoreLoaded() else { return nil }
+        var result: ChatMessage?
+        viewContext.performAndWait {
+            let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+            request.predicate = NSPredicate(format: "txId == %@", txId)
+            request.fetchLimit = 1
+            do {
+                if let record = try viewContext.fetch(request).first {
+                    result = decodeMessage(record, key: decryptionKey)
+                }
+            } catch {
+                self.logInfo("[MessageStore] Failed to fetch message \(txId): \(error)")
+            }
+        }
+        return result
+    }
+
+    /// Check if a message exists with actual content (not placeholder) in CloudKit-synced store
+    /// This is useful to determine if CloudKit has delivered the content for an outgoing message
+    /// sent from another device.
+    func hasMessageWithContent(txId: String) -> Bool {
+        guard ensureStoreLoaded() else { return false }
+        var hasContent = false
+        viewContext.performAndWait {
+            let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+            request.predicate = NSPredicate(format: "txId == %@ AND contentEncrypted != nil", txId)
+            request.fetchLimit = 1
+            do {
+                let count = try viewContext.count(for: request)
+                hasContent = count > 0
+            } catch {
+                self.logInfo("[MessageStore] Failed to check message content \(txId): \(error)")
+            }
+        }
+        return hasContent
+    }
+
+    /// Refresh the view context to pick up any CloudKit changes
+    /// Call this when you expect CloudKit to have new data
+    func refreshFromCloudKit() {
+        guard ensureStoreLoaded() else { return }
+        viewContext.performAndWait {
+            viewContext.refreshAllObjects()
+        }
+        self.logInfo("[MessageStore] Refreshed view context for CloudKit changes")
+    }
+
+    /// Await CloudKit import and refresh view context.
+    /// - Parameters:
+    ///   - reason: Optional log reason for diagnostics.
+    ///   - after: If provided, waits for an import event after this timestamp.
+    ///            If nil, reuses the most recent import (if any).
+    ///   - timeout: Maximum time to wait for an import event.
+    /// - Returns: true if an import event was observed (or already available), false on timeout.
+    @discardableResult
+    @MainActor
+    func fetchCloudKitChanges(reason: String? = nil, after: Date? = nil, timeout: TimeInterval = 6.0) async -> Bool {
+        guard ensureStoreLoaded() else { return false }
+        guard currentWalletAddress != nil else {
+            self.logInfo("[MessageStore] No wallet set, skipping CloudKit import")
+            return false
+        }
+
+        let settings = AppSettings.load()
+        guard settings.storeMessagesInICloud else {
+            self.logInfo("[MessageStore] CloudKit sync disabled, skipping import")
+            return false
+        }
+
+        if cloudKitImportCallInFlight {
+            self.logInfo("[MessageStore] CloudKit import request coalesced (reason: %@)",
+                  reason ?? "unspecified")
+            let didImport = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                cloudKitImportCallWaiters.append(continuation)
+            }
+            refreshFromCloudKit()
+            return didImport
+        }
+
+        cloudKitImportCallInFlight = true
+        var didImport = false
+        defer {
+            cloudKitImportCallInFlight = false
+            let waiters = cloudKitImportCallWaiters
+            cloudKitImportCallWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume(returning: didImport)
+            }
+        }
+
+        let now = Date()
+        if let lastRequest = lastCloudKitImportRequestAt,
+           now.timeIntervalSince(lastRequest) < cloudKitImportRequestMinInterval {
+            self.logInfo("[MessageStore] CloudKit import request throttled (reason: %@)",
+                  reason ?? "unspecified")
+
+            // Request arrived too soon after a prior one. Avoid kicking another
+            // CloudKit cycle; reuse known import state when possible.
+            if let after = after {
+                if let lastImport = lastCloudKitImportEndDate, lastImport > after {
+                    refreshFromCloudKit()
+                    return true
+                }
+                return false
+            }
+
+            if lastCloudKitImportEndDate != nil {
+                refreshFromCloudKit()
+                return true
+            }
+            return false
+        }
+        lastCloudKitImportRequestAt = now
+
+        self.logInfo("[MessageStore] CloudKit import requested (reason: %@, after: %@, timeout: %.1fs)",
+              reason ?? "unspecified",
+              after?.description ?? "none",
+              timeout)
+
+        // If we already have a recent import and caller didn't require a newer one,
+        // refresh immediately without waiting for a new event.
+        let lastImport = lastCloudKitImportEndDate
+        if after == nil, let lastImport = lastImport {
+            // If we saw a recent import, reuse it instead of waiting for a new event.
+            if now.timeIntervalSince(lastImport) < 5.0 {
+                self.logInfo("[MessageStore] CloudKit import already available at %@ (reason: %@)",
+                      lastImport.description, reason ?? "unspecified")
+                refreshFromCloudKit()
+                return true
+            }
+        }
+
+        if shouldKickCloudKitMirroring(for: reason) {
+            kickCloudKitMirroringIfNeeded(reason: reason)
+        }
+
+        didImport = await waitForCloudKitImport(after: after, timeout: timeout)
+        if didImport {
+            self.logInfo("[MessageStore] CloudKit import observed (reason: %@)", reason ?? "unspecified")
+        } else {
+            self.logInfo("[MessageStore] CloudKit import wait timed out (reason: %@)", reason ?? "unspecified")
+        }
+
+        refreshFromCloudKit()
+        return didImport
+    }
+
+    /// Wait for a CloudKit import event after a given timestamp.
+    /// Returns true if an import event was observed, false on timeout or disabled.
+    @MainActor
+    func waitForCloudKitImport(after: Date? = nil, timeout: TimeInterval = 6.0) async -> Bool {
+        guard ensureStoreLoaded() else { return false }
+
+        let hasCloudKit = container.persistentStoreDescriptions.first?.cloudKitContainerOptions != nil
+        guard hasCloudKit else { return false }
+
+        return await withCheckedContinuation { continuation in
+            // If we already have a matching import, return immediately.
+            if let lastImport = self.lastCloudKitImportEndDate {
+                if let after = after {
+                    // For explicit "after", require a strictly newer import to avoid
+                    // reusing stale import cycles for self-stash retries.
+                    if lastImport > after {
+                        continuation.resume(returning: true)
+                        return
+                    }
+                } else {
+                    continuation.resume(returning: true)
+                    return
+                }
+            }
+
+            let waiterId = UUID()
+            let timeoutTask: Task<Void, Never>? = timeout > 0 ? Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                await MainActor.run {
+                    guard let self = self, let waiter = self.cloudKitImportWaiters.removeValue(forKey: waiterId) else { return }
+                    waiter.continuation.resume(returning: false)
+                }
+            } : nil
+
+            self.cloudKitImportWaiters[waiterId] = CloudKitImportWaiter(
+                after: after,
+                continuation: continuation,
+                timeoutTask: timeoutTask
+            )
+        }
+    }
+
+    @MainActor
+    var isCloudKitImportRequestInFlight: Bool {
+        cloudKitImportCallInFlight
+    }
+
+    @MainActor
+    var latestCloudKitImportEndDate: Date? {
+        lastCloudKitImportEndDate
+    }
+
+    @MainActor
+    private func shouldKickCloudKitMirroring(for reason: String?) -> Bool {
+        guard let reason else { return false }
+        if reason == "app-active" { return true }
+        if reason.hasPrefix("self-stash-retry-") {
+            return false
+        }
+        return reason.hasPrefix("self-stash")
+    }
+
+    @MainActor
+    private func kickCloudKitMirroringIfNeeded(reason: String?) {
+        let now = Date()
+        if let lastKick = lastCloudKitImportKickAt,
+           now.timeIntervalSince(lastKick) < cloudKitImportKickMinInterval {
+            return
+        }
+        lastCloudKitImportKickAt = now
+        self.logInfo("[MessageStore] Kicking CloudKit mirroring cycle (reason: %@)", reason ?? "unspecified")
+        touchCloudKitExportMarker(useViewContext: false)
+    }
+
+    @discardableResult
+    func syncFromConversations(
+        _ conversations: [Conversation],
+        encryptionKey: SymmetricKey,
+        retention: MessageRetention,
+        performMaintenance: Bool = true
+    ) async -> Bool {
+        guard ensureStoreLoaded() else { return false }
+        let walletAddr = currentWalletAddress
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            container.performBackgroundTask { context in
+                var didWrite = false
+                defer { continuation.resume(returning: didWrite) }
+                context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+
+                // Performance optimizations for batch writes
+                context.automaticallyMergesChangesFromParent = false
+                context.undoManager = nil
+                context.shouldDeleteInaccessibleFaults = true
+                context.stalenessInterval = 0.0
+
+                let startTime = Date()
+                var currentTxIds = Set<String>()
+                var updatedCount = 0
+                var skippedCount = 0
+
+                // OPTIMIZATION: Batch fetch all existing messages at once (1 query vs N queries)
+                let allTxIds = conversations.flatMap { $0.messages.map { $0.txId } }
+                let batchStart = Date()
+                let existingMessages = self.batchFetchMessages(txIds: allTxIds, walletAddress: walletAddr, in: context)
+                let batchTime = Date().timeIntervalSince(batchStart) * 1000
+                self.logInfo("[MessageStore] Batch fetch took %.0fms for %d messages", batchTime, allTxIds.count)
+
+                for conversation in conversations {
+                    let conv = self.fetchOrCreateConversation(contactAddress: conversation.contact.address, walletAddress: walletAddr, in: context)
+
+                    // Only update conversation if values differ
+                    var convChanged = false
+                    if conv.conversationId != conversation.id {
+                        conv.conversationId = conversation.id
+                        convChanged = true
+                    }
+                    let newUnread = Int64(conversation.unreadCount)
+                    if conv.unreadCount != newUnread {
+                        conv.unreadCount = newUnread
+                        convChanged = true
+                    }
+                    let newLastMsg = conversation.lastMessage?.timestamp
+                    if let newLastMsg = newLastMsg, conv.lastMessageAt != newLastMsg {
+                        conv.lastMessageAt = newLastMsg
+                        convChanged = true
+                    }
+                    if let walletAddr = walletAddr, conv.walletAddress != walletAddr {
+                        conv.walletAddress = walletAddr
+                        convChanged = true
+                    }
+                    if convChanged {
+                        conv.updatedAt = Date()
+                    }
+
+                    for message in conversation.messages {
+                        // Use cached lookup instead of individual fetch
+                        let record = existingMessages[message.txId] ?? CDMessage(context: context)
+                        let isNewRecord = record.messageId == nil
+
+                        // Check if this record needs updating (diff-only writes)
+                        var needsUpdate = isNewRecord
+
+                        if !isNewRecord {
+                            // Compare key fields to see if anything changed
+                            needsUpdate = needsUpdate ||
+                                record.deliveryStatus != message.deliveryStatus.rawValue ||
+                                record.acceptingBlock != message.acceptingBlock
+                        }
+
+                        let isPlaceholder = message.content == "📤 Sent via another device"
+                        let existingHasContent = record.contentEncrypted != nil
+                        let shouldForceOutgoingContent = message.isOutgoing && !isPlaceholder
+
+                        // If this is outgoing content with actual text, force an update so imports
+                        // and cross-device restores can replace placeholder entries.
+                        if shouldForceOutgoingContent {
+                            needsUpdate = true
+                        }
+
+                        // If we have real content and the store doesn't, force an update.
+                        if !isPlaceholder && !existingHasContent {
+                            needsUpdate = true
+                        }
+
+                        if needsUpdate || isNewRecord {
+                            record.messageId = message.id
+                            record.txId = message.txId
+                            record.contactAddress = conversation.contact.address
+                            record.senderAddress = message.senderAddress
+                            record.receiverAddress = message.receiverAddress
+                            record.timestamp = message.timestamp
+                            record.blockTime = Int64(message.blockTime)
+                            record.acceptingBlock = message.acceptingBlock
+                            record.isOutgoing = message.isOutgoing
+                            record.messageType = message.messageType.rawValue
+                            record.deliveryStatus = message.deliveryStatus.rawValue
+                            record.updatedAt = Date()
+
+                            if let walletAddr = walletAddr {
+                                record.walletAddress = walletAddr
+                            }
+
+                            // Content update logic for CloudKit sync robustness:
+                            // - If new content is placeholder ("📤 Sent via another device"), NEVER overwrite
+                            // - If existing record has content (likely from CloudKit), preserve it unless
+                            //   new content is meaningfully different (not a placeholder)
+                            // Only update content if:
+                            // 1. New content is NOT a placeholder, AND
+                            // 2. Either: existing record has no content, OR this is a new record, OR
+                            // 3. This is an outgoing message with real content (force overwrite placeholders)
+                            let shouldUpdateContent = !isPlaceholder && (shouldForceOutgoingContent || !existingHasContent || isNewRecord)
+
+                            if shouldUpdateContent, let encrypted = self.encryptContent(message.content, key: encryptionKey) {
+                                record.contentEncrypted = encrypted
+                            } else if isPlaceholder && existingHasContent {
+                                // Log when we preserve CloudKit content over placeholder
+                                self.logInfo("[MessageStore] Preserving CloudKit content for %@", message.txId)
+                            }
+
+                            updatedCount += 1
+                        } else {
+                            skippedCount += 1
+                        }
+
+                        currentTxIds.insert(message.txId)
+                    }
+                }
+
+                // Only save if there are actual changes
+                if context.hasChanges {
+                    let saveStart = Date()
+                    do {
+                        try context.save()
+                        didWrite = true
+                        let saveTime = Date().timeIntervalSince(saveStart) * 1000
+                        let totalTime = Date().timeIntervalSince(startTime) * 1000
+                        self.logInfo("[MessageStore] Sync saved: %d updated, %d unchanged (skipped) | save: %.0fms, total: %.0fms",
+                              updatedCount, skippedCount, saveTime, totalTime)
+                        // Note: CloudKit exports automatically on save, no explicit trigger needed
+                    } catch {
+                        self.logInfo("[MessageStore] Failed to save messages: \(error)")
+                    }
+                } else {
+                    let totalTime = Date().timeIntervalSince(startTime) * 1000
+                    self.logInfo("[MessageStore] Sync: no changes to save (%d records checked) | total: %.0fms",
+                          updatedCount + skippedCount, totalTime)
+                }
+
+                if performMaintenance {
+                    let didPrune = self.pruneStalePendingMessages(keeping: currentTxIds, in: context)
+                    let didRetain = self.applyRetention(retention, in: context)
+                    let didDedupe = self.dedupeMessagesIfNeeded(in: context, walletAddr: walletAddr)
+                    if didPrune || didRetain || didDedupe {
+                        didWrite = true
+                    }
+                }
+            }
+        }
+    }
+
+    func updateConversationUnread(contactAddress: String, unreadCount: Int) {
+        guard ensureStoreLoaded() else { return }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+        context.perform {
+            let newUnread = Int64(unreadCount)
+            let request = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
+            if let walletAddr = walletAddr {
+                request.predicate = NSPredicate(
+                    format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)",
+                    contactAddress,
+                    walletAddr
+                )
+            } else {
+                request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+            }
+            do {
+                var conversations = try context.fetch(request)
+                if conversations.isEmpty {
+                    conversations = [self.fetchOrCreateConversation(contactAddress: contactAddress, walletAddress: walletAddr, in: context)]
+                }
+
+                var didChange = false
+                for conv in conversations {
+                    if conv.unreadCount != newUnread {
+                        conv.unreadCount = newUnread
+                        conv.updatedAt = Date()
+                        if let walletAddr = walletAddr {
+                            conv.walletAddress = walletAddr
+                        }
+                        didChange = true
+                    }
+                }
+                guard didChange else { return }
+                try context.save()
+            } catch {
+                self.logInfo("[MessageStore] Failed to update conversation unread: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Read Status Sync
+
+    /// Read status info for a conversation
+    struct ReadStatus {
+        let contactAddress: String
+        let lastReadTxId: String?
+        let lastReadBlockTime: Int64
+        let lastReadAt: Date?
+    }
+
+    /// Update read status for a conversation.
+    /// Updates when:
+    /// - new blockTime is greater than existing, or
+    /// - forceUpdate is true, or
+    /// - blockTime is equal but unreadCount is still non-zero / txId changed (stale local state repair).
+    /// This implements "last-read-wins" conflict resolution.
+    /// - Parameters:
+    ///   - contactAddress: The contact's address
+    ///   - lastReadTxId: txId of the last read message
+    ///   - lastReadBlockTime: blockTime of the last read message
+    ///   - lastReadAt: When the message was read
+    ///   - forceUpdate: If true, skip the blockTime comparison (used for CloudKit sync when remote is authoritative)
+    func updateReadStatus(contactAddress: String, lastReadTxId: String?, lastReadBlockTime: Int64, lastReadAt: Date? = nil, forceUpdate: Bool = false) {
+        guard ensureStoreLoaded() else { return }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+        context.perform {
+            let request = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
+            if let walletAddr = walletAddr {
+                request.predicate = NSPredicate(
+                    format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)",
+                    contactAddress,
+                    walletAddr
+                )
+            } else {
+                request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+            }
+
+            do {
+                var conversations = try context.fetch(request)
+                if conversations.isEmpty {
+                    conversations = [self.fetchOrCreateConversation(contactAddress: contactAddress, walletAddress: walletAddr, in: context)]
+                }
+
+                var didChange = false
+                var skippedExistingBlockTime: Int64?
+                for conv in conversations {
+                    // Usually we only advance when blockTime increases, but allow equal-blockTime
+                    // updates to repair stale unread counters after store merges/reloads.
+                    let existingBlockTime = conv.lastReadBlockTime
+                    let hasSameBlockTimeUpdate = lastReadBlockTime == existingBlockTime &&
+                        (conv.unreadCount > 0 || conv.lastReadTxId != lastReadTxId)
+                    guard forceUpdate || lastReadBlockTime > existingBlockTime || hasSameBlockTimeUpdate else {
+                        skippedExistingBlockTime = existingBlockTime
+                        continue
+                    }
+
+                    conv.lastReadTxId = lastReadTxId
+                    conv.lastReadBlockTime = lastReadBlockTime
+                    conv.lastReadAt = lastReadAt ?? Date()
+                    conv.updatedAt = Date()
+
+                    // Also update unreadCount to 0 since we've read up to this point
+                    conv.unreadCount = 0
+
+                    if let walletAddr = walletAddr {
+                        conv.walletAddress = walletAddr
+                    }
+                    didChange = true
+                }
+
+                guard didChange else {
+                    self.logInfo("[MessageStore] Skipping read status update for %@ (existing: %lld, new: %lld)",
+                          String(contactAddress.suffix(8)), skippedExistingBlockTime ?? 0, lastReadBlockTime)
+                    return
+                }
+                try context.save()
+                self.logInfo("[MessageStore] Updated read status for %@: blockTime=%lld",
+                      String(contactAddress.suffix(8)), lastReadBlockTime)
+            } catch {
+                self.logInfo("[MessageStore] Failed to update read status: \(error)")
+            }
+        }
+    }
+
+    /// Fetch read status for a specific conversation
+    func fetchReadStatus(contactAddress: String) -> ReadStatus? {
+        guard ensureStoreLoaded() else { return nil }
+        var result: ReadStatus?
+        viewContext.performAndWait {
+            let request = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
+            if let walletAddr = currentWalletAddress {
+                request.predicate = NSPredicate(format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)", contactAddress, walletAddr)
+            } else {
+                request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+            }
+            request.fetchLimit = 1
+            do {
+                if let conv = try viewContext.fetch(request).first {
+                    result = ReadStatus(
+                        contactAddress: conv.contactAddress,
+                        lastReadTxId: conv.lastReadTxId,
+                        lastReadBlockTime: conv.lastReadBlockTime,
+                        lastReadAt: conv.lastReadAt
+                    )
+                }
+            } catch {
+                self.logInfo("[MessageStore] Failed to fetch read status: \(error)")
+            }
+        }
+        return result
+    }
+
+    /// Fetch the latest incoming message cursor for a conversation.
+    /// Uses persistent store data so read cursor updates do not depend on in-memory pagination window.
+    func fetchLatestIncomingCursor(contactAddress: String) -> (txId: String?, blockTime: Int64)? {
+        guard ensureStoreLoaded() else { return nil }
+        var result: (txId: String?, blockTime: Int64)?
+        viewContext.performAndWait {
+            let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+            if let walletAddr = currentWalletAddress {
+                request.predicate = NSPredicate(
+                    format: "contactAddress == %@ AND isOutgoing == NO AND (walletAddress == %@ OR walletAddress == nil)",
+                    contactAddress,
+                    walletAddr
+                )
+            } else {
+                request.predicate = NSPredicate(
+                    format: "contactAddress == %@ AND isOutgoing == NO",
+                    contactAddress
+                )
+            }
+            request.sortDescriptors = [NSSortDescriptor(key: "blockTime", ascending: false)]
+            request.fetchLimit = 1
+            do {
+                if let msg = try viewContext.fetch(request).first {
+                    result = (txId: msg.txId, blockTime: msg.blockTime)
+                }
+            } catch {
+                self.logInfo("[MessageStore] Failed to fetch latest incoming cursor: \(error)")
+            }
+        }
+        return result
+    }
+
+    /// Fetch all read statuses for CloudKit sync
+    func fetchAllReadStatuses() -> [ReadStatus] {
+        guard ensureStoreLoaded() else { return [] }
+        var results: [ReadStatus] = []
+        viewContext.performAndWait {
+            let request = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
+            if let walletAddr = currentWalletAddress {
+                request.predicate = NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", walletAddr)
+            }
+            do {
+                let conversations = try viewContext.fetch(request)
+                results = conversations.map { conv in
+                    ReadStatus(
+                        contactAddress: conv.contactAddress,
+                        lastReadTxId: conv.lastReadTxId,
+                        lastReadBlockTime: conv.lastReadBlockTime,
+                        lastReadAt: conv.lastReadAt
+                    )
+                }
+            } catch {
+                self.logInfo("[MessageStore] Failed to fetch all read statuses: \(error)")
+            }
+        }
+        return results
+    }
+
+    // MARK: - Per-Device Read Markers (CDReadMarker)
+
+    /// Notification posted when read status changes are processed from remote (CloudKit)
+    static let readStatusDidChangeNotification = Notification.Name("MessageStoreReadStatusDidChange")
+
+    /// Upsert a read marker for the current device. Only updates if blockTime advances (monotonic).
+    /// - Parameters:
+    ///   - conversationId: Contact address identifying the conversation
+    ///   - deviceId: Device identifier from KeychainService
+    ///   - lastReadTxId: txId of the last read message (optional)
+    ///   - lastReadBlockTime: blockTime of the last read message
+    func upsertReadMarker(conversationId: String, deviceId: String, lastReadTxId: String?, lastReadBlockTime: Int64) {
+        guard ensureStoreLoaded() else { return }
+        guard let walletAddress = currentWalletAddress else {
+            self.logInfo("[MessageStore] upsertReadMarker: No wallet set")
+            return
+        }
+
+        let context = container.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+        context.perform {
+            let request = NSFetchRequest<CDReadMarker>(entityName: CDReadMarker.entityName)
+            request.predicate = NSPredicate(
+                format: "walletAddress == %@ AND conversationId == %@ AND deviceId == %@",
+                walletAddress, conversationId, deviceId
+            )
+            request.fetchLimit = 1
+
+            do {
+                let existing = try context.fetch(request).first
+                let marker: CDReadMarker
+
+                if let existing = existing {
+                    // Monotonic update with equal-blockTime tie repair:
+                    // allow updating txId/timestamp when blockTime is equal.
+                    let shouldAdvance = lastReadBlockTime > existing.lastReadBlockTime
+                    let shouldRepairEqual = lastReadBlockTime == existing.lastReadBlockTime &&
+                        existing.lastReadTxId != lastReadTxId &&
+                        lastReadTxId != nil
+                    guard shouldAdvance || shouldRepairEqual else {
+                        self.logInfo("[MessageStore] Skipping read marker update for %@ (existing: %lld, new: %lld)",
+                              String(conversationId.suffix(8)), existing.lastReadBlockTime, lastReadBlockTime)
+                        return
+                    }
+                    marker = existing
+                } else {
+                    marker = CDReadMarker(context: context)
+                    marker.walletAddress = walletAddress
+                    marker.conversationId = conversationId
+                    marker.deviceId = deviceId
+                }
+
+                marker.lastReadTxId = lastReadTxId
+                marker.lastReadBlockTime = lastReadBlockTime
+                marker.updatedAt = Date()
+
+                try context.save()
+                self.logInfo("[MessageStore] Upserted read marker for %@ device=%@ blockTime=%lld",
+                      String(conversationId.suffix(8)), String(deviceId.prefix(8)), lastReadBlockTime)
+            } catch {
+                self.logInfo("[MessageStore] Failed to upsert read marker: \(error)")
+            }
+        }
+    }
+
+    /// Effective read status computed from all device markers for a conversation
+    struct EffectiveReadStatus {
+        let conversationId: String
+        let lastReadBlockTime: Int64
+        let lastReadTxId: String?
+        let deviceCount: Int
+    }
+
+    /// Recompute effective read status by taking max(blockTime) across all device markers
+    /// - Parameter conversationId: Contact address identifying the conversation
+    /// - Returns: Effective read status or nil if no markers exist
+    func recomputeEffectiveReadStatus(conversationId: String) -> EffectiveReadStatus? {
+        guard ensureStoreLoaded() else { return nil }
+        guard let walletAddress = currentWalletAddress else { return nil }
+
+        var result: EffectiveReadStatus?
+        viewContext.performAndWait {
+            let request = NSFetchRequest<CDReadMarker>(entityName: CDReadMarker.entityName)
+            request.predicate = NSPredicate(
+                format: "walletAddress == %@ AND conversationId == %@",
+                walletAddress, conversationId
+            )
+
+            do {
+                let markers = try viewContext.fetch(request)
+                guard !markers.isEmpty else { return }
+
+                // Pick marker with highest blockTime; break ties with updatedAt.
+                let best = markers.max { lhs, rhs in
+                    if lhs.lastReadBlockTime != rhs.lastReadBlockTime {
+                        return lhs.lastReadBlockTime < rhs.lastReadBlockTime
+                    }
+                    return (lhs.updatedAt ?? .distantPast) < (rhs.updatedAt ?? .distantPast)
+                }!
+                result = EffectiveReadStatus(
+                    conversationId: conversationId,
+                    lastReadBlockTime: best.lastReadBlockTime,
+                    lastReadTxId: best.lastReadTxId,
+                    deviceCount: markers.count
+                )
+            } catch {
+                self.logInfo("[MessageStore] Failed to recompute effective read status: \(error)")
+            }
+        }
+        return result
+    }
+
+    /// Compute unread count for a conversation based on effective read status
+    /// - Parameters:
+    ///   - contactAddress: Contact address identifying the conversation
+    ///   - lastReadBlockTime: Effective last read blockTime from recomputeEffectiveReadStatus()
+    /// - Returns: Number of unread incoming messages
+    func computeUnreadCount(contactAddress: String, lastReadBlockTime: Int64) -> Int {
+        guard ensureStoreLoaded() else { return 0 }
+        guard let walletAddress = currentWalletAddress else { return 0 }
+
+        var count = 0
+        viewContext.performAndWait {
+            let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+            // Count incoming messages with blockTime > lastReadBlockTime
+            request.predicate = NSPredicate(
+                format: "contactAddress == %@ AND isOutgoing == NO AND blockTime > %lld AND (walletAddress == %@ OR walletAddress == nil)",
+                contactAddress, lastReadBlockTime, walletAddress
+            )
+
+            do {
+                count = try viewContext.count(for: request)
+            } catch {
+                self.logInfo("[MessageStore] Failed to compute unread count: \(error)")
+            }
+        }
+        return count
+    }
+
+    /// Fetch all read markers for the current wallet (for debugging/diagnostics)
+    func fetchAllReadMarkers() -> [(conversationId: String, deviceId: String, blockTime: Int64, updatedAt: Date?)] {
+        guard ensureStoreLoaded() else { return [] }
+        guard let walletAddress = currentWalletAddress else { return [] }
+
+        var results: [(conversationId: String, deviceId: String, blockTime: Int64, updatedAt: Date?)] = []
+        viewContext.performAndWait {
+            let request = NSFetchRequest<CDReadMarker>(entityName: CDReadMarker.entityName)
+            request.predicate = NSPredicate(format: "walletAddress == %@", walletAddress)
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "conversationId", ascending: true),
+                NSSortDescriptor(key: "deviceId", ascending: true)
+            ]
+
+            do {
+                let markers = try viewContext.fetch(request)
+                results = markers.map { ($0.conversationId, $0.deviceId, $0.lastReadBlockTime, $0.updatedAt) }
+            } catch {
+                self.logInfo("[MessageStore] Failed to fetch all read markers: \(error)")
+            }
+        }
+        return results
+    }
+
+    /// Prune read markers older than specified days (for stale device cleanup)
+    /// - Parameter days: Age threshold in days (default 90)
+    func pruneStaleReadMarkers(olderThan days: Int = 90) {
+        guard ensureStoreLoaded() else { return }
+        guard let walletAddress = currentWalletAddress else { return }
+
+        let cutoffDate = Date().addingTimeInterval(TimeInterval(-days * 86_400))
+        let context = container.newBackgroundContext()
+
+        context.perform {
+            let request = NSFetchRequest<NSFetchRequestResult>(entityName: CDReadMarker.entityName)
+            request.predicate = NSPredicate(
+                format: "walletAddress == %@ AND updatedAt < %@",
+                walletAddress, cutoffDate as NSDate
+            )
+
+            let deleteRequest = NSBatchDeleteRequest(fetchRequest: request)
+            deleteRequest.resultType = .resultTypeCount
+
+            do {
+                let result = try context.execute(deleteRequest) as? NSBatchDeleteResult
+                let deletedCount = result?.result as? Int ?? 0
+                if deletedCount > 0 {
+                    self.logInfo("[MessageStore] Pruned %d stale read markers (older than %d days)", deletedCount, days)
+                }
+            } catch {
+                self.logInfo("[MessageStore] Failed to prune stale read markers: \(error)")
+            }
+        }
+    }
+
+    /// Process remote changes from CloudKit using persistent history tracking.
+    /// Call this when app becomes active to pick up changes from other devices.
+    /// Posts readStatusDidChangeNotification if read markers were updated.
+    func processRemoteChanges() {
+        processRemoteChanges(allowHistoryTokenReset: true)
+    }
+
+    private func processRemoteChanges(allowHistoryTokenReset: Bool) {
+        guard ensureStoreLoaded() else { return }
+
+        let context = container.newBackgroundContext()
+        context.perform { [weak self] in
+            guard let self = self else { return }
+            // Fetch history since last token
+            let historyRequest = NSPersistentHistoryChangeRequest.fetchHistory(after: self.lastHistoryToken)
+            historyRequest.fetchRequest = NSPersistentHistoryTransaction.fetchRequest
+
+            do {
+                guard let result = try context.execute(historyRequest) as? NSPersistentHistoryResult,
+                      let transactions = result.result as? [NSPersistentHistoryTransaction] else {
+                    return
+                }
+
+                guard !transactions.isEmpty else { return }
+
+                var readMarkersChanged = false
+                var affectedConversations = Set<String>()
+
+                for transaction in transactions {
+                    guard let changes = transaction.changes else { continue }
+
+                    for change in changes {
+                        // Check if this is a CDReadMarker change
+                        guard change.changedObjectID.entity.name == CDReadMarker.entityName else { continue }
+
+                        // Try to load the object safely
+                        if change.changeType == .insert || change.changeType == .update {
+                            do {
+                                let marker = try context.existingObject(with: change.changedObjectID) as? CDReadMarker
+                                if let conversationId = marker?.conversationId {
+                                    affectedConversations.insert(conversationId)
+                                    readMarkersChanged = true
+                                }
+                            } catch {
+                                // Object may have been deleted, skip
+                                self.logInfo("[MessageStore] Could not load changed object: \(error.localizedDescription)")
+                            }
+                        } else if change.changeType == .delete {
+                            readMarkersChanged = true
+                        }
+                    }
+                }
+
+                // Update token to latest
+                if let lastTransaction = transactions.last {
+                    self.lastHistoryToken = lastTransaction.token
+                }
+
+                self.logInfo("[MessageStore] Processed %d history transactions, read markers changed: %@, affected: %d conversations",
+                      transactions.count, readMarkersChanged ? "yes" : "no", affectedConversations.count)
+
+                // Recompute effective read status for affected conversations
+                if readMarkersChanged {
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(
+                            name: MessageStore.readStatusDidChangeNotification,
+                            object: self,
+                            userInfo: ["conversations": affectedConversations]
+                        )
+                    }
+                }
+            } catch {
+                let nsError = error as NSError
+                if allowHistoryTokenReset,
+                   nsError.domain == NSCocoaErrorDomain,
+                   nsError.code == 134301 {
+                    self.logInfo("[MessageStore] Persistent history token expired (134301); resetting token and retrying remote changes")
+                    self.lastHistoryToken = nil
+                    self.processRemoteChanges(allowHistoryTokenReset: false)
+                    return
+                }
+                self.logInfo("[MessageStore] Failed to process remote changes: \(error)")
+            }
+        }
+    }
+
+    /// Purge persistent history older than specified days
+    /// - Parameter days: Age threshold in days (default 7)
+    func purgeOldHistory(olderThan days: Int = 7) {
+        guard ensureStoreLoaded() else { return }
+
+        let cutoffDate = Date().addingTimeInterval(TimeInterval(-days * 86_400))
+        let context = container.newBackgroundContext()
+
+        context.perform {
+            let purgeRequest = NSPersistentHistoryChangeRequest.deleteHistory(before: cutoffDate)
+            do {
+                try context.execute(purgeRequest)
+                self.logInfo("[MessageStore] Purged history older than %d days", days)
+            } catch {
+                self.logInfo("[MessageStore] Failed to purge old history: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Read Marker Migration
+
+    private static let readMarkerMigrationKey = "MessageStore.didMigrateToReadMarkers"
+
+    /// Migrate existing CDConversation.lastReadBlockTime to CDReadMarker for this device.
+    /// One-time migration on first launch after upgrade.
+    /// - Parameter deviceId: Current device identifier from KeychainService
+    func migrateToReadMarkersIfNeeded(deviceId: String) {
+        // Check if already migrated
+        guard !UserDefaults.standard.bool(forKey: Self.readMarkerMigrationKey) else { return }
+        guard ensureStoreLoaded() else { return }
+        guard let walletAddress = currentWalletAddress else { return }
+
+        self.logInfo("[MessageStore] Starting read marker migration for device %@", String(deviceId.prefix(8)))
+
+        let context = container.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+
+        context.performAndWait {
+            // Fetch all conversations with read status
+            let request = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
+            request.predicate = NSPredicate(
+                format: "(walletAddress == %@ OR walletAddress == nil) AND lastReadBlockTime > 0",
+                walletAddress
+            )
+
+            do {
+                let conversations = try context.fetch(request)
+
+                guard !conversations.isEmpty else {
+                    self.logInfo("[MessageStore] No conversations to migrate")
+                    UserDefaults.standard.set(true, forKey: Self.readMarkerMigrationKey)
+                    return
+                }
+
+                // Create a CDReadMarker for each conversation with read status
+                for conversation in conversations {
+                    let marker = CDReadMarker(context: context)
+                    marker.walletAddress = walletAddress
+                    marker.conversationId = conversation.contactAddress
+                    marker.deviceId = deviceId
+                    marker.lastReadTxId = conversation.lastReadTxId
+                    marker.lastReadBlockTime = conversation.lastReadBlockTime
+                    marker.updatedAt = conversation.lastReadAt ?? Date()
+                }
+
+                try context.save()
+                self.logInfo("[MessageStore] Migrated %d conversations to read markers", conversations.count)
+
+                // Mark migration complete
+                UserDefaults.standard.set(true, forKey: Self.readMarkerMigrationKey)
+            } catch {
+                self.logInfo("[MessageStore] Read marker migration failed: \(error)")
+            }
+        }
+    }
+
+    func upsertMessage(_ message: ChatMessage, contactAddress: String, encryptionKey: SymmetricKey) {
+        guard ensureStoreLoaded() else { return }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+        context.perform {
+            let record = self.fetchOrCreateMessage(txId: message.txId, walletAddress: walletAddr, in: context)
+            let isNewRecord = record.messageId == nil
+
+            // Check if record needs updating (diff-only for existing records)
+            let isPlaceholder = message.content == "📤 Sent via another device"
+            let existingHasContent = record.contentEncrypted != nil
+            let shouldForceOutgoingContent = message.isOutgoing && !isPlaceholder
+            let needsUpdate = isNewRecord ||
+                record.deliveryStatus != message.deliveryStatus.rawValue ||
+                record.acceptingBlock != message.acceptingBlock ||
+                shouldForceOutgoingContent ||
+                (!isPlaceholder && !existingHasContent)
+
+            guard needsUpdate else { return } // Skip if no changes
+
+            record.messageId = message.id
+            record.txId = message.txId
+            record.contactAddress = contactAddress
+            record.senderAddress = message.senderAddress
+            record.receiverAddress = message.receiverAddress
+            record.timestamp = message.timestamp
+            record.blockTime = Int64(message.blockTime)
+            record.acceptingBlock = message.acceptingBlock
+            record.isOutgoing = message.isOutgoing
+            record.messageType = message.messageType.rawValue
+            record.deliveryStatus = message.deliveryStatus.rawValue
+            record.updatedAt = Date()
+
+            if let walletAddr = walletAddr {
+                record.walletAddress = walletAddr
+            }
+
+            // Content update logic for CloudKit sync robustness:
+            // - If new content is placeholder, NEVER overwrite existing content
+            // - Preserve existing CloudKit-synced content unless we are explicitly importing
+            //   outgoing content that should replace placeholders.
+            let shouldUpdateContent = !isPlaceholder && (shouldForceOutgoingContent || !existingHasContent || isNewRecord)
+
+            if shouldUpdateContent, let encrypted = self.encryptContent(message.content, key: encryptionKey) {
+                record.contentEncrypted = encrypted
+            }
+
+            do {
+                try context.save()
+                // Note: CloudKit exports automatically on save, no explicit trigger needed
+            } catch {
+                self.logInfo("[MessageStore] Failed to upsert message: \(error)")
+            }
+        }
+    }
+
+    /// Deletes a specific message by txId for the CURRENT wallet only.
+    func deleteMessage(txId: String) {
+        guard ensureStoreLoaded() else { return }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        context.perform {
+            let fetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+            if let walletAddr = walletAddr {
+                fetch.predicate = NSPredicate(format: "txId == %@ AND (walletAddress == %@ OR walletAddress == nil)", txId, walletAddr)
+            } else {
+                fetch.predicate = NSPredicate(format: "txId == %@", txId)
+            }
+            let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetch)
+            deleteRequest.resultType = .resultTypeObjectIDs
+            do {
+                let result = try context.execute(deleteRequest) as? NSBatchDeleteResult
+                let objectIds = result?.result as? [NSManagedObjectID] ?? []
+                if !objectIds.isEmpty {
+                    NSManagedObjectContext.mergeChanges(fromRemoteContextSave: [NSDeletedObjectsKey: objectIds], into: [self.viewContext])
+                }
+            } catch {
+                self.logInfo("[MessageStore] Failed to delete message \(txId): \(error)")
+            }
+        }
+    }
+
+    /// Clears all messages and conversations for the CURRENT wallet only.
+    /// Each wallet has its own SQLite store, so this only affects the current store.
+    /// Note: This also affects CloudKit sync - cleared data will be deleted from iCloud.
+    /// IMPORTANT: This is synchronous - it blocks until deletion completes to prevent
+    /// race conditions where the store is removed before deletion finishes.
+    func clearAll() {
+        guard ensureStoreLoaded() else { return }
+        let walletAddr = currentWalletAddress
+        self.logInfo("[MessageStore] clearAll() called for wallet: \(walletAddr ?? "default")")
+
+        let context = container.newBackgroundContext()
+        context.performAndWait {
+            // Double-check store is still valid (may have been removed by another thread)
+            guard !self.container.persistentStoreCoordinator.persistentStores.isEmpty else {
+                self.logInfo("[MessageStore] clearAll: Store removed before execution, skipping")
+                return
+            }
+
+            // Filter by wallet address for safety (even though each wallet has its own store)
+            let messageFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+            if let walletAddr = walletAddr {
+                messageFetch.predicate = NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", walletAddr)
+            }
+            let messageDelete = NSBatchDeleteRequest(fetchRequest: messageFetch)
+            messageDelete.resultType = .resultTypeObjectIDs
+
+            let conversationFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDConversation.entityName)
+            if let walletAddr = walletAddr {
+                conversationFetch.predicate = NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", walletAddr)
+            }
+            let conversationDelete = NSBatchDeleteRequest(fetchRequest: conversationFetch)
+            conversationDelete.resultType = .resultTypeObjectIDs
+
+            do {
+                let messageResult = try context.execute(messageDelete) as? NSBatchDeleteResult
+                let conversationResult = try context.execute(conversationDelete) as? NSBatchDeleteResult
+                let messageIds = messageResult?.result as? [NSManagedObjectID] ?? []
+                let conversationIds = conversationResult?.result as? [NSManagedObjectID] ?? []
+                let changes: [String: Any] = [
+                    NSDeletedObjectsKey: messageIds + conversationIds
+                ]
+                NSManagedObjectContext.mergeChanges(fromRemoteContextSave: changes, into: [self.viewContext])
+                self.logInfo("[MessageStore] Cleared %d messages, %d conversations", messageIds.count, conversationIds.count)
+            } catch {
+                self.logInfo("[MessageStore] Failed to clear store: \(error)")
+            }
+        }
+    }
+
+    /// Clears incoming messages for the CURRENT wallet only.
+    func clearIncomingMessages() {
+        guard ensureStoreLoaded() else { return }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        context.perform {
+            let fetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+            if let walletAddr = walletAddr {
+                fetch.predicate = NSPredicate(format: "isOutgoing == NO AND (walletAddress == %@ OR walletAddress == nil)", walletAddr)
+            } else {
+                fetch.predicate = NSPredicate(format: "isOutgoing == NO")
+            }
+            let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetch)
+            deleteRequest.resultType = .resultTypeObjectIDs
+            do {
+                let result = try context.execute(deleteRequest) as? NSBatchDeleteResult
+                let objectIds = result?.result as? [NSManagedObjectID] ?? []
+                if !objectIds.isEmpty {
+                    NSManagedObjectContext.mergeChanges(fromRemoteContextSave: [NSDeletedObjectsKey: objectIds], into: [self.viewContext])
+                }
+            } catch {
+                self.logInfo("[MessageStore] Failed to clear incoming messages: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Retention
+
+    /// Applies message retention policy for the CURRENT wallet only.
+    @discardableResult
+    func applyRetention(_ retention: MessageRetention, in context: NSManagedObjectContext? = nil) -> Bool {
+        guard ensureStoreLoaded() else { return false }
+        guard let days = retention.days else { return false }
+        let cutoff = Date().addingTimeInterval(TimeInterval(-days * 86_400))
+        let walletAddr = currentWalletAddress
+        let context = context ?? container.newBackgroundContext()
+        var didDelete = false
+        context.performAndWait {
+            let fetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+            if let walletAddr = walletAddr {
+                fetch.predicate = NSPredicate(
+                    format: "timestamp < %@ AND messageType != %@ AND (walletAddress == %@ OR walletAddress == nil)",
+                    cutoff as NSDate,
+                    ChatMessage.MessageType.handshake.rawValue,
+                    walletAddr
+                )
+            } else {
+                fetch.predicate = NSPredicate(format: "timestamp < %@ AND messageType != %@", cutoff as NSDate, ChatMessage.MessageType.handshake.rawValue)
+            }
+            let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetch)
+            deleteRequest.resultType = .resultTypeObjectIDs
+
+            do {
+                let result = try context.execute(deleteRequest) as? NSBatchDeleteResult
+                let objectIds = result?.result as? [NSManagedObjectID] ?? []
+                didDelete = !objectIds.isEmpty
+                if !objectIds.isEmpty {
+                    NSManagedObjectContext.mergeChanges(fromRemoteContextSave: [NSDeletedObjectsKey: objectIds], into: [self.viewContext])
+                }
+            } catch {
+                self.logInfo("[MessageStore] Failed to apply retention: \(error)")
+            }
+        }
+        return didDelete
+    }
+
+    // MARK: - Helpers
+
+    private func configureStoreDescription(_ description: NSPersistentStoreDescription, walletAddress: String?, enableCloud: Bool) {
+        // Performance optimizations for WAL mode to reduce checkpoint contention
+        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+
+        // SQLite WAL optimizations to prevent checkpoint contention during batch writes
+        let pragmas = [
+            "journal_mode": "WAL",           // Enable WAL mode (already default for Core Data)
+            "synchronous": "NORMAL",         // Faster commits while maintaining safety with WAL
+            // Allow periodic checkpointing so CloudKit can see changes without waiting for background
+            "wal_autocheckpoint": "1000",    // ~1000 pages before checkpoint (approx a few MB)
+            "cache_size": "-20000"           // 20MB cache (negative = KB, positive = pages)
+        ]
+        description.setOption(pragmas as NSDictionary, forKey: NSSQLitePragmasOption)
+
+        // Store configuration for reliability
+        description.shouldAddStoreAsynchronously = false
+        description.shouldMigrateStoreAutomatically = true
+        description.shouldInferMappingModelAutomatically = true
+
+        if enableCloud {
+            let options = NSPersistentCloudKitContainerOptions(containerIdentifier: containerId)
+            options.databaseScope = .private
+
+            // Configure wallet-specific CloudKit zone
+            if let walletAddress = walletAddress {
+                let zoneName = zoneNameForWallet(walletAddress)
+                let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
+
+                // Create the zone before using it
+                createZoneIfNeeded(zoneID: zoneID)
+
+                self.logInfo("[MessageStore] Configured CloudKit zone: \(zoneName) for wallet")
+            }
+
+            description.cloudKitContainerOptions = options
+        } else {
+            description.cloudKitContainerOptions = nil
+        }
+    }
+
+    /// Creates a CloudKit zone if it doesn't exist (fire and forget)
+    private func createZoneIfNeeded(zoneID: CKRecordZone.ID) {
+        let zone = CKRecordZone(zoneID: zoneID)
+        let database = CKContainer(identifier: containerId).privateCloudDatabase
+
+        // Check if zone exists
+        database.fetch(withRecordZoneID: zoneID) { existingZone, error in
+            if let existingZone = existingZone {
+                self.logInfo("[MessageStore] Zone already exists: \(existingZone.zoneID.zoneName)")
+                return
+            }
+
+            // Create the zone
+            database.save(zone) { savedZone, saveError in
+                if let savedZone = savedZone {
+                    self.logInfo("[MessageStore] Created CloudKit zone: \(savedZone.zoneID.zoneName)")
+                } else if let saveError = saveError {
+                    // Zone creation is best-effort - store will still work locally
+                    self.logInfo("[MessageStore] Failed to create zone (will use default): \(saveError.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    private func loadPersistentStores(primaryDescription: NSPersistentStoreDescription, completion: (() -> Void)? = nil) {
+        container.loadPersistentStores { [weak self] _, error in
+            guard let self else { return }
+            if let error {
+                if primaryDescription.cloudKitContainerOptions != nil {
+                    self.logInfo("[MessageStore] CloudKit store load failed: \(error). Falling back to local store.")
+                    let fallbackUrl = primaryDescription.url ?? Self.defaultStoreURL()
+                    let fallback = NSPersistentStoreDescription(url: fallbackUrl)
+                    fallback.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+                    fallback.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+                    // Fallback to local store without CloudKit
+                    self.configureStoreDescription(fallback, walletAddress: self.currentWalletAddress, enableCloud: false)
+                    self.container.persistentStoreDescriptions = [fallback]
+                    self.container.loadPersistentStores { _, fallbackError in
+                        if let fallbackError {
+                            self.logInfo("[MessageStore] Failed to load local store: \(fallbackError)")
+                            return
+                        }
+                        self.finishStoreLoad()
+                        completion?()
+                    }
+                } else {
+                    self.logInfo("[MessageStore] Failed to load store: \(error)")
+                }
+                return
+            }
+            self.finishStoreLoad()
+            completion?()
+        }
+    }
+
+    private func finishStoreLoad() {
+        let hasStore = !container.persistentStoreCoordinator.persistentStores.isEmpty
+        if !hasStore {
+            self.logInfo("[MessageStore] Persistent stores list is empty after load; deferring operations.")
+        }
+        isLoaded = hasStore
+
+        // Configure view context for optimal performance
+        container.viewContext.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+        container.viewContext.automaticallyMergesChangesFromParent = true
+        container.viewContext.undoManager = nil
+
+        // Disable unnecessary features for performance
+        container.viewContext.shouldDeleteInaccessibleFaults = true
+
+        // Batch processing hint for large saves
+        container.viewContext.stalenessInterval = 0.0  // Always use latest data
+
+        // Start CloudKit sync observation
+        startCloudKitSyncObservation()
+    }
+
+    // MARK: - CloudKit Sync Coordination
+
+    /// Start observing CloudKit import events to track sync status
+    private func startCloudKitSyncObservation() {
+        // Remove previous observer if any
+        if let observer = cloudKitEventObserver {
+            NotificationCenter.default.removeObserver(observer)
+            cloudKitEventObserver = nil
+        }
+
+        // Check if CloudKit is enabled
+        let hasCloudKit = container.persistentStoreDescriptions.first?.cloudKitContainerOptions != nil
+        if !hasCloudKit {
+            cloudKitSyncStatus = .disabled
+            self.logInfo("[MessageStore] CloudKit disabled, skipping sync observation")
+            resumeCloudKitWaiters()
+            Task { @MainActor in
+                self.resumeCloudKitImportWaiters(success: false, endDate: nil)
+            }
+            return
+        }
+
+        cloudKitSyncStatus = .syncing
+        self.logInfo("[MessageStore] CloudKit enabled, starting sync observation")
+        lastCloudKitImportEndDate = nil
+
+        // Observe CloudKit import events
+        cloudKitEventObserver = NotificationCenter.default.addObserver(
+            forName: NSPersistentCloudKitContainer.eventChangedNotification,
+            object: container,
+            queue: .main
+        ) { [weak self] notification in
+            self?.handleCloudKitEvent(notification)
+        }
+
+        // Set a timeout - if no import event within 5 seconds, consider initial sync done
+        // CloudKit may have nothing to import, or sync may be very fast
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+            guard let self = self, self.cloudKitSyncStatus == .syncing else { return }
+            self.logInfo("[MessageStore] CloudKit sync timeout, proceeding (may have no data to sync)")
+            self.cloudKitSyncStatus = .synced
+            self.resumeCloudKitWaiters()
+        }
+    }
+
+    /// Stop observing CloudKit events (call before removing stores)
+    private func stopCloudKitSyncObservation() {
+        if let observer = cloudKitEventObserver {
+            NotificationCenter.default.removeObserver(observer)
+            cloudKitEventObserver = nil
+            self.logInfo("[MessageStore] CloudKit sync observation stopped")
+        }
+
+        // Reset CloudKit sync status
+        cloudKitSyncStatus = .notStarted
+
+        // Cancel any waiting continuations
+        resumeCloudKitWaiters()
+        Task { @MainActor in
+            self.resumeCloudKitImportWaiters(success: false, endDate: nil)
+        }
+
+        cloudKitExportWorkItem?.cancel()
+        cloudKitExportWorkItem = nil
+        exportRetryWorkItem?.cancel()
+        exportRetryWorkItem = nil
+        cloudKitExportInProgress = false
+        cloudKitExportDirty = false
+        exportRetryCount = 0
+        lastCloudKitExportAt = nil
+        lastCloudKitExportRequestAt = nil
+        lastCloudKitExportStartAt = nil
+        nextCloudKitExportAllowedAt = nil
+
+        // End any active CloudKit export background tasks
+        #if !targetEnvironment(macCatalyst)
+        for (startDate, taskId) in cloudKitExportTasks {
+            if taskId != .invalid {
+                UIApplication.shared.endBackgroundTask(taskId)
+                self.logInfo("[MessageStore] Ended orphaned background task %d for export started at %@",
+                      taskId.rawValue, startDate.description)
+            }
+        }
+        cloudKitExportTasks.removeAll()
+        #endif
+    }
+
+    /// Handle CloudKit event notifications
+    private func handleCloudKitEvent(_ notification: Notification) {
+        guard let event = notification.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey] as? NSPersistentCloudKitContainer.Event else {
+            return
+        }
+
+        let eventType: String
+        switch event.type {
+        case .setup: eventType = "setup"
+        case .import: eventType = "import"
+        case .export: eventType = "export"
+        @unknown default: eventType = "unknown"
+        }
+
+        if let error = event.error {
+            let nsError = error as NSError
+            let isImportConflict = event.type == .import &&
+                nsError.domain == NSCocoaErrorDomain &&
+                nsError.code == 134407
+
+            if isImportConflict {
+                // Core Data reported a competing import request.
+                // Treat as transient and wait for the active import to finish.
+                self.logInfo("[MessageStore] CloudKit import conflict (134407) - waiting for active import to complete")
+                return
+            }
+
+            self.logInfo("[MessageStore] CloudKit %@ event error: %@", eventType, error.localizedDescription)
+            if event.type == .import && cloudKitSyncStatus == .syncing {
+                cloudKitSyncStatus = .failed
+                resumeCloudKitWaiters()
+            }
+            if event.type == .import {
+                Task { @MainActor in
+                    self.resumeCloudKitImportWaiters(success: false, endDate: nil)
+                }
+            }
+            // End background task if export failed
+            if event.type == .export {
+                if let ckError = error as? CKError, let retryAfter = ckError.retryAfterSeconds, retryAfter > 0 {
+                    let nextAllowed = Date().addingTimeInterval(retryAfter)
+                    nextCloudKitExportAllowedAt = nextAllowed
+                    self.logInfo("[MessageStore] CloudKit export backoff for %.1fs (retry after %@)",
+                          retryAfter, nextAllowed.description)
+                } else if (error as NSError).domain == NSCocoaErrorDomain,
+                          (error as NSError).code == 134419 {
+                    // Export deferred by the system. Back off to avoid repeated immediate retries.
+                    let backoff: TimeInterval = 60
+                    let nextAllowed = Date().addingTimeInterval(backoff)
+                    nextCloudKitExportAllowedAt = nextAllowed
+                    self.logInfo("[MessageStore] CloudKit export deferred; backing off for %.0fs (retry after %@)",
+                          backoff, nextAllowed.description)
+                }
+                endCloudKitExportBackgroundTask(for: event.startDate)
+                lastCloudKitExportEventAt = event.endDate
+                lastCloudKitExportAt = event.endDate
+                cloudKitExportInProgress = false
+                if cloudKitExportDirty {
+                    scheduleCloudKitExportAfterDebounce()
+                }
+            }
+            return
+        }
+
+        self.logInfo("[MessageStore] CloudKit %@ event: succeeded=%@, start=%@, end=%@",
+              eventType,
+              event.succeeded ? "true" : "false",
+              event.startDate.description,
+              event.endDate?.description ?? "in progress")
+
+        // Handle CloudKit export events
+        if event.type == .export {
+            if event.endDate == nil {
+                // Export started - begin background task to keep app alive
+                beginCloudKitExportBackgroundTask(for: event.startDate)
+                cloudKitExportInProgress = true
+                lastCloudKitExportStartAt = event.startDate
+                lastCloudKitExportAt = event.startDate
+            } else if event.succeeded {
+                // Export completed - end background task and checkpoint WAL
+                endCloudKitExportBackgroundTask(for: event.startDate)
+                lastCloudKitExportEventAt = event.endDate
+                lastCloudKitExportAt = event.endDate
+                cloudKitExportInProgress = false
+                if cloudKitExportDirty {
+                    scheduleCloudKitExportAfterDebounce()
+                }
+
+                // Checkpoint WAL now that CloudKit export is done
+                // This prevents "Database busy" errors from Core Data's automatic checkpointing
+                // which tries to run during export
+                Task.detached(priority: .utility) { [weak self] in
+                    try? await Task.sleep(nanoseconds: 500_000_000) // Wait 500ms for export to fully finish
+                    self?.checkpointWAL()
+                }
+            }
+        }
+
+        // When import completes successfully, mark sync as done
+        if event.type == .import && event.succeeded && event.endDate != nil {
+            if let endDate = event.endDate {
+                lastCloudKitImportEndDate = endDate
+                Task { @MainActor in
+                    self.resumeCloudKitImportWaiters(success: true, endDate: endDate)
+                }
+            }
+            if cloudKitSyncStatus == .syncing, let endDate = event.endDate {
+                // Wait for a short idle window before declaring initial sync complete.
+                let idleMarker = endDate
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+                    guard let self else { return }
+                    guard self.cloudKitSyncStatus == .syncing else { return }
+                    if self.lastCloudKitImportEndDate == idleMarker {
+                        self.logInfo("[MessageStore] CloudKit initial import complete (idle window)")
+                        self.cloudKitSyncStatus = .synced
+                        self.resumeCloudKitWaiters()
+                    }
+                }
+            }
+        }
+    }
+
+    /// Begin a background task for CloudKit export to prevent app suspension
+    private func beginCloudKitExportBackgroundTask(for startDate: Date) {
+        #if !targetEnvironment(macCatalyst)
+        let taskId = UIApplication.shared.beginBackgroundTask(withName: "CloudKit Export") { [weak self] in
+            // Background task expired - clean up
+            self?.endCloudKitExportBackgroundTask(for: startDate)
+        }
+
+        guard taskId != .invalid else {
+            self.logInfo("[MessageStore] Failed to begin background task for CloudKit export")
+            return
+        }
+
+        cloudKitExportTasks[startDate] = taskId
+        self.logInfo("[MessageStore] Began background task %d for CloudKit export", taskId.rawValue)
+
+        // Safety: end the background task if CloudKit export never reports completion.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 25.0) { [weak self] in
+            self?.endCloudKitExportBackgroundTask(for: startDate)
+        }
+        #endif
+    }
+
+    /// End the background task for a CloudKit export
+    private func endCloudKitExportBackgroundTask(for startDate: Date) {
+        #if !targetEnvironment(macCatalyst)
+        guard let taskId = cloudKitExportTasks.removeValue(forKey: startDate) else {
+            return
+        }
+
+        guard taskId != .invalid else {
+            return
+        }
+
+        UIApplication.shared.endBackgroundTask(taskId)
+        self.logInfo("[MessageStore] Ended background task %d for CloudKit export", taskId.rawValue)
+        #endif
+    }
+
+    /// Resume all waiters for CloudKit sync
+    private func resumeCloudKitWaiters() {
+        let continuations = cloudKitSyncContinuations
+        cloudKitSyncContinuations.removeAll()
+        for (_, continuation) in continuations {
+            continuation.resume()
+        }
+    }
+
+    /// Resume waiters waiting for a CloudKit import event
+    @MainActor
+    private func resumeCloudKitImportWaiters(success: Bool, endDate: Date?) {
+        guard !cloudKitImportWaiters.isEmpty else { return }
+        let resolvedEndDate = endDate ?? Date()
+        var idsToRemove: [UUID] = []
+        for (id, waiter) in cloudKitImportWaiters {
+            if success, let after = waiter.after, resolvedEndDate <= after {
+                continue
+            }
+            waiter.timeoutTask?.cancel()
+            waiter.continuation.resume(returning: success)
+            idsToRemove.append(id)
+        }
+        for id in idsToRemove {
+            cloudKitImportWaiters.removeValue(forKey: id)
+        }
+    }
+
+    /// Wait for CloudKit initial sync to complete.
+    /// Returns immediately if CloudKit is disabled or already synced.
+    /// - Parameter timeout: Maximum time to wait in seconds. Use 0 for no timeout (wait indefinitely).
+    func waitForCloudKitSync(timeout: TimeInterval = 0) async {
+        // Already done or disabled
+        if cloudKitSyncStatus == .synced || cloudKitSyncStatus == .disabled || cloudKitSyncStatus == .failed {
+            return
+        }
+
+        // Not started yet (store not loaded)
+        if cloudKitSyncStatus == .notStarted {
+            // Wait a bit for store to load
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+            if cloudKitSyncStatus == .notStarted {
+                self.logInfo("[MessageStore] waitForCloudKitSync: store not loaded, proceeding")
+                return
+            }
+        }
+
+        if timeout > 0 {
+            self.logInfo("[MessageStore] Waiting for CloudKit sync (timeout: %.1fs)...", timeout)
+        } else {
+            self.logInfo("[MessageStore] Waiting for CloudKit sync (no timeout)...")
+        }
+
+        let startedAt = Date()
+        while true {
+            if cloudKitSyncStatus == .synced || cloudKitSyncStatus == .disabled || cloudKitSyncStatus == .failed {
+                break
+            }
+
+            if timeout > 0 {
+                let elapsed = Date().timeIntervalSince(startedAt)
+                if elapsed >= timeout {
+                    self.logInfo("[MessageStore] CloudKit sync wait timed out after %.1fs", timeout)
+                    break
+                }
+                let remaining = timeout - elapsed
+                let sleepSeconds = min(0.5, max(0.05, remaining))
+                try? await Task.sleep(nanoseconds: UInt64(sleepSeconds * 1_000_000_000))
+            } else {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+
+            if Task.isCancelled {
+                break
+            }
+        }
+
+        self.logInfo("[MessageStore] CloudKit sync wait complete, status: %@",
+              cloudKitSyncStatus == .synced ? "synced" :
+              cloudKitSyncStatus == .failed ? "failed" : "other")
+    }
+
+    func reloadPersistentStores(enableCloud: Bool, completion: (() -> Void)? = nil) {
+        // Stop CloudKit sync observation before removing stores
+        stopCloudKitSyncObservation()
+        resetViewContextBeforeStoreRemoval()
+
+        let coordinator = container.persistentStoreCoordinator
+        for store in coordinator.persistentStores {
+            do {
+                try coordinator.remove(store)
+            } catch {
+                self.logInfo("[MessageStore] Failed to remove store: \(error)")
+            }
+        }
+
+        // Use wallet-specific store URL
+        let url = storeURLForWallet(currentWalletAddress)
+        let description = NSPersistentStoreDescription(url: url)
+        description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+        description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+        configureStoreDescription(description, walletAddress: currentWalletAddress, enableCloud: enableCloud)
+        container.persistentStoreDescriptions = [description]
+        isLoaded = false
+        didLogMissingStore = false
+        loadPersistentStores(primaryDescription: description, completion: completion)
+    }
+
+    func reloadPersistentStores(enableCloud: Bool) async {
+        await withCheckedContinuation { continuation in
+            reloadPersistentStores(enableCloud: enableCloud) {
+                continuation.resume()
+            }
+        }
+    }
+
+    /// Purges ALL CloudKit data (all wallet zones). Use with caution.
+    func purgeCloudKitData() async -> Error? {
+        guard ensureStoreLoaded() else { return NSError(domain: "Kasia", code: 1, userInfo: [NSLocalizedDescriptionKey: "Store not loaded"]) }
+        let ckContainer = CKContainer(identifier: containerId)
+        let database = ckContainer.privateCloudDatabase
+        return await withCheckedContinuation { continuation in
+            database.fetchAllRecordZones { zones, error in
+                if let error {
+                    continuation.resume(returning: error)
+                    return
+                }
+                let deletableZones = (zones ?? []).filter { zone in
+                    zone.zoneID.zoneName != CKRecordZone.default().zoneID.zoneName
+                }
+                guard !deletableZones.isEmpty else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                self.logInfo("[MessageStore] Purging \(deletableZones.count) CloudKit zones")
+                let op = CKModifyRecordZonesOperation(recordZonesToSave: nil, recordZoneIDsToDelete: deletableZones.map { $0.zoneID })
+                op.modifyRecordZonesResultBlock = { result in
+                    switch result {
+                    case .success:
+                        self.logInfo("[MessageStore] Successfully purged all CloudKit zones")
+                        continuation.resume(returning: nil)
+                    case .failure(let opError):
+                        continuation.resume(returning: opError)
+                    }
+                }
+                database.add(op)
+            }
+        }
+    }
+
+    /// Purges CloudKit data for the current wallet's zone only
+    func purgeCurrentWalletCloudKitData() async -> Error? {
+        guard let walletAddress = currentWalletAddress else {
+            return NSError(domain: "Kasia", code: 2, userInfo: [NSLocalizedDescriptionKey: "No wallet set"])
+        }
+
+        let zoneName = zoneNameForWallet(walletAddress)
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
+        let ckContainer = CKContainer(identifier: containerId)
+        let database = ckContainer.privateCloudDatabase
+
+        return await withCheckedContinuation { continuation in
+            self.logInfo("[MessageStore] Purging CloudKit zone: \(zoneName)")
+            let op = CKModifyRecordZonesOperation(recordZonesToSave: nil, recordZoneIDsToDelete: [zoneID])
+            op.modifyRecordZonesResultBlock = { result in
+                switch result {
+                case .success:
+                    self.logInfo("[MessageStore] Successfully purged zone: \(zoneName)")
+                    continuation.resume(returning: nil)
+                case .failure(let opError):
+                    // Zone not found is not an error
+                    if (opError as? CKError)?.code == .zoneNotFound {
+                        self.logInfo("[MessageStore] Zone not found (already deleted): \(zoneName)")
+                        continuation.resume(returning: nil)
+                    } else {
+                        continuation.resume(returning: opError)
+                    }
+                }
+            }
+            database.add(op)
+        }
+    }
+
+    private func ensureStoreLoaded() -> Bool {
+        guard isLoaded else {
+            if !didLogMissingStore {
+                didLogMissingStore = true
+                self.logInfo("[MessageStore] Store not loaded yet; skipping operation.")
+            }
+            return false
+        }
+        if container.persistentStoreCoordinator.persistentStores.isEmpty {
+            if !didLogMissingStore {
+                didLogMissingStore = true
+                self.logInfo("[MessageStore] Store loaded flag set but no persistent stores attached; skipping operation.")
+            }
+            return false
+        }
+        return true
+    }
+
+    /// Batch fetch messages by txIds for O(1) lookup (replaces N individual fetches)
+    private func batchFetchMessages(txIds: [String], walletAddress: String?, in context: NSManagedObjectContext) -> [String: CDMessage] {
+        guard !txIds.isEmpty else { return [:] }
+
+        let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+        if let walletAddress = walletAddress {
+            request.predicate = NSPredicate(format: "txId IN %@ AND (walletAddress == %@ OR walletAddress == nil)", txIds, walletAddress)
+        } else {
+            request.predicate = NSPredicate(format: "txId IN %@", txIds)
+        }
+
+        var result: [String: CDMessage] = [:]
+        do {
+            let messages = try context.fetch(request)
+            for message in messages {
+                result[message.txId] = message
+            }
+            self.logInfo("[MessageStore] Batch fetched %d existing messages (from %d txIds)", result.count, txIds.count)
+        } catch {
+            self.logInfo("[MessageStore] Batch fetch failed: \(error)")
+        }
+        return result
+    }
+
+    private func fetchOrCreateMessage(txId: String, walletAddress: String? = nil, in context: NSManagedObjectContext) -> CDMessage {
+        let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+        // Include wallet address in lookup if provided
+        if let walletAddress = walletAddress {
+            request.predicate = NSPredicate(format: "txId == %@ AND (walletAddress == %@ OR walletAddress == nil)", txId, walletAddress)
+        } else {
+            request.predicate = NSPredicate(format: "txId == %@", txId)
+        }
+        request.fetchLimit = 10
+        if let results = try? context.fetch(request), !results.isEmpty {
+            if results.count > 1 {
+                let sorted = results.sorted { lhs, rhs in
+                    switch (lhs.contentEncrypted != nil, rhs.contentEncrypted != nil) {
+                    case (true, false):
+                        return true
+                    case (false, true):
+                        return false
+                    default:
+                        return (lhs.updatedAt ?? .distantPast) > (rhs.updatedAt ?? .distantPast)
+                    }
+                }
+                let keeper = sorted.first!
+                for duplicate in sorted.dropFirst() {
+                    context.delete(duplicate)
+                }
+                return keeper
+            }
+            return results[0]
+        }
+        let record = CDMessage(context: context)
+        record.txId = txId
+        return record
+    }
+
+    private func fetchOrCreateConversation(contactAddress: String, walletAddress: String? = nil, in context: NSManagedObjectContext) -> CDConversation {
+        let request = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
+        // Include wallet address in lookup if provided
+        if let walletAddress = walletAddress {
+            request.predicate = NSPredicate(format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)", contactAddress, walletAddress)
+        } else {
+            request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+        }
+        request.fetchLimit = 1
+        if let existing = try? context.fetch(request).first {
+            return existing
+        }
+        let record = CDConversation(context: context)
+        record.contactAddress = contactAddress
+        record.conversationId = UUID()
+        record.unreadCount = 0
+        return record
+    }
+
+    private func encryptContent(_ content: String, key: SymmetricKey) -> Data? {
+        guard let data = content.data(using: .utf8) else { return nil }
+        return try? CryptoUtils.encrypt(data, using: key)
+    }
+
+    private func decryptContent(_ data: Data, key: SymmetricKey) -> String? {
+        guard let decrypted = try? CryptoUtils.decrypt(data, using: key) else { return nil }
+        return String(data: decrypted, encoding: .utf8)
+    }
+
+    private func decodeMessage(_ record: CDMessage, key: SymmetricKey) -> ChatMessage? {
+        let txId = record.txId
+        let contactAddress = record.contactAddress
+        guard !txId.isEmpty, !contactAddress.isEmpty else { return nil }
+
+        let content: String
+        if let contentData = record.contentEncrypted {
+            if let decrypted = decryptContent(contentData, key: key) {
+                content = decrypted
+            } else {
+                content = "[Encrypted message]"
+            }
+        } else {
+            content = "📤 Sent via another device"
+        }
+        let messageType = ChatMessage.MessageType(rawValue: record.messageType ?? "contextual") ?? .contextual
+        let deliveryStatus = ChatMessage.DeliveryStatus(rawValue: record.deliveryStatus ?? "sent") ?? .sent
+        return ChatMessage(
+            id: record.messageId ?? UUID(),
+            txId: txId,
+            senderAddress: record.senderAddress ?? "",
+            receiverAddress: record.receiverAddress ?? "",
+            content: content,
+            timestamp: record.timestamp ?? Date(),
+            blockTime: UInt64(record.blockTime),
+            acceptingBlock: record.acceptingBlock,
+            isOutgoing: record.isOutgoing,
+            messageType: messageType,
+            deliveryStatus: deliveryStatus
+        )
+    }
+
+    private static func makeModel() -> NSManagedObjectModel {
+        let model = NSManagedObjectModel()
+
+        let messageEntity = NSEntityDescription()
+        messageEntity.name = CDMessage.entityName
+        messageEntity.managedObjectClassName = NSStringFromClass(CDMessage.self)
+
+        let conversationEntity = NSEntityDescription()
+        conversationEntity.name = CDConversation.entityName
+        conversationEntity.managedObjectClassName = NSStringFromClass(CDConversation.self)
+
+        let readMarkerEntity = NSEntityDescription()
+        readMarkerEntity.name = CDReadMarker.entityName
+        readMarkerEntity.managedObjectClassName = NSStringFromClass(CDReadMarker.self)
+
+        let syncMarkerEntity = NSEntityDescription()
+        syncMarkerEntity.name = CDSyncMarker.entityName
+        syncMarkerEntity.managedObjectClassName = NSStringFromClass(CDSyncMarker.self)
+
+        messageEntity.properties = [
+            makeAttribute(name: "messageId", type: .UUIDAttributeType, optional: true),
+            makeAttribute(name: "txId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "contactAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "senderAddress", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "receiverAddress", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "contentEncrypted", type: .binaryDataAttributeType, optional: true),
+            makeAttribute(name: "timestamp", type: .dateAttributeType, optional: true),
+            makeAttribute(name: "blockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            makeAttribute(name: "acceptingBlock", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "isOutgoing", type: .booleanAttributeType, optional: false, defaultValue: false),
+            makeAttribute(name: "messageType", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "deliveryStatus", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "updatedAt", type: .dateAttributeType, optional: true),
+            // Multi-account support: wallet address for partitioning
+            makeAttribute(name: "walletAddress", type: .stringAttributeType, optional: true)
+        ]
+
+        conversationEntity.properties = [
+            makeAttribute(name: "contactAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "conversationId", type: .UUIDAttributeType, optional: true),
+            makeAttribute(name: "unreadCount", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            makeAttribute(name: "lastMessageAt", type: .dateAttributeType, optional: true),
+            makeAttribute(name: "updatedAt", type: .dateAttributeType, optional: true),
+            // Multi-account support: wallet address for partitioning
+            makeAttribute(name: "walletAddress", type: .stringAttributeType, optional: true),
+            // Read status sync fields (for multi-device CloudKit sync)
+            makeAttribute(name: "lastReadTxId", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "lastReadBlockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            makeAttribute(name: "lastReadAt", type: .dateAttributeType, optional: true)
+        ]
+
+        // CDReadMarker: per-device read markers for conflict-free CloudKit sync
+        // Note: CloudKit doesn't support uniqueness constraints, so we handle deduplication
+        // manually in upsertReadMarker() by fetching existing records before insert
+        readMarkerEntity.properties = [
+            makeAttribute(name: "walletAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "conversationId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "deviceId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "lastReadTxId", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "lastReadBlockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            makeAttribute(name: "updatedAt", type: .dateAttributeType, optional: true)
+        ]
+
+        syncMarkerEntity.properties = [
+            makeAttribute(name: "walletAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "updatedAt", type: .dateAttributeType, optional: true)
+        ]
+
+        model.entities = [messageEntity, conversationEntity, readMarkerEntity, syncMarkerEntity]
+        return model
+    }
+
+    private static func defaultStoreURL() -> URL {
+        NSPersistentContainer.defaultDirectoryURL().appendingPathComponent("KasiaMessages.sqlite")
+    }
+
+    @discardableResult
+    private func pruneStalePendingMessages(keeping currentTxIds: Set<String>, in context: NSManagedObjectContext) -> Bool {
+        guard !currentTxIds.isEmpty else { return false }
+        let fetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+        // Filter by current wallet for safety
+        if let walletAddr = currentWalletAddress {
+            fetch.predicate = NSPredicate(
+                format: "txId BEGINSWITH %@ AND NOT (txId IN %@) AND (walletAddress == %@ OR walletAddress == nil)",
+                "pending_",
+                currentTxIds,
+                walletAddr
+            )
+        } else {
+            fetch.predicate = NSPredicate(format: "txId BEGINSWITH %@ AND NOT (txId IN %@)", "pending_", currentTxIds)
+        }
+        let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetch)
+        deleteRequest.resultType = .resultTypeObjectIDs
+        do {
+            let result = try context.execute(deleteRequest) as? NSBatchDeleteResult
+            let objectIds = result?.result as? [NSManagedObjectID] ?? []
+            let didDelete = !objectIds.isEmpty
+            if !objectIds.isEmpty {
+                NSManagedObjectContext.mergeChanges(fromRemoteContextSave: [NSDeletedObjectsKey: objectIds], into: [self.viewContext])
+            }
+            return didDelete
+        } catch {
+            self.logInfo("[MessageStore] Failed to prune pending messages: \(error)")
+            return false
+        }
+    }
+
+    func currentStoreSizeBytes() -> Int64 {
+        let storeUrl = container.persistentStoreCoordinator.persistentStores.first?.url ?? Self.defaultStoreURL()
+        return Self.sizeOfStoreFiles(at: storeUrl)
+    }
+
+    private var lastDedupeAt: Date?
+    private let dedupeMinInterval: TimeInterval = 10 * 60
+    private let dedupeThresholdRatio: Double = 1.2
+    private let dedupeMinTotalMessages = 1000
+    private let dedupeBatchLimit = 2000
+
+    struct StoreDiagnostics {
+        let totalMessages: Int
+        let distinctTxIds: Int
+        let placeholderCount: Int
+        let outgoingCount: Int
+        let incomingCount: Int
+    }
+
+    func currentStoreDiagnostics() -> StoreDiagnostics {
+        guard ensureStoreLoaded() else {
+            return StoreDiagnostics(totalMessages: 0, distinctTxIds: 0, placeholderCount: 0, outgoingCount: 0, incomingCount: 0)
+        }
+        let context = container.newBackgroundContext()
+        var result = StoreDiagnostics(totalMessages: 0, distinctTxIds: 0, placeholderCount: 0, outgoingCount: 0, incomingCount: 0)
+        context.performAndWait {
+            let totalFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+            totalFetch.resultType = .countResultType
+            if let walletAddr = currentWalletAddress {
+                totalFetch.predicate = NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", walletAddr)
+            }
+            if let countResult = try? context.count(for: totalFetch) {
+                result = StoreDiagnostics(totalMessages: countResult, distinctTxIds: result.distinctTxIds, placeholderCount: result.placeholderCount, outgoingCount: result.outgoingCount, incomingCount: result.incomingCount)
+            }
+
+            let distinctFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+            distinctFetch.resultType = .dictionaryResultType
+            distinctFetch.propertiesToFetch = ["txId"]
+            distinctFetch.returnsDistinctResults = true
+            if let walletAddr = currentWalletAddress {
+                distinctFetch.predicate = NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", walletAddr)
+            }
+            let distinctCount = (try? context.fetch(distinctFetch).count) ?? 0
+            result = StoreDiagnostics(totalMessages: result.totalMessages, distinctTxIds: distinctCount, placeholderCount: result.placeholderCount, outgoingCount: result.outgoingCount, incomingCount: result.incomingCount)
+
+            let placeholderFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+            placeholderFetch.resultType = .countResultType
+            if let walletAddr = currentWalletAddress {
+                placeholderFetch.predicate = NSPredicate(format: "contentEncrypted == nil AND (walletAddress == %@ OR walletAddress == nil)", walletAddr)
+            } else {
+                placeholderFetch.predicate = NSPredicate(format: "contentEncrypted == nil")
+            }
+            let placeholderCount = (try? context.count(for: placeholderFetch)) ?? 0
+            result = StoreDiagnostics(totalMessages: result.totalMessages, distinctTxIds: result.distinctTxIds, placeholderCount: placeholderCount, outgoingCount: result.outgoingCount, incomingCount: result.incomingCount)
+
+            let outgoingFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+            outgoingFetch.resultType = .countResultType
+            if let walletAddr = currentWalletAddress {
+                outgoingFetch.predicate = NSPredicate(format: "isOutgoing == YES AND (walletAddress == %@ OR walletAddress == nil)", walletAddr)
+            } else {
+                outgoingFetch.predicate = NSPredicate(format: "isOutgoing == YES")
+            }
+            let outgoingCount = (try? context.count(for: outgoingFetch)) ?? 0
+
+            let incomingFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+            incomingFetch.resultType = .countResultType
+            if let walletAddr = currentWalletAddress {
+                incomingFetch.predicate = NSPredicate(format: "isOutgoing == NO AND (walletAddress == %@ OR walletAddress == nil)", walletAddr)
+            } else {
+                incomingFetch.predicate = NSPredicate(format: "isOutgoing == NO")
+            }
+            let incomingCount = (try? context.count(for: incomingFetch)) ?? 0
+
+            result = StoreDiagnostics(
+                totalMessages: result.totalMessages,
+                distinctTxIds: result.distinctTxIds,
+                placeholderCount: result.placeholderCount,
+                outgoingCount: outgoingCount,
+                incomingCount: incomingCount
+            )
+        }
+        return result
+    }
+
+    private func fetchMessageCounts(in context: NSManagedObjectContext, walletAddr: String?) -> (total: Int, distinct: Int) {
+        let totalFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+        totalFetch.resultType = .countResultType
+        if let walletAddr = walletAddr {
+            totalFetch.predicate = NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", walletAddr)
+        }
+        let total = (try? context.count(for: totalFetch)) ?? 0
+
+        let distinctFetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+        distinctFetch.resultType = .dictionaryResultType
+        distinctFetch.propertiesToFetch = ["txId"]
+        distinctFetch.returnsDistinctResults = true
+        if let walletAddr = walletAddr {
+            distinctFetch.predicate = NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", walletAddr)
+        }
+        let distinct = (try? context.fetch(distinctFetch).count) ?? 0
+        return (total, distinct)
+    }
+
+    private func shouldRunDedupe(total: Int, distinct: Int) -> Bool {
+        guard total >= dedupeMinTotalMessages else { return false }
+        guard distinct > 0 else { return false }
+        let ratio = Double(total) / Double(max(distinct, 1))
+        return ratio >= dedupeThresholdRatio
+    }
+
+    private func dedupeMessagesIfNeeded(in context: NSManagedObjectContext, walletAddr: String?) -> Bool {
+        let now = Date()
+        if let last = lastDedupeAt, now.timeIntervalSince(last) < dedupeMinInterval {
+            return false
+        }
+
+        let counts = fetchMessageCounts(in: context, walletAddr: walletAddr)
+        guard shouldRunDedupe(total: counts.total, distinct: counts.distinct) else { return false }
+        lastDedupeAt = now
+
+        let fetch = NSFetchRequest<NSDictionary>(entityName: CDMessage.entityName)
+        fetch.resultType = .dictionaryResultType
+        let countExpression = NSExpressionDescription()
+        countExpression.name = "count"
+        countExpression.expression = NSExpression(forFunction: "count:", arguments: [NSExpression(forKeyPath: "txId")])
+        countExpression.expressionResultType = .integer64AttributeType
+        fetch.propertiesToFetch = ["txId", countExpression]
+        fetch.propertiesToGroupBy = ["txId"]
+        if let walletAddr = walletAddr {
+            fetch.predicate = NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", walletAddr)
+        }
+        fetch.fetchLimit = dedupeBatchLimit
+
+        guard let groups = try? context.fetch(fetch) else { return false }
+        let duplicateTxIds = groups.compactMap { dict -> String? in
+            guard let count = dict["count"] as? Int, count > 1 else { return nil }
+            return dict["txId"] as? String
+        }
+        guard !duplicateTxIds.isEmpty else { return false }
+
+        var deletedCount = 0
+        for txId in duplicateTxIds {
+            let dupFetch = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+            if let walletAddr = walletAddr {
+                dupFetch.predicate = NSPredicate(format: "txId == %@ AND (walletAddress == %@ OR walletAddress == nil)", txId, walletAddr)
+            } else {
+                dupFetch.predicate = NSPredicate(format: "txId == %@", txId)
+            }
+            guard let matches = try? context.fetch(dupFetch), matches.count > 1 else { continue }
+
+            let sorted = matches.sorted { lhs, rhs in
+                let lhsHasContent = lhs.contentEncrypted != nil
+                let rhsHasContent = rhs.contentEncrypted != nil
+                if lhsHasContent != rhsHasContent {
+                    return lhsHasContent && !rhsHasContent
+                }
+                let lhsUpdated = lhs.updatedAt ?? lhs.timestamp ?? Date.distantPast
+                let rhsUpdated = rhs.updatedAt ?? rhs.timestamp ?? Date.distantPast
+                return lhsUpdated > rhsUpdated
+            }
+            guard let keep = sorted.first else { continue }
+            for record in sorted where record.objectID != keep.objectID {
+                context.delete(record)
+                deletedCount += 1
+            }
+        }
+
+        guard deletedCount > 0 else { return false }
+        do {
+            try context.save()
+            self.logInfo("[MessageStore] Deduped %d records (total=%d, distinct=%d)", deletedCount, counts.total, counts.distinct)
+            return true
+        } catch {
+            self.logInfo("[MessageStore] Failed to dedupe messages: %@", error.localizedDescription)
+            return false
+        }
+    }
+
+    /// Debounce state for CloudKit export
+    private var cloudKitExportWorkItem: DispatchWorkItem?
+    private var lastCloudKitExportAt: Date?
+    private var lastCloudKitExportRequestAt: Date?
+    private var lastCloudKitExportEventAt: Date?
+    private var lastCloudKitExportStartAt: Date?
+    private var nextCloudKitExportAllowedAt: Date?
+    private var cloudKitExportInProgress = false
+    private var cloudKitExportDirty = false
+    private var exportRetryWorkItem: DispatchWorkItem?
+    private var exportRetryCount = 0
+    private let cloudKitExportMinInterval: TimeInterval = 2.0 // Minimum 2s between exports
+    // Retry slowly to avoid foreground write churn that can delay CloudKit start.
+    private let cloudKitExportRetryDelay: TimeInterval = 12.0
+    private let cloudKitExportMaxRetries = 1
+
+    /// Request a CloudKit export with debouncing.
+    /// Leading-edge export, trailing debounce with a short minimum interval.
+    func triggerCloudKitExport() {
+        // Must be called on main thread for debounce/retry scheduling.
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.triggerCloudKitExport() }
+            return
+        }
+        lastCloudKitExportRequestAt = Date()
+        cloudKitExportDirty = true
+        exportRetryCount = 0
+        scheduleCloudKitExportRetry()
+
+        scheduleCloudKitExportAfterDebounce()
+    }
+
+    /// Actually perform the CloudKit export
+    private func performCloudKitExport() {
+        guard ensureStoreLoaded() else { return }
+
+        if let nextAllowed = nextCloudKitExportAllowedAt, Date() < nextAllowed {
+            let delay = nextAllowed.timeIntervalSince(Date())
+            self.logInfo("[MessageStore] CloudKit export throttled by server for %.1fs", delay)
+            scheduleCloudKitExportAfterDebounce()
+            return
+        }
+
+        if cloudKitExportInProgress {
+            return
+        }
+
+        cloudKitExportDirty = false
+
+        // Process any pending changes in the view context
+        viewContext.processPendingChanges()
+
+        let didSave: Bool
+        if viewContext.hasChanges {
+            do {
+                try viewContext.save()
+                didSave = true
+                self.logInfo("[MessageStore] Triggered CloudKit export via viewContext save")
+            } catch {
+                didSave = false
+                self.logInfo("[MessageStore] Failed to trigger CloudKit export: \(error)")
+            }
+        } else {
+            didSave = false
+        }
+
+        // If there were no local changes, touch a marker to force an export.
+        // Use a background context to avoid extra viewContext saves.
+        if !didSave {
+            touchCloudKitExportMarker(useViewContext: false)
+        }
+    }
+
+    private func scheduleCloudKitExportAfterDebounce() {
+        guard !cloudKitExportInProgress else { return }
+        if cloudKitExportWorkItem != nil {
+            self.logInfo("[MessageStore] CloudKit export debounce active - coalescing request")
+            return
+        }
+        let now = Date()
+        let retryDelay: TimeInterval
+        if let nextAllowed = nextCloudKitExportAllowedAt, nextAllowed > now {
+            retryDelay = nextAllowed.timeIntervalSince(now)
+        } else {
+            retryDelay = 0
+        }
+        let last = lastCloudKitExportAt ?? .distantPast
+        let elapsed = now.timeIntervalSince(last)
+        let delay = max(cloudKitExportMinInterval - elapsed, retryDelay, 0.0)
+
+        if delay <= 0.001 {
+            performCloudKitExport()
+            return
+        }
+
+        self.logInfo("[MessageStore] Scheduling CloudKit export in %.1fs", delay)
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.cloudKitExportWorkItem = nil
+            guard !self.cloudKitExportInProgress else { return }
+            self.performCloudKitExport()
+        }
+        cloudKitExportWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func scheduleCloudKitExportRetry(after delay: TimeInterval = 0) {
+        exportRetryWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let requestedAt = self.lastCloudKitExportRequestAt
+            let eventAt = self.lastCloudKitExportEventAt
+            let startAt = self.lastCloudKitExportStartAt
+            let exportObserved: Bool
+            if let eventAt, let requestedAt, eventAt >= requestedAt {
+                exportObserved = true
+            } else if let startAt, let requestedAt, startAt >= requestedAt {
+                exportObserved = true
+            } else {
+                exportObserved = false
+            }
+            if self.cloudKitExportInProgress && exportObserved {
+                return
+            }
+            guard !exportObserved else { return }
+            if self.cloudKitExportWorkItem != nil {
+                self.scheduleCloudKitExportRetry(after: self.cloudKitExportRetryDelay)
+                return
+            }
+            guard self.exportRetryCount < self.cloudKitExportMaxRetries else {
+                self.logInfo("[MessageStore] CloudKit export retry exhausted")
+                // Safety: if export events were not observed, force a checkpoint and
+                // one more background-context marker touch to unstick foreground stalls.
+                DispatchQueue.global(qos: .utility).async { [weak self] in
+                    self?.checkpointWAL()
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.touchCloudKitExportMarker(useViewContext: false)
+                }
+                return
+            }
+            self.exportRetryCount += 1
+            self.logInfo("[MessageStore] Retrying CloudKit export (attempt %d)", self.exportRetryCount + 1)
+            // Force one explicit flush instead of repeated marker touches.
+            self.flushCloudKitExport()
+            self.scheduleCloudKitExportRetry(after: self.cloudKitExportRetryDelay)
+        }
+        exportRetryWorkItem = workItem
+        let retryDelay = delay > 0 ? delay : cloudKitExportRetryDelay
+        DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay, execute: workItem)
+    }
+    
+    private func touchCloudKitExportMarker(useViewContext: Bool = false) {
+        let hasCloudKit = container.persistentStoreDescriptions.first?.cloudKitContainerOptions != nil
+        guard hasCloudKit else { return }
+        guard let walletAddr = currentWalletAddress else { return }
+
+        if useViewContext {
+            let context = viewContext
+            context.perform {
+                context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+                context.undoManager = nil
+                context.shouldDeleteInaccessibleFaults = true
+                context.stalenessInterval = 0.0
+
+                let marker = CDSyncMarker(context: context)
+                marker.walletAddress = walletAddr
+                marker.updatedAt = Date()
+                do {
+                    try context.save()
+                    self.logInfo("[MessageStore] Touched CloudKit export marker (view context)")
+                } catch {
+                    self.logInfo("[MessageStore] Failed to touch export marker (view context): \(error)")
+                }
+            }
+            return
+        }
+
+        container.performBackgroundTask { context in
+            context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+            context.undoManager = nil
+            context.shouldDeleteInaccessibleFaults = true
+            context.stalenessInterval = 0.0
+
+            let marker = CDSyncMarker(context: context)
+            marker.walletAddress = walletAddr
+            marker.updatedAt = Date()
+            do {
+                try context.save()
+                self.logInfo("[MessageStore] Touched CloudKit export marker (background context)")
+                // Force a WAL checkpoint shortly after the marker save so CloudKit sees the change
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    self?.checkpointWAL()
+                }
+            } catch {
+                self.logInfo("[MessageStore] Failed to touch export marker (background context): \(error)")
+            }
+        }
+    }
+
+    /// Force immediate CloudKit export (bypass debounce).
+    /// Use for critical syncs like app backgrounding.
+    func flushCloudKitExport() {
+        cloudKitExportWorkItem?.cancel()
+        cloudKitExportWorkItem = nil
+        exportRetryWorkItem?.cancel()
+        exportRetryWorkItem = nil
+        lastCloudKitExportAt = nil  // Reset throttle for flush
+        performCloudKitExport()
+    }
+
+    /// Manually checkpoint the WAL file to reduce file size
+    /// Call this when the app is idle (backgrounded, after CloudKit export, etc.)
+    /// This triggers Core Data's PostSaveMaintenance which will checkpoint if needed
+    func checkpointWAL() {
+        guard ensureStoreLoaded() else { return }
+
+        let context = container.newBackgroundContext()
+        context.performAndWait {
+            do {
+                let startTime = Date()
+
+                // Trigger Core Data's PostSaveMaintenance by saving
+                // This will checkpoint the WAL if the file size exceeds the threshold
+                // Since we're calling this when idle (no active transactions),
+                // it won't get "Database busy" errors
+                if context.hasChanges {
+                    try context.save()
+                } else {
+                    // No changes, but still trigger a save to force checkpoint
+                    // Core Data will optimize this to a no-op if nothing changed
+                    try context.save()
+                }
+
+                let duration = Date().timeIntervalSince(startTime) * 1000
+                self.logInfo("[MessageStore] Manual WAL checkpoint triggered in %.0fms", duration)
+            } catch {
+                self.logInfo("[MessageStore] Manual checkpoint failed: %@", error.localizedDescription)
+            }
+        }
+    }
+
+    private static func sizeOfStoreFiles(at url: URL) -> Int64 {
+        let basePath = url.path
+        let candidates = [basePath, basePath + "-wal", basePath + "-shm"]
+        let fileManager = FileManager.default
+        var total: Int64 = 0
+        for path in candidates {
+            if let attributes = try? fileManager.attributesOfItem(atPath: path),
+               let size = attributes[.size] as? NSNumber {
+                total += size.int64Value
+            }
+        }
+        return total
+    }
+
+    private static func makeAttribute(name: String, type: NSAttributeType, optional: Bool, defaultValue: Any? = nil) -> NSAttributeDescription {
+        let attribute = NSAttributeDescription()
+        attribute.name = name
+        attribute.attributeType = type
+        attribute.isOptional = optional
+        if let defaultValue {
+            attribute.defaultValue = defaultValue
+        }
+        return attribute
+    }
+}
+
+// MessageStore coordinates Core Data and CloudKit work on its own queues.
+// Treat as sendable for structured concurrency usage.
+extension MessageStore: @unchecked Sendable {}
+
+@objc(CDMessage)
+final class CDMessage: NSManagedObject {
+    static let entityName = "CDMessage"
+
+    @NSManaged var messageId: UUID?
+    @NSManaged var txId: String
+    @NSManaged var contactAddress: String
+    @NSManaged var senderAddress: String?
+    @NSManaged var receiverAddress: String?
+    @NSManaged var contentEncrypted: Data?
+    @NSManaged var timestamp: Date?
+    @NSManaged var blockTime: Int64
+    @NSManaged var acceptingBlock: String?
+    @NSManaged var isOutgoing: Bool
+    @NSManaged var messageType: String?
+    @NSManaged var deliveryStatus: String?
+    @NSManaged var updatedAt: Date?
+    /// Wallet address for multi-account partitioning (nil = legacy/any wallet)
+    @NSManaged var walletAddress: String?
+}
+
+@objc(CDConversation)
+final class CDConversation: NSManagedObject {
+    static let entityName = "CDConversation"
+
+    @NSManaged var contactAddress: String
+    @NSManaged var conversationId: UUID?
+    @NSManaged var unreadCount: Int64
+    @NSManaged var lastMessageAt: Date?
+    @NSManaged var updatedAt: Date?
+    /// Wallet address for multi-account partitioning (nil = legacy/any wallet)
+    @NSManaged var walletAddress: String?
+
+    // Read status sync fields (for multi-device CloudKit sync)
+    /// txId of the last message the user has read
+    @NSManaged var lastReadTxId: String?
+    /// blockTime of the last read message (for ordering comparisons)
+    @NSManaged var lastReadBlockTime: Int64
+    /// When the user marked messages as read locally
+    @NSManaged var lastReadAt: Date?
+}
+
+/// Per-device read marker for CloudKit sync.
+/// Each device writes its own marker (walletAddress + conversationId + deviceId).
+/// This eliminates write conflicts between devices.
+@objc(CDReadMarker)
+final class CDReadMarker: NSManagedObject {
+    static let entityName = "CDReadMarker"
+
+    /// Wallet address for CloudKit zone partitioning (required - shared zone needs filtering)
+    @NSManaged var walletAddress: String
+    /// Contact address identifying the conversation
+    @NSManaged var conversationId: String
+    /// Device identifier from KeychainService.deviceIdentifier()
+    @NSManaged var deviceId: String
+    /// txId of the last read message (optional)
+    @NSManaged var lastReadTxId: String?
+    /// blockTime of the last read message (for ordering)
+    @NSManaged var lastReadBlockTime: Int64
+    /// When this marker was last updated (for stale cleanup)
+    @NSManaged var updatedAt: Date?
+}
+
+@objc(CDSyncMarker)
+final class CDSyncMarker: NSManagedObject {
+    static let entityName = "CDSyncMarker"
+
+    @NSManaged var walletAddress: String
+    @NSManaged var updatedAt: Date?
+}

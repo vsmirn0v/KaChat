@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KaChat | How It Works + Encryption FAQ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f4efe8;
+      --bg-soft: #fffaf3;
+      --ink: #0f1f2b;
+      --ink-soft: #37566a;
+      --line: #d9cfc1;
+      --brand: #0a9396;
+      --brand-2: #ee9b00;
+      --card: #fffdf9;
+      --shadow: 0 18px 32px rgba(16, 32, 44, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(1200px 500px at 15% -20%, rgba(10, 147, 150, 0.2), transparent 60%),
+        radial-gradient(1000px 460px at 95% 0%, rgba(238, 155, 0, 0.15), transparent 55%),
+        linear-gradient(180deg, var(--bg) 0%, #efe9df 100%);
+      min-height: 100vh;
+      line-height: 1.55;
+    }
+
+    .shell {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .panel {
+      background: var(--bg-soft);
+      border: 1px solid rgba(217, 207, 193, 0.9);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .hero {
+      padding: 52px 36px 34px;
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(130deg, rgba(10, 147, 150, 0.07) 0%, transparent 35%),
+        linear-gradient(340deg, rgba(238, 155, 0, 0.08) 0%, transparent 45%);
+    }
+
+    .eyebrow {
+      display: inline-block;
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 600;
+      color: var(--ink-soft);
+      background: rgba(10, 147, 150, 0.1);
+      border: 1px solid rgba(10, 147, 150, 0.25);
+      border-radius: 999px;
+      padding: 6px 12px;
+      margin-bottom: 14px;
+    }
+
+    h1, h2, h3 {
+      font-family: "Space Grotesk", "Avenir Next", sans-serif;
+      line-height: 1.1;
+      margin: 0 0 10px;
+    }
+
+    h1 {
+      font-size: clamp(1.9rem, 4.2vw, 3rem);
+      max-width: 16ch;
+    }
+
+    h2 {
+      font-size: clamp(1.3rem, 3vw, 2rem);
+      margin-bottom: 12px;
+    }
+
+    .lead {
+      max-width: 72ch;
+      color: var(--ink-soft);
+      margin: 0;
+    }
+
+    .section {
+      padding: 30px 36px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section:last-child {
+      border-bottom: 0;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid.four {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card::after {
+      content: "";
+      position: absolute;
+      right: -24px;
+      top: -24px;
+      width: 84px;
+      height: 84px;
+      background: radial-gradient(circle, rgba(10, 147, 150, 0.15), transparent 70%);
+      pointer-events: none;
+    }
+
+    .card p {
+      margin: 0;
+      font-size: 0.95rem;
+      color: var(--ink-soft);
+    }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--brand);
+    }
+
+    .protocol {
+      background: #0f202c;
+      color: #def0fa;
+      border-radius: 14px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.84rem;
+      line-height: 1.45;
+      border: 1px solid #314350;
+    }
+
+    .faq {
+      display: grid;
+      gap: 10px;
+    }
+
+    .legal-note {
+      margin-top: 14px;
+      color: var(--ink-soft);
+      font-size: 0.95rem;
+    }
+
+    .legal-note a {
+      color: var(--brand);
+      font-weight: 600;
+      text-decoration: none;
+      border-bottom: 1px solid rgba(10, 147, 150, 0.4);
+    }
+
+    .legal-note a:hover {
+      border-bottom-color: rgba(10, 147, 150, 0.9);
+    }
+
+    .site-footer {
+      padding: 18px 36px 24px;
+      color: var(--ink-soft);
+      font-size: 0.9rem;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 253, 249, 0.72);
+    }
+
+    .site-footer a {
+      color: var(--brand);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    details {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+      font-family: "Space Grotesk", "Avenir Next", sans-serif;
+    }
+
+    details p {
+      margin: 10px 0 0;
+      color: var(--ink-soft);
+    }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(12px);
+      animation: rise 0.55s ease forwards;
+    }
+
+    .d1 { animation-delay: 0.05s; }
+    .d2 { animation-delay: 0.15s; }
+    .d3 { animation-delay: 0.25s; }
+
+    @keyframes rise {
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 900px) {
+      .grid.four,
+      .grid.three {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        padding: 14px;
+      }
+
+      .hero,
+      .section {
+        padding: 22px 18px;
+      }
+
+      .grid.four,
+      .grid.three {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <article class="panel">
+      <section class="hero reveal d1">
+        <span class="eyebrow">KaChat in brief</span>
+        <h1>Private chat and KAS payments on Kaspa.</h1>
+        <p class="lead">
+          KaChat is an app that encodes encrypted message data into Kaspa transaction payloads.
+          Conversation content is encrypted before it leaves your device, then decrypted only by the intended recipient.
+        </p>
+      </section>
+
+      <section class="section reveal d2">
+        <h2>How KaChat works</h2>
+        <div class="grid four">
+          <article class="card">
+            <span class="tag">1. Connect</span>
+            <p>You add a contact by wallet address. KaChat derives conversation routing aliases from key agreement.</p>
+          </article>
+          <article class="card">
+            <span class="tag">2. Encrypt</span>
+            <p>Each message is sealed with ECDH (secp256k1) + HKDF-SHA256 + ChaCha20-Poly1305.</p>
+          </article>
+          <article class="card">
+            <span class="tag">3. Broadcast</span>
+            <p>Payloads are carried in Kaspa transactions, using protocol headers under the <code>ciph_msg:1:</code> namespace.</p>
+          </article>
+          <article class="card">
+            <span class="tag">4. Decrypt</span>
+            <p>The receiver fetches relevant transactions and decrypts locally with their private key.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section reveal d2">
+        <h2>Protocol at a glance</h2>
+        <pre class="protocol">ciph_msg:1:comm:{alias}:{base64_encrypted_bytes}      # direct message
+ciph_msg:1:pay:{encrypted_hex}                       # payment memo payload
+ciph_msg:1:handshake:{encrypted_bytes}               # contact signaling / setup
+ciph_msg:1:self_stash:{scope}:{encrypted_hex}        # self-stored handshake data</pre>
+        <p class="lead" style="margin-top: 12px;">
+          KaChat uses deterministic aliases for routing (with compatibility support for older flows) and keeps payload versioning explicit.
+        </p>
+      </section>
+
+      <section class="section reveal d3">
+        <h2>Core features</h2>
+        <div class="grid three">
+          <article class="card"><p>End-to-end encrypted 1:1 messaging</p></article>
+          <article class="card"><p>KAS transfers with optional encrypted payment memo</p></article>
+          <article class="card"><p>Voice note and file message support</p></article>
+          <article class="card"><p>Deterministic alias routing and handshake compatibility mode</p></article>
+          <article class="card"><p>Optional remote push notifications for watched conversations</p></article>
+          <article class="card"><p>Optional iCloud sync of encrypted messages and local recovery tools</p></article>
+        </div>
+      </section>
+
+      <section class="section reveal d3">
+        <h2>FAQ: encryption, protocol, and security</h2>
+        <div class="faq">
+          <details>
+            <summary>What encryption does KaChat use?</summary>
+            <p>KaChat uses secp256k1 ECDH for shared secret creation, HKDF-SHA256 for key derivation, and ChaCha20-Poly1305 for authenticated encryption.</p>
+          </details>
+          <details>
+            <summary>Can node or indexer operators read my message content?</summary>
+            <p>They can see transaction metadata, but not plaintext message bodies. Payload content is encrypted end-to-end.</p>
+          </details>
+          <details>
+            <summary>Does KaChat use Signal-style double ratchet?</summary>
+            <p>No. KaChat uses ECIES-style message encryption with ephemeral sender keys. It provides confidentiality and integrity, but it is not the same as a full double-ratchet design.</p>
+          </details>
+          <details>
+            <summary>Are aliases proof of identity?</summary>
+            <p>No. Alias labels are convenience identifiers. Trust should be anchored to verified wallet addresses and contact confirmation.</p>
+          </details>
+          <details>
+            <summary>What is the handshake used for?</summary>
+            <p>Handshake payloads are used for conversation signaling and compatibility across client versions. Routing aliases are now derived deterministically, not trusted as identity proof.</p>
+          </details>
+          <details>
+            <summary>Are payments private?</summary>
+            <p>Payment notes can be encrypted, but transfer metadata (addresses, amounts, and timing) remains visible on-chain.</p>
+          </details>
+          <details>
+            <summary>Is there a central messaging server?</summary>
+            <p>No single central relay is required for transport. Indexers and push services can improve sync and notifications, but encrypted payloads stay client-side decryptable only.</p>
+          </details>
+          <details>
+            <summary>What happens if I enable iCloud sync?</summary>
+            <p>Encrypted message data can be synchronized. As with typical CloudKit usage, metadata visibility trade-offs may exist at the platform layer.</p>
+          </details>
+        </div>
+        <p class="legal-note">Legal terms are available in the <a href="./eula.html">End User License Agreement (EULA)</a>.</p>
+      </section>
+      <footer class="site-footer">
+        <span>Cyber Ventures LLC</span>
+        <span><a href="./eula.html">EULA</a> | <a href="https://kachat.app" target="_blank" rel="noopener noreferrer">kachat.app</a> | <a href="mailto:support@kachat.app">support@kachat.app</a></span>
+      </footer>
+    </article>
+  </main>
+</body>
+</html>

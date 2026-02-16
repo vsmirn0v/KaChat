@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""
+Build a compact GeoIP JSON for KaChat from MaxMind-style CSV inputs.
+
+Example:
+  python3 scripts/build_geoip_lite.py \
+    --blocks GeoLite2-City-Blocks-IPv4.csv \
+    --locations GeoLite2-City-Locations-en.csv \
+    --output KaChat/Resources/geoip-lite.json \
+    --max-entries 60000
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import ipaddress
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Optional
+
+
+@dataclass
+class Entry:
+    cidr: str
+    latitude: float
+    longitude: float
+    country_code: Optional[str]
+    asn: Optional[str]
+
+
+def load_country_codes(locations_csv: Path) -> Dict[str, str]:
+    mapping: Dict[str, str] = {}
+    with locations_csv.open("r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            geoname_id = (row.get("geoname_id") or "").strip()
+            if not geoname_id:
+                continue
+            country = (row.get("country_iso_code") or "").strip().upper()
+            if country:
+                mapping[geoname_id] = country
+    return mapping
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Build local GeoIP JSON for KaChat.")
+    parser.add_argument("--blocks", type=Path, required=True, help="IPv4 blocks CSV")
+    parser.add_argument("--locations", type=Path, required=True, help="Locations CSV")
+    parser.add_argument("--output", type=Path, required=True, help="Output JSON path")
+    parser.add_argument(
+        "--asn-blocks",
+        type=Path,
+        default=None,
+        help="Optional GeoLite2-ASN-Blocks-IPv4.csv for ASN enrichment",
+    )
+    parser.add_argument(
+        "--max-entries",
+        type=int,
+        default=60000,
+        help="Maximum output rows after filtering",
+    )
+    parser.add_argument(
+        "--max-prefix-len",
+        type=int,
+        default=24,
+        help="Drop networks more specific than this (default /24)",
+    )
+    return parser.parse_args()
+
+
+def load_asn_map(asn_blocks_csv: Optional[Path]) -> Dict[str, str]:
+    if asn_blocks_csv is None:
+        return {}
+
+    result: Dict[str, str] = {}
+    with asn_blocks_csv.open("r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            cidr = (row.get("network") or "").strip()
+            asn_num = (row.get("autonomous_system_number") or "").strip()
+            if cidr and asn_num:
+                result[cidr] = f"AS{asn_num}"
+    return result
+
+
+def build_entries(
+    blocks_csv: Path,
+    country_by_geoname: Dict[str, str],
+    asn_by_cidr: Dict[str, str],
+    max_entries: int,
+    max_prefix_len: int,
+) -> list[Entry]:
+    entries: list[Entry] = []
+
+    with blocks_csv.open("r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        for row in reader:
+            cidr = (row.get("network") or "").strip()
+            if not cidr:
+                continue
+
+            try:
+                net = ipaddress.ip_network(cidr, strict=False)
+            except ValueError:
+                continue
+
+            if net.version != 4:
+                continue
+            if net.prefixlen > max_prefix_len:
+                continue
+
+            lat_str = (row.get("latitude") or "").strip()
+            lon_str = (row.get("longitude") or "").strip()
+            if not lat_str or not lon_str:
+                continue
+
+            try:
+                latitude = float(lat_str)
+                longitude = float(lon_str)
+            except ValueError:
+                continue
+
+            geoname_id = (
+                (row.get("geoname_id") or "").strip()
+                or (row.get("registered_country_geoname_id") or "").strip()
+            )
+            country = country_by_geoname.get(geoname_id)
+
+            entries.append(
+                Entry(
+                    cidr=str(net),
+                    latitude=latitude,
+                    longitude=longitude,
+                    country_code=country,
+                    asn=asn_by_cidr.get(str(net)),
+                )
+            )
+
+            if len(entries) >= max_entries:
+                break
+
+    return entries
+
+
+def sort_key(entry: Entry) -> int:
+    net = ipaddress.ip_network(entry.cidr, strict=False)
+    return int(net.network_address)
+
+
+def serialize(entries: list[Entry]) -> list[dict]:
+    output = []
+    for item in sorted(entries, key=sort_key):
+        row = {
+            "cidr": item.cidr,
+            "latitude": item.latitude,
+            "longitude": item.longitude,
+        }
+        if item.country_code:
+            row["country_code"] = item.country_code
+        if item.asn:
+            row["asn"] = item.asn
+        output.append(row)
+    return output
+
+
+def main() -> None:
+    args = parse_args()
+    country_by_geoname = load_country_codes(args.locations)
+    asn_by_cidr = load_asn_map(args.asn_blocks)
+    entries = build_entries(
+        blocks_csv=args.blocks,
+        country_by_geoname=country_by_geoname,
+        asn_by_cidr=asn_by_cidr,
+        max_entries=args.max_entries,
+        max_prefix_len=args.max_prefix_len,
+    )
+    data = serialize(entries)
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(data, separators=(",", ":"), ensure_ascii=True), encoding="utf-8")
+    print(f"Wrote {len(data)} rows to {args.output}")
+
+
+if __name__ == "__main__":
+    main()
