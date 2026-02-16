@@ -175,7 +175,7 @@
 "No verified nodes" = "Aucun nœud vérifié";
 "Node Pool" = "Pool de nœuds";
 "Node endpoint copied." = "Point d'accès du nœud copié.";
-"Nodes actively used for requests." = "nœuds activement utilisés pour les requêtes.";
+"Nodes actively used for requests." = "Nœuds activement utilisés pour les requêtes.";
 "Not linked" = "Non lié";
 "Not registered" = "Non enregistré";
 "Notifications" = "Notifications";
@@ -205,7 +205,7 @@
 "Private key unavailable." = "Clé privée indisponible.";
 "Profile" = "Profil";
 "Profiled" = "Profilé";
-"Profiled, candidate, and suspect nodes. Showing first 20." = "nœuds profilés, candidatés et suspects. Affichage des 20 premiers.";
+"Profiled, candidate, and suspect nodes. Showing first 20." = "Nœuds profilés, candidatés et suspects. Affichage des 20 premiers.";
 "Protocol" = "Protocole";
 "Push Indexer URL" = "URL de l'indexeur push";
 "Push Notifications" = "Notifications push";
