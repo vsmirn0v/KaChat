@@ -12,7 +12,7 @@
 "Actions" = "Actions";
 "Active" = "Actif";
 "Active = in use, Verified = ready, Profiled = checked, Other = candidates/suspect" = "Actif = en cours d'utilisation, Vérifié = prêt, Profilé = vérifié, Autre = candidats/suspect";
-"Active Nodes" = "nœuds actifs";
+"Active Nodes" = "Nœuds actifs";
 "Add" = "Ajouter";
 "Add Contact" = "Ajouter un contact";
 "Add Custom Endpoint" = "Ajouter un point d'accès personnalisé";
