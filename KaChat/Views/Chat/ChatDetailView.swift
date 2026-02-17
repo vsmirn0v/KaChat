@@ -26,7 +26,6 @@ struct ChatDetailView: View {
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dismiss) private var dismiss
 
     init(contact: Contact) {
         _contact = State(initialValue: contact)
@@ -95,6 +94,7 @@ struct ChatDetailView: View {
     @State private var longPressTimer: Timer? = nil
     @State private var isDraggingMenu = false
     @State private var isMessageFocused = false
+    @State private var viewportResetTrigger = UUID()
     @State private var showDustWarning = false
     @State private var pendingDustAmountSompi: UInt64 = 0
     @FocusState private var isPaymentFocused: Bool
@@ -396,6 +396,9 @@ struct ChatDetailView: View {
                         positionInitialViewport(using: proxy)
                         scheduleOlderPrefetchIfNeeded()
                     }
+                    .onChange(of: viewportResetTrigger) { _, _ in
+                        positionInitialViewport(using: proxy)
+                    }
                     .onChange(of: messages.last?.id) { _, _ in
                         guard didInitialScroll else {
                             didInitialScroll = true
@@ -613,9 +616,65 @@ struct ChatDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
             guard let targetAddress = notification.userInfo?["contactAddress"] as? String,
                   targetAddress != contact.address else { return }
-            // Notification targets a different contact — dismiss so ChatListView
-            // can navigate to the new chat via pendingChatNavigation on reappear.
-            dismiss()
+            // Find the target contact
+            let target: Contact?
+            if let c = contactsManager.contacts.first(where: { $0.address == targetAddress }) {
+                target = c
+            } else if let conv = chatService.conversations.first(where: { $0.contact.address == targetAddress }) {
+                target = conv.contact
+            } else {
+                target = nil
+            }
+            guard let newContact = target else { return }
+            // Tear down current conversation (same as onDisappear)
+            chatService.setDraft(messageText, for: contact.address)
+            chatService.leaveConversation()
+            cancelRecording()
+            snapshotRebuildTask?.cancel()
+            storedCountTask?.cancel()
+            feeEstimateTask?.cancel()
+            recordingFeeTask?.cancel()
+            scrollInteractionResetWorkItem?.cancel()
+            pendingPrependViewportSnapshot = nil
+            clearFeeEstimationState()
+            chatService.pendingChatNavigation = nil
+            // Swap contact in-place and rebuild synchronously.
+            // initialViewportPositioned is set to false so
+            // positionInitialViewport will scroll and reveal content.
+            // viewportResetTrigger fires onChange inside ScrollViewReader
+            // to call positionInitialViewport with the proxy.
+            contact = newContact
+            messageText = ""
+            inputMode = .message
+            amountText = ""
+            initialViewportPositioned = false
+            didInitialScroll = false
+            topVisibleMessageId = nil
+            isBottomAnchorVisible = true
+            isTopAnchorVisible = false
+            isUserInteractingWithScroll = false
+            lastAutoBottomScrollAt = .distantPast
+            hasLoadedCurrentTopPage = false
+            newMessagesWhileScrolledUp = 0
+            isPrefetchingOlderMessages = false
+            lastOlderPrefetchAt = .distantPast
+            initialScrollAnchorMessageId = nil
+            lastMessageSnapshotDigest = nil
+            totalStoredMessages = 0
+            rebuildMessageSnapshotIfNeeded(force: true)
+            initialUnreadCount = max(0, conversation?.unreadCount ?? 0)
+            let readCursor = chatService.readCursor(for: newContact.address)
+            initialReadBlockTime = readCursor?.blockTime ?? 0
+            configureInitialMessageWindow()
+            chatService.enterConversation(for: newContact.address)
+            messageText = chatService.draft(for: newContact.address)
+            if let conv = chatService.conversations.first(where: { $0.contact.address == newContact.address }) {
+                chatService.markConversationAsRead(conv)
+            }
+            viewportResetTrigger = UUID()
+            Task {
+                await contactsManager.refreshBalance(for: newContact.address)
+            }
         }
         .onChange(of: messages.count) { oldCount, newCount in
             totalStoredMessages = max(totalStoredMessages, messages.count)

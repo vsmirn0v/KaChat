@@ -1,10 +1,7 @@
-"+ \(otherNodes.count - 20) more nodes" = "+ \(otherNodes.count - 20) nœuds supplémentaires";
-"+ \\(otherNodes.count - 20) more nodes" = "+ \\(otherNodes.count - 20) nœuds supplémentaires";
-"1 year" = "1 an";
+"+ \(otherNodes.count - 20) more nodes" = "+ \(otherNodes.count - 20) nœux supplementaires";
+"+ \\(otherNodes.count - 20) more nodes" = "+ \\(otherNodes.count - 20) nœuds supplementaires";
 "12 words" = "12 mots";
 "24 words (recommended)" = "24 mots (recommandé)";
-"30 days" = "30 jours";
-"90 days" = "90 jours";
 "About" = "À propos";
 "Accept" = "Accepter";
 "Account" = "Compte";
@@ -12,16 +9,15 @@
 "Actions" = "Actions";
 "Active" = "Actif";
 "Active = in use, Verified = ready, Profiled = checked, Other = candidates/suspect" = "Actif = en cours d'utilisation, Vérifié = prêt, Profilé = vérifié, Autre = candidats/suspect";
-"Active Nodes" = "Nœuds actifs";
+"Active Nodes" = "Nœeux actifs";
 "Add" = "Ajouter";
 "Add Contact" = "Ajouter un contact";
 "Add Custom Endpoint" = "Ajouter un point d'accès personnalisé";
 "Added" = "Ajouté";
 "Address" = "Adresse";
 "Address copied to clipboard." = "Adresse copiée dans le presse-papiers.";
-"All Nodes" = "Tous les nœuds";
-"All discovered nodes sorted by state and latency. Nodes are deduplicated by host:port." = "Tous les nœuds découverts et triés par état et latence. Les nœuds sont dé-dupliqués par host:port.";
-"Amount" = "Montant";
+"All Nodes" = "Tous les nœux";
+"All discovered nodes sorted by state and latency. Nodes are deduplicated by host:port." = "Tous les nœux découverts et triés par état et latence. Les nœeux sont dé-dupliqués par host:port.";
 "Anyone with your seed phrase can access your account. Never share it with anyone." = "Toute personne disposant de votre seed phrase peut accéder à votre compte. Ne la partagez jamais avec personne.";
 "Archive" = "Archiver";
 "Archived Chats" = "Discussions archivées";
@@ -38,7 +34,7 @@
 "Chat archived." = "Discussion archivée.";
 "Chats" = "Discussions";
 "Checking eligibility..." = "Vérification de l'éligibilité...";
-"Checking gift eligibility..." = "Vérification de l'éligibilité au cadeau...";
+"Checking gift eligibility..." = "Verification de l'éligibilité au cadeau...";
 "Claim Gift" = "Réclamer le cadeau";
 "Claim some KAS to get started with your new account." = "Réclamez des KAS pour démarrer avec votre nouveau compte.";
 "Claiming gift..." = "Réclamation du cadeau...";
@@ -82,7 +78,7 @@
 "Delete Account" = "Supprimer le compte";
 "Diagnostics" = "Diagnostics";
 "Disable" = "Désactiver";
-"Disable Real-Time Updates" = "Désactiver les mises à jour en temps réel";
+"Disable Real-Time Updates" = "Désactiver les mises a jour en temps réel";
 "Discover new peers" = "Découvrir de nouveaux pairs";
 "Dismiss" = "Ignorer";
 "Done" = "Terminé";
@@ -120,7 +116,7 @@
 "Important" = "Important";
 "Imported \(summary.messageCount) messages from \(summary.conversationCount) chats." = "\(summary.messageCount) messages importés depuis \(summary.conversationCount) discussions.";
 "Imported \(summary.messageCount) messages from \(summary.conversationCount) chats. Filled \(summary.filledSentContentCount) sent messages." = "\(summary.messageCount) messages importes depuis \(summary.conversationCount) discussions. \(summary.filledSentContentCount) messages envoyés. Terminé.";
-"Incoming Notifications" = "Notifications";
+"Incoming Notifications" = "Notifications"
 "Indexer URL" = "URL de l'indexeur";
 "Info" = "Info";
 "KNS API URL" = "KNS API URL";
@@ -132,7 +128,6 @@
 "Kaspa Explorer API" = "Kaspa Explorer API";
 "Kaspa Name Service" = "Kaspa Name Service";
 "Kaspa REST API URL" = "Kaspa REST API URL";
-"Keep forever" = "Conserver indéfiniment";
 "Last Message" = "Dernier message";
 "Last Sync" = "Dernière synchronisation";
 "Last failed endpoint: \(dpiWarningEndpoint)" = "Dernier point d'accès en échec : \(dpiWarningEndpoint)";
@@ -152,7 +147,6 @@
 "Manual endpoints have highest priority and are never auto-removed" = "Les points d'accès manuels ont la priorité la plus élevée et ne sont jamais supprimés automatiquement";
 "Max" = "Max";
 "Message indexer service for chat functionality" = "Service d'indexation des messages pour la fonctionnalité de discussion";
-"Message retention" = "Historique des messages";
 "Message sync appears incomplete under restricted network conditions. Consider wiping and re-syncing incoming messages on a normal connection." = "La synchronisation des messages semble incomplète sous des conditions réseau restreintes. Envisagez de supprimer et re-synchroniser les messages entrants avec une connexion normale.";
 "Name" = "Nom";
 "Name (Optional)" = "Nom (Optionnel)";
@@ -173,9 +167,9 @@
 "No other nodes" = "Aucun autre nœud";
 "No system contacts found." = "Aucun contact système trouvé.";
 "No verified nodes" = "Aucun nœud vérifié";
-"Node Pool" = "Pool de nœuds";
+"Node Pool" = "Pool de nœux";
 "Node endpoint copied." = "Point d'accès du nœud copié.";
-"Nodes actively used for requests." = "Nœuds activement utilisés pour les requêtes.";
+"Nodes actively used for requests." = "Nœux activement utilisés pour les requêtes.";
 "Not linked" = "Non lié";
 "Not registered" = "Non enregistré";
 "Notifications" = "Notifications";
@@ -185,7 +179,7 @@
 "Off" = "Désactivées";
 "Open Settings" = "Ouvrir les réglages";
 "Other" = "Autre";
-"Other Nodes" = "Autres nœuds";
+"Other Nodes" = "Autres nœux";
 "Paste" = "Coller";
 "Paste from Clipboard" = "Coller depuis le presse-papiers";
 "Payment" = "Paiement";
@@ -205,7 +199,7 @@
 "Private key unavailable." = "Clé privée indisponible.";
 "Profile" = "Profil";
 "Profiled" = "Profilé";
-"Profiled, candidate, and suspect nodes. Showing first 20." = "Nœuds profilés, candidatés et suspects. Affichage des 20 premiers.";
+"Profiled, candidate, and suspect nodes. Showing first 20." = "Nœux profilés, candidatés et suspects. Affichage des 20 premiers.";
 "Protocol" = "Protocole";
 "Push Indexer URL" = "URL de l'indexeur push";
 "Push Notifications" = "Notifications push";
@@ -213,7 +207,7 @@
 "Push subscription failed." = "Échec de l'abonnement push.";
 "REST API for transaction history and balance lookups" = "REST API pour l'historique des transactions et la consultation du solde";
 "Receive notifications when contacts send messages, even when the app is closed." = "Recevez des notifications lorsque des contacts envoient des messages, même lorsque l'application est fermée.";
-"Received" = "Reçu(s)";
+"Received" = "Reçu(s)"
 "Received %.8f KAS" = "%.8f KAS reçu(s)";
 "Received payment" = "Paiement reçu";
 "Reconnect" = "Reconnecter";
@@ -224,9 +218,8 @@
 "Registered" = "Enregistré";
 "Remove Saved Account" = "Supprimer le compte enregistré";
 "Remove from Device" = "Supprimer de l'appareil";
-"Request to communicate" = "Demande de contact";
 "Required for cross-device sync and backup of sent messages." = "Requis pour la synchronisation multi-appareils et la sauvegarde des messages envoyés.";
-"Reset to Defaults" = "Réinitialiser par défaut";
+"Reset to Defaults" = "Réinitialiser par defaut";
 "Resolved: \(resolvedDomain ??" = "Résolu : \(resolvedDomain ??";
 "Resolving KNS domain..." = "Résolution du domaine KNS...";
 "Retry Send" = "Renvoyer";
@@ -244,10 +237,7 @@
 "Seed Phrase Length" = "Longueur de la phrase de récupération";
 "Seed phrase copied. Clipboard will clear in 30s." = "Phrase de récupération copiée. Le presse-papiers sera effacé dans 30s.";
 "Select mainnet for real transactions or testnet for testing" = "Sélectionnez mainnet pour les transactions réelles ou testnet pour les tests";
-"Send message" = "Message écrit";
-"Send KAS" = "Transaction KAS";
-"Send audio" = "Message audio";
-"Sent" = "Envoyé(s)";
+"Sent" = "Envoyé(s)"
 "Set per-contact notification mode in each chat's info screen: Off, No Sound, or Sound." = "Définissez le mode de notification par contact dans l'écran d'info de chaque discussion : Désactivées, Mode Silence ou Sonore.";
 "Settings" = "Réglages";
 "Share QR" = "Partager le code QR";
@@ -284,7 +274,7 @@
 "This removes \(account.displayAlias) (\(account.shortPublicAddress)) and its local data from this device." = "Cela supprimera \(account.displayAlias) (\(account.shortPublicAddress)) et ses données locales de cet appareil.";
 "This removes \\(account.displayAlias) (\\(account.shortPublicAddress)) and its local data from this device." = "Cela supprimé \\(account.displayAlias) (\\(account.shortPublicAddress)) et ses données locales de cet appareil.";
 "This removes all incoming messages locally and in iCloud, then re-syncs them from the blockchain. Your account info and sent messages are preserved." = "Cela supprimera tous les messages entrants localement et dans iCloud, puis les re-synchronisera depuis la blockchain. Vos informations de compte et messages envoyés seront préservés.";
-"This removes discovered nodes, disconnects current sessions, and restarts discovery." = "Cela supprimera les nœuds découverts, déconnectera les sessions en cours et relancera la découverte.";
+"This removes discovered nodes, disconnects current sessions, and restarts discovery." = "Cela supprimera les nœeux découverts, déconnectera les sessions en cours et relancera la découverte.";
 "This removes local account data and messages. CloudKit sync is disabled during the wipe and re-enabled afterward." = "Cela supprimera les données de compte locales et les messages. La synchronisation CloudKit est désactivee pendant la suppression et réactivee par la suite.";
 "This signs out of your account, but keeps local wallet and message data on this device." = "Cela vous deconnectera de votre compte, mais conservera les données du portefeuille et des messages sur cet appareil.";
 "This welcome gift is a community-funded initiative." = "Ce cadeau de bienvenue est une initiative financée par la communauté.";
@@ -320,13 +310,13 @@
 "\(exact) KAS" = "\(exact) KAS";
 "\(latency) ms" = "\(latency) ms";
 "\(nodePool.activeProtocol) (\(nodePool.activeProtocolSecurity))" = "\(nodePool.activeProtocol) (\(nodePool.activeProtocolSecurity))";
-"\(warning.contactAlias) has produced \(warning.txCount) transactions in the last minute that are not relevant to you. This consumes battery and network resources.\n\nDisable real-time updates for this contact? Messages will still be fetched periodically." = "\(warning.contactAlias) a produit \(warning.txCount) transactions dans la dernière minute qui ne vous concernent pas. Cela consomme de la batterie et des ressources réseau.\n\nDésactiver les mises à jour en temps reel pour ce contact ? Les messages seront toujours récupérés périodiquement.";
+"\(warning.contactAlias) has produced \(warning.txCount) transactions in the last minute that are not relevant to you. This consumes battery and network resources.\n\nDisable real-time updates for this contact? Messages will still be fetched periodically." = "\(warning.contactAlias) a produit \(warning.txCount) transactions dans la dernière minute qui ne vous concernent pas. Cela consomme de la batterie et des ressources réseau.\n\nDésactiver les mises a jour en temps reel pour ce contact ? Les messages seront toujours récupérés périodiquement.";
 "\(watchedCount) contacts" = "\(watchedCount) contacts";
 "\(wordCount) words" = "\(wordCount) mots";
 "\\(Int(latency))ms" = "\\(Int(latency))ms";
 "\\(exact) KAS" = "\\(exact) KAS";
 "\\(latency) ms" = "\\(latency) ms";
-"\\(warning.contactAlias) has produced \\(warning.txCount) transactions in the last minute that are not relevant to you. This consumes battery and network resources.\\n\\nDisable real-time updates for this contact? Messages will still be fetched periodically." = "\\(warning.contactAlias) a produit \\(warning.txCount) transactions dans la dernière minute qui ne vous concernent pas. Cela consomme de la batterie et des ressources réseau.\\n\\nDésactiver les mises à jour en temps réel pour ce contact ? Les messages seront toujours récupérés périodiquement.";
+"\\(warning.contactAlias) has produced \\(warning.txCount) transactions in the last minute that are not relevant to you. This consumes battery and network resources.\\n\\nDisable real-time updates for this contact? Messages will still be fetched periodically." = "\\(warning.contactAlias) a produit \\(warning.txCount) transactions dans la dernière minute qui ne vous concernent pas. Cela consomme de la batterie et des ressources réseau.\\n\\nDésactiver les mises a jour en temps réel pour ce contact ? Les messages seront toujours récupérés périodiquement.";
 "\\(watchedCount) contacts" = "\\(watchedCount) contacts";
 "\\(wordCount) words" = "\\(wordCount) mots";
 "fee: -- sompi" = "frais: -- sompi";
