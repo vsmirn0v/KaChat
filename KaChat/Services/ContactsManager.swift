@@ -283,8 +283,21 @@ final class ContactsManager: ObservableObject {
 
     func updateContact(_ contact: Contact) {
         if let index = contacts.firstIndex(where: { $0.id == contact.id }) {
+            let previous = contacts[index]
             contacts[index] = contact
             saveContacts()
+
+            // Sync name change to auto-created system contact.
+            // The method verifies the auto marker internally, so safe to call for any linked contact.
+            if contact.alias != previous.alias,
+               let sysId = contact.systemContactId {
+                Task {
+                    try? await systemContactsService.updateAutoCreatedContactName(
+                        contactIdentifier: sysId,
+                        newName: contact.alias
+                    )
+                }
+            }
         }
     }
 
@@ -494,6 +507,7 @@ final class ContactsManager: ObservableObject {
         }
 
         var updated = false
+        var staleAutoCreatedIds: [(contactIdentifier: String, appContactId: UUID)] = []
         let contactIds = contacts.map(\.id)
         for contactId in contactIds {
             guard let index = contacts.firstIndex(where: { $0.id == contactId }) else { continue }
@@ -503,9 +517,17 @@ final class ContactsManager: ObservableObject {
                 if current.systemContactId != candidate.contactIdentifier ||
                     current.systemDisplayNameSnapshot != candidate.displayName ||
                     current.systemMatchConfidence != 1.0 {
+                    // Track old auto-created contact for cleanup when re-linking to a different one.
+                    if let previousId = current.systemContactId,
+                       previousId != candidate.contactIdentifier,
+                       current.systemContactLinkSource == .autoCreated {
+                        staleAutoCreatedIds.append((contactIdentifier: previousId, appContactId: current.id))
+                    }
                     contacts[index].systemContactId = candidate.contactIdentifier
                     contacts[index].systemDisplayNameSnapshot = candidate.displayName
-                    if !(current.systemContactLinkSource == .manual && current.systemContactId == candidate.contactIdentifier) {
+                    if candidate.isAutoCreated {
+                        contacts[index].systemContactLinkSource = .autoCreated
+                    } else if current.systemContactId != candidate.contactIdentifier {
                         contacts[index].systemContactLinkSource = .matched
                     }
                     contacts[index].systemMatchConfidence = 1.0
@@ -513,14 +535,28 @@ final class ContactsManager: ObservableObject {
                     updated = true
                 }
 
-                let autoAlias = Contact.generateDefaultAlias(from: current.address)
-                let trimmedAlias = current.alias.trimmingCharacters(in: .whitespacesAndNewlines)
-                // iCloud contact name takes priority over auto-generated aliases AND KNS domain names
-                let isAutoOrKNS = trimmedAlias.isEmpty || trimmedAlias == autoAlias || trimmedAlias.lowercased().hasSuffix(".kas")
-                if isAutoOrKNS {
-                    if contacts[index].alias != candidate.displayName {
-                        contacts[index].alias = candidate.displayName
-                        updated = true
+                // Correct source if it drifted (e.g. previously corrupted to .matched).
+                if candidate.isAutoCreated,
+                   contacts[index].systemContactLinkSource != .autoCreated {
+                    contacts[index].systemContactLinkSource = .autoCreated
+                    updated = true
+                } else if !candidate.isAutoCreated,
+                          contacts[index].systemContactLinkSource == .autoCreated {
+                    contacts[index].systemContactLinkSource = .matched
+                    updated = true
+                }
+
+                // Auto-created contacts mirror the app alias, so don't adopt their name back.
+                if !candidate.isAutoCreated {
+                    let autoAlias = Contact.generateDefaultAlias(from: current.address)
+                    let trimmedAlias = current.alias.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // iCloud contact name takes priority over auto-generated aliases AND KNS domain names
+                    let isAutoOrKNS = trimmedAlias.isEmpty || trimmedAlias == autoAlias || trimmedAlias.lowercased().hasSuffix(".kas")
+                    if isAutoOrKNS {
+                        if contacts[index].alias != candidate.displayName {
+                            contacts[index].alias = candidate.displayName
+                            updated = true
+                        }
                     }
                 }
             } else if autoCreateSystemContactsEnabled && current.systemContactId == nil {
@@ -573,6 +609,29 @@ final class ContactsManager: ObservableObject {
         if updated {
             saveContacts(syncShared: true, updatePush: false, publishContacts: true)
         }
+
+        // Clean up stale auto-created contacts that were replaced by a different match.
+        for stale in staleAutoCreatedIds {
+            _ = try? await systemContactsService.deleteAutoCreatedKaChatContact(
+                contactIdentifier: stale.contactIdentifier,
+                appContactId: stale.appContactId
+            )
+        }
+
+        // Remove any orphaned auto-created contacts not actively linked.
+        var activeLinks: [String: String] = [:]
+        for contact in contacts {
+            if contact.systemContactLinkSource == .autoCreated,
+               let sysId = contact.systemContactId {
+                activeLinks[sysId] = contact.address.lowercased()
+            }
+        }
+        if !activeLinks.isEmpty || force {
+            let removed = await systemContactsService.removeOrphanedAutoCreatedContacts(activeLinks: activeLinks)
+            if removed > 0 {
+                NSLog("[ContactsManager] Removed %d orphaned auto-created system contacts", removed)
+            }
+        }
     }
 
     func linkContact(_ contact: Contact, to candidate: SystemContactCandidate, updateAlias: Bool) {
@@ -583,7 +642,6 @@ final class ContactsManager: ObservableObject {
         // iCloud contact name takes priority over auto-generated aliases and KNS domain names
         let shouldAdoptSystemName = updateAlias || trimmedAlias.isEmpty || trimmedAlias == autoAlias || trimmedAlias.lowercased().hasSuffix(".kas")
         let previousId = contacts[index].systemContactId
-        let previousSource = contacts[index].systemContactLinkSource
         contacts[index].systemContactId = candidate.contactIdentifier
         contacts[index].systemDisplayNameSnapshot = candidate.displayName
         contacts[index].systemContactLinkSource = .manual
@@ -594,15 +652,19 @@ final class ContactsManager: ObservableObject {
         }
         saveContacts(syncShared: true, updatePush: false, publishContacts: true)
 
-        // If user relinked from an auto-created record, remove that duplicate safely.
-        if previousSource == .autoCreated,
-           let previousId,
-           previousId != candidate.contactIdentifier {
+        // Clean up old auto-created contact when re-linking to a real one.
+        if let previousId, previousId != candidate.contactIdentifier {
             Task {
-                _ = try? await systemContactsService.deleteAutoCreatedKaChatContact(
+                let deleted = try? await systemContactsService.deleteAutoCreatedKaChatContact(
                     contactIdentifier: previousId,
                     appContactId: contact.id
                 )
+                if deleted != true {
+                    // Marker may have been lost; strip Kaspa data to prevent re-matching.
+                    try? await systemContactsService.removeKaChatData(
+                        contactIdentifier: previousId
+                    )
+                }
             }
         }
     }
@@ -623,7 +685,6 @@ final class ContactsManager: ObservableObject {
         // iCloud contact name takes priority over auto-generated aliases and KNS domain names
         let shouldAdoptSystemName = updateAlias || trimmedAlias.isEmpty || trimmedAlias == autoAlias || trimmedAlias.lowercased().hasSuffix(".kas")
         let previousId = contacts[index].systemContactId
-        let previousSource = contacts[index].systemContactLinkSource
         contacts[index].systemContactId = target.contactIdentifier
         contacts[index].systemDisplayNameSnapshot = target.displayName
         contacts[index].systemContactLinkSource = .manual
@@ -655,25 +716,74 @@ final class ContactsManager: ObservableObject {
                   target.contactIdentifier, error.localizedDescription)
         }
 
-        // If user relinked from an auto-created record, remove that duplicate safely.
-        if previousSource == .autoCreated,
-           let previousId,
-           previousId != target.contactIdentifier {
-            _ = try? await systemContactsService.deleteAutoCreatedKaChatContact(
+        // Clean up old auto-created contact when re-linking to a real one.
+        if let previousId, previousId != target.contactIdentifier {
+            let deleted = try? await systemContactsService.deleteAutoCreatedKaChatContact(
                 contactIdentifier: previousId,
                 appContactId: contact.id
             )
+            if deleted != true {
+                // Marker may have been lost; strip Kaspa data to prevent re-matching.
+                try? await systemContactsService.removeKaChatData(
+                    contactIdentifier: previousId
+                )
+            }
         }
     }
 
     func unlinkSystemContact(_ contact: Contact) {
         guard let index = contacts.firstIndex(where: { $0.id == contact.id }) else { return }
+        let previousId = contacts[index].systemContactId
+        let previousSource = contacts[index].systemContactLinkSource
         contacts[index].systemContactId = nil
         contacts[index].systemDisplayNameSnapshot = nil
         contacts[index].systemContactLinkSource = nil
         contacts[index].systemMatchConfidence = nil
         contacts[index].systemLastSyncedAt = Date()
         saveContacts(syncShared: true, updatePush: false, publishContacts: true)
+
+        let contactId = contact.id
+        let alias = contact.alias
+        let address = contact.address
+        Task {
+            if let previousId {
+                if previousSource == .autoCreated {
+                    // Delete the old auto-created shadow entirely.
+                    _ = try? await systemContactsService.deleteAutoCreatedKaChatContact(
+                        contactIdentifier: previousId,
+                        appContactId: contactId
+                    )
+                } else {
+                    // Real system contact: strip Kaspa data so it won't be re-matched.
+                    try? await systemContactsService.removeKaChatData(
+                        contactIdentifier: previousId
+                    )
+                }
+            }
+            // Re-create a shadow auto-created contact for cross-device sync.
+            guard autoCreateSystemContactsEnabled else { return }
+            let domains = await fetchKNSInfo(for: contact)?.allDomains.map { $0.fullName } ?? []
+            do {
+                let created = try await systemContactsService.createKaChatContact(
+                    displayName: alias,
+                    address: address,
+                    domains: domains,
+                    appContactId: contactId
+                )
+                if !created.contactIdentifier.isEmpty,
+                   let writeIndex = contacts.firstIndex(where: { $0.id == contactId }),
+                   contacts[writeIndex].systemContactId == nil {
+                    contacts[writeIndex].systemContactId = created.contactIdentifier
+                    contacts[writeIndex].systemDisplayNameSnapshot = created.displayName
+                    contacts[writeIndex].systemContactLinkSource = .autoCreated
+                    contacts[writeIndex].systemMatchConfidence = 1.0
+                    contacts[writeIndex].systemLastSyncedAt = Date()
+                    saveContacts(syncShared: true, updatePush: false, publishContacts: true)
+                }
+            } catch {
+                // Best effort only.
+            }
+        }
     }
 
     // MARK: - Validation
@@ -938,7 +1048,8 @@ actor SystemContactsService {
                 CNContactFamilyNameKey as CNKeyDescriptor,
                 CNContactMiddleNameKey as CNKeyDescriptor,
                 CNContactNicknameKey as CNKeyDescriptor,
-                CNContactOrganizationNameKey as CNKeyDescriptor
+                CNContactOrganizationNameKey as CNKeyDescriptor,
+                CNContactUrlAddressesKey as CNKeyDescriptor
             ]
 
             let request = CNContactFetchRequest(keysToFetch: keys)
@@ -949,6 +1060,15 @@ actor SystemContactsService {
                 guard contact.isKeyAvailable(CNContactIdentifierKey) else { return }
                 let contactIdentifier = contact.identifier
                 guard !contactIdentifier.isEmpty else { return }
+
+                // Skip auto-created KaChat contacts — they're shadow contacts for sync,
+                // not real contacts the user should link to.
+                if contact.isKeyAvailable(CNContactUrlAddressesKey) {
+                    let isAutoCreated = contact.urlAddresses.contains {
+                        ($0.value as String).lowercased().hasPrefix(self.kaChatAutoMarkerPrefix)
+                    }
+                    if isAutoCreated { return }
+                }
 
                 targets.append(
                     SystemContactLinkTarget(
@@ -989,13 +1109,18 @@ actor SystemContactsService {
             }
 
             let displayName = includeDisplayName ? self.preferredDisplayName(for: contact) : "System Contact"
+            let hasAutoMarker: Bool = contact.isKeyAvailable(CNContactUrlAddressesKey)
+                && contact.urlAddresses.contains {
+                    ($0.value as String).lowercased().hasPrefix(self.kaChatAutoMarkerPrefix)
+                }
             let extracted = self.extractKaspaAddresses(from: addressSources)
             for address in extracted {
                 let candidate = SystemContactCandidate(
                     contactIdentifier: contactIdentifier,
                     displayName: displayName,
                     address: address,
-                    sourceHint: nil
+                    sourceHint: nil,
+                    isAutoCreated: hasAutoMarker
                 )
 
                 // Keep richer name if same Kaspa address appears in multiple contacts.
@@ -1122,6 +1247,8 @@ actor SystemContactsService {
             let mutable = CNMutableContact()
             let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
             mutable.givenName = trimmed.isEmpty ? "Kaspa Contact" : trimmed
+            mutable.organizationName = "KaChat"
+            mutable.note = "Auto-managed by KaChat"
 
             let kaspaValue = address.lowercased()
             mutable.urlAddresses.append(CNLabeledValue(label: kaspaURLLabel, value: kaspaValue as NSString))
@@ -1153,6 +1280,29 @@ actor SystemContactsService {
         }
     }
 
+    func updateAutoCreatedContactName(contactIdentifier: String, newName: String) async throws {
+        try await performStoreOperation { [self] in
+            let keys: [CNKeyDescriptor] = [
+                CNContactIdentifierKey as CNKeyDescriptor,
+                CNContactGivenNameKey as CNKeyDescriptor,
+                CNContactFamilyNameKey as CNKeyDescriptor,
+                CNContactUrlAddressesKey as CNKeyDescriptor
+            ]
+            let contact = try store.unifiedContact(withIdentifier: contactIdentifier, keysToFetch: keys)
+            let isAutoCreated = contact.urlAddresses.contains {
+                ($0.value as String).lowercased().hasPrefix(kaChatAutoMarkerPrefix)
+            }
+            guard isAutoCreated else { return }
+            guard let mutable = contact.mutableCopy() as? CNMutableContact else { return }
+            let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+            mutable.givenName = trimmed.isEmpty ? "Kaspa Contact" : trimmed
+            mutable.familyName = ""
+            let request = CNSaveRequest()
+            request.update(mutable)
+            try store.execute(request)
+        }
+    }
+
     func deleteAutoCreatedKaChatContact(contactIdentifier: String, appContactId: UUID) async throws -> Bool {
         try await performStoreOperation { [self] in
             let keys: [CNKeyDescriptor] = [
@@ -1172,6 +1322,88 @@ actor SystemContactsService {
             request.delete(mutable)
             try store.execute(request)
             return true
+        }
+    }
+
+    /// Removes KaChat-managed data (Kaspa address URLs, KNS IM entries, auto marker) from a system contact.
+    /// Used when user explicitly unlinks, so the contact won't be re-matched on next refresh.
+    func removeKaChatData(contactIdentifier: String) async throws {
+        try await performStoreOperation { [self] in
+            let keys: [CNKeyDescriptor] = [
+                CNContactIdentifierKey as CNKeyDescriptor,
+                CNContactUrlAddressesKey as CNKeyDescriptor,
+                CNContactInstantMessageAddressesKey as CNKeyDescriptor
+            ]
+            let contact = try store.unifiedContact(withIdentifier: contactIdentifier, keysToFetch: keys)
+            guard let mutable = contact.mutableCopy() as? CNMutableContact else { return }
+
+            mutable.urlAddresses.removeAll { entry in
+                let value = (entry.value as String).lowercased()
+                return entry.label == kaspaURLLabel
+                    || value.hasPrefix(kaChatAutoMarkerPrefix)
+                    || (addressRegex?.firstMatch(
+                            in: value, options: [],
+                            range: NSRange(location: 0, length: (value as NSString).length)
+                        ) != nil)
+            }
+
+            mutable.instantMessageAddresses.removeAll { entry in
+                entry.value.service.lowercased() == knsInstantMessageService.lowercased()
+            }
+
+            let request = CNSaveRequest()
+            request.update(mutable)
+            try store.execute(request)
+        }
+    }
+
+    /// Removes duplicate and orphaned auto-created KaChat contacts from the system contacts store.
+    /// `activeLinks` maps currently-linked system contact identifiers to their Kaspa addresses.
+    /// Any auto-created contact whose identifier is NOT in `activeLinks` is deleted.
+    func removeOrphanedAutoCreatedContacts(activeLinks: [String: String]) async -> Int {
+        do {
+            return try await performStoreOperation { [self] in
+                let keys: [CNKeyDescriptor] = [
+                    CNContactIdentifierKey as CNKeyDescriptor,
+                    CNContactUrlAddressesKey as CNKeyDescriptor
+                ]
+                let fetchRequest = CNContactFetchRequest(keysToFetch: keys)
+                fetchRequest.unifyResults = false
+
+                var toDelete: [CNMutableContact] = []
+                try store.enumerateContacts(with: fetchRequest) { contact, _ in
+                    guard contact.isKeyAvailable(CNContactIdentifierKey),
+                          !contact.identifier.isEmpty else { return }
+
+                    let hasAutoMarker = contact.urlAddresses.contains {
+                        ($0.value as String).lowercased().hasPrefix(self.kaChatAutoMarkerPrefix)
+                    }
+                    guard hasAutoMarker else { return }
+
+                    // This is an auto-created KaChat contact.
+                    // Keep it only if it's actively linked.
+                    if activeLinks[contact.identifier] != nil {
+                        return
+                    }
+
+                    if let mutable = contact.mutableCopy() as? CNMutableContact {
+                        toDelete.append(mutable)
+                    }
+                }
+
+                guard !toDelete.isEmpty else { return 0 }
+
+                let request = CNSaveRequest()
+                for mutable in toDelete {
+                    request.delete(mutable)
+                }
+                try store.execute(request)
+                return toDelete.count
+            }
+        } catch {
+            NSLog("[SystemContactsService] Failed to remove orphaned auto-created contacts: %@",
+                  error.localizedDescription)
+            return 0
         }
     }
 

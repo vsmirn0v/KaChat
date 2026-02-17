@@ -231,6 +231,7 @@ struct SystemContactCandidate: Identifiable, Equatable {
     let displayName: String
     let address: String
     let sourceHint: String?
+    let isAutoCreated: Bool
 }
 
 struct SystemContactLinkTarget: Identifiable, Equatable {

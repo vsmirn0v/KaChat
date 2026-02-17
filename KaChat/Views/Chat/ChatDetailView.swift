@@ -1070,7 +1070,7 @@ struct ChatDetailView: View {
                 .foregroundStyle(.orange)
                 .font(.subheadline)
                 .padding(.top, 1)
-            Text("The recipient won't be notified about these messages. Send a request to communicate or payment so they can discover this conversation or ask them to add your contact manually. If sending to older wallets like Kasia.fyi/Kasanova a request to communicate might be required (0.2 KAS per request).")
+            Text("When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, hold the send button and slide up to request to communicate. This will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

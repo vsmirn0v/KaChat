@@ -263,7 +263,7 @@
 "Tap a node to copy host:port." = "ノードをタップしてhost:portをコピー。";
 "Tap send to record" = "送信をタップして録音";
 "Tap to reveal seed phrase" = "タップしてseed phraseを表示";
-"The recipient won't be notified about these messages. Send a request to communicate or payment so they can discover this conversation or ask them to add your contact manually. If sending to older wallets like Kasia.fyi/Kasanova a request to communicate might be required (0.2 KAS per request)." = "受信者にはこれらのメッセージが通知されません。通信リクエストまたは支払いを送信して会話を発見してもらうか、手動であなたの連絡先を追加するよう依頼してください。Kasia.fyi/Kasanovaなどの古いウォレットに送信する場合、通信リクエストが必要になる場合があります（リクエストごとに0.2 KAS）。";
+"When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, hold the send button and slide up to request to communicate. This will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)" = "KaChatで新しい相手にメッセージを送ると、相手には通知されず、相手もあなたにメッセージを送るかあなたを追加するまであなたのメッセージは表示されません。これによりスパムを防ぎ、プライバシーが守られます。相手に通知したい場合は、送信ボタンを長押しして上にスライドし、コミュニケーションのリクエストを送信してください。これには0.2 KASかかります。（注：KaChat以外のすべてのメッセージングアプリではコミュニケーションリクエストが必要です）";
 "This account will be removed from this device." = "このアカウントはこのデバイスから削除されます。";
 "This contact will be linked after it is created. You still need to enter a Kaspa address or KNS domain." = "この連絡先は作成後にリンクされます。KaspaアドレスまたはKNSドメインの入力が必要です。";
 "This deletes all local data and CloudKit message records. This cannot be undone." = "すべてのローカルデータとCloudKitのメッセージ記録が削除されます。この操作は元に戻せません。";

@@ -17,6 +17,7 @@ struct ChatInfoView: View {
     @State private var showSystemContactLinkPicker = false
     @State private var linkedSystemContactId: String?
     @State private var linkedSystemContactName: String?
+    @State private var linkedSystemContactSource: SystemContactLinkSource?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -24,6 +25,12 @@ struct ChatInfoView: View {
     @State private var messageReceived: Int = 0
     @FocusState private var isEditing: Bool
     private let qrContext = CIContext()
+
+    /// True when the contact is linked to a user-visible system contact (manual or matched), not an auto-created shadow.
+    private var hasUserVisibleLink: Bool {
+        guard linkedSystemContactId != nil else { return false }
+        return linkedSystemContactSource == .manual || linkedSystemContactSource == .matched
+    }
 
     private var knsInfo: KNSAddressInfo? {
         contactsManager.getKNSInfo(for: contact)
@@ -142,7 +149,7 @@ struct ChatInfoView: View {
                 }
 
                 Section("System Contact") {
-                    if let linkedSystemContactName, !linkedSystemContactName.isEmpty {
+                    if hasUserVisibleLink, let linkedSystemContactName, !linkedSystemContactName.isEmpty {
                         HStack {
                             Text("Linked")
                             Spacer()
@@ -160,14 +167,16 @@ struct ChatInfoView: View {
                         Label("Link from Contacts", systemImage: "person.crop.circle.badge.plus")
                     }
 
-                    if linkedSystemContactId != nil {
+                    if hasUserVisibleLink {
                         Button(role: .destructive) {
                             contactsManager.unlinkSystemContact(contact)
                             linkedSystemContactId = nil
                             linkedSystemContactName = nil
+                            linkedSystemContactSource = nil
                             var updatedContact = contact
                             updatedContact.systemContactId = nil
                             updatedContact.systemDisplayNameSnapshot = nil
+                            updatedContact.systemContactLinkSource = nil
                             contact = updatedContact
                             showToast("System contact unlinked.")
                         } label: {
@@ -285,10 +294,12 @@ struct ChatInfoView: View {
                                 await MainActor.run {
                                     linkedSystemContactId = target.contactIdentifier
                                     linkedSystemContactName = target.displayName
+                                    linkedSystemContactSource = .manual
                                     editedAlias = target.displayName
                                     var updatedContact = contact
                                     updatedContact.systemContactId = target.contactIdentifier
                                     updatedContact.systemDisplayNameSnapshot = target.displayName
+                                    updatedContact.systemContactLinkSource = .manual
                                     updatedContact.alias = target.displayName
                                     contact = updatedContact
                                     showToast("Linked to \(target.displayName).")
@@ -322,6 +333,7 @@ struct ChatInfoView: View {
                 realtimeUpdatesDisabled = contact.realtimeUpdatesDisabled
                 linkedSystemContactId = contact.systemContactId
                 linkedSystemContactName = contact.systemDisplayNameSnapshot
+                linkedSystemContactSource = contact.systemContactLinkSource
             }
             .task {
                 // Fetch KNS info if not already cached
@@ -378,6 +390,7 @@ struct ChatInfoView: View {
         updatedContact.notificationModeOverride = notificationModeOverride
         updatedContact.systemContactId = linkedSystemContactId
         updatedContact.systemDisplayNameSnapshot = linkedSystemContactName
+        updatedContact.systemContactLinkSource = linkedSystemContactSource
         // TODO: Fix realtimeUpdatesDisabled feature - currently broken, disabled until fixed
         // let realtimeSettingChanged = updatedContact.realtimeUpdatesDisabled != realtimeUpdatesDisabled
         // updatedContact.realtimeUpdatesDisabled = realtimeUpdatesDisabled

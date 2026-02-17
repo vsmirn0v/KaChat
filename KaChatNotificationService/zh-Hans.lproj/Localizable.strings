@@ -263,7 +263,7 @@
 "Tap a node to copy host:port." = "点击节点复制 host:port。";
 "Tap send to record" = "点击发送以录音";
 "Tap to reveal seed phrase" = "点击显示 seed phrase";
-"The recipient won't be notified about these messages. Send a request to communicate or payment so they can discover this conversation or ask them to add your contact manually. If sending to older wallets like Kasia.fyi/Kasanova a request to communicate might be required (0.2 KAS per request)." = "收件人不会收到这些消息的通知。发送通信请求或付款让对方发现此会话，或要求对方手动添加你的联系人。向 Kasia.fyi/Kasanova 等旧版钱包发送时可能需要通信请求（每次请求 0.2 KAS）。";
+"When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, hold the send button and slide up to request to communicate. This will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)" = "当你在KaChat上给新联系人发消息时，对方不会收到通知，你的消息会保持隐藏状态，直到对方也给你发消息或添加你为止。这可以防止垃圾信息并提高你的隐私安全。如果你希望对方收到通知，请长按发送按钮并向上滑动以请求建立通讯。此操作将花费0.2 KAS。（注意：所有非KaChat的消息应用都需要发送通讯请求）";
 "This account will be removed from this device." = "此账户将从此设备中移除。";
 "This contact will be linked after it is created. You still need to enter a Kaspa address or KNS domain." = "此联系人将在创建后关联。你仍需输入 Kaspa 地址或 KNS 域名。";
 "This deletes all local data and CloudKit message records. This cannot be undone." = "这将删除所有本地数据和 CloudKit 消息记录。此操作不可撤销。";
