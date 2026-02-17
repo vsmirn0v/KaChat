@@ -1039,7 +1039,7 @@ struct ChatDetailView: View {
 
     private struct ModeMenuItem: Identifiable {
         let id = UUID()
-        let title: String
+        let title: LocalizedStringKey
         let icon: String
         let isDestructive: Bool
         let action: () -> Void

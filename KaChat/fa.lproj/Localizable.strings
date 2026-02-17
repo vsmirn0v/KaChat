@@ -100,7 +100,10 @@
 "Gift claimed" = "هدیه دریافت شد";
 "Gift sent to your wallet!" = "هدیه به کیف پول شما ارسال شد!";
 "Gift unavailable" = "هدیه در دسترس نیست";
-"Handshake" = "دست‌دهی";
+"Request to communicate" = "درخواست ارتباط";
+"Send audio" = "ارسال صدا";
+"Send KAS" = "ارسال KAS";
+"Send message" = "ارسال پیام";
 "Hide auto-created payment chats" = "مخفی کردن گفتگوهای پرداخت خودکار";
 "High Transaction Traffic" = "ترافیک بالای تراکنش";
 "I have written down my seed phrase and stored it securely" = "seed phrase خود را یادداشت کرده و به صورت امن ذخیره کرده‌ام";

@@ -100,7 +100,10 @@
 "Gift claimed" = "礼物已领取";
 "Gift sent to your wallet!" = "礼物已发送到你的钱包！";
 "Gift unavailable" = "礼物不可用";
-"Handshake" = "握手";
+"Request to communicate" = "请求通信";
+"Send audio" = "发送语音";
+"Send KAS" = "发送 KAS";
+"Send message" = "发送消息";
 "Hide auto-created payment chats" = "隐藏自动创建的付款聊天";
 "High Transaction Traffic" = "交易流量过高";
 "I have written down my seed phrase and stored it securely" = "我已写下 seed phrase 并安全保管";

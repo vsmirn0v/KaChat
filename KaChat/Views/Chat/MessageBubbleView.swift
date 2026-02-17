@@ -262,7 +262,7 @@ struct MessageBubbleView: View {
             HStack(spacing: 4) {
                 Image(systemName: "hand.wave.fill")
                     .font(.caption2)
-                Text("Handshake")
+                Text("Request to communicate")
                     .font(.caption2)
             }
             .foregroundColor(.secondary)

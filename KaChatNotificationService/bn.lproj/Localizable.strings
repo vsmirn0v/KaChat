@@ -100,7 +100,10 @@
 "Gift claimed" = "উপহার নেওয়া হয়েছে";
 "Gift sent to your wallet!" = "উপহার আপনার ওয়ালেটে পাঠানো হয়েছে!";
 "Gift unavailable" = "উপহার উপলভ্য নয়";
-"Handshake" = "হ্যান্ডশেক";
+"Request to communicate" = "যোগাযোগের অনুরোধ";
+"Send audio" = "অডিও পাঠান";
+"Send KAS" = "KAS পাঠান";
+"Send message" = "বার্তা পাঠান";
 "Hide auto-created payment chats" = "স্বয়ংক্রিয় তৈরি পেমেন্ট চ্যাট লুকান";
 "High Transaction Traffic" = "উচ্চ ট্রানজ্যাকশন ট্র্যাফিক";
 "I have written down my seed phrase and stored it securely" = "আমি আমার seed phrase লিখে রেখেছি এবং নিরাপদে সংরক্ষণ করেছি";

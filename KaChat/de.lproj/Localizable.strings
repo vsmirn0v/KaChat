@@ -100,7 +100,10 @@
 "Gift claimed" = "Geschenk beansprucht";
 "Gift sent to your wallet!" = "Geschenk an deine Wallet gesendet!";
 "Gift unavailable" = "Geschenk nicht verfügbar";
-"Handshake" = "Handshake";
+"Request to communicate" = "Kommunikationsanfrage";
+"Send audio" = "Audio senden";
+"Send KAS" = "KAS senden";
+"Send message" = "Nachricht senden";
 "Hide auto-created payment chats" = "Automatisch erstellte Zahlungs-Chats ausblenden";
 "High Transaction Traffic" = "Hohes Transaktionsaufkommen";
 "I have written down my seed phrase and stored it securely" = "Ich habe meine Seed Phrase aufgeschrieben und sicher aufbewahrt";

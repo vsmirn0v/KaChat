@@ -100,7 +100,10 @@
 "Gift claimed" = "Đã nhận quà";
 "Gift sent to your wallet!" = "Quà đã được gửi đến ví của bạn!";
 "Gift unavailable" = "Không có quà";
-"Handshake" = "Bắt tay";
+"Request to communicate" = "Yêu cầu liên lạc";
+"Send audio" = "Gửi âm thanh";
+"Send KAS" = "Gửi KAS";
+"Send message" = "Gửi tin nhắn";
 "Hide auto-created payment chats" = "Ẩn cuộc trò chuyện thanh toán tự động tạo";
 "High Transaction Traffic" = "Lưu lượng giao dịch cao";
 "I have written down my seed phrase and stored it securely" = "Tôi đã ghi lại seed phrase và lưu trữ an toàn";

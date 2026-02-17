@@ -100,7 +100,10 @@
 "Gift claimed" = "تم استلام الهدية";
 "Gift sent to your wallet!" = "الهدية اتبعتت لمحفظتك!";
 "Gift unavailable" = "الهدية غير متاحة";
-"Handshake" = "مصافحة";
+"Request to communicate" = "طلب التواصل";
+"Send audio" = "إرسال صوت";
+"Send KAS" = "إرسال KAS";
+"Send message" = "إرسال رسالة";
 "Hide auto-created payment chats" = "إخفاء محادثات الدفع المنشأة تلقائياً";
 "High Transaction Traffic" = "حركة معاملات عالية";
 "I have written down my seed phrase and stored it securely" = "لقد كتبت seed phrase الخاصة بي وخزنتها بأمان";

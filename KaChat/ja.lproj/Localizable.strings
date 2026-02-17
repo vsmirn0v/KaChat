@@ -100,7 +100,10 @@
 "Gift claimed" = "ギフトを受け取りました";
 "Gift sent to your wallet!" = "ギフトがあなたのウォレットに送信されました！";
 "Gift unavailable" = "ギフトを利用できません";
-"Handshake" = "ハンドシェイク";
+"Request to communicate" = "通信リクエスト";
+"Send audio" = "音声を送信";
+"Send KAS" = "KASを送信";
+"Send message" = "メッセージを送信";
 "Hide auto-created payment chats" = "自動作成された支払いチャットを非表示";
 "High Transaction Traffic" = "トランザクション量が多い";
 "I have written down my seed phrase and stored it securely" = "seed phraseを書き留めて安全に保管しました";

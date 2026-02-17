@@ -100,7 +100,10 @@
 "Gift claimed" = "המתנה התקבלה";
 "Gift sent to your wallet!" = "המתנה נשלחה לארנק שלך!";
 "Gift unavailable" = "המתנה אינה זמינה";
-"Handshake" = "לחיצת יד";
+"Request to communicate" = "בקשה לתקשורת";
+"Send audio" = "שלח הודעה קולית";
+"Send KAS" = "שלח KAS";
+"Send message" = "שלח הודעה";
 "Hide auto-created payment chats" = "הסתר צ'אטי תשלום שנוצרו אוטומטית";
 "High Transaction Traffic" = "תנועת עסקאות גבוהה";
 "I have written down my seed phrase and stored it securely" = "רשמתי את ה-seed phrase שלי ושמרתי אותו בצורה מאובטחת";

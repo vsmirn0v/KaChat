@@ -100,7 +100,10 @@
 "Gift claimed" = "Подарок получен";
 "Gift sent to your wallet!" = "Подарок отправлен на ваш кошелек!";
 "Gift unavailable" = "Подарок недоступен";
-"Handshake" = "Рукопожатие";
+"Request to communicate" = "Запрос на общение";
+"Send audio" = "Отправить аудио";
+"Send KAS" = "Отправить KAS";
+"Send message" = "Отправить сообщение";
 "Hide auto-created payment chats" = "Скрыть автосозданные чаты платежей";
 "High Transaction Traffic" = "Высокий трафик транзакций";
 "I have written down my seed phrase and stored it securely" = "Я записал(а) свою seed phrase и сохранил(а) её в безопасном месте";

@@ -100,7 +100,10 @@
 "Gift claimed" = "उपहार प्राप्त हुआ";
 "Gift sent to your wallet!" = "उपहार आपके वॉलेट में भेज दिया गया!";
 "Gift unavailable" = "उपहार उपलब्ध नहीं है";
-"Handshake" = "हैंडशेक";
+"Request to communicate" = "संवाद का अनुरोध";
+"Send audio" = "ऑडियो भेजें";
+"Send KAS" = "KAS भेजें";
+"Send message" = "संदेश भेजें";
 "Hide auto-created payment chats" = "स्वतः बनाए गए भुगतान चैट छुपाएं";
 "High Transaction Traffic" = "उच्च ट्रांज़ैक्शन ट्रैफ़िक";
 "I have written down my seed phrase and stored it securely" = "मैंने अपना seed phrase लिख लिया है और इसे सुरक्षित रूप से संग्रहित कर लिया है";

@@ -100,7 +100,10 @@
 "Gift claimed" = "Hediye alındı";
 "Gift sent to your wallet!" = "Hediye cüzdanına gönderildi!";
 "Gift unavailable" = "Hediye kullanılamıyor";
-"Handshake" = "El Sıkışma";
+"Request to communicate" = "İletişim talebi";
+"Send audio" = "Ses gönder";
+"Send KAS" = "KAS gönder";
+"Send message" = "Mesaj gönder";
 "Hide auto-created payment chats" = "Otomatik oluşturulan ödeme sohbetlerini gizle";
 "High Transaction Traffic" = "Yüksek İşlem Trafiği";
 "I have written down my seed phrase and stored it securely" = "Seed phrase'imi yazdım ve güvenli bir yerde sakladım";

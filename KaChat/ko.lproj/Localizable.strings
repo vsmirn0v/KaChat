@@ -100,7 +100,10 @@
 "Gift claimed" = "선물 수령 완료";
 "Gift sent to your wallet!" = "지갑으로 선물이 전송되었습니다!";
 "Gift unavailable" = "선물을 이용할 수 없습니다";
-"Handshake" = "핸드셰이크";
+"Request to communicate" = "통신 요청";
+"Send audio" = "오디오 보내기";
+"Send KAS" = "KAS 보내기";
+"Send message" = "메시지 보내기";
 "Hide auto-created payment chats" = "자동 생성된 결제 채팅 숨기기";
 "High Transaction Traffic" = "높은 트랜잭션 트래픽";
 "I have written down my seed phrase and stored it securely" = "seed phrase를 적어서 안전하게 보관했습니다";

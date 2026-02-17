@@ -100,7 +100,10 @@
 "Gift claimed" = "Gift claimed";
 "Gift sent to your wallet!" = "Gift sent to your wallet!";
 "Gift unavailable" = "Gift unavailable";
-"Handshake" = "Handshake";
+"Request to communicate" = "Request to communicate";
+"Send audio" = "Send audio";
+"Send KAS" = "Send KAS";
+"Send message" = "Send message";
 "Hide auto-created payment chats" = "Hide auto-created payment chats";
 "High Transaction Traffic" = "High Transaction Traffic";
 "I have written down my seed phrase and stored it securely" = "I have written down my seed phrase and stored it securely";
