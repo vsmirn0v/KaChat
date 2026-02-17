@@ -118,7 +118,7 @@
 "Important" = "Important";
 "Imported \(summary.messageCount) messages from \(summary.conversationCount) chats." = "\(summary.messageCount) messages importés depuis \(summary.conversationCount) discussions.";
 "Imported \(summary.messageCount) messages from \(summary.conversationCount) chats. Filled \(summary.filledSentContentCount) sent messages." = "\(summary.messageCount) messages importes depuis \(summary.conversationCount) discussions. \(summary.filledSentContentCount) messages envoyés. Terminé.";
-"Incoming Notifications" = "Notifications"
+"Incoming Notifications" = "Notifications";
 "Indexer URL" = "URL de l'indexeur";
 "Info" = "Info";
 "KNS API URL" = "KNS API URL";
@@ -209,7 +209,7 @@
 "Push subscription failed." = "Échec de l'abonnement push.";
 "REST API for transaction history and balance lookups" = "REST API pour l'historique des transactions et la consultation du solde";
 "Receive notifications when contacts send messages, even when the app is closed." = "Recevez des notifications lorsque des contacts envoient des messages, même lorsque l'application est fermée.";
-"Received" = "Reçu(s)"
+"Received" = "Reçu(s)";
 "Received %.8f KAS" = "%.8f KAS reçu(s)";
 "Received payment" = "Paiement reçu";
 "Reconnect" = "Reconnecter";
@@ -239,7 +239,7 @@
 "Seed Phrase Length" = "Longueur de la phrase de récupération";
 "Seed phrase copied. Clipboard will clear in 30s." = "Phrase de récupération copiée. Le presse-papiers sera effacé dans 30s.";
 "Select mainnet for real transactions or testnet for testing" = "Sélectionnez mainnet pour les transactions réelles ou testnet pour les tests";
-"Sent" = "Envoyé(s)"
+"Sent" = "Envoyé(s)";
 "Set per-contact notification mode in each chat's info screen: Off, No Sound, or Sound." = "Définissez le mode de notification par contact dans l'écran d'info de chaque discussion : Désactivées, Mode Silence ou Sonore.";
 "Settings" = "Réglages";
 "Share QR" = "Partager le code QR";
