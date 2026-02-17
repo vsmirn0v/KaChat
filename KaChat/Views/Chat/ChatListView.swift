@@ -103,18 +103,8 @@ struct ChatListView: View {
             await contactsManager.fetchKNSDomainsForAllContacts()
         }
         .onChange(of: chatService.pendingChatNavigation) { _, newValue in
-            if newValue != nil && selectedContact == nil {
+            if newValue != nil {
                 checkPendingNavigation()
-            }
-        }
-        .onChange(of: selectedContact) { _, newValue in
-            if newValue == nil && chatService.pendingChatNavigation != nil {
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    guard selectedContact == nil,
-                          chatService.pendingChatNavigation != nil else { return }
-                    checkPendingNavigation()
-                }
             }
         }
     }
@@ -142,16 +132,10 @@ struct ChatListView: View {
         }
         guard let target = contact else { return }
 
+        // When a chat is already open, ChatDetailView handles the switch
+        // in-place via its own .onReceive(.openChat) handler.
         if selectedContact == nil {
-            // No chat open — navigate directly
             selectedContact = target
-        } else if selectedContact?.address == address {
-            // Already viewing this chat — nothing to do
-        } else {
-            // Viewing a different chat — ChatDetailView will dismiss itself
-            // via its own .onReceive(.openChat). Store the target so
-            // checkPendingNavigation() picks it up on reappear.
-            chatService.pendingChatNavigation = address
         }
     }
 
