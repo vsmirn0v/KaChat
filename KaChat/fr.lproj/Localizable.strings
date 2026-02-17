@@ -84,6 +84,7 @@
 "Done" = "Terminé";
 "Enabling remote push..." = "Activation du push...";
 "Encoding…" = "Encodage...";
+"Encrypted message" = "Message chiffré";
 "Enter a Kaspa address (kaspa:...) or KNS domain name (e.g., alice.kas)" = "Entrez une adresse Kaspa (kaspa:...) ou un nom de domaine KNS (ex. alice.kas)";
 "Enter your 12 or 24 word seed phrase to restore your account. Separate each word with a space." = "Entrez votre seed phrase de 12 ou 24 mots pour restaurer votre compte. Séparez chaque mot par un espace.";
 "Error" = "Erreur";
