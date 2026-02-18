@@ -391,6 +391,13 @@ struct ChatInfoView: View {
         updatedContact.systemContactId = linkedSystemContactId
         updatedContact.systemDisplayNameSnapshot = linkedSystemContactName
         updatedContact.systemContactLinkSource = linkedSystemContactSource
+        if !settingsViewModel.settings.autoCreateSystemContacts,
+           updatedContact.systemContactLinkSource == .autoCreated {
+            updatedContact.systemContactId = nil
+            updatedContact.systemDisplayNameSnapshot = nil
+            updatedContact.systemContactLinkSource = nil
+            updatedContact.systemMatchConfidence = nil
+        }
         // TODO: Fix realtimeUpdatesDisabled feature - currently broken, disabled until fixed
         // let realtimeSettingChanged = updatedContact.realtimeUpdatesDisabled != realtimeUpdatesDisabled
         // updatedContact.realtimeUpdatesDisabled = realtimeUpdatesDisabled
