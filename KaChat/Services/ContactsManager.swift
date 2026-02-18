@@ -40,6 +40,15 @@ final class ContactsManager: ObservableObject {
     private var autoCreateSystemContactsEnabled = AppSettings.load().autoCreateSystemContacts
     private var didBootstrapSystemContacts = false
     private var settingsObserver: NSObjectProtocol?
+    private var isSystemContactRefreshInProgress = false
+    private var queuedSystemContactRefresh: (promptIfNeeded: Bool, force: Bool)?
+    private let allowAutomaticSystemContactWrites: Bool = {
+#if targetEnvironment(macCatalyst)
+        false
+#else
+        true
+#endif
+    }()
 
     private init() {
         contacts = []
@@ -110,20 +119,23 @@ final class ContactsManager: ObservableObject {
 
         // Also repair linked system contact URL entries immediately using normalized KNS domains.
         // This fixes legacy values like "http://name.kas" without waiting for periodic refresh.
-        for contact in contacts {
-            guard let linkedId = contact.systemContactId else { continue }
-            guard let info = knsService.domainCache[contact.address] else { continue }
-            let domains = info.allDomains.map { $0.fullName }
-            do {
-                try await systemContactsService.upsertKaChatData(
-                    contactIdentifier: linkedId,
-                    address: contact.address,
-                    domains: domains,
-                    appContactId: contact.id,
-                    autoCreated: contact.systemContactLinkSource == .autoCreated
-                )
-            } catch {
-                // Best effort only.
+        // Skip this automatic write loop on macOS Catalyst to avoid contactd CPU spikes.
+        if allowAutomaticSystemContactWrites {
+            for contact in contacts {
+                guard let linkedId = contact.systemContactId else { continue }
+                guard let info = knsService.domainCache[contact.address] else { continue }
+                let domains = info.allDomains.map { $0.fullName }
+                do {
+                    try await systemContactsService.upsertKaChatData(
+                        contactIdentifier: linkedId,
+                        address: contact.address,
+                        domains: domains,
+                        appContactId: contact.id,
+                        autoCreated: contact.systemContactLinkSource == .autoCreated
+                    )
+                } catch {
+                    // Best effort only.
+                }
             }
         }
     }
@@ -290,7 +302,8 @@ final class ContactsManager: ObservableObject {
             // Sync name change to auto-created system contact.
             // The method verifies the auto marker internally, so safe to call for any linked contact.
             if contact.alias != previous.alias,
-               let sysId = contact.systemContactId {
+               let sysId = contact.systemContactId,
+               allowAutomaticSystemContactWrites {
                 Task {
                     try? await systemContactsService.updateAutoCreatedContactName(
                         contactIdentifier: sysId,
@@ -487,6 +500,29 @@ final class ContactsManager: ObservableObject {
     }
 
     func refreshSystemContactLinks(promptIfNeeded: Bool = false, force: Bool = false) async {
+        if let queued = queuedSystemContactRefresh {
+            queuedSystemContactRefresh = (
+                promptIfNeeded: queued.promptIfNeeded || promptIfNeeded,
+                force: queued.force || force
+            )
+        } else {
+            queuedSystemContactRefresh = (promptIfNeeded: promptIfNeeded, force: force)
+        }
+
+        guard !isSystemContactRefreshInProgress else { return }
+        isSystemContactRefreshInProgress = true
+        defer { isSystemContactRefreshInProgress = false }
+
+        while let request = queuedSystemContactRefresh {
+            queuedSystemContactRefresh = nil
+            await performSystemContactLinksRefresh(
+                promptIfNeeded: request.promptIfNeeded,
+                force: request.force
+            )
+        }
+    }
+
+    private func performSystemContactLinksRefresh(promptIfNeeded: Bool = false, force: Bool = false) async {
         guard syncSystemContactsEnabled else {
             systemContactCandidates = []
             return
@@ -559,7 +595,9 @@ final class ContactsManager: ObservableObject {
                         }
                     }
                 }
-            } else if autoCreateSystemContactsEnabled && current.systemContactId == nil {
+            } else if autoCreateSystemContactsEnabled &&
+                        allowAutomaticSystemContactWrites &&
+                        current.systemContactId == nil {
                 // No existing link and no non-duplicate match in system contacts:
                 // auto-create a dedicated system contact and link to it.
                 let domains = await fetchKNSInfo(for: current)?.allDomains.map { $0.fullName } ?? []
@@ -589,7 +627,7 @@ final class ContactsManager: ObservableObject {
             // This also repairs legacy URL entries like "http://name" -> "name.kas".
             guard let latestIndex = contacts.firstIndex(where: { $0.id == contactId }) else { continue }
             let latest = contacts[latestIndex]
-            if let linkedId = latest.systemContactId {
+            if allowAutomaticSystemContactWrites, let linkedId = latest.systemContactId {
                 let domains = getKNSInfo(for: latest)?.allDomains.map { $0.fullName } ?? []
                 do {
                     try await systemContactsService.upsertKaChatData(
@@ -611,11 +649,13 @@ final class ContactsManager: ObservableObject {
         }
 
         // Clean up stale auto-created contacts that were replaced by a different match.
-        for stale in staleAutoCreatedIds {
-            _ = try? await systemContactsService.deleteAutoCreatedKaChatContact(
-                contactIdentifier: stale.contactIdentifier,
-                appContactId: stale.appContactId
-            )
+        if allowAutomaticSystemContactWrites {
+            for stale in staleAutoCreatedIds {
+                _ = try? await systemContactsService.deleteAutoCreatedKaChatContact(
+                    contactIdentifier: stale.contactIdentifier,
+                    appContactId: stale.appContactId
+                )
+            }
         }
 
         // Remove any orphaned auto-created contacts not actively linked.
@@ -626,7 +666,7 @@ final class ContactsManager: ObservableObject {
                 activeLinks[sysId] = contact.address.lowercased()
             }
         }
-        if !activeLinks.isEmpty || force {
+        if allowAutomaticSystemContactWrites && (!activeLinks.isEmpty || force) {
             let removed = await systemContactsService.removeOrphanedAutoCreatedContacts(activeLinks: activeLinks)
             if removed > 0 {
                 NSLog("[ContactsManager] Removed %d orphaned auto-created system contacts", removed)
@@ -761,7 +801,7 @@ final class ContactsManager: ObservableObject {
                 }
             }
             // Re-create a shadow auto-created contact for cross-device sync.
-            guard autoCreateSystemContactsEnabled else { return }
+            guard autoCreateSystemContactsEnabled, allowAutomaticSystemContactWrites else { return }
             let domains = await fetchKNSInfo(for: contact)?.allDomains.map { $0.fullName } ?? []
             do {
                 let created = try await systemContactsService.createKaChatContact(
@@ -959,7 +999,9 @@ actor SystemContactsService {
     private let store = CNContactStore()
     private let contactStoreQueue = DispatchQueue(
         label: "com.kachat.system-contacts-store",
-        qos: .userInitiated
+        // CNContactStore internally relies on lower-priority AddressBook threads on macOS.
+        // Running our wrapper queue at utility avoids QoS inversion warnings.
+        qos: .utility
     )
     private let kaspaURLLabel = "Kaspa"
     private let kaChatURLLabel = "KaChat"

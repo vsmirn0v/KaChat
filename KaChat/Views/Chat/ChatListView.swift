@@ -7,6 +7,7 @@ struct ChatListView: View {
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var searchText = ""
     @State private var selectedContact: Contact?
@@ -18,45 +19,82 @@ struct ChatListView: View {
     @State private var isPaginatingConversations = false
     @State private var filteredConversationsCache: [Conversation] = []
     @State private var searchFilterTask: Task<Void, Never>?
+    @State private var splitColumnVisibility: NavigationSplitViewVisibility = .all
 
     private let conversationPageSize = 80
     private let conversationPrefetchThreshold = 12
 
+    private var shouldUseSplitLayout: Bool {
+#if targetEnvironment(macCatalyst)
+        true
+#else
+        horizontalSizeClass == .regular
+#endif
+    }
+
     var body: some View {
-        NavigationStack {
-            chatListContent
-                .navigationTitle("")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        ConnectionStatusIndicator()
-                    }
-                    ToolbarItem(placement: .principal) {
-                        balanceToolbarView
-                    }
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            showAddContact = true
-                        } label: {
-                            Image(systemName: "person.badge.plus")
+        Group {
+            if shouldUseSplitLayout {
+                NavigationSplitView(columnVisibility: $splitColumnVisibility) {
+                    chatListPane
+                } detail: {
+                    splitDetailPane
+                }
+                .navigationSplitViewStyle(.balanced)
+                .onAppear {
+                    splitColumnVisibility = .all
+                }
+            } else {
+                NavigationStack {
+                    chatListPane
+                        .navigationDestination(item: $selectedContact) { contact in
+                            ChatDetailView(contact: contact)
                         }
+                }
+            }
+        }
+    }
+
+    private var chatListPane: some View {
+        chatListContent
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    ConnectionStatusIndicator()
+                }
+                ToolbarItem(placement: .principal) {
+                    balanceToolbarView
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showAddContact = true
+                    } label: {
+                        Image(systemName: "person.badge.plus")
                     }
                 }
-                .searchable(text: $searchText, prompt: "Search chats")
-                .refreshable {
-                    await chatService.fetchNewMessages()
+            }
+            .searchable(text: $searchText, prompt: "Search chats")
+            .refreshable {
+                await chatService.fetchNewMessages()
+            }
+            .toast(message: toastMessage, style: toastStyle)
+            .sheet(isPresented: $showAddContact) {
+                AddContactView { contact in
+                    _ = chatService.getOrCreateConversation(for: contact)
+                    selectedContact = contact
+                    showAddContact = false
                 }
-                .toast(message: toastMessage, style: toastStyle)
-                .sheet(isPresented: $showAddContact) {
-                    AddContactView { contact in
-                        _ = chatService.getOrCreateConversation(for: contact)
-                        selectedContact = contact
-                        showAddContact = false
-                    }
-                }
-                .navigationDestination(item: $selectedContact) { contact in
-                    ChatDetailView(contact: contact)
-                }
+            }
+    }
+
+    @ViewBuilder
+    private var splitDetailPane: some View {
+        if let contact = selectedContact {
+            ChatDetailView(contact: contact)
+                .id(contact.id)
+        } else {
+            splitEmptyDetailView
         }
     }
 
@@ -132,6 +170,11 @@ struct ChatListView: View {
         }
         guard let target = contact else { return }
 
+        if shouldUseSplitLayout {
+            selectedContact = target
+            return
+        }
+
         // When a chat is already open, ChatDetailView handles the switch
         // in-place via its own .onReceive(.openChat) handler.
         if selectedContact == nil {
@@ -169,6 +212,26 @@ struct ChatListView: View {
         .padding()
     }
 
+    private var splitEmptyDetailView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 44))
+                .foregroundColor(.secondary)
+
+            Text("Select a chat")
+                .font(.title3)
+                .fontWeight(.semibold)
+
+            Text("Choose a conversation on the left to view messages.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+        .background(Color(UIColor.systemBackground))
+    }
+
     private var conversationsList: some View {
         let filtered = filteredConversationsCache
         let totalCount = filtered.count
@@ -188,6 +251,11 @@ struct ChatListView: View {
                     ConversationRow(conversation: conversation)
                 }
                 .buttonStyle(ChatRowPressStyle())
+                .listRowBackground(
+                    shouldUseSplitLayout && selectedContact?.address == conversation.contact.address
+                        ? Color.accentColor.opacity(0.14)
+                        : Color.clear
+                )
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     Button {
                         archiveConversation(conversation.contact.address)

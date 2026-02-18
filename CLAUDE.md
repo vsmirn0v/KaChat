@@ -8,6 +8,8 @@ KaChat is a native iOS messaging and payment application built on the Kaspa bloc
 
 ## Build Commands
 
+Important, never build yourself, always ask user to build.
+
 ```bash
 # Open project in Xcode
 open KaChat.xcodeproj

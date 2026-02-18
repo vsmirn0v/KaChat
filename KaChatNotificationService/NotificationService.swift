@@ -530,23 +530,77 @@ private struct NotificationCipher {
     }
 
     static func decryptContextualPayloadDebug(_ payloadHex: String, privateKey: Data) -> (String?, String?) {
-        if let payloadString = decodePayloadString(from: payloadHex) {
-            if payloadString.hasPrefix("ciph_msg:1:comm:") {
-                let parts = payloadString.split(separator: ":", maxSplits: 4, omittingEmptySubsequences: false)
-                guard parts.count >= 5 else { return (nil, "payload_parts_invalid") }
+        var firstError: String?
 
-                let base64String = String(parts[4])
-                guard !base64String.isEmpty else { return (nil, "payload_base64_empty") }
-                guard let encryptedData = Data(base64Encoded: base64String) else {
-                    return (nil, "payload_base64_decode_failed")
+        if let payloadString = decodePayloadString(from: payloadHex),
+           payloadString.hasPrefix("ciph_msg:1:comm:") {
+            let (message, error) = decryptContextualProtocolPayload(payloadString, privateKey: privateKey)
+            if let message {
+                return (message, nil)
+            }
+            firstError = error ?? "payload_protocol_decode_failed"
+        }
+
+        if let encryptedData = Data(base64Encoded: payloadHex) {
+            let (message, error) = decryptEncryptedBytes(encryptedData, privateKey: privateKey)
+            if let message {
+                return (message, nil)
+            }
+            if firstError == nil {
+                firstError = error
+            }
+
+            if let utf8 = String(data: encryptedData, encoding: .utf8) {
+                if let nestedHex = Data(hexString: utf8) {
+                    let (nestedMessage, nestedError) = decryptEncryptedBytes(nestedHex, privateKey: privateKey)
+                    if let nestedMessage {
+                        return (nestedMessage, nil)
+                    }
+                    if firstError == nil {
+                        firstError = nestedError
+                    }
                 }
-                return decryptEncryptedBytes(encryptedData, privateKey: privateKey)
+
+                if let nestedPayloadString = decodePayloadString(from: utf8),
+                   nestedPayloadString.hasPrefix("ciph_msg:1:comm:") {
+                    let (nestedMessage, nestedError) = decryptContextualProtocolPayload(
+                        nestedPayloadString,
+                        privateKey: privateKey
+                    )
+                    if let nestedMessage {
+                        return (nestedMessage, nil)
+                    }
+                    if firstError == nil {
+                        firstError = nestedError
+                    }
+                }
             }
         }
 
-        // Fallback: payload may already be base64 of encrypted bytes (no protocol prefix)
-        guard let encryptedData = Data(base64Encoded: payloadHex) else {
-            return (nil, "payload_decode_failed")
+        if let encryptedData = Data(hexString: payloadHex) {
+            let (message, error) = decryptEncryptedBytes(encryptedData, privateKey: privateKey)
+            if let message {
+                return (message, nil)
+            }
+            if firstError == nil {
+                firstError = error
+            }
+        }
+
+        return (nil, firstError ?? "payload_decode_failed")
+    }
+
+    private static func decryptContextualProtocolPayload(
+        _ payloadString: String,
+        privateKey: Data
+    ) -> (String?, String?) {
+        let parts = payloadString.split(separator: ":", maxSplits: 4, omittingEmptySubsequences: false)
+        guard parts.count >= 5 else { return (nil, "payload_parts_invalid") }
+
+        let base64String = String(parts[4])
+        guard !base64String.isEmpty else { return (nil, "payload_base64_empty") }
+        guard let encryptedData = Data(base64Encoded: base64String) else {
+            return (nil, "payload_base64_decode_failed")
         }
         return decryptEncryptedBytes(encryptedData, privateKey: privateKey)
     }

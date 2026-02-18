@@ -7,23 +7,18 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		19319293ACD84C2AB108D745 /* KNSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A61ACF41FEA483D9EF0924F /* KNSService.swift */; };
+		3068057B0F9F4906B2600F39 /* ChatInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C4C922EA822400194F497F9 /* ChatInfoView.swift */; };
+		43BBF34D2F15A52900B42BDA /* KaChatNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B2B2B2B20001000100000001 /* Blake2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B20001000000000001 /* Blake2b.swift */; };
+		BGTM00012E0100000002 /* BackgroundTaskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BGTM00012E0100000001 /* BackgroundTaskManager.swift */; };
+		CPTV00010001000100000001 /* ComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPTV00010001000000000001 /* ComposerTextView.swift */; };
 		CSEX00010001000100000001 /* ChatService+PushAndSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000001 /* ChatService+PushAndSync.swift */; };
 		CSEX00010001000100000002 /* ChatService+UtxoProcessing.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000002 /* ChatService+UtxoProcessing.swift */; };
 		CSEX00010001000100000003 /* ChatService+Conversations.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000003 /* ChatService+Conversations.swift */; };
 		CSEX00010001000100000004 /* ChatService+Fetching.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000004 /* ChatService+Fetching.swift */; };
 		CSEX00010001000100000005 /* ChatService+Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000005 /* ChatService+Persistence.swift */; };
 		CSEX00010001000100000006 /* ChatService+Decryption.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000006 /* ChatService+Decryption.swift */; };
-		19319293ACD84C2AB108D745 /* KNSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A61ACF41FEA483D9EF0924F /* KNSService.swift */; };
-		3068057B0F9F4906B2600F39 /* ChatInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C4C922EA822400194F497F9 /* ChatInfoView.swift */; };
-		XCFW00020001 /* GRPCAll.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010001 /* GRPCAll.xcframework */; };
-		XCFW00020002 /* SwiftProtobuf.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010002 /* SwiftProtobuf.xcframework */; };
-		XCFW00020003 /* P256K.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010003 /* P256K.xcframework */; };
-		43BBF34D2F15A52900B42BDA /* KaChatNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		XCFW00020004 /* P256K.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010003 /* P256K.xcframework */; };
-		43BBF3AA2F15A52900B42BDA /* KaChatNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */; platformFilter = maccatalyst; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		B2B2B2B20001000100000001 /* Blake2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B20001000000000001 /* Blake2b.swift */; };
-		BGTM00012E0100000002 /* BackgroundTaskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BGTM00012E0100000001 /* BackgroundTaskManager.swift */; };
-		CPTV00010001000100000001 /* ComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPTV00010001000000000001 /* ComposerTextView.swift */; };
 		DTAL00010001000100000001 /* DeterministicAlias.swift in Sources */ = {isa = PBXBuildFile; fileRef = DTAL00010001000000000001 /* DeterministicAlias.swift */; };
 		E81000012D4C000100000001 /* KaChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000002D4C000100000001 /* KaChatApp.swift */; };
 		E81000032D4C000100000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000022D4C000100000002 /* ContentView.swift */; };
@@ -56,8 +51,8 @@
 		E8F1A0032F4B000100000003 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F1A0042F4B000100000004 /* Haptics.swift */; };
 		E8F1A0062F4B000100000006 /* external/opus/Opus.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */; platformFilter = maccatalyst; };
 		ENGL00012F70000100000002 /* english.txt in Resources */ = {isa = PBXBuildFile; fileRef = ENGL00012F70000100000001 /* english.txt */; };
-		GEOIP00012F90000100000002 /* geoip-lite.json in Resources */ = {isa = PBXBuildFile; fileRef = GEOIP00012F90000100000001 /* geoip-lite.json */; };
 		F5A71C3C1061AA2FFE3F837F /* KaChatTransactionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */; };
+		GEOIP00012F90000100000002 /* geoip-lite.json in Resources */ = {isa = PBXBuildFile; fileRef = GEOIP00012F90000100000001 /* geoip-lite.json */; };
 		GIFT00010001000100000001 /* GiftService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GIFT00010001000000000001 /* GiftService.swift */; };
 		GIFT00010001000100000002 /* GiftClaimView.swift in Sources */ = {isa = PBXBuildFile; fileRef = GIFT00010001000000000002 /* GiftClaimView.swift */; };
 		GRPC00010001000100000015 /* messages.grpc.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000005 /* messages.grpc.swift */; };
@@ -65,6 +60,7 @@
 		GRPC00010001000100000017 /* rpc.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000007 /* rpc.pb.swift */; };
 		GRPC00010001000100000018 /* p2p.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000008 /* p2p.pb.swift */; };
 		KASPATYPES001 /* KaspaTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = KASPATYPES002 /* KaspaTypes.swift */; };
+		L10N000300000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = L10N000200000001 /* Localizable.strings */; };
 		MSGS00012F5C000100000002 /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = MSGS00012F5C000100000001 /* MessageStore.swift */; };
 		NODEPOOL000100010001 /* NodeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = NODEPOOL000100010002 /* NodeModels.swift */; };
 		NODEPOOL000100010003 /* NodeRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = NODEPOOL000100010004 /* NodeRegistry.swift */; };
@@ -80,7 +76,10 @@
 		RDSS00010001000100000001 /* ReadStatusSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = RDSS00010001000000000001 /* ReadStatusSyncManager.swift */; };
 		RSTM00012F4C000100000002 /* Resolvers.toml in Resources */ = {isa = PBXBuildFile; fileRef = RSTM00012F4C000100000001 /* Resolvers.toml */; };
 		SECV00010001000100000001 /* SecureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SECV00010001000000000001 /* SecureView.swift */; };
-		L10N000300000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = L10N000200000001 /* Localizable.strings */; };
+		XCFW00020001 /* GRPCAll.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010001 /* GRPCAll.xcframework */; };
+		XCFW00020002 /* SwiftProtobuf.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010002 /* SwiftProtobuf.xcframework */; };
+		XCFW00020003 /* P256K.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010003 /* P256K.xcframework */; };
+		XCFW00020004 /* P256K.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010003 /* P256K.xcframework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -101,7 +100,6 @@
 			dstSubfolderSpec = 13;
 			files = (
 				43BBF34D2F15A52900B42BDA /* KaChatNotificationService.appex in Embed Foundation Extensions */,
-				43BBF3AA2F15A52900B42BDA /* KaChatNotificationService.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -110,18 +108,18 @@
 
 /* Begin PBXFileReference section */
 		1C4C922EA822400194F497F9 /* ChatInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInfoView.swift; sourceTree = "<group>"; };
-		CSEX00010001000000000001 /* ChatService+PushAndSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+PushAndSync.swift"; sourceTree = "<group>"; };
-		CSEX00010001000000000002 /* ChatService+UtxoProcessing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+UtxoProcessing.swift"; sourceTree = "<group>"; };
-		CSEX00010001000000000003 /* ChatService+Conversations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Conversations.swift"; sourceTree = "<group>"; };
-		CSEX00010001000000000004 /* ChatService+Fetching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Fetching.swift"; sourceTree = "<group>"; };
-		CSEX00010001000000000005 /* ChatService+Persistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Persistence.swift"; sourceTree = "<group>"; };
-		CSEX00010001000000000006 /* ChatService+Decryption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Decryption.swift"; sourceTree = "<group>"; };
 		4348A8842F2EC4AD00A5518E /* KaChatRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KaChatRelease.entitlements; sourceTree = "<group>"; };
 		43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KaChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		6A61ACF41FEA483D9EF0924F /* KNSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSService.swift; sourceTree = "<group>"; };
 		B2B2B2B20001000000000001 /* Blake2b.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Blake2b.swift; sourceTree = "<group>"; };
 		BGTM00012E0100000001 /* BackgroundTaskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskManager.swift; sourceTree = "<group>"; };
 		CPTV00010001000000000001 /* ComposerTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerTextView.swift; sourceTree = "<group>"; };
+		CSEX00010001000000000001 /* ChatService+PushAndSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+PushAndSync.swift"; sourceTree = "<group>"; };
+		CSEX00010001000000000002 /* ChatService+UtxoProcessing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+UtxoProcessing.swift"; sourceTree = "<group>"; };
+		CSEX00010001000000000003 /* ChatService+Conversations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Conversations.swift"; sourceTree = "<group>"; };
+		CSEX00010001000000000004 /* ChatService+Fetching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Fetching.swift"; sourceTree = "<group>"; };
+		CSEX00010001000000000005 /* ChatService+Persistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Persistence.swift"; sourceTree = "<group>"; };
+		CSEX00010001000000000006 /* ChatService+Decryption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Decryption.swift"; sourceTree = "<group>"; };
 		DTAL00010001000000000001 /* DeterministicAlias.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeterministicAlias.swift; sourceTree = "<group>"; };
 		E80000002D4C000000000000 /* KaChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KaChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E81000002D4C000100000001 /* KaChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatApp.swift; sourceTree = "<group>"; };
@@ -156,8 +154,8 @@
 		E8F1A0042F4B000100000004 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = external/opus/Opus.xcframework; sourceTree = "<group>"; };
 		ENGL00012F70000100000001 /* english.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = english.txt; sourceTree = "<group>"; };
-		GEOIP00012F90000100000001 /* geoip-lite.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "geoip-lite.json"; sourceTree = "<group>"; };
 		FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatTransactionBuilder.swift; sourceTree = "<group>"; };
+		GEOIP00012F90000100000001 /* geoip-lite.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "geoip-lite.json"; sourceTree = "<group>"; };
 		GIFT00010001000000000001 /* GiftService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftService.swift; sourceTree = "<group>"; };
 		GIFT00010001000000000002 /* GiftClaimView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftClaimView.swift; sourceTree = "<group>"; };
 		GRPC00010001000100000005 /* messages.grpc.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = messages.grpc.swift; sourceTree = "<group>"; };
@@ -165,24 +163,6 @@
 		GRPC00010001000100000007 /* rpc.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = rpc.pb.swift; sourceTree = "<group>"; };
 		GRPC00010001000100000008 /* p2p.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = p2p.pb.swift; sourceTree = "<group>"; };
 		KASPATYPES002 /* KaspaTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaTypes.swift; sourceTree = "<group>"; };
-		MSGS00012F5C000100000001 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
-		NODEPOOL000100010002 /* NodeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeModels.swift; sourceTree = "<group>"; };
-		NODEPOOL000100010004 /* NodeRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeRegistry.swift; sourceTree = "<group>"; };
-		NODEPOOL000100010006 /* NetworkEpochMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkEpochMonitor.swift; sourceTree = "<group>"; };
-		NODEPOOL000100010008 /* NodeSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSelector.swift; sourceTree = "<group>"; };
-		NODEPOOL00010001000A /* GRPCStreamConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GRPCStreamConnection.swift; sourceTree = "<group>"; };
-		NODEPOOL00010001000C /* KaspaRPCRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaRPCRouter.swift; sourceTree = "<group>"; };
-		NODEPOOL00010001000E /* NodeProfiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeProfiler.swift; sourceTree = "<group>"; };
-		NODEPOOL000100010010 /* UtxoSubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UtxoSubscriptionManager.swift; sourceTree = "<group>"; };
-		NODEPOOL000100010012 /* NodePoolService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodePoolService.swift; sourceTree = "<group>"; };
-		PUSH00010001000000000001 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
-		PUSH00010001000000000002 /* SharedDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedDataManager.swift; sourceTree = "<group>"; };
-		RDSS00010001000000000001 /* ReadStatusSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadStatusSyncManager.swift; sourceTree = "<group>"; };
-		RSTM00012F4C000100000001 /* Resolvers.toml */ = {isa = PBXFileReference; lastKnownFileType = text; path = Resolvers.toml; sourceTree = "<group>"; };
-		SECV00010001000000000001 /* SecureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureView.swift; sourceTree = "<group>"; };
-		XCFW00010001 /* GRPCAll.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GRPCAll.xcframework; path = Frameworks/GRPCAll.xcframework; sourceTree = "<group>"; };
-		XCFW00010002 /* SwiftProtobuf.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = SwiftProtobuf.xcframework; path = Frameworks/SwiftProtobuf.xcframework; sourceTree = "<group>"; };
-		XCFW00010003 /* P256K.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = P256K.xcframework; path = Frameworks/P256K.xcframework; sourceTree = "<group>"; };
 		L10N000100000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N000100000002 /* ar-EG */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "ar-EG"; path = "ar-EG.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		L10N000100000003 /* ar */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ar; path = ar.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -201,6 +181,24 @@
 		L10N000100000010 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = tr.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N000100000011 /* vi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = vi; path = vi.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N000100000012 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		MSGS00012F5C000100000001 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
+		NODEPOOL000100010002 /* NodeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeModels.swift; sourceTree = "<group>"; };
+		NODEPOOL000100010004 /* NodeRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeRegistry.swift; sourceTree = "<group>"; };
+		NODEPOOL000100010006 /* NetworkEpochMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkEpochMonitor.swift; sourceTree = "<group>"; };
+		NODEPOOL000100010008 /* NodeSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeSelector.swift; sourceTree = "<group>"; };
+		NODEPOOL00010001000A /* GRPCStreamConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GRPCStreamConnection.swift; sourceTree = "<group>"; };
+		NODEPOOL00010001000C /* KaspaRPCRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaRPCRouter.swift; sourceTree = "<group>"; };
+		NODEPOOL00010001000E /* NodeProfiler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeProfiler.swift; sourceTree = "<group>"; };
+		NODEPOOL000100010010 /* UtxoSubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UtxoSubscriptionManager.swift; sourceTree = "<group>"; };
+		NODEPOOL000100010012 /* NodePoolService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodePoolService.swift; sourceTree = "<group>"; };
+		PUSH00010001000000000001 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
+		PUSH00010001000000000002 /* SharedDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedDataManager.swift; sourceTree = "<group>"; };
+		RDSS00010001000000000001 /* ReadStatusSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadStatusSyncManager.swift; sourceTree = "<group>"; };
+		RSTM00012F4C000100000001 /* Resolvers.toml */ = {isa = PBXFileReference; lastKnownFileType = text; path = Resolvers.toml; sourceTree = "<group>"; };
+		SECV00010001000000000001 /* SecureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureView.swift; sourceTree = "<group>"; };
+		XCFW00010001 /* GRPCAll.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GRPCAll.xcframework; path = Frameworks/GRPCAll.xcframework; sourceTree = "<group>"; };
+		XCFW00010002 /* SwiftProtobuf.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = SwiftProtobuf.xcframework; path = Frameworks/SwiftProtobuf.xcframework; sourceTree = "<group>"; };
+		XCFW00010003 /* P256K.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = P256K.xcframework; path = Frameworks/P256K.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -365,17 +363,17 @@
 			path = Utilities;
 			sourceTree = "<group>";
 		};
-			E80000172D4C000000000017 /* Resources */ = {
-				isa = PBXGroup;
-				children = (
-					E81000042D4C000100000003 /* Assets.xcassets */,
-					RSTM00012F4C000100000001 /* Resolvers.toml */,
-					ENGL00012F70000100000001 /* english.txt */,
-					GEOIP00012F90000100000001 /* geoip-lite.json */,
-				);
-				path = Resources;
-				sourceTree = "<group>";
-			};
+		E80000172D4C000000000017 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				E81000042D4C000100000003 /* Assets.xcassets */,
+				RSTM00012F4C000100000001 /* Resolvers.toml */,
+				ENGL00012F70000100000001 /* english.txt */,
+				GEOIP00012F90000100000001 /* geoip-lite.json */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		E80000182D4C000000000018 /* Onboarding */ = {
 			isa = PBXGroup;
 			children = (
@@ -460,34 +458,6 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
-
-/* Begin PBXVariantGroup section */
-		L10N000200000001 /* Localizable.strings */ = {
-			isa = PBXVariantGroup;
-			children = (
-				L10N000100000001 /* en */,
-				L10N000100000002 /* ar-EG */,
-				L10N000100000003 /* ar */,
-				L10N000100000004 /* bn */,
-				L10N000100000005 /* de */,
-				L10N000100000006 /* es */,
-				L10N000100000007 /* fa */,
-				L10N000100000008 /* fr */,
-				L10N000100000009 /* he */,
-				L10N00010000000A /* hi */,
-				L10N00010000000B /* it */,
-				L10N00010000000C /* ja */,
-				L10N00010000000D /* ko */,
-				L10N00010000000E /* pt */,
-				L10N00010000000F /* ru */,
-				L10N000100000010 /* tr */,
-				L10N000100000011 /* vi */,
-				L10N000100000012 /* zh-Hans */,
-			);
-			name = Localizable.strings;
-			sourceTree = "<group>";
-		};
-/* End PBXVariantGroup section */
 
 /* Begin PBXNativeTarget section */
 		43BBF3452F15A52900B42BDA /* KaChatNotificationService */ = {
@@ -732,13 +702,42 @@
 		};
 /* End PBXTargetDependency section */
 
+/* Begin PBXVariantGroup section */
+		L10N000200000001 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				L10N000100000001 /* en */,
+				L10N000100000002 /* ar-EG */,
+				L10N000100000003 /* ar */,
+				L10N000100000004 /* bn */,
+				L10N000100000005 /* de */,
+				L10N000100000006 /* es */,
+				L10N000100000007 /* fa */,
+				L10N000100000008 /* fr */,
+				L10N000100000009 /* he */,
+				L10N00010000000A /* hi */,
+				L10N00010000000B /* it */,
+				L10N00010000000C /* ja */,
+				L10N00010000000D /* ko */,
+				L10N00010000000E /* pt */,
+				L10N00010000000F /* ru */,
+				L10N000100000010 /* tr */,
+				L10N000100000011 /* vi */,
+				L10N000100000012 /* zh-Hans */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
 /* Begin XCBuildConfiguration section */
 		43BBF34F2F15A52900B42BDA /* Debug */ = {
 			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = KaChatNotificationService/KaChatNotificationService.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
+				buildSettings = {
+					CODE_SIGN_ENTITLEMENTS = KaChatNotificationService/KaChatNotificationService.entitlements;
+					"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = KaChatNotificationService/KaChatNotificationService-mac.entitlements;
+					CODE_SIGN_IDENTITY = "Apple Development";
+					CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = RP4Z22SFSD;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -769,10 +768,11 @@
 		};
 		43BBF3502F15A52900B42BDA /* Release */ = {
 			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = KaChatNotificationService/KaChatNotificationServiceRelease.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
+				buildSettings = {
+					CODE_SIGN_ENTITLEMENTS = KaChatNotificationService/KaChatNotificationServiceRelease.entitlements;
+					"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = KaChatNotificationService/KaChatNotificationService-mac.entitlements;
+					CODE_SIGN_IDENTITY = "Apple Development";
+					CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = RP4Z22SFSD;
 				ENABLE_DEBUG_DYLIB = NO;
