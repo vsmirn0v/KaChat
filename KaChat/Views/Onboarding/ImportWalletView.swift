@@ -49,7 +49,7 @@ struct ImportWalletView: View {
                             RoundedRectangle(cornerRadius: 12)
                                 .stroke(Color(.systemGray4), lineWidth: 1)
                         )
-                        .onChange(of: seedPhraseText) { _, newValue in
+                        .onChange(of: seedPhraseText) { newValue in
                             updateWordCount(newValue)
                         }
 

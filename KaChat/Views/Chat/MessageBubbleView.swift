@@ -149,7 +149,7 @@ struct MessageBubbleView: View {
             .onAppear {
                 startShimmerIfNeeded()
             }
-            .onChange(of: shouldShowResolvingOverlay, initial: false) { _, _ in
+            .onChange(of: shouldShowResolvingOverlay) { _ in
                 startShimmerIfNeeded()
             }
 

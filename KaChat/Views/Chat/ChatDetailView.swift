@@ -40,6 +40,7 @@ struct ChatDetailView: View {
     @State private var messagePageSize = 40
     @State private var totalStoredMessages = 0
     @State private var normalizedMessages: [ChatMessage] = []
+    @State private var previousMessagesCount = 0
     @State private var lastMessageSnapshotDigest: Int?
     @State private var snapshotRebuildTask: Task<Void, Never>?
     @State private var hasIncomingHandshakeMessage = false
@@ -335,7 +336,7 @@ struct ChatDetailView: View {
                         .padding(.horizontal)
                         .padding(.top)
                     }
-                    .defaultScrollAnchor(initialScrollAnchorMessageId == nil ? .bottom : .top)
+                    .defaultScrollAnchorCompat(initialScrollAnchorMessageId == nil ? .bottom : .top)
                     .opacity(initialViewportPositioned ? 1 : 0)
                     .safeAreaInset(edge: .bottom) {
                         Color.clear.frame(height: 44)
@@ -389,17 +390,17 @@ struct ChatDetailView: View {
                     .onAppear {
                         positionInitialViewport(using: proxy)
                     }
-                    .onChange(of: initialLayoutReady) { _, _ in
+                    .onChange(of: initialLayoutReady) { _ in
                         positionInitialViewport(using: proxy)
                     }
-                    .onChange(of: displayedMessages.count) { _, _ in
+                    .onChange(of: displayedMessages.count) { _ in
                         positionInitialViewport(using: proxy)
                         scheduleOlderPrefetchIfNeeded()
                     }
-                    .onChange(of: viewportResetTrigger) { _, _ in
+                    .onChange(of: viewportResetTrigger) { _ in
                         positionInitialViewport(using: proxy)
                     }
-                    .onChange(of: messages.last?.id) { _, _ in
+                    .onChange(of: messages.last?.id) { _ in
                         guard didInitialScroll else {
                             didInitialScroll = true
                             return
@@ -415,20 +416,20 @@ struct ChatDetailView: View {
                         }
                         didInitialScroll = true
                     }
-                    .onChange(of: isBottomAnchorVisible) { _, visible in
+                    .onChange(of: isBottomAnchorVisible) { visible in
                         if visible {
                             newMessagesWhileScrolledUp = 0
                             hasLoadedCurrentTopPage = false
                         }
                     }
-                    .onChange(of: isMessageFocused) { _, focused in
+                    .onChange(of: isMessageFocused) { focused in
                         if focused {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                 scrollToBottom(using: proxy, animated: true)
                             }
                         }
                     }
-                    .onChange(of: isPaymentFocused) { _, focused in
+                    .onChange(of: isPaymentFocused) { focused in
                         if focused {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                                 scrollToBottom(using: proxy, animated: true)
@@ -526,9 +527,11 @@ struct ChatDetailView: View {
                     Text(error)
                         .font(.body)
 
-                    Text("Please check your network connection and try again.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    if shouldShowRetryHint(for: error) {
+                        Text("Please check your network connection and try again.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
         }
@@ -540,10 +543,10 @@ struct ChatDetailView: View {
         } message: {
             Text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
         }
-        .onChange(of: amountText) { _, newValue in
+        .onChange(of: amountText) { newValue in
             schedulePaymentFee(for: newValue)
         }
-        .onChange(of: settingsViewModel.settings.feeEstimationEnabled) { _, enabled in
+        .onChange(of: settingsViewModel.settings.feeEstimationEnabled) { enabled in
             if enabled {
                 switch inputMode {
                 case .message:
@@ -587,6 +590,7 @@ struct ChatDetailView: View {
             if messageText.isEmpty {
                 messageText = chatService.draft(for: contact.address)
             }
+            previousMessagesCount = messages.count
             // Mark conversation as read once when view appears
             if let conversation = conversation {
                 chatService.markConversationAsRead(conversation)
@@ -595,7 +599,7 @@ struct ChatDetailView: View {
                 await contactsManager.refreshBalance(for: contact.address)
             }
         }
-        .onChange(of: conversation?.messages) { _, _ in
+        .onChange(of: conversation?.messages) { _ in
             scheduleMessageSnapshotRebuild()
             if !initialLayoutReady {
                 configureInitialMessageWindow()
@@ -666,6 +670,7 @@ struct ChatDetailView: View {
             let readCursor = chatService.readCursor(for: newContact.address)
             initialReadBlockTime = readCursor?.blockTime ?? 0
             configureInitialMessageWindow()
+            previousMessagesCount = messages.count
             chatService.enterConversation(for: newContact.address)
             messageText = chatService.draft(for: newContact.address)
             if let conv = chatService.conversations.first(where: { $0.contact.address == newContact.address }) {
@@ -676,7 +681,9 @@ struct ChatDetailView: View {
                 await contactsManager.refreshBalance(for: newContact.address)
             }
         }
-        .onChange(of: messages.count) { oldCount, newCount in
+        .onChange(of: messages.count) { newCount in
+            let oldCount = previousMessagesCount
+            previousMessagesCount = newCount
             totalStoredMessages = max(totalStoredMessages, messages.count)
             if initialViewportPositioned,
                newCount > oldCount,
@@ -1307,7 +1314,7 @@ struct ChatDetailView: View {
             do {
                 try await chatService.sendHandshake(to: contact, isResponse: false)
             } catch {
-                self.error = error.localizedDescription
+                self.error = displayErrorMessage(error)
             }
         }
     }
@@ -1319,7 +1326,7 @@ struct ChatDetailView: View {
             do {
                 try await chatService.respondToHandshake(for: contact, accept: true)
             } catch {
-                self.error = error.localizedDescription
+                self.error = displayErrorMessage(error)
             }
         }
     }
@@ -1361,7 +1368,7 @@ struct ChatDetailView: View {
                 let errorMsg = error.localizedDescription
                 NSLog("[ChatDetailView] Send message failed: %@", errorMsg)
                 await MainActor.run {
-                    self.error = errorMsg
+                    self.error = displayErrorMessage(error)
                 }
             }
         }
@@ -1372,7 +1379,7 @@ struct ChatDetailView: View {
             TextField("Amount (KAS)", text: $amountText)
                 .keyboardType(.decimalPad)
                 .focused($isPaymentFocused)
-                .onChange(of: amountText) { _, newValue in
+                .onChange(of: amountText) { newValue in
                     amountText = sanitizedAmount(newValue)
                 }
             Button("Max") {
@@ -1490,7 +1497,7 @@ struct ChatDetailView: View {
         .onAppear {
             updateFeeShimmer()
         }
-        .onChange(of: isEstimatingFee) { _, _ in
+        .onChange(of: isEstimatingFee) { _ in
             updateFeeShimmer()
         }
     }
@@ -1651,7 +1658,7 @@ struct ChatDetailView: View {
                 }
             } catch {
                 await MainActor.run {
-                    self.error = error.localizedDescription
+                    self.error = displayErrorMessage(error)
                 }
             }
             await MainActor.run {
@@ -1710,7 +1717,7 @@ struct ChatDetailView: View {
             do {
                 try await chatService.retryOutgoingMessage(message, contact: contact)
             } catch {
-                self.error = error.localizedDescription
+                self.error = displayErrorMessage(error)
             }
         }
     }
@@ -2232,23 +2239,18 @@ struct ChatDetailView: View {
 
         do {
             let payloadData = try Data(contentsOf: url)
-            let base64 = payloadData.base64EncodedString()
             let mime = mimeType(for: url)
-            let payload: [String: Any] = [
-                "type": "file",
-                "name": url.lastPathComponent,
-                "size": payloadData.count,
-                "mimeType": mime,
-                "content": "data:\(mime);base64,\(base64)"
-            ]
-            let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
-            guard let jsonString = String(data: jsonData, encoding: .utf8) else { return }
 
             recordingFeeTask?.cancel()
             isSending = true
             Task {
                 do {
-                    try await chatService.sendMessage(to: contact, content: jsonString, messageType: .audio)
+                    try await chatService.sendAudio(
+                        to: contact,
+                        audioData: payloadData,
+                        fileName: url.lastPathComponent,
+                        mimeType: mime
+                    )
                     await MainActor.run {
                         if let previewURL = recordedAudioPreviewURL {
                             secureDeleteTempFile(previewURL)
@@ -2270,7 +2272,7 @@ struct ChatDetailView: View {
                         }
                     }
                     await MainActor.run {
-                        self.error = error.localizedDescription
+                        self.error = displayErrorMessage(error)
                     }
                 }
                 await MainActor.run {
@@ -2336,13 +2338,40 @@ struct ChatDetailView: View {
         try fileManager.removeItem(at: url)
     }
 
-    private func shouldPromptGiftClaim(for error: Error) -> Bool {
+    private func displayErrorMessage(_ error: Error) -> String {
         if case let KasiaError.networkError(message) = error {
-            return message.lowercased().contains("zero balance")
+            return message
         }
-        return error.localizedDescription.lowercased().contains("zero balance")
+        return error.localizedDescription
     }
 
+    private func shouldShowRetryHint(for message: String) -> Bool {
+        let lowered = message.lowercased()
+        return !(lowered.contains("planned spend")
+                 && lowered.contains("available balance")
+                 && lowered.contains("less than required"))
+    }
+
+    private func shouldPromptGiftClaim(for error: Error) -> Bool {
+        if case let KasiaError.networkError(message) = error {
+            let lowered = message.lowercased()
+            return lowered.contains("zero balance") || lowered.contains("available balance 0 kas")
+        }
+        let lowered = error.localizedDescription.lowercased()
+        return lowered.contains("zero balance") || lowered.contains("available balance 0 kas")
+    }
+
+}
+
+private extension View {
+    @ViewBuilder
+    func defaultScrollAnchorCompat(_ anchor: UnitPoint) -> some View {
+        if #available(iOS 17.0, *) {
+            self.defaultScrollAnchor(anchor)
+        } else {
+            self
+        }
+    }
 }
 
 private struct ScrollViewIntrospector: UIViewRepresentable {

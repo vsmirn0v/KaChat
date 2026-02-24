@@ -37,32 +37,19 @@ struct KasiaTransactionBuilder {
             recipientPublicKey: recipientPublicKey
         )
 
-        // 3. Select UTXOs (use all available)
-        let (selectedUtxos, totalInput) = try selectUtxos(utxos, requiredAmount: 1)
-
-        // 4. Build sender output script (self-spend)
+        // 3. Build sender output script (self-spend)
         guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: senderAddress) else {
             throw KasiaError.invalidAddress
         }
 
-        // 5. Estimate fee using mass-based calculation (1 sompi per gram) and add tiny buffer to avoid under-fee rejection
-        let baseFee = estimateFee(
+        // 4. Select minimal sufficient UTXOs (prefer fewer inputs to reduce contention)
+        let selection = try selectUtxosForContextualMessage(
+            utxos: utxos,
             payload: kasiaPayload,
-            inputCount: selectedUtxos.count,
-            outputs: [
-                KaspaRpcTransactionOutput(
-                    value: 0,
-                    scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
-                )
-            ]
+            senderScriptPubKey: senderScriptPubKey
         )
-        let fee = baseFee + 3 // small constant to cover observed 3-sompi gap
-
-        // Self-spend: single output back to sender (full amount minus fee)
-        guard totalInput > fee else {
-            throw KasiaError.networkError("Insufficient funds after fee")
-        }
-        let outputAmount = totalInput - fee
+        let selectedUtxos = selection.utxos
+        let outputAmount = selection.totalInput - selection.fee
 
         let outputs = [KaspaRpcTransactionOutput(
             value: outputAmount,
@@ -533,6 +520,52 @@ struct KasiaTransactionBuilder {
     private struct PaymentSelection {
         let utxos: [UTXO]
         let change: UInt64
+    }
+
+    private struct ContextualSelection {
+        let utxos: [UTXO]
+        let totalInput: UInt64
+        let fee: UInt64
+    }
+
+    /// Select a minimal UTXO set for contextual messages.
+    /// Prefers fewer inputs to avoid quickly consuming all confirmed UTXOs.
+    private static func selectUtxosForContextualMessage(
+        utxos: [UTXO],
+        payload: Data,
+        senderScriptPubKey: Data
+    ) throws -> ContextualSelection {
+        let spendable = utxos
+            .filter { !$0.isCoinbase }
+            .sorted { $0.amount > $1.amount }
+
+        guard !spendable.isEmpty else {
+            throw KasiaError.networkError("Insufficient funds after fee")
+        }
+
+        let outputTemplate = KaspaRpcTransactionOutput(
+            value: 0,
+            scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
+        )
+
+        var selected: [UTXO] = []
+        var total: UInt64 = 0
+
+        for utxo in spendable {
+            selected.append(utxo)
+            total = try addSompiChecked(total, utxo.amount, context: "contextual selection")
+
+            // Add a tiny constant to avoid under-fee rejection (observed 3-sompi gap)
+            let fee = estimateFee(payload: payload, inputCount: selected.count, outputs: [outputTemplate]) + 3
+            guard total > fee else { continue }
+
+            let outputAmount = total - fee
+            if outputAmount > dustThreshold {
+                return ContextualSelection(utxos: selected, totalInput: total, fee: fee)
+            }
+        }
+
+        throw KasiaError.networkError("Insufficient funds after fee")
     }
 
     /// Select minimal UTXOs to cover payment and fee

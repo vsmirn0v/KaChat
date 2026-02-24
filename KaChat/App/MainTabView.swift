@@ -41,14 +41,14 @@ struct MainTabView: View {
         .sheet(isPresented: $showGiftSheet) {
             GiftClaimView()
         }
-        .onChange(of: walletManager.currentWallet?.publicAddress) { _, _ in
+        .onChange(of: walletManager.currentWallet?.publicAddress) { _ in
             preloadProfileResources()
         }
-        .onChange(of: walletManager.currentWallet?.balanceSompi) { _, newValue in
+        .onChange(of: walletManager.currentWallet?.balanceSompi) { newValue in
             guard newValue == 0 else { return }
             presentGiftSheetIfEligibleForZeroBalance()
         }
-        .onChange(of: giftService.claimState) { _, _ in
+        .onChange(of: giftService.claimState) { _ in
             presentGiftSheetIfEligibleForZeroBalance()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { _ in
@@ -58,7 +58,7 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showGiftClaim)) { _ in
             presentGiftSheetIfEligibleForZeroBalance()
         }
-        .onChange(of: chatService.activeConversationAddress) { _, newValue in
+        .onChange(of: chatService.activeConversationAddress) { newValue in
             guard let address = newValue else { return }
             lastActiveChatAddress = address
             isChatReturnArmed = false

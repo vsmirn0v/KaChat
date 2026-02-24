@@ -7,6 +7,7 @@ struct ChatInfoView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @ObservedObject private var knsService = KNSService.shared
 
     @State private var editedAlias: String = ""
     @State private var notificationModeOverride: ContactNotificationMode? = nil
@@ -14,6 +15,7 @@ struct ChatInfoView: View {
     @State private var isLoadingKNS = false
     @State private var isLoadingBalance = false
     @State private var showQR = false
+    @State private var showAvatarPreview = false
     @State private var showSystemContactLinkPicker = false
     @State private var linkedSystemContactId: String?
     @State private var linkedSystemContactName: String?
@@ -40,6 +42,26 @@ struct ChatInfoView: View {
         knsInfo?.allDomains ?? []
     }
 
+    private var knsProfileInfo: KNSAddressProfileInfo? {
+        contactsManager.getKNSProfile(for: contact) ?? knsService.profileCache[contact.address]
+    }
+
+    private var knsProfile: KNSDomainProfile? {
+        knsProfileInfo?.profile
+    }
+
+    private var hasProfileDetailFields: Bool {
+        guard let profile = knsProfile else { return false }
+        return profile.bio != nil
+            || profile.x != nil
+            || profile.website != nil
+            || profile.telegram != nil
+            || profile.discord != nil
+            || profile.contactEmail != nil
+            || profile.github != nil
+            || profile.redirectUrl != nil
+    }
+
     private var contactBalanceSompi: UInt64? {
         if let wallet = WalletManager.shared.currentWallet, wallet.publicAddress == contact.address {
             return wallet.balanceSompi
@@ -52,14 +74,16 @@ struct ChatInfoView: View {
             Form {
                 Section {
                     HStack {
-                        ZStack {
-                            Circle()
-                                .fill(Color.accentColor.opacity(0.2))
-                                .frame(width: 60, height: 60)
-                            Text(String(contact.alias.prefix(2)).uppercased())
-                                .font(.title2.bold())
-                                .foregroundColor(.accentColor)
+                        Button {
+                            showAvatarPreview = true
+                        } label: {
+                            KNSAvatarView(
+                                avatarURLString: knsProfileInfo?.avatarURL,
+                                fallbackText: contact.alias,
+                                size: 60
+                            )
                         }
+                        .buttonStyle(.plain)
 
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("Name", text: $editedAlias)
@@ -73,6 +97,31 @@ struct ChatInfoView: View {
                         .padding(.leading, 8)
                     }
                     .padding(.vertical, 8)
+
+                    if let bannerURL = KNSProfileLinkBuilder.websiteURL(from: knsProfile?.bannerUrl) {
+                        AsyncImage(url: bannerURL) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 110)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                            case .empty:
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.secondary.opacity(0.15))
+                                    .frame(height: 110)
+                                    .overlay {
+                                        ProgressView().scaleEffect(0.8)
+                                    }
+                            case .failure:
+                                EmptyView()
+                            @unknown default:
+                                EmptyView()
+                            }
+                        }
+                    }
                 }
 
                 Section {
@@ -222,6 +271,87 @@ struct ChatInfoView: View {
                     }
                 }
 
+                if let profile = knsProfile, hasProfileDetailFields {
+                    Section("KNS Profile") {
+                        if let bio = profile.bio {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Bio")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(bio)
+                                    .font(.body)
+                            }
+                            .padding(.vertical, 2)
+                            .onLongPressGesture(minimumDuration: 0.45) {
+                                copyProfileFieldValue(bio, fieldName: "Bio")
+                            }
+                        }
+                        if let x = profile.x {
+                            LabeledContent("X") {
+                                profileLinkView(
+                                    text: x,
+                                    url: KNSProfileLinkBuilder.xURL(from: x),
+                                    fieldName: "X"
+                                )
+                            }
+                        }
+                        if let website = profile.website {
+                            LabeledContent("Website") {
+                                profileLinkView(
+                                    text: website,
+                                    url: KNSProfileLinkBuilder.websiteURL(from: website),
+                                    fieldName: "Website"
+                                )
+                            }
+                        }
+                        if let telegram = profile.telegram {
+                            LabeledContent("Telegram") {
+                                profileLinkView(
+                                    text: telegram,
+                                    url: KNSProfileLinkBuilder.telegramURL(from: telegram),
+                                    fieldName: "Telegram"
+                                )
+                            }
+                        }
+                        if let discord = profile.discord {
+                            LabeledContent("Discord") {
+                                profileLinkView(
+                                    text: discord,
+                                    url: KNSProfileLinkBuilder.discordURL(from: discord),
+                                    fieldName: "Discord"
+                                )
+                            }
+                        }
+                        if let contactEmail = profile.contactEmail {
+                            LabeledContent("Email") {
+                                profileLinkView(
+                                    text: contactEmail,
+                                    url: KNSProfileLinkBuilder.emailURL(from: contactEmail),
+                                    fieldName: "Email"
+                                )
+                            }
+                        }
+                        if let github = profile.github {
+                            LabeledContent("GitHub") {
+                                profileLinkView(
+                                    text: github,
+                                    url: KNSProfileLinkBuilder.githubURL(from: github),
+                                    fieldName: "GitHub"
+                                )
+                            }
+                        }
+                        if let redirectUrl = profile.redirectUrl {
+                            LabeledContent("Redirect") {
+                                profileLinkView(
+                                    text: redirectUrl,
+                                    url: KNSProfileLinkBuilder.websiteURL(from: redirectUrl),
+                                    fieldName: "Redirect"
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Section("Info") {
                     LabeledContent("Added") {
                         Text(contact.addedAt, style: .date)
@@ -280,6 +410,13 @@ struct ChatInfoView: View {
                     }
                 }
             }
+            .fullScreenCover(isPresented: $showAvatarPreview) {
+                KNSAvatarFullscreenView(
+                    avatarURLString: knsProfileInfo?.avatarURL,
+                    fallbackText: contact.alias,
+                    title: contact.alias
+                )
+            }
             .sheet(isPresented: $showSystemContactLinkPicker) {
                 SystemContactLinkPickerSheet(
                     title: "Link System Contact",
@@ -336,10 +473,11 @@ struct ChatInfoView: View {
                 linkedSystemContactSource = contact.systemContactLinkSource
             }
             .task {
-                // Fetch KNS info if not already cached
-                if knsInfo == nil {
+                // Fetch KNS domains/profile if not already cached
+                if knsInfo == nil || knsProfileInfo == nil {
                     isLoadingKNS = true
                     _ = await contactsManager.fetchKNSInfo(for: contact)
+                    _ = await contactsManager.fetchKNSProfile(for: contact)
                     isLoadingKNS = false
                 }
                 isLoadingBalance = true
@@ -417,6 +555,27 @@ struct ChatInfoView: View {
         editedAlias = domain
         Haptics.success()
         showToast("Name set to \(domain). Tap Save to apply.")
+    }
+
+    @ViewBuilder
+    private func profileLinkView(text: String, url: URL?, fieldName: String) -> some View {
+        Group {
+            if let url {
+                Link(text, destination: url)
+            } else {
+                Text(text)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .onLongPressGesture(minimumDuration: 0.45) {
+            copyProfileFieldValue(text, fieldName: fieldName)
+        }
+    }
+
+    private func copyProfileFieldValue(_ value: String, fieldName: String) {
+        UIPasteboard.general.string = value
+        Haptics.success()
+        showToast("\(fieldName) copied to clipboard.")
     }
 
     private func makeQRCodeImage(from string: String) -> UIImage? {

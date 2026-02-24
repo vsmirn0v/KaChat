@@ -316,10 +316,10 @@
 "\\(warning.contactAlias) has produced \\(warning.txCount) transactions in the last minute that are not relevant to you. This consumes battery and network resources.\\n\\nDisable real-time updates for this contact? Messages will still be fetched periodically." = "\\(warning.contactAlias) произвёл(а) \\(warning.txCount) транзакций за последнюю минуту, не относящихся к вам. Это расходует батарею и сетевые ресурсы.\\n\\nОтключить обновления в реальном времени для этого контакта? Сообщения будут по-прежнему загружаться периодически.";
 "\\(watchedCount) contacts" = "\\(watchedCount) контактов";
 "\\(wordCount) words" = "\\(wordCount) слов";
-"fee: -- sompi" = "fee: -- sompi";
-"fee: ---- sompi" = "fee: ---- sompi";
-"fee: \(fee) sompi" = "fee: \(fee) sompi";
-"fee: \\(fee) sompi" = "fee: \\(fee) sompi";
+"fee: -- sompi" = "плата: -- sompi";
+"fee: ---- sompi" = "плата: ---- sompi";
+"fee: \(fee) sompi" = "плата: \(fee) sompi";
+"fee: \\(fee) sompi" = "плата: \\(fee) sompi";
 "Small Amount" = "Малая сумма";
 "Send Anyway" = "Отправить всё равно";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "Отправка менее 0,1 KAS может не пройти из-за ограничения сети на минимальный размер транзакции (dust limit).";

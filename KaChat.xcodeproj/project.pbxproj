@@ -10,6 +10,7 @@
 		19319293ACD84C2AB108D745 /* KNSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A61ACF41FEA483D9EF0924F /* KNSService.swift */; };
 		3068057B0F9F4906B2600F39 /* ChatInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C4C922EA822400194F497F9 /* ChatInfoView.swift */; };
 		43BBF34D2F15A52900B42BDA /* KaChatNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		SHREXT000100010001000001 /* KaChatShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = SHREXT000100010000000002 /* KaChatShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B2B2B2B20001000100000001 /* Blake2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B20001000000000001 /* Blake2b.swift */; };
 		BGTM00012E0100000002 /* BackgroundTaskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BGTM00012E0100000001 /* BackgroundTaskManager.swift */; };
 		CPTV00010001000100000001 /* ComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPTV00010001000000000001 /* ComposerTextView.swift */; };
@@ -48,6 +49,7 @@
 		E83000012D4C000200000006 /* OpusBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = E83000032D4C000200000008 /* OpusBridge.m */; };
 		E8F100122D4C0001000000FF /* Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F100112D4C0001000000FF /* Toast.swift */; };
 		E8F100152D4C0001000001FF /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F100142D4C0001000001FF /* QRScannerView.swift */; };
+		KNAV00010001000100000001 /* KNSAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KNAV000100010000000001 /* KNSAvatarView.swift */; };
 		E8F1A0032F4B000100000003 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F1A0042F4B000100000004 /* Haptics.swift */; };
 		E8F1A0062F4B000100000006 /* external/opus/Opus.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */; platformFilter = maccatalyst; };
 		ENGL00012F70000100000002 /* english.txt in Resources */ = {isa = PBXBuildFile; fileRef = ENGL00012F70000100000001 /* english.txt */; };
@@ -76,6 +78,8 @@
 		RDSS00010001000100000001 /* ReadStatusSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = RDSS00010001000000000001 /* ReadStatusSyncManager.swift */; };
 		RSTM00012F4C000100000002 /* Resolvers.toml in Resources */ = {isa = PBXBuildFile; fileRef = RSTM00012F4C000100000001 /* Resolvers.toml */; };
 		SECV00010001000100000001 /* SecureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SECV00010001000000000001 /* SecureView.swift */; };
+		SHRT00010001000100000001 /* KaChatContactEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = SHRT000100010000000001 /* KaChatContactEntity.swift */; };
+		SHRT00010001000100000002 /* KaChatShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = SHRT000100010000000002 /* KaChatShortcuts.swift */; };
 		XCFW00020001 /* GRPCAll.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010001 /* GRPCAll.xcframework */; };
 		XCFW00020002 /* SwiftProtobuf.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010002 /* SwiftProtobuf.xcframework */; };
 		XCFW00020003 /* P256K.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010003 /* P256K.xcframework */; };
@@ -90,6 +94,13 @@
 			remoteGlobalIDString = 43BBF3452F15A52900B42BDA;
 			remoteInfo = KaChatNotificationService;
 		};
+		SHREXT000100010000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E80000062D4C000000000006 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = SHREXT000100010000000006;
+			remoteInfo = KaChatShareExtension;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -100,6 +111,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				43BBF34D2F15A52900B42BDA /* KaChatNotificationService.appex in Embed Foundation Extensions */,
+				SHREXT000100010001000001 /* KaChatShareExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -110,6 +122,7 @@
 		1C4C922EA822400194F497F9 /* ChatInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInfoView.swift; sourceTree = "<group>"; };
 		4348A8842F2EC4AD00A5518E /* KaChatRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KaChatRelease.entitlements; sourceTree = "<group>"; };
 		43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KaChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		SHREXT000100010000000002 /* KaChatShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KaChatShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		6A61ACF41FEA483D9EF0924F /* KNSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSService.swift; sourceTree = "<group>"; };
 		B2B2B2B20001000000000001 /* Blake2b.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Blake2b.swift; sourceTree = "<group>"; };
 		BGTM00012E0100000001 /* BackgroundTaskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskManager.swift; sourceTree = "<group>"; };
@@ -151,6 +164,7 @@
 		E83000042D4C000200000009 /* KaChat-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "KaChat-Bridging-Header.h"; sourceTree = "<group>"; };
 		E8F100112D4C0001000000FF /* Toast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Toast.swift; sourceTree = "<group>"; };
 		E8F100142D4C0001000001FF /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
+		KNAV000100010000000001 /* KNSAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSAvatarView.swift; sourceTree = "<group>"; };
 		E8F1A0042F4B000100000004 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = external/opus/Opus.xcframework; sourceTree = "<group>"; };
 		ENGL00012F70000100000001 /* english.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = english.txt; sourceTree = "<group>"; };
@@ -196,6 +210,8 @@
 		RDSS00010001000000000001 /* ReadStatusSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadStatusSyncManager.swift; sourceTree = "<group>"; };
 		RSTM00012F4C000100000001 /* Resolvers.toml */ = {isa = PBXFileReference; lastKnownFileType = text; path = Resolvers.toml; sourceTree = "<group>"; };
 		SECV00010001000000000001 /* SecureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureView.swift; sourceTree = "<group>"; };
+		SHRT000100010000000001 /* KaChatContactEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatContactEntity.swift; sourceTree = "<group>"; };
+		SHRT000100010000000002 /* KaChatShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatShortcuts.swift; sourceTree = "<group>"; };
 		XCFW00010001 /* GRPCAll.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GRPCAll.xcframework; path = Frameworks/GRPCAll.xcframework; sourceTree = "<group>"; };
 		XCFW00010002 /* SwiftProtobuf.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = SwiftProtobuf.xcframework; path = Frameworks/SwiftProtobuf.xcframework; sourceTree = "<group>"; };
 		XCFW00010003 /* P256K.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = P256K.xcframework; path = Frameworks/P256K.xcframework; sourceTree = "<group>"; };
@@ -209,10 +225,18 @@
 			);
 			target = 43BBF3452F15A52900B42BDA /* KaChatNotificationService */;
 		};
+		SHREXT000100010000000005 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = SHREXT000100010000000006 /* KaChatShareExtension */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		43BBF3472F15A52900B42BDA /* KaChatNotificationService */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (43BBF3512F15A52900B42BDA /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = KaChatNotificationService; sourceTree = "<group>"; };
+		SHREXT000100010000000004 /* KaChatShareExtension */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (SHREXT000100010000000005 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = KaChatShareExtension; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -221,6 +245,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				XCFW00020004 /* P256K.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		SHREXT000100010000000007 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -244,6 +275,7 @@
 			children = (
 				E80000102D4C000000000010 /* KaChat */,
 				43BBF3472F15A52900B42BDA /* KaChatNotificationService */,
+				SHREXT000100010000000004 /* KaChatShareExtension */,
 				E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */,
 				XCFW00010001 /* GRPCAll.xcframework */,
 				XCFW00010002 /* SwiftProtobuf.xcframework */,
@@ -257,6 +289,7 @@
 			children = (
 				E80000002D4C000000000000 /* KaChat.app */,
 				43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */,
+				SHREXT000100010000000002 /* KaChatShareExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -271,6 +304,7 @@
 				E80000142D4C000000000014 /* Views */,
 				E80000152D4C000000000015 /* ViewModels */,
 				E80000162D4C000000000016 /* Utilities */,
+				SHRT000100010000000010 /* Shortcuts */,
 				E80000172D4C000000000017 /* Resources */,
 				GRPC00010001000100000020 /* Generated */,
 				E83000042D4C000200000009 /* KaChat-Bridging-Header.h */,
@@ -426,8 +460,18 @@
 			children = (
 				E8F100142D4C0001000001FF /* QRScannerView.swift */,
 				E8F100112D4C0001000000FF /* Toast.swift */,
+				KNAV000100010000000001 /* KNSAvatarView.swift */,
 			);
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		SHRT000100010000000010 /* Shortcuts */ = {
+			isa = PBXGroup;
+			children = (
+				SHRT000100010000000001 /* KaChatContactEntity.swift */,
+				SHRT000100010000000002 /* KaChatShortcuts.swift */,
+			);
+			path = Shortcuts;
 			sourceTree = "<group>";
 		};
 		GRPC00010001000100000020 /* Generated */ = {
@@ -481,6 +525,27 @@
 			productReference = 43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		SHREXT000100010000000006 /* KaChatShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = SHREXT00010001000000000D /* Build configuration list for PBXNativeTarget "KaChatShareExtension" */;
+			buildPhases = (
+				SHREXT000100010000000009 /* Sources */,
+				SHREXT000100010000000007 /* Frameworks */,
+				SHREXT000100010000000008 /* Resources */,
+				SHREXT00010001000000000A /* Set Build Number */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				SHREXT000100010000000004 /* KaChatShareExtension */,
+			);
+			name = KaChatShareExtension;
+			productName = KaChatShareExtension;
+			productReference = SHREXT000100010000000002 /* KaChatShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		E80000032D4C000000000003 /* KaChat */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = E80000082D4C000000000008 /* Build configuration list for PBXNativeTarget "KaChat" */;
@@ -495,6 +560,7 @@
 			);
 			dependencies = (
 				43BBF34C2F15A52900B42BDA /* PBXTargetDependency */,
+				SHREXT000100010000000003 /* PBXTargetDependency */,
 			);
 			name = KaChat;
 			packageProductDependencies = (
@@ -515,6 +581,9 @@
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
 					43BBF3452F15A52900B42BDA = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					SHREXT000100010000000006 = {
 						CreatedOnToolsVersion = 26.2;
 					};
 					E80000032D4C000000000003 = {
@@ -557,12 +626,20 @@
 			targets = (
 				E80000032D4C000000000003 /* KaChat */,
 				43BBF3452F15A52900B42BDA /* KaChatNotificationService */,
+				SHREXT000100010000000006 /* KaChatShareExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		43BBF3442F15A52900B42BDA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		SHREXT000100010000000008 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -614,10 +691,32 @@
 			shellPath = /bin/sh;
 			shellScript = "# Read build number from parent app to ensure they match\nbuildNumber=$(/usr/libexec/PlistBuddy -c \"Print :CFBundleVersion\" \"${BUILT_PRODUCTS_DIR}/KaChat.app/Info.plist\" 2>/dev/null)\nif [ -z \"$buildNumber\" ]; then\n  buildNumber=$(date +%Y%m%d%H%M)\nfi\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $buildNumber\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\" 2>/dev/null || /usr/libexec/PlistBuddy -c \"Add :CFBundleVersion string $buildNumber\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n";
 		};
+		SHREXT00010001000000000A /* Set Build Number */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Set Build Number";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Read build number from parent app to ensure they match\nbuildNumber=$(/usr/libexec/PlistBuddy -c \"Print :CFBundleVersion\" \"${BUILT_PRODUCTS_DIR}/KaChat.app/Info.plist\" 2>/dev/null)\nif [ -z \"$buildNumber\" ]; then\n  buildNumber=$(date +%Y%m%d%H%M)\nfi\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $buildNumber\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\" 2>/dev/null || /usr/libexec/PlistBuddy -c \"Add :CFBundleVersion string $buildNumber\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		43BBF3422F15A52900B42BDA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		SHREXT000100010000000009 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -653,6 +752,7 @@
 				E810001D2D4C00010000000F /* SettingsView.swift in Sources */,
 				E8F100122D4C0001000000FF /* Toast.swift in Sources */,
 				E8F100152D4C0001000001FF /* QRScannerView.swift in Sources */,
+				KNAV00010001000100000001 /* KNSAvatarView.swift in Sources */,
 				E81000212D4C000100000011 /* Models.swift in Sources */,
 				E81000232D4C000100000012 /* MainTabView.swift in Sources */,
 				E81000292D4C000100000015 /* SettingsViewModel.swift in Sources */,
@@ -687,6 +787,8 @@
 				PUSH00010001000100000002 /* SharedDataManager.swift in Sources */,
 				RDSS00010001000100000001 /* ReadStatusSyncManager.swift in Sources */,
 				SECV00010001000100000001 /* SecureView.swift in Sources */,
+				SHRT00010001000100000001 /* KaChatContactEntity.swift in Sources */,
+				SHRT00010001000100000002 /* KaChatShortcuts.swift in Sources */,
 				GIFT00010001000100000001 /* GiftService.swift in Sources */,
 				GIFT00010001000100000002 /* GiftClaimView.swift in Sources */,
 			);
@@ -699,6 +801,11 @@
 			isa = PBXTargetDependency;
 			target = 43BBF3452F15A52900B42BDA /* KaChatNotificationService */;
 			targetProxy = 43BBF34B2F15A52900B42BDA /* PBXContainerItemProxy */;
+		};
+		SHREXT000100010000000003 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = SHREXT000100010000000006 /* KaChatShareExtension */;
+			targetProxy = SHREXT000100010000000001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -744,7 +851,7 @@
 				INFOPLIST_FILE = KaChatNotificationService/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = KaChatNotificationService;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025 KaChat. All rights reserved.";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -780,7 +887,7 @@
 				INFOPLIST_FILE = KaChatNotificationService/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = KaChatNotificationService;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025 KaChat. All rights reserved.";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -794,6 +901,75 @@
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		SHREXT00010001000000000B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = KaChatShareExtension/KaChatShareExtension.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 23;
+				DEVELOPMENT_TEAM = RP4Z22SFSD;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = KaChatShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = KaChatShareExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025 KaChat. All rights reserved.";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		SHREXT00010001000000000C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = KaChatShareExtension/KaChatShareExtensionRelease.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 23;
+				DEVELOPMENT_TEAM = RP4Z22SFSD;
+				ENABLE_DEBUG_DYLIB = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = KaChatShareExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = KaChatShareExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025 KaChat. All rights reserved.";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -856,7 +1032,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -916,7 +1092,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -955,7 +1131,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1009,7 +1185,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1042,6 +1218,15 @@
 			buildConfigurations = (
 				43BBF34F2F15A52900B42BDA /* Debug */,
 				43BBF3502F15A52900B42BDA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		SHREXT00010001000000000D /* Build configuration list for PBXNativeTarget "KaChatShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				SHREXT00010001000000000B /* Debug */,
+				SHREXT00010001000000000C /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

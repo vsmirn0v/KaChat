@@ -36,17 +36,17 @@ struct SettingsView: View {
             Form {
                 Section("Chats") {
                     Toggle("Estimate fees while composing", isOn: $settingsViewModel.settings.feeEstimationEnabled)
-                        .onChange(of: settingsViewModel.settings.feeEstimationEnabled) { _, _ in
+                        .onChange(of: settingsViewModel.settings.feeEstimationEnabled) { _ in
                             settingsViewModel.saveSettings()
                         }
 
                     Toggle("Hide auto-created payment chats", isOn: $settingsViewModel.settings.hideAutoCreatedPaymentChats)
-                        .onChange(of: settingsViewModel.settings.hideAutoCreatedPaymentChats) { _, _ in
+                        .onChange(of: settingsViewModel.settings.hideAutoCreatedPaymentChats) { _ in
                             settingsViewModel.saveSettings()
                         }
 
                     Toggle("Show contact balance", isOn: $settingsViewModel.settings.showContactBalance)
-                        .onChange(of: settingsViewModel.settings.showContactBalance) { _, _ in
+                        .onChange(of: settingsViewModel.settings.showContactBalance) { _ in
                             settingsViewModel.saveSettings()
                         }
 
@@ -98,7 +98,7 @@ struct SettingsView: View {
 
                 Section("Storage") {
                     Toggle("Store encrypted messages in iCloud CloudKit", isOn: $settingsViewModel.settings.storeMessagesInICloud)
-                        .onChange(of: settingsViewModel.settings.storeMessagesInICloud) { _, _ in
+                        .onChange(of: settingsViewModel.settings.storeMessagesInICloud) { _ in
                             settingsViewModel.saveSettings()
                             refreshMessageStoreSize()
                         }
@@ -113,7 +113,7 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .onChange(of: settingsViewModel.settings.messageRetention) { _, _ in
+                    .onChange(of: settingsViewModel.settings.messageRetention) { _ in
                         settingsViewModel.saveSettings()
                         refreshMessageStoreSize()
                     }
@@ -795,12 +795,12 @@ struct NotificationsSettingsView: View {
 
             Section {
                 Toggle("Play sound", isOn: $settingsViewModel.settings.incomingNotificationSoundEnabled)
-                    .onChange(of: settingsViewModel.settings.incomingNotificationSoundEnabled) { _, _ in
+                    .onChange(of: settingsViewModel.settings.incomingNotificationSoundEnabled) { _ in
                         settingsViewModel.saveSettings()
                     }
 
                 Toggle("Vibration", isOn: $settingsViewModel.settings.incomingNotificationVibrationEnabled)
-                    .onChange(of: settingsViewModel.settings.incomingNotificationVibrationEnabled) { _, _ in
+                    .onChange(of: settingsViewModel.settings.incomingNotificationVibrationEnabled) { _ in
                         settingsViewModel.saveSettings()
                     }
             } header: {
@@ -1327,7 +1327,7 @@ struct ConnectionSettingsView: View {
                         Text(network.displayName).tag(network)
                     }
                 }
-                .onChange(of: networkType) { _, newValue in
+                .onChange(of: networkType) { newValue in
                     // Update URLs to defaults for new network if they match old defaults
                     let oldNetwork = settingsViewModel.settings.networkType
                     if knsBaseURL == AppSettings.defaultKNSURL(for: oldNetwork) {
@@ -1476,7 +1476,7 @@ struct ConnectionSettingsView: View {
                 }
 
                 Toggle("Discover new peers", isOn: $autoRefreshPool)
-                    .onChange(of: autoRefreshPool) { _, newValue in
+                    .onChange(of: autoRefreshPool) { newValue in
                         settingsViewModel.settings.discoverNewPeers = newValue
                         settingsViewModel.saveSettings()
                     }

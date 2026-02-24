@@ -277,8 +277,8 @@ final class ChatService: ObservableObject {
     var pendingLastMessageUpdateWorkItem: DispatchWorkItem?
     let lastMessageBatchDelay: TimeInterval = 0.8
 
-    // Serialize outgoing message sends to avoid UTXO double-spend/orphan errors.
-    var messageSendTail: Task<Void, Error>?
+    // Serialize all outgoing tx sends to avoid UTXO contention/orphan errors.
+    var outgoingTxTail: Task<Void, Never>?
     var reservedMessageOutpoints: [String: Date] = [:]
     var pendingMessageUtxos: [String: (utxo: UTXO, expiresAt: Date)] = [:]
     let pendingMessageUtxoTTL: TimeInterval = 120
@@ -287,6 +287,7 @@ final class ChatService: ObservableObject {
     var outgoingAttemptByRealTxId: [String: UUID] = [:]
     let outgoingAttemptTTL: TimeInterval = 900
     var scheduledSendRetries = Set<String>()
+    var noInputRetryCounts: [String: Int] = [:]
     let spendableFundsRetryAttempts = 5
     let spendableFundsRetryBaseDelay: TimeInterval = 0.1
 

@@ -88,6 +88,7 @@ final class ContactsManager: ObservableObject {
 
         let addresses = contacts.map { $0.address }
         await knsService.refreshIfNeeded(for: addresses, network: network)
+        await knsService.refreshProfilesIfNeeded(for: addresses, network: network)
 
         // Update aliases for contacts that have auto-generated names or stale .kas names,
         // but never overwrite a linked iCloud contact name (system contact takes priority).
@@ -121,21 +122,32 @@ final class ContactsManager: ObservableObject {
         // This fixes legacy values like "http://name.kas" without waiting for periodic refresh.
         // Skip this automatic write loop on macOS Catalyst to avoid contactd CPU spikes.
         if allowAutomaticSystemContactWrites {
+            var didClearStaleLinks = false
             for contact in contacts {
                 guard let linkedId = contact.systemContactId else { continue }
                 guard let info = knsService.domainCache[contact.address] else { continue }
                 let domains = info.allDomains.map { $0.fullName }
                 do {
-                    try await systemContactsService.upsertKaChatData(
+                    let didUpsert = try await systemContactsService.upsertKaChatData(
                         contactIdentifier: linkedId,
                         address: contact.address,
                         domains: domains,
                         appContactId: contact.id,
                         autoCreated: contact.systemContactLinkSource == .autoCreated
                     )
+                    if !didUpsert,
+                       clearStaleSystemContactLink(
+                        contactId: contact.id,
+                        expectedContactIdentifier: linkedId
+                       ) {
+                        didClearStaleLinks = true
+                    }
                 } catch {
                     // Best effort only.
                 }
+            }
+            if didClearStaleLinks {
+                saveContacts(syncShared: true, updatePush: false, publishContacts: true)
             }
         }
     }
@@ -150,10 +162,22 @@ final class ContactsManager: ObservableObject {
         return knsService.domainCache[contact.address]?.allDomains ?? []
     }
 
+    /// Get selected KNS profile for a contact address (primary domain if available).
+    func getKNSProfile(for contact: Contact) -> KNSAddressProfileInfo? {
+        knsService.profileCache[contact.address]
+    }
+
     /// Fetch KNS info for a specific contact
     func fetchKNSInfo(for contact: Contact, network: NetworkType = .mainnet) async -> KNSAddressInfo? {
         await knsService.refreshIfNeeded(for: [contact.address], network: network)
+        await knsService.refreshProfilesIfNeeded(for: [contact.address], network: network)
         return knsService.domainCache[contact.address]
+    }
+
+    /// Fetch selected KNS profile for a specific contact.
+    func fetchKNSProfile(for contact: Contact, network: NetworkType = .mainnet) async -> KNSAddressProfileInfo? {
+        await knsService.refreshProfilesIfNeeded(for: [contact.address], network: network)
+        return knsService.profileCache[contact.address]
     }
 
     func balanceSompi(for address: String) -> UInt64? {
@@ -647,13 +671,21 @@ final class ContactsManager: ObservableObject {
             if allowAutomaticSystemContactWrites, let linkedId = latest.systemContactId {
                 let domains = getKNSInfo(for: latest)?.allDomains.map { $0.fullName } ?? []
                 do {
-                    try await systemContactsService.upsertKaChatData(
+                    let didUpsert = try await systemContactsService.upsertKaChatData(
                         contactIdentifier: linkedId,
                         address: latest.address,
                         domains: domains,
                         appContactId: latest.id,
                         autoCreated: latest.systemContactLinkSource == .autoCreated
                     )
+                    if !didUpsert,
+                       clearStaleSystemContactLink(
+                        contactId: latest.id,
+                        expectedContactIdentifier: linkedId,
+                        at: now
+                       ) {
+                        updated = true
+                    }
                 } catch {
                     // Best effort only.
                 }
@@ -756,7 +788,7 @@ final class ContactsManager: ObservableObject {
         let info = await fetchKNSInfo(for: contact)
         let domains = info?.allDomains.map { $0.fullName } ?? []
         do {
-            try await runWithTimeout(
+            let didUpsert = try await runWithTimeout(
                 seconds: systemContactLinkWriteTimeout,
                 operation: "upsertKaChatData"
             ) { [systemContactsService] in
@@ -767,6 +799,13 @@ final class ContactsManager: ObservableObject {
                     appContactId: contact.id,
                     autoCreated: false
                 )
+            }
+            if !didUpsert,
+               clearStaleSystemContactLink(
+                contactId: contact.id,
+                expectedContactIdentifier: target.contactIdentifier
+               ) {
+                saveContacts(syncShared: true, updatePush: false, publishContacts: true)
             }
         } catch {
             NSLog("[ContactsManager] Failed to write KaChat metadata to system contact %@: %@",
@@ -786,6 +825,23 @@ final class ContactsManager: ObservableObject {
                 )
             }
         }
+    }
+
+    @discardableResult
+    private func clearStaleSystemContactLink(
+        contactId: UUID,
+        expectedContactIdentifier: String,
+        at date: Date = Date()
+    ) -> Bool {
+        guard let index = contacts.firstIndex(where: { $0.id == contactId }) else { return false }
+        guard contacts[index].systemContactId == expectedContactIdentifier else { return false }
+
+        contacts[index].systemContactId = nil
+        contacts[index].systemDisplayNameSnapshot = nil
+        contacts[index].systemContactLinkSource = nil
+        contacts[index].systemMatchConfidence = nil
+        contacts[index].systemLastSyncedAt = date
+        return true
     }
 
     func unlinkSystemContact(_ contact: Contact) {
@@ -1090,6 +1146,11 @@ actor SystemContactsService {
         }
     }
 
+    private func isMissingRecordError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == CNErrorDomain && nsError.code == 200
+    }
+
     func authorizationStatus() -> CNAuthorizationStatus {
         CNContactStore.authorizationStatus(for: .contacts)
     }
@@ -1250,95 +1311,103 @@ actor SystemContactsService {
         domains: [String],
         appContactId: UUID? = nil,
         autoCreated: Bool = false
-    ) async throws {
-        try await performStoreOperation { [self] in
-            let keys: [CNKeyDescriptor] = [
-                CNContactIdentifierKey as CNKeyDescriptor,
-                CNContactUrlAddressesKey as CNKeyDescriptor,
-                CNContactInstantMessageAddressesKey as CNKeyDescriptor
-            ]
-            let contact = try store.unifiedContact(withIdentifier: contactIdentifier, keysToFetch: keys)
-            guard let mutable = contact.mutableCopy() as? CNMutableContact else { return }
+    ) async throws -> Bool {
+        do {
+            try await performStoreOperation { [self] in
+                let keys: [CNKeyDescriptor] = [
+                    CNContactIdentifierKey as CNKeyDescriptor,
+                    CNContactUrlAddressesKey as CNKeyDescriptor,
+                    CNContactInstantMessageAddressesKey as CNKeyDescriptor
+                ]
+                let contact = try store.unifiedContact(withIdentifier: contactIdentifier, keysToFetch: keys)
+                guard let mutable = contact.mutableCopy() as? CNMutableContact else { return }
 
-            // Canonicalize existing Kaspa-labeled values so stale formats like
-            // "http://name.kas" are cleaned up from URL fields.
-            // KNS domains are stored as plain ".kas" in Instant Message entries (service: KNS).
-            var normalizedURLAddresses: [CNLabeledValue<NSString>] = []
-            var seenKaspaAddresses = Set<String>()
-            for entry in mutable.urlAddresses {
-                let raw = String(entry.value).trimmingCharacters(in: .whitespacesAndNewlines)
-                let lowered = raw.lowercased()
+                // Canonicalize existing Kaspa-labeled values so stale formats like
+                // "http://name.kas" are cleaned up from URL fields.
+                // KNS domains are stored as plain ".kas" in Instant Message entries (service: KNS).
+                var normalizedURLAddresses: [CNLabeledValue<NSString>] = []
+                var seenKaspaAddresses = Set<String>()
+                for entry in mutable.urlAddresses {
+                    let raw = String(entry.value).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let lowered = raw.lowercased()
 
-                // Remove auto markers here; we'll re-add if needed below.
-                if lowered.hasPrefix(kaChatAutoMarkerPrefix) {
-                    continue
-                }
-
-                // Canonicalize not only explicit Kaspa-labeled values, but also legacy/non-Kaspa
-                // URL entries that clearly hold KNS domains (e.g. "http://name.kas").
-                if (entry.label == kaspaURLLabel || lowered.contains(".kas")),
-                   let canonical = self.canonicalKaspaValue(from: raw) {
-                    // Keep Kaspa addresses in URL fields, but drop KNS domains from URL fields.
-                    if KaspaAddress.isValid(canonical), seenKaspaAddresses.insert(canonical).inserted {
-                        normalizedURLAddresses.append(
-                            CNLabeledValue(label: kaspaURLLabel, value: canonical as NSString)
-                        )
+                    // Remove auto markers here; we'll re-add if needed below.
+                    if lowered.hasPrefix(kaChatAutoMarkerPrefix) {
+                        continue
                     }
-                    continue
+
+                    // Canonicalize not only explicit Kaspa-labeled values, but also legacy/non-Kaspa
+                    // URL entries that clearly hold KNS domains (e.g. "http://name.kas").
+                    if (entry.label == kaspaURLLabel || lowered.contains(".kas")),
+                       let canonical = self.canonicalKaspaValue(from: raw) {
+                        // Keep Kaspa addresses in URL fields, but drop KNS domains from URL fields.
+                        if KaspaAddress.isValid(canonical), seenKaspaAddresses.insert(canonical).inserted {
+                            normalizedURLAddresses.append(
+                                CNLabeledValue(label: kaspaURLLabel, value: canonical as NSString)
+                            )
+                        }
+                        continue
+                    }
+
+                    normalizedURLAddresses.append(entry)
+                }
+                mutable.urlAddresses = normalizedURLAddresses
+
+                let kaspaValue = address.lowercased()
+                var existingURLValues = Set(
+                    mutable.urlAddresses.map {
+                        String($0.value).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    }
+                )
+                if !existingURLValues.contains(kaspaValue) {
+                    mutable.urlAddresses.append(CNLabeledValue(label: kaspaURLLabel, value: kaspaValue as NSString))
+                    existingURLValues.insert(kaspaValue)
                 }
 
-                normalizedURLAddresses.append(entry)
-            }
-            mutable.urlAddresses = normalizedURLAddresses
-
-            let kaspaValue = address.lowercased()
-            var existingURLValues = Set(
-                mutable.urlAddresses.map {
-                    String($0.value).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                let autoMarkers = mutable.urlAddresses
+                    .map { String($0.value).lowercased() }
+                    .filter { $0.hasPrefix(kaChatAutoMarkerPrefix) }
+                if !autoMarkers.isEmpty {
+                    mutable.urlAddresses.removeAll {
+                        let value = String($0.value).lowercased()
+                        return value.hasPrefix(kaChatAutoMarkerPrefix)
+                    }
+                    existingURLValues.subtract(autoMarkers)
                 }
-            )
-            if !existingURLValues.contains(kaspaValue) {
-                mutable.urlAddresses.append(CNLabeledValue(label: kaspaURLLabel, value: kaspaValue as NSString))
-                existingURLValues.insert(kaspaValue)
-            }
 
-            let autoMarkers = mutable.urlAddresses
-                .map { String($0.value).lowercased() }
-                .filter { $0.hasPrefix(kaChatAutoMarkerPrefix) }
-            if !autoMarkers.isEmpty {
-                mutable.urlAddresses.removeAll {
-                    let value = String($0.value).lowercased()
-                    return value.hasPrefix(kaChatAutoMarkerPrefix)
+                // Store KNS domains in IM entries (service: KNS) to prevent URL scheme coercion.
+                var normalizedIMAddresses: [CNLabeledValue<CNInstantMessageAddress>] = []
+                for entry in mutable.instantMessageAddresses {
+                    if entry.value.service.lowercased() == knsInstantMessageService.lowercased() {
+                        continue
+                    }
+                    normalizedIMAddresses.append(entry)
                 }
-                existingURLValues.subtract(autoMarkers)
-            }
-
-            // Store KNS domains in IM entries (service: KNS) to prevent URL scheme coercion.
-            var normalizedIMAddresses: [CNLabeledValue<CNInstantMessageAddress>] = []
-            for entry in mutable.instantMessageAddresses {
-                if entry.value.service.lowercased() == knsInstantMessageService.lowercased() {
-                    continue
+                let normalizedDomains = Array(Set(domains.compactMap(self.normalizeKnsDomain))).sorted()
+                for domain in normalizedDomains {
+                    let im = CNInstantMessageAddress(username: domain, service: knsInstantMessageService)
+                    normalizedIMAddresses.append(CNLabeledValue(label: kaspaURLLabel, value: im))
                 }
-                normalizedIMAddresses.append(entry)
-            }
-            let normalizedDomains = Array(Set(domains.compactMap(self.normalizeKnsDomain))).sorted()
-            for domain in normalizedDomains {
-                let im = CNInstantMessageAddress(username: domain, service: knsInstantMessageService)
-                normalizedIMAddresses.append(CNLabeledValue(label: kaspaURLLabel, value: im))
-            }
-            mutable.instantMessageAddresses = normalizedIMAddresses
+                mutable.instantMessageAddresses = normalizedIMAddresses
 
-            if autoCreated, let appContactId {
-                let marker = kaChatAutoMarkerPrefix + appContactId.uuidString.lowercased()
-                if !existingURLValues.contains(marker) {
-                    mutable.urlAddresses.append(CNLabeledValue(label: kaChatURLLabel, value: marker as NSString))
-                    existingURLValues.insert(marker)
+                if autoCreated, let appContactId {
+                    let marker = kaChatAutoMarkerPrefix + appContactId.uuidString.lowercased()
+                    if !existingURLValues.contains(marker) {
+                        mutable.urlAddresses.append(CNLabeledValue(label: kaChatURLLabel, value: marker as NSString))
+                        existingURLValues.insert(marker)
+                    }
                 }
-            }
 
-            let request = CNSaveRequest()
-            request.update(mutable)
-            try store.execute(request)
+                let request = CNSaveRequest()
+                request.update(mutable)
+                try store.execute(request)
+            }
+            return true
+        } catch {
+            if isMissingRecordError(error) {
+                return false
+            }
+            throw error
         }
     }
 
@@ -1386,79 +1455,100 @@ actor SystemContactsService {
     }
 
     func updateAutoCreatedContactName(contactIdentifier: String, newName: String) async throws {
-        try await performStoreOperation { [self] in
-            let keys: [CNKeyDescriptor] = [
-                CNContactIdentifierKey as CNKeyDescriptor,
-                CNContactGivenNameKey as CNKeyDescriptor,
-                CNContactFamilyNameKey as CNKeyDescriptor,
-                CNContactUrlAddressesKey as CNKeyDescriptor
-            ]
-            let contact = try store.unifiedContact(withIdentifier: contactIdentifier, keysToFetch: keys)
-            let isAutoCreated = contact.urlAddresses.contains {
-                ($0.value as String).lowercased().hasPrefix(kaChatAutoMarkerPrefix)
+        do {
+            try await performStoreOperation { [self] in
+                let keys: [CNKeyDescriptor] = [
+                    CNContactIdentifierKey as CNKeyDescriptor,
+                    CNContactGivenNameKey as CNKeyDescriptor,
+                    CNContactFamilyNameKey as CNKeyDescriptor,
+                    CNContactUrlAddressesKey as CNKeyDescriptor
+                ]
+                let contact = try store.unifiedContact(withIdentifier: contactIdentifier, keysToFetch: keys)
+                let isAutoCreated = contact.urlAddresses.contains {
+                    ($0.value as String).lowercased().hasPrefix(kaChatAutoMarkerPrefix)
+                }
+                guard isAutoCreated else { return }
+                guard let mutable = contact.mutableCopy() as? CNMutableContact else { return }
+                let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+                mutable.givenName = trimmed.isEmpty ? "Kaspa Contact" : trimmed
+                mutable.familyName = ""
+                let request = CNSaveRequest()
+                request.update(mutable)
+                try store.execute(request)
             }
-            guard isAutoCreated else { return }
-            guard let mutable = contact.mutableCopy() as? CNMutableContact else { return }
-            let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-            mutable.givenName = trimmed.isEmpty ? "Kaspa Contact" : trimmed
-            mutable.familyName = ""
-            let request = CNSaveRequest()
-            request.update(mutable)
-            try store.execute(request)
+        } catch {
+            if isMissingRecordError(error) {
+                return
+            }
+            throw error
         }
     }
 
     func deleteAutoCreatedKaChatContact(contactIdentifier: String, appContactId: UUID) async throws -> Bool {
-        try await performStoreOperation { [self] in
-            let keys: [CNKeyDescriptor] = [
-                CNContactIdentifierKey as CNKeyDescriptor,
-                CNContactUrlAddressesKey as CNKeyDescriptor
-            ]
-            let contact = try store.unifiedContact(withIdentifier: contactIdentifier, keysToFetch: keys)
-            let expectedMarker = kaChatAutoMarkerPrefix + appContactId.uuidString.lowercased()
-            let hasExpectedMarker = contact.urlAddresses.contains {
-                (($0.value as String).lowercased() == expectedMarker)
+        do {
+            return try await performStoreOperation { [self] in
+                let keys: [CNKeyDescriptor] = [
+                    CNContactIdentifierKey as CNKeyDescriptor,
+                    CNContactUrlAddressesKey as CNKeyDescriptor
+                ]
+                let contact = try store.unifiedContact(withIdentifier: contactIdentifier, keysToFetch: keys)
+                let expectedMarker = kaChatAutoMarkerPrefix + appContactId.uuidString.lowercased()
+                let hasExpectedMarker = contact.urlAddresses.contains {
+                    (($0.value as String).lowercased() == expectedMarker)
+                }
+                guard hasExpectedMarker else {
+                    return false
+                }
+                guard let mutable = contact.mutableCopy() as? CNMutableContact else { return false }
+                let request = CNSaveRequest()
+                request.delete(mutable)
+                try store.execute(request)
+                return true
             }
-            guard hasExpectedMarker else {
+        } catch {
+            if isMissingRecordError(error) {
                 return false
             }
-            guard let mutable = contact.mutableCopy() as? CNMutableContact else { return false }
-            let request = CNSaveRequest()
-            request.delete(mutable)
-            try store.execute(request)
-            return true
+            throw error
         }
     }
 
     /// Removes KaChat-managed data (Kaspa address URLs, KNS IM entries, auto marker) from a system contact.
     /// Used when user explicitly unlinks, so the contact won't be re-matched on next refresh.
     func removeKaChatData(contactIdentifier: String) async throws {
-        try await performStoreOperation { [self] in
-            let keys: [CNKeyDescriptor] = [
-                CNContactIdentifierKey as CNKeyDescriptor,
-                CNContactUrlAddressesKey as CNKeyDescriptor,
-                CNContactInstantMessageAddressesKey as CNKeyDescriptor
-            ]
-            let contact = try store.unifiedContact(withIdentifier: contactIdentifier, keysToFetch: keys)
-            guard let mutable = contact.mutableCopy() as? CNMutableContact else { return }
+        do {
+            try await performStoreOperation { [self] in
+                let keys: [CNKeyDescriptor] = [
+                    CNContactIdentifierKey as CNKeyDescriptor,
+                    CNContactUrlAddressesKey as CNKeyDescriptor,
+                    CNContactInstantMessageAddressesKey as CNKeyDescriptor
+                ]
+                let contact = try store.unifiedContact(withIdentifier: contactIdentifier, keysToFetch: keys)
+                guard let mutable = contact.mutableCopy() as? CNMutableContact else { return }
 
-            mutable.urlAddresses.removeAll { entry in
-                let value = (entry.value as String).lowercased()
-                return entry.label == kaspaURLLabel
-                    || value.hasPrefix(kaChatAutoMarkerPrefix)
-                    || (addressRegex?.firstMatch(
-                            in: value, options: [],
-                            range: NSRange(location: 0, length: (value as NSString).length)
-                        ) != nil)
+                mutable.urlAddresses.removeAll { entry in
+                    let value = (entry.value as String).lowercased()
+                    return entry.label == kaspaURLLabel
+                        || value.hasPrefix(kaChatAutoMarkerPrefix)
+                        || (addressRegex?.firstMatch(
+                                in: value, options: [],
+                                range: NSRange(location: 0, length: (value as NSString).length)
+                            ) != nil)
+                }
+
+                mutable.instantMessageAddresses.removeAll { entry in
+                    entry.value.service.lowercased() == knsInstantMessageService.lowercased()
+                }
+
+                let request = CNSaveRequest()
+                request.update(mutable)
+                try store.execute(request)
             }
-
-            mutable.instantMessageAddresses.removeAll { entry in
-                entry.value.service.lowercased() == knsInstantMessageService.lowercased()
+        } catch {
+            if isMissingRecordError(error) {
+                return
             }
-
-            let request = CNSaveRequest()
-            request.update(mutable)
-            try store.execute(request)
+            throw error
         }
     }
 
@@ -1506,8 +1596,10 @@ actor SystemContactsService {
                 return toDelete.count
             }
         } catch {
-            NSLog("[SystemContactsService] Failed to remove orphaned auto-created contacts: %@",
-                  error.localizedDescription)
+            if !isMissingRecordError(error) {
+                NSLog("[SystemContactsService] Failed to remove orphaned auto-created contacts: %@",
+                      error.localizedDescription)
+            }
             return 0
         }
     }

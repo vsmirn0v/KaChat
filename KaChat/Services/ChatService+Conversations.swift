@@ -462,11 +462,330 @@ extension ChatService {
         return conversation
     }
 
+    func fetchSendUtxos(for walletAddress: String) async throws -> [UTXO] {
+        let utxos = try await NodePoolService.shared.getUtxosByAddresses([walletAddress])
+        updateWalletBalanceIfNeeded(address: walletAddress, utxos: utxos)
+        return utxos
+    }
+
+    func formatInsufficientBalanceError(plannedSpendSompi: UInt64, availableSompi: UInt64) -> KasiaError {
+        let planned = formatKasAmount(plannedSpendSompi)
+        let available = formatKasAmount(availableSompi)
+        return KasiaError.networkError(
+            "Planned spend \(planned) KAS, but available balance \(available) KAS is less than required."
+        )
+    }
+
+    func isInsufficientFundsError(_ error: Error) -> Bool {
+        if case let KasiaError.networkError(message) = error {
+            return message.lowercased().contains("insufficient funds")
+        }
+        return error.localizedDescription.lowercased().contains("insufficient funds")
+    }
+
+    func isInsufficientBalancePopupError(_ error: Error) -> Bool {
+        if case let KasiaError.networkError(message) = error {
+            let lowered = message.lowercased()
+            return lowered.contains("planned spend")
+                && lowered.contains("available balance")
+                && lowered.contains("less than required")
+        }
+        return false
+    }
+
+    func shouldBypassBalancePrecheck(_ error: Error) -> Bool {
+        guard case let KasiaError.networkError(message) = error else {
+            return false
+        }
+        if isInsufficientBalancePopupError(error) {
+            return false
+        }
+
+        let lowered = message.lowercased()
+        return lowered.contains("timeout")
+            || lowered.contains("connection")
+            || lowered.contains("endpoint")
+            || lowered.contains("no active nodes")
+            || lowered.contains("all endpoints")
+            || lowered.contains("unexpected response")
+            || lowered.contains("all hedged requests failed")
+            || lowered.contains("network path changed")
+    }
+
+    func addSompiSafely(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+        let (sum, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? UInt64.max : sum
+    }
+
+    func enqueueOutgoingTxOperation<T>(
+        _ operation: @escaping @MainActor () async throws -> T
+    ) async throws -> T {
+        let previous = outgoingTxTail
+        let operationTask = Task<T, Error> { @MainActor in
+            if let previous {
+                await previous.value
+            }
+            return try await operation()
+        }
+        outgoingTxTail = Task<Void, Never> { @MainActor in
+            _ = try? await operationTask.value
+        }
+        return try await operationTask.value
+    }
+
+    func isNoConfirmedInputsError(_ error: Error) -> Bool {
+        if case let KasiaError.networkError(message) = error {
+            let lowered = message.lowercased()
+            return lowered.contains("no spendable funds available yet")
+                || lowered.contains("no confirmed spendable utxos available")
+                || lowered.contains("no spendable utxos available")
+                || lowered.contains("no utxos available")
+        }
+        let lowered = error.localizedDescription.lowercased()
+        return lowered.contains("no spendable funds available yet")
+            || lowered.contains("no confirmed spendable utxos available")
+            || lowered.contains("no spendable utxos available")
+            || lowered.contains("no utxos available")
+    }
+
+    func nextNoInputRetryDelay(for pendingTxId: String) -> TimeInterval {
+        let nextAttempt = (noInputRetryCounts[pendingTxId] ?? 0) + 1
+        noInputRetryCounts[pendingTxId] = nextAttempt
+        let base = min(60.0, pow(2.0, Double(max(0, nextAttempt - 1))))
+        let jitter = Double.random(in: 0.10...0.35)
+        return base + (base * jitter)
+    }
+
+    func clearNoInputRetryState(for pendingTxId: String?) {
+        guard let pendingTxId else { return }
+        noInputRetryCounts.removeValue(forKey: pendingTxId)
+        scheduledSendRetries.remove(pendingTxId)
+    }
+
+    func ensureSufficientBalanceForMessageSend(
+        to contact: Contact,
+        content: String,
+        walletAddress: String,
+        privateKey: Data
+    ) async throws {
+        guard let recipientPublicKey = KaspaAddress.publicKey(from: contact.address) else {
+            throw KasiaError.invalidAddress
+        }
+        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: walletAddress) else {
+            throw KasiaError.invalidAddress
+        }
+
+        ensureRoutingState(for: contact.address, privateKey: privateKey)
+        let alias = outgoingAlias(for: contact.address)
+        let utxos = try await fetchSendUtxos(for: walletAddress)
+        let availableUtxos = prepareMessageUtxos(confirmed: utxos)
+        let confirmedSpendableTotal = utxos
+            .filter { $0.blockDaaScore > 0 && !$0.isCoinbase }
+            .reduce(UInt64(0)) { partial, utxo in
+                addSompiSafely(partial, utxo.amount)
+            }
+        let availableBalance = availableUtxos.reduce(UInt64(0)) { partial, utxo in
+            addSompiSafely(partial, utxo.amount)
+        }
+        let payload = try KasiaTransactionBuilder.buildContextualMessagePayload(
+            alias: alias,
+            message: content,
+            recipientPublicKey: recipientPublicKey
+        )
+        let estimatedFee = KasiaTransactionBuilder.estimateContextualMessageFee(
+            payload: payload,
+            inputCount: 1,
+            senderScriptPubKey: senderScriptPubKey
+        )
+
+        guard !availableUtxos.isEmpty else {
+            if confirmedSpendableTotal > 0 {
+                throw KasiaError.networkError("No spendable funds available yet. Wait for confirmations and try again.")
+            }
+            throw formatInsufficientBalanceError(
+                plannedSpendSompi: estimatedFee,
+                availableSompi: availableBalance
+            )
+        }
+
+        do {
+            _ = try KasiaTransactionBuilder.buildContextualMessageTx(
+                from: walletAddress,
+                to: contact.address,
+                alias: alias,
+                message: content,
+                senderPrivateKey: privateKey,
+                recipientPublicKey: recipientPublicKey,
+                utxos: availableUtxos
+            )
+        } catch {
+            if isInsufficientFundsError(error) {
+                throw formatInsufficientBalanceError(
+                    plannedSpendSompi: estimatedFee,
+                    availableSompi: availableBalance
+                )
+            }
+            throw error
+        }
+    }
+
+    func ensureSufficientBalanceForPaymentSend(
+        to contact: Contact,
+        amountSompi: UInt64,
+        note: String,
+        walletAddress: String,
+        privateKey: Data
+    ) async throws {
+        guard let recipientPublicKey = KaspaAddress.publicKey(from: contact.address) else {
+            throw KasiaError.invalidAddress
+        }
+        guard let recipientScriptPubKey = KaspaAddress.scriptPublicKey(from: contact.address),
+              let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: walletAddress) else {
+            throw KasiaError.invalidAddress
+        }
+
+        let utxos = try await fetchSendUtxos(for: walletAddress)
+        let spendable = utxos.filter { $0.blockDaaScore > 0 && !$0.isCoinbase }
+        let totalNonCoinbaseBalance = utxos
+            .filter { !$0.isCoinbase }
+            .reduce(UInt64(0)) { partial, utxo in
+                addSompiSafely(partial, utxo.amount)
+            }
+        let availableBalance = spendable.reduce(UInt64(0)) { partial, utxo in
+            addSompiSafely(partial, utxo.amount)
+        }
+
+        let paymentPayload = try KasiaTransactionBuilder.buildPaymentPayload(
+            message: note,
+            amount: amountSompi,
+            recipientPublicKey: recipientPublicKey
+        )
+        let estimatedFee = (try? KasiaTransactionBuilder.estimatePaymentFee(
+            utxos: spendable,
+            payload: paymentPayload,
+            amount: amountSompi,
+            recipientScriptPubKey: recipientScriptPubKey,
+            senderScriptPubKey: senderScriptPubKey
+        )) ?? KasiaTransactionBuilder.estimateSendAllFee(
+            utxos: spendable,
+            payload: paymentPayload,
+            recipientScriptPubKey: recipientScriptPubKey,
+            senderScriptPubKey: senderScriptPubKey
+        )
+        let plannedSpend = addSompiSafely(amountSompi, estimatedFee)
+
+        guard !spendable.isEmpty else {
+            if totalNonCoinbaseBalance > 0 {
+                throw KasiaError.networkError("No spendable funds available yet. Wait for confirmations and try again.")
+            }
+            throw formatInsufficientBalanceError(
+                plannedSpendSompi: plannedSpend,
+                availableSompi: availableBalance
+            )
+        }
+
+        do {
+            _ = try KasiaTransactionBuilder.buildPaymentTx(
+                from: walletAddress,
+                to: contact.address,
+                amount: amountSompi,
+                note: note,
+                senderPrivateKey: privateKey,
+                recipientPublicKey: recipientPublicKey,
+                utxos: spendable
+            )
+        } catch {
+            if isInsufficientFundsError(error) {
+                throw formatInsufficientBalanceError(
+                    plannedSpendSompi: plannedSpend,
+                    availableSompi: availableBalance
+                )
+            }
+            throw error
+        }
+    }
+
+    func ensureSufficientBalanceForHandshakeSend(
+        to contact: Contact,
+        isResponse: Bool,
+        walletAddress: String,
+        alias: String,
+        conversationId: String?,
+        privateKey: Data,
+        recipientPublicKey: Data
+    ) async throws {
+        let utxos = try await fetchSendUtxos(for: walletAddress)
+        let spendable = utxos.filter { $0.blockDaaScore > 0 && !$0.isCoinbase }
+        let totalNonCoinbaseBalance = utxos
+            .filter { !$0.isCoinbase }
+            .reduce(UInt64(0)) { partial, utxo in
+                addSompiSafely(partial, utxo.amount)
+            }
+        let (handshakeUtxos, _) = splitUtxosForHandshake(spendable)
+        let availableBalance = handshakeUtxos.reduce(UInt64(0)) { partial, utxo in
+            addSompiSafely(partial, utxo.amount)
+        }
+        let plannedSpend = KasiaTransactionBuilder.handshakeAmount
+
+        guard !handshakeUtxos.isEmpty else {
+            if totalNonCoinbaseBalance > 0 {
+                throw KasiaError.networkError("No spendable funds available yet. Wait for confirmations and try again.")
+            }
+            throw formatInsufficientBalanceError(
+                plannedSpendSompi: plannedSpend,
+                availableSompi: availableBalance
+            )
+        }
+
+        do {
+            _ = try KasiaTransactionBuilder.buildHandshakeTx(
+                from: walletAddress,
+                to: contact.address,
+                alias: alias,
+                conversationId: conversationId,
+                isResponse: isResponse,
+                senderPrivateKey: privateKey,
+                recipientPublicKey: recipientPublicKey,
+                utxos: handshakeUtxos
+            )
+        } catch {
+            if isInsufficientFundsError(error) {
+                throw formatInsufficientBalanceError(
+                    plannedSpendSompi: plannedSpend,
+                    availableSompi: availableBalance
+                )
+            }
+            throw error
+        }
+    }
+
     func sendMessage(to contact: Contact, content: String, messageType: ChatMessage.MessageType = .contextual) async throws {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard let wallet = WalletManager.shared.currentWallet else {
             throw KasiaError.walletNotFound
+        }
+        guard let privateKey = WalletManager.shared.getPrivateKey() else {
+            throw KasiaError.keychainError("Could not get private key")
+        }
+
+        do {
+            try await ensureSufficientBalanceForMessageSend(
+                to: contact,
+                content: trimmed,
+                walletAddress: wallet.publicAddress,
+                privateKey: privateKey
+            )
+        } catch {
+            if isInsufficientBalancePopupError(error) {
+                throw error
+            } else if isNoConfirmedInputsError(error) {
+                NSLog("[ChatService] Message send precheck deferred: %@", error.localizedDescription)
+            } else if shouldBypassBalancePrecheck(error) {
+                NSLog("[ChatService] Message balance precheck unavailable, continuing send: %@", error.localizedDescription)
+            } else {
+                throw error
+            }
         }
 
         let pendingTxId = "pending_\(UUID().uuidString)"
@@ -486,12 +805,8 @@ extension ChatService {
         enqueuePendingOutgoing(contactAddress: contact.address, pendingTxId: pendingTxId, messageType: messageType, timestamp: pendingTimestamp)
         saveMessages()
 
-        let previous = messageSendTail
-        let task = Task { @MainActor in
-            if let previous {
-                _ = try? await previous.value
-            }
-            try await sendMessageInternal(
+        try await enqueueOutgoingTxOperation {
+            try await self.sendMessageInternal(
                 to: contact,
                 content: trimmed,
                 messageType: messageType,
@@ -499,20 +814,46 @@ extension ChatService {
                 pendingMessageId: pendingMessage.id
             )
         }
-        messageSendTail = task
-        try await task.value
+    }
+
+    func sendAudio(
+        to contact: Contact,
+        audioData: Data,
+        fileName: String = "audio.webm",
+        mimeType: String = "audio/webm"
+    ) async throws {
+        guard !audioData.isEmpty else {
+            throw KasiaError.networkError("Audio file is empty")
+        }
+
+        let resolvedFileName = fileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "audio.webm"
+            : fileName
+        let resolvedMimeType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "audio/webm"
+            : mimeType
+        let base64 = audioData.base64EncodedString()
+        let payload: [String: Any] = [
+            "type": "file",
+            "name": resolvedFileName,
+            "size": audioData.count,
+            "mimeType": resolvedMimeType,
+            "content": "data:\(resolvedMimeType);base64,\(base64)"
+        ]
+        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
+        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+            throw KasiaError.networkError("Failed to prepare audio payload")
+        }
+
+        try await sendMessage(to: contact, content: jsonString, messageType: .audio)
     }
 
     func retryOutgoingMessage(_ message: ChatMessage, contact: Contact) async throws {
         guard message.isOutgoing else { return }
         switch message.messageType {
         case .contextual, .audio:
-            let previous = messageSendTail
-            let task = Task { @MainActor in
-                if let previous {
-                    _ = try? await previous.value
-                }
-                try await sendMessageInternal(
+            try await enqueueOutgoingTxOperation {
+                try await self.sendMessageInternal(
                     to: contact,
                     content: message.content,
                     messageType: message.messageType,
@@ -520,8 +861,6 @@ extension ChatService {
                     pendingMessageId: message.id
                 )
             }
-            messageSendTail = task
-            try await task.value
         case .handshake:
             let isResponse = shouldRetryHandshakeAsResponse(for: contact.address)
             let pendingTxId = message.txId.hasPrefix("pending_") ? message.txId : nil
@@ -644,9 +983,11 @@ extension ChatService {
             let (txId, endpoint) = try await rpcManager.submitTransaction(transaction, allowOrphan: false)
             print("[ChatService] Transaction submitted: \(txId) via \(endpoint)")
 
-            reserveMessageOutpoints(availableUtxos)
-            consumePendingUtxos(availableUtxos)
+            let spentUtxos = spentMessageUtxos(from: transaction, candidates: availableUtxos)
+            reserveMessageOutpoints(spentUtxos)
+            consumePendingUtxos(spentUtxos)
             addPendingOutputs(from: transaction, txId: txId, senderScriptPubKey: senderScriptPubKey)
+            clearNoInputRetryState(for: activePendingTxId)
 
             // Update the pending message with the real transaction ID
             if let activePendingMessageId {
@@ -699,6 +1040,7 @@ extension ChatService {
                     messageType: messageType,
                     txId: acceptedTxId
                 )
+                clearNoInputRetryState(for: activePendingTxId)
                 saveMessages(triggerExport: true)
                 return
             }
@@ -732,6 +1074,22 @@ extension ChatService {
                     pendingTxId: activePendingTxId,
                     pendingMessageId: activePendingMessageId,
                     spendableFundsRetryAttempt: retryNumber
+                )
+                return
+            }
+            if shouldRetryNoSpendableFundsError(error) {
+                let delay = nextNoInputRetryDelay(for: activePendingTxId)
+                NSLog(
+                    "[ChatService] Deferred retry (no confirmed inputs) for %@ in %.0fs",
+                    String(activePendingTxId.prefix(12)),
+                    delay
+                )
+                scheduleOutgoingRetry(
+                    contact: contact,
+                    pendingTxId: activePendingTxId,
+                    pendingMessageId: activePendingMessageId,
+                    messageType: messageType,
+                    delaySeconds: delay
                 )
                 return
             }
@@ -956,6 +1314,11 @@ extension ChatService {
         "\(outpoint.transactionId):\(outpoint.index)"
     }
 
+    func spentMessageUtxos(from transaction: KaspaRpcTransaction, candidates: [UTXO]) -> [UTXO] {
+        let spentKeys = Set(transaction.inputs.map { outpointKey($0.previousOutpoint) })
+        return candidates.filter { spentKeys.contains(outpointKey($0.outpoint)) }
+    }
+
     func prepareMessageUtxos(confirmed: [UTXO]) -> [UTXO] {
         let now = Date()
         pruneMessageUtxoCaches(confirmed: confirmed, now: now)
@@ -1013,15 +1376,7 @@ extension ChatService {
     }
 
     func shouldRetryNoSpendableFundsError(_ error: Error) -> Bool {
-        if case let KasiaError.networkError(message) = error {
-            let lowered = message.lowercased()
-            if lowered.contains("no spendable funds available yet") {
-                return true
-            }
-        }
-        let message = error.localizedDescription.lowercased()
-        return message.contains("no spendable funds available yet") ||
-               message.contains("no confirmed spendable utxos available")
+        isNoConfirmedInputsError(error)
     }
 
     func spendableFundsRetryDelay(for retryNumber: Int) -> (seconds: TimeInterval, jitterRatio: Double?) {
@@ -1081,7 +1436,10 @@ extension ChatService {
         pendingTxId: String,
         pendingMessageId: UUID?,
         messageType: ChatMessage.MessageType,
-        delaySeconds: TimeInterval
+        delaySeconds: TimeInterval,
+        paymentAmountSompi: UInt64? = nil,
+        paymentNote: String = "",
+        handshakeIsResponse: Bool? = nil
     ) {
         guard !scheduledSendRetries.contains(pendingTxId) else { return }
         scheduledSendRetries.insert(pendingTxId)
@@ -1091,28 +1449,72 @@ extension ChatService {
             self.scheduledSendRetries.remove(pendingTxId)
             guard let convIndex = self.conversations.firstIndex(where: { $0.contact.address == contact.address }),
                   let message = self.conversations[convIndex].messages.first(where: { $0.txId == pendingTxId || $0.id == pendingMessageId }) else {
+                self.clearNoInputRetryState(for: pendingTxId)
                 return
             }
-            guard message.deliveryStatus != .sent else { return }
-            let previous = self.messageSendTail
-            let task = Task { @MainActor in
-                if let previous {
-                    _ = try? await previous.value
-                }
-                try await self.sendMessageInternal(
-                    to: contact,
-                    content: message.content,
-                    messageType: messageType,
-                    pendingTxId: message.txId,
-                    pendingMessageId: message.id
-                )
+            guard message.deliveryStatus != .sent else {
+                self.clearNoInputRetryState(for: pendingTxId)
+                return
             }
-            self.messageSendTail = task
-            _ = try? await task.value
+
+            let retryPendingTxId = message.txId
+            let retryPendingMessageId = message.id
+            do {
+                try await self.enqueueOutgoingTxOperation {
+                    switch messageType {
+                    case .contextual, .audio:
+                        try await self.sendMessageInternal(
+                            to: contact,
+                            content: message.content,
+                            messageType: messageType,
+                            pendingTxId: retryPendingTxId,
+                            pendingMessageId: retryPendingMessageId
+                        )
+                    case .payment:
+                        guard let paymentAmountSompi else { return }
+                        try await self.sendPaymentInternal(
+                            to: contact,
+                            amountSompi: paymentAmountSompi,
+                            note: paymentNote,
+                            pendingTxId: retryPendingTxId
+                        )
+                    case .handshake:
+                        let isResponse = handshakeIsResponse ?? self.shouldRetryHandshakeAsResponse(for: contact.address)
+                        try await self.sendHandshakeInternal(
+                            to: contact,
+                            isResponse: isResponse,
+                            pendingTxId: retryPendingTxId
+                        )
+                    }
+                }
+            } catch {
+                // Individual send handlers decide whether to reschedule or fail.
+            }
         }
     }
 
-    func sendPayment(to contact: Contact, amountSompi: UInt64, note: String = "") async throws {
+    func sendPayment(
+        to contact: Contact,
+        amountSompi: UInt64,
+        note: String = "",
+        pendingTxId: String? = nil
+    ) async throws {
+        try await enqueueOutgoingTxOperation {
+            try await self.sendPaymentInternal(
+                to: contact,
+                amountSompi: amountSompi,
+                note: note,
+                pendingTxId: pendingTxId
+            )
+        }
+    }
+
+    func sendPaymentInternal(
+        to contact: Contact,
+        amountSompi: UInt64,
+        note: String = "",
+        pendingTxId: String? = nil
+    ) async throws {
         guard amountSompi > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
         }
@@ -1123,28 +1525,60 @@ extension ChatService {
             throw KasiaError.keychainError("Could not get private key")
         }
 
-        let formattedAmount = formatKasAmount(amountSompi)
-        let pendingTxId = "pending_\(UUID().uuidString)"
-        let pendingTimestamp = Date()
-        let pendingMessage = ChatMessage(
-            txId: pendingTxId,
-            senderAddress: wallet.publicAddress,
-            receiverAddress: contact.address,
-            content: "Sent \(formattedAmount) KAS",
-            timestamp: pendingTimestamp,
-            blockTime: UInt64(pendingTimestamp.timeIntervalSince1970 * 1000),
-            acceptingBlock: nil,
-            isOutgoing: true,
-            messageType: .payment,
-            deliveryStatus: .pending
-        )
-        let pendingMessageId = pendingMessage.id
-        addMessageToConversation(pendingMessage, contactAddress: contact.address)
-        enqueuePendingOutgoing(contactAddress: contact.address, pendingTxId: pendingTxId, messageType: .payment, timestamp: pendingTimestamp)
-        saveMessages()
+        if pendingTxId == nil {
+            do {
+                try await ensureSufficientBalanceForPaymentSend(
+                    to: contact,
+                    amountSompi: amountSompi,
+                    note: note,
+                    walletAddress: wallet.publicAddress,
+                    privateKey: privateKey
+                )
+            } catch {
+                if isInsufficientBalancePopupError(error) {
+                    throw error
+                } else if isNoConfirmedInputsError(error) {
+                    NSLog("[ChatService] Payment send precheck deferred: %@", error.localizedDescription)
+                } else if shouldBypassBalancePrecheck(error) {
+                    NSLog("[ChatService] Payment balance precheck unavailable, continuing send: %@", error.localizedDescription)
+                } else {
+                    throw error
+                }
+            }
+        }
+
+        let activePendingTxId = pendingTxId ?? "pending_\(UUID().uuidString)"
+        let pendingMessageId: UUID
+        if pendingTxId == nil {
+            let formattedAmount = formatKasAmount(amountSompi)
+            let pendingTimestamp = Date()
+            let pendingMessage = ChatMessage(
+                txId: activePendingTxId,
+                senderAddress: wallet.publicAddress,
+                receiverAddress: contact.address,
+                content: "Sent \(formattedAmount) KAS",
+                timestamp: pendingTimestamp,
+                blockTime: UInt64(pendingTimestamp.timeIntervalSince1970 * 1000),
+                acceptingBlock: nil,
+                isOutgoing: true,
+                messageType: .payment,
+                deliveryStatus: .pending
+            )
+            pendingMessageId = pendingMessage.id
+            addMessageToConversation(pendingMessage, contactAddress: contact.address)
+            enqueuePendingOutgoing(contactAddress: contact.address, pendingTxId: activePendingTxId, messageType: .payment, timestamp: pendingTimestamp)
+            saveMessages()
+        } else {
+            resetPendingMessage(activePendingTxId, contactAddress: contact.address)
+            guard let existing = resolveMessageIdForPending(contactAddress: contact.address, pendingTxId: activePendingTxId) else {
+                throw KasiaError.networkError("Pending payment not found for retry")
+            }
+            pendingMessageId = existing
+        }
+
         registerOutgoingAttempt(
             messageId: pendingMessageId,
-            pendingTxId: pendingTxId,
+            pendingTxId: activePendingTxId,
             contactAddress: contact.address,
             messageType: .payment
         )
@@ -1186,30 +1620,53 @@ extension ChatService {
             _ = updatePendingMessageById(pendingMessageId, newTxId: txId, contactAddress: contact.address)
             markOutgoingAttemptSubmitted(
                 messageId: pendingMessageId,
-                pendingTxId: pendingTxId,
+                pendingTxId: activePendingTxId,
                 contactAddress: contact.address,
                 messageType: .payment,
                 txId: txId
             )
+            clearNoInputRetryState(for: activePendingTxId)
             saveMessages(triggerExport: true)
         } catch {
             if let acceptedTxId = acceptedTransactionId(from: error) {
                 NSLog("[ChatService] Payment already accepted by consensus for %@ -> promoting pending to %@",
-                      String(pendingTxId.prefix(12)),
+                      String(activePendingTxId.prefix(12)),
                       String(acceptedTxId.prefix(12)))
                 _ = updatePendingMessageById(pendingMessageId, newTxId: acceptedTxId, contactAddress: contact.address)
                 markOutgoingAttemptSubmitted(
                     messageId: pendingMessageId,
-                    pendingTxId: pendingTxId,
+                    pendingTxId: activePendingTxId,
                     contactAddress: contact.address,
                     messageType: .payment,
                     txId: acceptedTxId
                 )
+                clearNoInputRetryState(for: activePendingTxId)
                 saveMessages(triggerExport: true)
                 return
             }
-            markOutgoingAttemptFailed(messageId: pendingMessageId, pendingTxId: pendingTxId)
-            markPendingMessageFailed(pendingTxId, contactAddress: contact.address)
+
+            if isNoConfirmedInputsError(error) {
+                let delay = nextNoInputRetryDelay(for: activePendingTxId)
+                NSLog(
+                    "[ChatService] Payment deferred retry %@ in %.0fs (no confirmed inputs)",
+                    String(activePendingTxId.prefix(12)),
+                    delay
+                )
+                scheduleOutgoingRetry(
+                    contact: contact,
+                    pendingTxId: activePendingTxId,
+                    pendingMessageId: pendingMessageId,
+                    messageType: .payment,
+                    delaySeconds: delay,
+                    paymentAmountSompi: amountSompi,
+                    paymentNote: note
+                )
+                return
+            }
+
+            markOutgoingAttemptFailed(messageId: pendingMessageId, pendingTxId: activePendingTxId)
+            markPendingMessageFailed(activePendingTxId, contactAddress: contact.address)
+            clearNoInputRetryState(for: activePendingTxId)
             saveMessages()
             throw error
         }
@@ -1328,6 +1785,12 @@ extension ChatService {
     }
 
     func sendHandshake(to contact: Contact, isResponse: Bool, pendingTxId: String? = nil) async throws {
+        try await enqueueOutgoingTxOperation {
+            try await self.sendHandshakeInternal(to: contact, isResponse: isResponse, pendingTxId: pendingTxId)
+        }
+    }
+
+    func sendHandshakeInternal(to contact: Contact, isResponse: Bool, pendingTxId: String? = nil) async throws {
         guard let wallet = WalletManager.shared.currentWallet else {
             throw KasiaError.walletNotFound
         }
@@ -1347,6 +1810,30 @@ extension ChatService {
         ensureRoutingState(for: contact.address, privateKey: privateKey)
         let alias = outgoingAlias(for: contact.address)
         let conversationId = conversationIds[contact.address] ?? generateConversationId()
+
+        if pendingTxId == nil {
+            do {
+                try await ensureSufficientBalanceForHandshakeSend(
+                    to: contact,
+                    isResponse: isResponse,
+                    walletAddress: wallet.publicAddress,
+                    alias: alias,
+                    conversationId: conversationId,
+                    privateKey: privateKey,
+                    recipientPublicKey: recipientPublicKey
+                )
+            } catch {
+                if isInsufficientBalancePopupError(error) {
+                    throw error
+                } else if isNoConfirmedInputsError(error) {
+                    NSLog("[ChatService] Handshake send precheck deferred: %@", error.localizedDescription)
+                } else if shouldBypassBalancePrecheck(error) {
+                    NSLog("[ChatService] Handshake balance precheck unavailable, continuing send: %@", error.localizedDescription)
+                } else {
+                    throw error
+                }
+            }
+        }
 
         let activePendingTxId = pendingTxId ?? "pending_\(UUID().uuidString)"
         var activePendingMessageId: UUID?
@@ -1430,6 +1917,7 @@ extension ChatService {
                 messageType: .handshake,
                 txId: txId
             )
+            clearNoInputRetryState(for: activePendingTxId)
 
             addOurAlias(alias, for: contact.address, blockTime: nil)
             saveOurAliases()
@@ -1468,11 +1956,32 @@ extension ChatService {
                     messageType: .handshake,
                     txId: acceptedTxId
                 )
+                clearNoInputRetryState(for: activePendingTxId)
                 saveMessages(triggerExport: true)
                 return
             }
+
+            if isNoConfirmedInputsError(error) {
+                let delay = nextNoInputRetryDelay(for: activePendingTxId)
+                NSLog(
+                    "[ChatService] Handshake deferred retry %@ in %.0fs (no confirmed inputs)",
+                    String(activePendingTxId.prefix(12)),
+                    delay
+                )
+                scheduleOutgoingRetry(
+                    contact: contact,
+                    pendingTxId: activePendingTxId,
+                    pendingMessageId: activePendingMessageId,
+                    messageType: .handshake,
+                    delaySeconds: delay,
+                    handshakeIsResponse: isResponse
+                )
+                return
+            }
+
             markOutgoingAttemptFailed(messageId: activePendingMessageId, pendingTxId: activePendingTxId)
             markPendingMessageFailed(activePendingTxId, contactAddress: contact.address)
+            clearNoInputRetryState(for: activePendingTxId)
             saveMessages()
             throw error
         }
@@ -1889,6 +2398,7 @@ extension ChatService {
         }
         markOutgoingAttemptFailed(messageId: resolveMessageIdForPending(contactAddress: contactAddress, pendingTxId: pendingTxId), pendingTxId: pendingTxId)
         removePendingOutgoing(contactAddress: contactAddress, pendingTxId: pendingTxId)
+        clearNoInputRetryState(for: pendingTxId)
     }
 
     func resetPendingMessage(_ pendingTxId: String, contactAddress: String) {

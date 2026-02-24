@@ -23,6 +23,7 @@ final class SharedDataManager {
         static let sharedSecrets = "shared_secrets"
         static let pendingMessages = "pending_messages"
         static let storedMessages = "stored_messages"
+        static let outboundShares = "outbound_shares"
         static let privateKeyAvailable = "private_key_available"
         static let walletAddress = "wallet_address"
         static let unreadCount = "shared_unread_count"
@@ -259,6 +260,73 @@ final class SharedDataManager {
         sharedDefaults?.removeObject(forKey: Keys.storedMessages)
     }
 
+    // MARK: - Outbound Shares (Share Extension -> Main App)
+
+    static func enqueueOutboundShare(contactAddress: String, text: String, autoSend: Bool = true) -> SharedOutboundShare? {
+        let cleanedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedText.isEmpty else { return nil }
+
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        var shares = getOutboundShares()
+            .filter { nowMs - $0.createdAtMs <= SharedOutboundShare.maxAgeMs }
+
+        let share = SharedOutboundShare(
+            id: UUID().uuidString,
+            contactAddress: contactAddress,
+            text: cleanedText,
+            createdAtMs: nowMs,
+            autoSend: autoSend
+        )
+        shares.append(share)
+
+        if shares.count > SharedOutboundShare.maxStoredItems {
+            shares = Array(shares.suffix(SharedOutboundShare.maxStoredItems))
+        }
+
+        guard let data = try? JSONEncoder().encode(shares) else {
+            NSLog("[SharedData] Failed to encode outbound shares")
+            return nil
+        }
+
+        sharedDefaults?.set(data, forKey: Keys.outboundShares)
+        return share
+    }
+
+    static func getOutboundShare(id: String) -> SharedOutboundShare? {
+        getOutboundShares().first { $0.id == id }
+    }
+
+    static func getOutboundShares() -> [SharedOutboundShare] {
+        guard let data = sharedDefaults?.data(forKey: Keys.outboundShares),
+              let shares = try? JSONDecoder().decode([SharedOutboundShare].self, from: data) else {
+            return []
+        }
+        return shares
+    }
+
+    static func removeOutboundShare(id: String) {
+        let filtered = getOutboundShares().filter { $0.id != id }
+        if filtered.isEmpty {
+            sharedDefaults?.removeObject(forKey: Keys.outboundShares)
+            return
+        }
+        if let data = try? JSONEncoder().encode(filtered) {
+            sharedDefaults?.set(data, forKey: Keys.outboundShares)
+        }
+    }
+
+    static func pruneOutboundShares() {
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let filtered = getOutboundShares().filter { nowMs - $0.createdAtMs <= SharedOutboundShare.maxAgeMs }
+        if filtered.isEmpty {
+            sharedDefaults?.removeObject(forKey: Keys.outboundShares)
+            return
+        }
+        if let data = try? JSONEncoder().encode(filtered) {
+            sharedDefaults?.set(data, forKey: Keys.outboundShares)
+        }
+    }
+
     // MARK: - Private Key Availability
 
     /// Check if private key is available (set by main app)
@@ -279,6 +347,7 @@ final class SharedDataManager {
         sharedDefaults?.removeObject(forKey: Keys.pendingMessages)
         sharedDefaults?.removeObject(forKey: Keys.storedMessages)
         sharedDefaults?.removeObject(forKey: Keys.privateKeyAvailable)
+        sharedDefaults?.removeObject(forKey: Keys.outboundShares)
         sharedDefaults?.removeObject(forKey: Keys.unreadCount)
         sharedDefaults?.removeObject(forKey: Keys.incomingNotificationSoundEnabled)
         sharedDefaults?.removeObject(forKey: Keys.incomingNotificationVibrationEnabled)
@@ -336,5 +405,40 @@ struct SharedPendingMessage: Codable {
         sender = try container.decode(String.self, forKey: .sender)
         type = try container.decodeIfPresent(String.self, forKey: .type)
         timestamp = try container.decode(Int64.self, forKey: .timestamp)
+    }
+}
+
+/// Outbound share request created by Share Extension.
+struct SharedOutboundShare: Codable {
+    let id: String
+    let contactAddress: String
+    let text: String
+    let createdAtMs: Int64
+    let autoSend: Bool
+
+    static let maxStoredItems = 50
+    static let maxAgeMs: Int64 = 7 * 24 * 60 * 60 * 1000
+
+    init(
+        id: String,
+        contactAddress: String,
+        text: String,
+        createdAtMs: Int64,
+        autoSend: Bool = true
+    ) {
+        self.id = id
+        self.contactAddress = contactAddress
+        self.text = text
+        self.createdAtMs = createdAtMs
+        self.autoSend = autoSend
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        contactAddress = try container.decode(String.self, forKey: .contactAddress)
+        text = try container.decode(String.self, forKey: .text)
+        createdAtMs = try container.decode(Int64.self, forKey: .createdAtMs)
+        autoSend = try container.decodeIfPresent(Bool.self, forKey: .autoSend) ?? true
     }
 }

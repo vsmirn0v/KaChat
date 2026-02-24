@@ -4,6 +4,7 @@ import UserNotifications
 import UIKit
 import DeviceCheck
 import CryptoKit
+import Security
 import P256K
 
 /// Manages push notification registration and indexer communication
@@ -27,6 +28,7 @@ final class PushNotificationManager: ObservableObject {
 
     private let tokenDefaultsKey = "push_device_token"
     private let registeredDefaultsKey = "push_registered"
+    private let deviceAuthCounterDefaultsKey = "push_device_auth_counter"
 
     private var deviceToken: String?
     private var pendingRegistration = false
@@ -44,8 +46,13 @@ final class PushNotificationManager: ObservableObject {
     private var lastWatchedSignature: String?
     private var pendingWatchedSignature: String?
     private var inFlightWatchedSignature: String?
+    private var walletBindingConflictFingerprint: String?
+    private var walletBindingConflictUntil: Date?
+    private var lastWalletBindingConflictLogAt: Date?
     private let updateWatchedDebounce: TimeInterval = 1.0
     private let updateWatchedSuccessCooldown: TimeInterval = 10.0
+    private let walletBindingConflictCooldown: TimeInterval = 15 * 60
+    private let walletBindingConflictLogCooldown: TimeInterval = 60
     private var settingsObserver: NSObjectProtocol?
     private var conversationsCancellable: AnyCancellable?
     private var declinedContactsCancellable: AnyCancellable?
@@ -57,6 +64,8 @@ final class PushNotificationManager: ObservableObject {
     private let unregisterEndpoint = "/v1/push/unregister"
     private let challengeEndpoint = "/v1/push/challenge"
     private let pushAuthDomain = "kasia-push-auth:v1"
+    private let pushDeviceAuthDomain = "kasia-push-device-auth:v1"
+    private let pushDeviceAuthScheme = "device_key_v1"
 
     // MARK: - Initialization
 
@@ -147,6 +156,10 @@ final class PushNotificationManager: ObservableObject {
             return
         }
 
+        if shouldDeferRegistrationForWalletBindingConflict() {
+            return
+        }
+
         if isRegistered {
             Task {
                 await updateWatchedAddresses()
@@ -190,6 +203,10 @@ final class PushNotificationManager: ObservableObject {
             return
         }
 
+        if shouldDeferRegistrationForWalletBindingConflict() {
+            return
+        }
+
         do {
             try await registerWithIndexer()
             NSLog("[Push] Forced re-registration succeeded (%@)", reason)
@@ -204,6 +221,7 @@ final class PushNotificationManager: ObservableObject {
     /// Called from AppDelegate when APNs token received
     func didRegisterForRemoteNotifications(deviceToken: Data) {
         let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
+        let previousToken = self.deviceToken
         if token == self.deviceToken,
            let last = lastDeviceTokenHandledAt,
            Date().timeIntervalSince(last) < 5 {
@@ -211,6 +229,9 @@ final class PushNotificationManager: ObservableObject {
         }
         lastDeviceTokenHandledAt = Date()
         self.deviceToken = token
+        if previousToken != token {
+            clearWalletBindingConflictCooldown()
+        }
         persistDeviceToken(token)
 
         NSLog("[Push] Received APNs token: %@...%@",
@@ -270,6 +291,46 @@ final class PushNotificationManager: ObservableObject {
             throw PushError.noWatchedAddresses
         }
 
+        for attempt in 0..<2 {
+            let (statusCode, reason) = try await submitRegistrationRequest(
+                settings: settings,
+                token: token,
+                watchedAddresses: watchedAddresses,
+                aliases: aliases,
+                primaryAddress: primaryAddress
+            )
+            if statusCode == 200 {
+                applySuccessfulRegistration(
+                    watchedAddresses: watchedAddresses,
+                    aliases: aliases,
+                    primaryAddress: primaryAddress
+                )
+                return
+            }
+            if isWalletBindingConflict(statusCode: statusCode, reason: reason), attempt == 0 {
+                let recovered = await attemptWalletBindingRecoveryUnregister(
+                    token: token,
+                    watchedAddresses: watchedAddresses,
+                    aliases: aliases
+                )
+                if recovered {
+                    continue
+                }
+            }
+            if isWalletBindingConflict(statusCode: statusCode, reason: reason) {
+                activateWalletBindingConflictCooldown(reason: reason)
+            }
+            throw PushError.registrationFailed(statusCode: statusCode, reason: reason)
+        }
+    }
+
+    private func submitRegistrationRequest(
+        settings: AppSettings,
+        token: String,
+        watchedAddresses: [String],
+        aliases: [String],
+        primaryAddress: String?
+    ) async throws -> (Int, String?) {
         let url = URL(string: "\(settings.pushIndexerURL)\(registrationEndpoint)")!
         let auth = try await buildPushAuth(
             method: "POST",
@@ -302,36 +363,90 @@ final class PushNotificationManager: ObservableObject {
         urlRequest.timeoutInterval = 30
 
         let (responseData, response) = try await URLSession.shared.data(for: urlRequest)
-
         guard let httpResponse = response as? HTTPURLResponse else {
             throw PushError.invalidResponse
         }
+        let reason = parseIndexerError(from: responseData)
+        return (httpResponse.statusCode, reason)
+    }
 
-        if httpResponse.statusCode == 200 {
-            isRegistered = true
-            lastError = nil
-            persistRegistrationStatus(true)
-            lastWatchedSignature = buildWatchedSignature(
-                watchedAddresses: watchedAddresses,
-                aliases: aliases,
-                primaryAddress: primaryAddress
-            )
-            lastWatchedUpdateSuccessAt = Date()
-            pendingWatchedSignature = nil
-            inFlightWatchedSignature = nil
+    private func applySuccessfulRegistration(
+        watchedAddresses: [String],
+        aliases: [String],
+        primaryAddress: String?
+    ) {
+        isRegistered = true
+        lastError = nil
+        persistRegistrationStatus(true)
+        clearWalletBindingConflictCooldown()
+        lastWatchedSignature = buildWatchedSignature(
+            watchedAddresses: watchedAddresses,
+            aliases: aliases,
+            primaryAddress: primaryAddress
+        )
+        lastWatchedUpdateSuccessAt = Date()
+        pendingWatchedSignature = nil
+        inFlightWatchedSignature = nil
 
-            // Sync contacts to shared container for notification extension
-            SharedDataManager.syncContactsForExtension()
+        SharedDataManager.syncContactsForExtension()
 
-            NSLog("[Push] Registered with indexer, watching %d addresses", watchedAddresses.count)
-            if registrationContinuation != nil {
-                completeRegistration()
-            }
-            return
+        NSLog("[Push] Registered with indexer, watching %d addresses", watchedAddresses.count)
+        if registrationContinuation != nil {
+            completeRegistration()
+        }
+    }
+
+    private func attemptWalletBindingRecoveryUnregister(
+        token: String,
+        watchedAddresses: [String],
+        aliases: [String]
+    ) async -> Bool {
+        let settings = AppSettings.load()
+        guard let url = URL(string: "\(settings.pushIndexerURL)\(unregisterEndpoint)") else {
+            return false
         }
 
-        let reason = parseIndexerError(from: responseData)
-        throw PushError.registrationFailed(statusCode: httpResponse.statusCode, reason: reason)
+        let auth: PushAuthRequest?
+        do {
+            auth = try await buildPushAuth(
+                method: "DELETE",
+                path: unregisterEndpoint,
+                deviceToken: token,
+                watchedAddresses: watchedAddresses,
+                primaryAddress: nil,
+                aliases: aliases
+            )
+        } catch {
+            NSLog("[Push] Recovery unregister auth build failed: %@", error.localizedDescription)
+            return false
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "DELETE"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try? JSONEncoder().encode(
+            PushUnregisterRequest(deviceToken: token, auth: auth)
+        )
+        urlRequest.timeoutInterval = 30
+
+        do {
+            let (responseData, response) = try await URLSession.shared.data(for: urlRequest)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return false
+            }
+            if httpResponse.statusCode == 200 {
+                isRegistered = false
+                persistRegistrationStatus(false)
+                NSLog("[Push] Recovery unregister succeeded, retrying register")
+                return true
+            }
+            let reason = parseIndexerError(from: responseData) ?? "unknown"
+            NSLog("[Push] Recovery unregister failed: status=%d reason=%@", httpResponse.statusCode, reason)
+            return false
+        } catch {
+            NSLog("[Push] Recovery unregister error: %@", error.localizedDescription)
+            return false
+        }
     }
 
     private func waitForInFlightRegistrationIfNeeded() async {
@@ -378,6 +493,9 @@ final class PushNotificationManager: ObservableObject {
         if !isRegistered {
             let watchedAddresses = collectWatchedAddresses()
             guard !watchedAddresses.isEmpty else { return }
+            if shouldDeferRegistrationForWalletBindingConflict() {
+                return
+            }
             do {
                 try await registerWithIndexer()
             } catch {
@@ -497,6 +615,23 @@ final class PushNotificationManager: ObservableObject {
             }
             guard httpResponse.statusCode == 200 else {
                 let reason = parseIndexerError(from: responseData) ?? "unknown"
+                if isWalletBindingConflict(statusCode: httpResponse.statusCode, reason: reason) {
+                    let recovered = await attemptWalletBindingRecoveryUnregister(
+                        token: token,
+                        watchedAddresses: watchedAddresses,
+                        aliases: aliases
+                    )
+                    if recovered {
+                        do {
+                            try await registerWithIndexer()
+                        } catch {
+                            lastError = error.localizedDescription
+                        }
+                        return
+                    }
+                    activateWalletBindingConflictCooldown(reason: reason)
+                    return
+                }
                 NSLog("[Push] Failed to update watched addresses: status=%d reason=%@", httpResponse.statusCode, reason)
                 return
             }
@@ -576,11 +711,15 @@ final class PushNotificationManager: ObservableObject {
                 isRegistered = false
                 persistRegistrationStatus(false)
                 lastError = nil
+                clearWalletBindingConflictCooldown()
                 NSLog("[Push] Unregistered from indexer")
                 return
             }
 
             let reason = parseIndexerError(from: responseData) ?? "unknown"
+            if isWalletBindingConflict(statusCode: httpResponse.statusCode, reason: reason) {
+                activateWalletBindingConflictCooldown(reason: reason)
+            }
             if (400...499).contains(httpResponse.statusCode) {
                 // Local token/state is stale or invalid for this backend; stop retry loops.
                 isRegistered = false
@@ -806,6 +945,7 @@ final class PushNotificationManager: ObservableObject {
 
     private static let keychainService = "com.kachat.app"
     private static let keychainAccount = "push_device_token"
+    private static let deviceAuthKeychainAccount = "push_device_auth_private_key"
 
     private func saveTokenToKeychain(_ token: String) {
         guard let data = token.data(using: .utf8) else { return }
@@ -844,6 +984,43 @@ final class PushNotificationManager: ObservableObject {
             kSecAttrAccount as String: Self.keychainAccount
         ]
         SecItemDelete(query as CFDictionary)
+    }
+
+    private func saveDeviceAuthPrivateKeyToKeychain(_ keyData: Data) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.deviceAuthKeychainAccount
+        ]
+        SecItemDelete(query as CFDictionary)
+        var addQuery = query
+        addQuery[kSecValueData as String] = keyData
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        addQuery[kSecAttrSynchronizable as String] = kCFBooleanFalse!
+        SecItemAdd(addQuery as CFDictionary, nil)
+    }
+
+    private func loadDeviceAuthPrivateKeyFromKeychain() -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.keychainService,
+            kSecAttrAccount as String: Self.deviceAuthKeychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return data
+    }
+
+    private func nextDeviceAuthCounter() -> UInt64 {
+        let defaults = UserDefaults.standard
+        let previous = defaults.object(forKey: deviceAuthCounterDefaultsKey) as? NSNumber
+        let next = previous?.uint64Value ?? 0
+        let advanced = next &+ 1
+        defaults.set(NSNumber(value: advanced), forKey: deviceAuthCounterDefaultsKey)
+        return advanced
     }
 
     private func persistRegistrationStatus(_ isRegistered: Bool) {
@@ -972,6 +1149,14 @@ final class PushNotificationManager: ObservableObject {
             }
         }
         let signature = try signingKey.signature(message: &message, auxiliaryRand: nil)
+        let deviceAuth = try buildDeviceAuthProof(
+            nonce: challenge.nonce,
+            method: method,
+            path: path,
+            normalizedDeviceToken: normalizedDeviceToken,
+            timestampMs: timestampMs,
+            expiresAtMs: challenge.expiresAtMs
+        )
         let deviceCheckToken = await generateDeviceCheckToken()
 
         return PushAuthRequest(
@@ -981,7 +1166,14 @@ final class PushNotificationManager: ObservableObject {
             timestampMs: timestampMs,
             expiresAtMs: challenge.expiresAtMs,
             signature: Data(signature.bytes).hexString,
-            devicecheckToken: deviceCheckToken
+            devicecheckToken: deviceCheckToken,
+            deviceAuth: PushDeviceAuthRequest(
+                scheme: deviceAuth.scheme,
+                keyId: deviceAuth.keyId,
+                pubkey: deviceAuth.pubkey,
+                counter: deviceAuth.counter,
+                signature: deviceAuth.signature
+            )
         )
     }
 
@@ -1061,6 +1253,90 @@ final class PushNotificationManager: ObservableObject {
         ].joined(separator: "\n")
     }
 
+    private struct DeviceKeyMaterial {
+        let privateKey: P256.Signing.PrivateKey
+        let publicKeyData: Data
+        let keyId: String
+    }
+
+    private struct DeviceAuthProof {
+        let scheme: String
+        let keyId: String
+        let pubkey: String
+        let counter: UInt64
+        let signature: String
+    }
+
+    private func loadOrCreateDeviceKeyMaterial() throws -> DeviceKeyMaterial {
+        if let keyData = loadDeviceAuthPrivateKeyFromKeychain(),
+           let privateKey = try? P256.Signing.PrivateKey(rawRepresentation: keyData) {
+            let publicKeyData = privateKey.publicKey.x963Representation
+            let keyId = Data(CryptoKit.SHA256.hash(data: publicKeyData)).hexString
+            return DeviceKeyMaterial(privateKey: privateKey, publicKeyData: publicKeyData, keyId: keyId)
+        }
+
+        let privateKey = P256.Signing.PrivateKey()
+        let keyData = privateKey.rawRepresentation
+        saveDeviceAuthPrivateKeyToKeychain(keyData)
+        let publicKeyData = privateKey.publicKey.x963Representation
+        let keyId = Data(CryptoKit.SHA256.hash(data: publicKeyData)).hexString
+        return DeviceKeyMaterial(privateKey: privateKey, publicKeyData: publicKeyData, keyId: keyId)
+    }
+
+    private func buildDeviceAuthPreimage(
+        nonce: String,
+        method: String,
+        path: String,
+        deviceToken: String,
+        keyId: String,
+        counter: UInt64,
+        timestampMs: UInt64,
+        expiresAtMs: UInt64
+    ) -> String {
+        let deviceTokenHash = sha256Hex(deviceToken)
+        return [
+            "domain=\(pushDeviceAuthDomain)",
+            "nonce=\(nonce.trimmingCharacters(in: .whitespacesAndNewlines))",
+            "method=\(method)",
+            "path=\(path)",
+            "device_token_hash=\(deviceTokenHash)",
+            "key_id=\(keyId)",
+            "counter=\(counter)",
+            "timestamp_ms=\(timestampMs)",
+            "expires_at_ms=\(expiresAtMs)"
+        ].joined(separator: "\n")
+    }
+
+    private func buildDeviceAuthProof(
+        nonce: String,
+        method: String,
+        path: String,
+        normalizedDeviceToken: String,
+        timestampMs: UInt64,
+        expiresAtMs: UInt64
+    ) throws -> DeviceAuthProof {
+        let material = try loadOrCreateDeviceKeyMaterial()
+        let counter = nextDeviceAuthCounter()
+        let preimage = buildDeviceAuthPreimage(
+            nonce: nonce,
+            method: method,
+            path: path,
+            deviceToken: normalizedDeviceToken,
+            keyId: material.keyId,
+            counter: counter,
+            timestampMs: timestampMs,
+            expiresAtMs: expiresAtMs
+        )
+        let signature = try material.privateKey.signature(for: Data(preimage.utf8))
+        return DeviceAuthProof(
+            scheme: pushDeviceAuthScheme,
+            keyId: material.keyId,
+            pubkey: material.publicKeyData.base64EncodedString(),
+            counter: counter,
+            signature: signature.derRepresentation.base64EncodedString()
+        )
+    }
+
     private func generateDeviceCheckToken() async -> String? {
         #if targetEnvironment(simulator)
         return nil
@@ -1133,6 +1409,77 @@ final class PushNotificationManager: ObservableObject {
     private func isHexString(_ value: String) -> Bool {
         let charset = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
         return !value.isEmpty && value.unicodeScalars.allSatisfy { charset.contains($0) }
+    }
+
+    private func isWalletBindingConflict(statusCode: Int, reason: String?) -> Bool {
+        guard statusCode == 401, let reason else { return false }
+        return reason.lowercased().contains("bound to another wallet")
+    }
+
+    private func currentWalletBindingFingerprint() -> String? {
+        guard let token = deviceToken else { return nil }
+        guard let walletPubkey = WalletManager.shared.currentWallet?.publicKey
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+              !walletPubkey.isEmpty else {
+            return nil
+        }
+        return "\(token)|\(walletPubkey)"
+    }
+
+    private func shouldDeferRegistrationForWalletBindingConflict() -> Bool {
+        guard let blockedFingerprint = walletBindingConflictFingerprint,
+              let blockedUntil = walletBindingConflictUntil else {
+            return false
+        }
+        guard let currentFingerprint = currentWalletBindingFingerprint(),
+              currentFingerprint == blockedFingerprint else {
+            clearWalletBindingConflictCooldown()
+            return false
+        }
+        let now = Date()
+        if now >= blockedUntil {
+            clearWalletBindingConflictCooldown()
+            return false
+        }
+        if let lastLog = lastWalletBindingConflictLogAt,
+           now.timeIntervalSince(lastLog) < walletBindingConflictLogCooldown {
+            return true
+        }
+        let remainingSeconds = Int(ceil(blockedUntil.timeIntervalSince(now)))
+        NSLog("[Push] Skipping push registration for %ds due to wallet binding conflict", max(1, remainingSeconds))
+        lastWalletBindingConflictLogAt = now
+        return true
+    }
+
+    private func activateWalletBindingConflictCooldown(reason: String?) {
+        guard let fingerprint = currentWalletBindingFingerprint() else { return }
+        walletBindingConflictFingerprint = fingerprint
+        walletBindingConflictUntil = Date().addingTimeInterval(walletBindingConflictCooldown)
+        isRegistered = false
+        persistRegistrationStatus(false)
+
+        let now = Date()
+        if let lastLog = lastWalletBindingConflictLogAt,
+           now.timeIntervalSince(lastLog) < walletBindingConflictLogCooldown {
+            return
+        }
+        lastWalletBindingConflictLogAt = now
+        let normalizedReason = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalizedReason, !normalizedReason.isEmpty {
+            NSLog("[Push] Token-wallet binding conflict: %@. Deferring retries for %.0f seconds.",
+                  normalizedReason,
+                  walletBindingConflictCooldown)
+        } else {
+            NSLog("[Push] Token-wallet binding conflict. Deferring retries for %.0f seconds.",
+                  walletBindingConflictCooldown)
+        }
+    }
+
+    private func clearWalletBindingConflictCooldown() {
+        walletBindingConflictFingerprint = nil
+        walletBindingConflictUntil = nil
+        lastWalletBindingConflictLogAt = nil
     }
 
     private func parseIndexerError(from data: Data) -> String? {
@@ -1335,6 +1682,7 @@ struct PushAuthRequest: Codable {
     let expiresAtMs: UInt64
     let signature: String
     let devicecheckToken: String?
+    let deviceAuth: PushDeviceAuthRequest?
 
     enum CodingKeys: String, CodingKey {
         case walletPubkey = "wallet_pubkey"
@@ -1344,6 +1692,23 @@ struct PushAuthRequest: Codable {
         case expiresAtMs = "expires_at_ms"
         case signature
         case devicecheckToken = "devicecheck_token"
+        case deviceAuth = "device_auth"
+    }
+}
+
+struct PushDeviceAuthRequest: Codable {
+    let scheme: String
+    let keyId: String
+    let pubkey: String
+    let counter: UInt64
+    let signature: String
+
+    enum CodingKeys: String, CodingKey {
+        case scheme
+        case keyId = "key_id"
+        case pubkey
+        case counter
+        case signature
     }
 }
 

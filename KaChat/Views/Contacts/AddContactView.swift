@@ -45,7 +45,7 @@ struct AddContactView: View {
                             .font(.system(.body, design: .monospaced))
                             .autocapitalization(.none)
                             .autocorrectionDisabled()
-                            .onChange(of: addressInput) { _, newValue in
+                            .onChange(of: addressInput) { newValue in
                                 handleInputChange(newValue)
                             }
 

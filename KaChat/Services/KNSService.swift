@@ -7,22 +7,30 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
     /// Cache of domains by address
     @Published private(set) var domainCache: [String: KNSAddressInfo] = [:]
+    /// Cache of selected KNS profiles by address (primary domain if available)
+    @Published private(set) var profileCache: [String: KNSAddressProfileInfo] = [:]
 
     /// Addresses currently being fetched
     private var pendingFetches: Set<String> = []
+    private var pendingProfileFetches: Set<String> = []
     private var lastAttemptAt: [String: Date] = [:]
+    private var lastProfileAttemptAt: [String: Date] = [:]
     private var failureCounts: [String: Int] = [:]
+    private var profileFailureCounts: [String: Int] = [:]
 
     private let cacheKey = "kachat_kns_domain_cache_v1"
+    private let profileCacheKey = "kachat_kns_profile_cache_v1"
     private let minRefreshInterval: TimeInterval = 10 * 60
     private let maxBackoffInterval: TimeInterval = 6 * 60 * 60
     private let maxConcurrentRefreshes = 4
+    private let maxConcurrentProfileRefreshes = 3
 
     private var session: URLSession!
 
     private override init() {
         super.init()
         loadCache()
+        loadProfileCache()
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 10
         config.timeoutIntervalForResource = 20
@@ -182,13 +190,71 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     /// Clear cache for an address
     func clearCache(for address: String) {
         domainCache.removeValue(forKey: address)
+        profileCache.removeValue(forKey: address)
         persistCache()
+        persistProfileCache()
     }
 
     /// Clear all cache
     func clearAllCache() {
         domainCache.removeAll()
+        profileCache.removeAll()
         persistCache()
+        persistProfileCache()
+    }
+
+    /// Get cached/fetched KNS profile for an address.
+    func getProfile(for address: String, network: NetworkType = .mainnet) async -> KNSAddressProfileInfo? {
+        if let cached = profileCache[address] {
+            return cached
+        }
+        guard !pendingProfileFetches.contains(address) else { return nil }
+        return await fetchProfile(for: address, network: network)
+    }
+
+    /// Fetch KNS profile for an address.
+    func fetchProfile(for address: String, network: NetworkType = .mainnet) async -> KNSAddressProfileInfo? {
+        guard !pendingProfileFetches.contains(address) else { return profileCache[address] }
+
+        lastProfileAttemptAt[address] = Date()
+        pendingProfileFetches.insert(address)
+        defer { pendingProfileFetches.remove(address) }
+
+        let result = await fetchProfileInternal(for: address, network: network)
+        if result.hadError {
+            profileFailureCounts[address, default: 0] += 1
+        } else {
+            profileFailureCounts[address] = 0
+        }
+        return result.info
+    }
+
+    /// Refresh KNS profiles for multiple addresses if debounce allows it.
+    func refreshProfilesIfNeeded(for addresses: [String], network: NetworkType = .mainnet) async {
+        let now = Date()
+        let eligible = addresses.filter { address in
+            guard !pendingProfileFetches.contains(address) else { return false }
+            guard let last = lastProfileAttemptAt[address] else { return true }
+            let failures = profileFailureCounts[address, default: 0]
+            let backoff = min(maxBackoffInterval, minRefreshInterval * pow(2.0, Double(failures)))
+            return now.timeIntervalSince(last) >= backoff
+        }
+        guard !eligible.isEmpty else { return }
+
+        var startIndex = 0
+        while startIndex < eligible.count {
+            let endIndex = min(startIndex + maxConcurrentProfileRefreshes, eligible.count)
+            let slice = eligible[startIndex..<endIndex]
+            await withTaskGroup(of: Void.self) { group in
+                for address in slice {
+                    group.addTask { [weak self] in
+                        guard let self else { return }
+                        _ = await self.fetchProfile(for: address, network: network)
+                    }
+                }
+            }
+            startIndex = endIndex
+        }
     }
 
     // MARK: - Domain Resolution (Forward Lookup)
@@ -343,6 +409,44 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         }
     }
 
+    private func fetchDomainProfileResult(
+        assetId: String,
+        baseURL: String,
+        keys: [String]? = nil
+    ) async -> (profileData: KNSDomainProfileData?, hadError: Bool) {
+        guard var components = URLComponents(string: baseURL) else { return (nil, true) }
+        components.path += "/domain/\(assetId)/profile"
+        if let keys, !keys.isEmpty {
+            components.queryItems = [
+                URLQueryItem(name: "keys", value: keys.joined(separator: ","))
+            ]
+        }
+        guard let url = components.url else { return (nil, true) }
+
+        do {
+            let (data, response) = try await fetchData(from: url)
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return (nil, true)
+            }
+            if httpResponse.statusCode == 404 {
+                return (nil, false)
+            }
+            guard httpResponse.statusCode == 200 else {
+                return (nil, true)
+            }
+
+            let result = try JSONDecoder().decode(KNSDomainProfileResponse.self, from: data)
+            guard result.success else {
+                return (nil, false)
+            }
+            return (result.data, false)
+        } catch {
+            NSLog("[KNS] Domain profile fetch error for %@: %@", assetId, error.localizedDescription)
+            return (nil, true)
+        }
+    }
+
     private func fetchInfoInternal(for address: String, network: NetworkType) async -> (info: KNSAddressInfo?, hadError: Bool) {
         let (primaryDomain, primaryError) = await fetchPrimaryNameResult(for: address, baseURL: baseURL)
         let (allDomains, assetsError) = await fetchAllDomains(for: address, baseURL: baseURL)
@@ -372,6 +476,59 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     private func updateCache(_ info: KNSAddressInfo, address: String) {
         domainCache[address] = info
         persistCache()
+    }
+
+    private func fetchProfileInternal(for address: String, network: NetworkType) async -> (info: KNSAddressProfileInfo?, hadError: Bool) {
+        var domainInfo = domainCache[address]
+        if domainInfo == nil {
+            domainInfo = await fetchInfo(for: address, network: network)
+        }
+        let selectedDomain: KNSDomain? = {
+            guard let domainInfo else { return nil }
+            if let primary = domainInfo.primaryDomain {
+                if let matched = domainInfo.allDomains.first(where: { $0.fullName == primary }) {
+                    return matched
+                }
+            }
+            return domainInfo.allDomains.first
+        }()
+
+        guard let selectedDomain else {
+            let info = KNSAddressProfileInfo(
+                address: address,
+                domainName: nil,
+                assetId: nil,
+                profile: nil,
+                fetchedAt: Date()
+            )
+            updateProfileCache(info, address: address)
+            return (info, false)
+        }
+
+        let (profileData, profileError) = await fetchDomainProfileResult(
+            assetId: selectedDomain.inscriptionId,
+            baseURL: baseURL
+        )
+
+        if profileError, let cached = profileCache[address] {
+            return (cached, true)
+        }
+
+        let profile = profileData?.profile?.toModel()
+        let info = KNSAddressProfileInfo(
+            address: address,
+            domainName: profileData?.fullName ?? selectedDomain.fullName,
+            assetId: selectedDomain.inscriptionId,
+            profile: profile,
+            fetchedAt: Date()
+        )
+        updateProfileCache(info, address: address)
+        return (info, false)
+    }
+
+    private func updateProfileCache(_ info: KNSAddressProfileInfo, address: String) {
+        profileCache[address] = info
+        persistProfileCache()
     }
 
     private func normalizeDomainName(_ raw: String?) -> String? {
@@ -447,6 +604,24 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         guard let data = try? JSONEncoder().encode(domainCache) else { return }
         UserDefaults.standard.set(data, forKey: cacheKey)
     }
+
+    private func loadProfileCache() {
+        guard let data = UserDefaults.standard.data(forKey: profileCacheKey),
+              let decoded = try? JSONDecoder().decode([String: KNSAddressProfileInfo].self, from: data) else {
+            return
+        }
+
+        var sanitized: [String: KNSAddressProfileInfo] = [:]
+        for (address, info) in decoded {
+            sanitized[address] = info.sanitized()
+        }
+        profileCache = sanitized
+    }
+
+    private func persistProfileCache() {
+        guard let data = try? JSONEncoder().encode(profileCache) else { return }
+        UserDefaults.standard.set(data, forKey: profileCacheKey)
+    }
 }
 
 // MARK: - Models
@@ -480,6 +655,70 @@ struct KNSDomain: Equatable, Codable {
             return String(fullName.dropLast(4))
         }
         return fullName
+    }
+}
+
+struct KNSAddressProfileInfo: Equatable, Codable {
+    let address: String
+    let domainName: String?
+    let assetId: String?
+    let profile: KNSDomainProfile?
+    let fetchedAt: Date
+
+    var avatarURL: String? {
+        profile?.avatarUrl
+    }
+
+    fileprivate func sanitized() -> KNSAddressProfileInfo {
+        KNSAddressProfileInfo(
+            address: address,
+            domainName: domainName?.trimmingCharacters(in: .whitespacesAndNewlines),
+            assetId: assetId?.trimmingCharacters(in: .whitespacesAndNewlines),
+            profile: profile?.sanitized(),
+            fetchedAt: fetchedAt
+        )
+    }
+}
+
+struct KNSDomainProfile: Equatable, Codable {
+    let avatarUrl: String?
+    let redirectUrl: String?
+    let bio: String?
+    let x: String?
+    let website: String?
+    let telegram: String?
+    let discord: String?
+    let contactEmail: String?
+    let bannerUrl: String?
+    let github: String?
+
+    var hasAnyField: Bool {
+        [avatarUrl, redirectUrl, bio, x, website, telegram, discord, contactEmail, bannerUrl, github]
+            .contains { value in
+                guard let value else { return false }
+                return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+    }
+
+    fileprivate func sanitized() -> KNSDomainProfile {
+        KNSDomainProfile(
+            avatarUrl: sanitizeValue(avatarUrl),
+            redirectUrl: sanitizeValue(redirectUrl),
+            bio: sanitizeValue(bio),
+            x: sanitizeValue(x),
+            website: sanitizeValue(website),
+            telegram: sanitizeValue(telegram),
+            discord: sanitizeValue(discord),
+            contactEmail: sanitizeValue(contactEmail),
+            bannerUrl: sanitizeValue(bannerUrl),
+            github: sanitizeValue(github)
+        )
+    }
+
+    private func sanitizeValue(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
@@ -531,6 +770,55 @@ private struct KNSAssetsResponse: Codable {
     let data: KNSAssetsData?
     let message: String?
     let error: String?
+}
+
+private struct KNSDomainProfileResponse: Codable {
+    let success: Bool
+    let data: KNSDomainProfileData?
+    let message: String?
+    let error: String?
+}
+
+private struct KNSDomainProfileData: Codable {
+    let assetId: String?
+    let owner: String?
+    let name: String?
+    let tld: String?
+    let profile: KNSDomainProfilePayload?
+
+    var fullName: String? {
+        guard let name, !name.isEmpty else { return nil }
+        guard let tld, !tld.isEmpty else { return name }
+        return "\(name).\(tld)".lowercased()
+    }
+}
+
+private struct KNSDomainProfilePayload: Codable {
+    let avatarUrl: String?
+    let redirectUrl: String?
+    let bio: String?
+    let x: String?
+    let website: String?
+    let telegram: String?
+    let discord: String?
+    let contactEmail: String?
+    let bannerUrl: String?
+    let github: String?
+
+    func toModel() -> KNSDomainProfile {
+        KNSDomainProfile(
+            avatarUrl: avatarUrl,
+            redirectUrl: redirectUrl,
+            bio: bio,
+            x: x,
+            website: website,
+            telegram: telegram,
+            discord: discord,
+            contactEmail: contactEmail,
+            bannerUrl: bannerUrl,
+            github: github
+        ).sanitized()
+    }
 }
 
 private struct KNSAssetsData: Codable {

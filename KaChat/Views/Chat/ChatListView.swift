@@ -47,8 +47,19 @@ struct ChatListView: View {
             } else {
                 NavigationStack {
                     chatListPane
-                        .navigationDestination(item: $selectedContact) { contact in
-                            ChatDetailView(contact: contact)
+                        .navigationDestination(isPresented: Binding(
+                            get: { selectedContact != nil },
+                            set: { isPresented in
+                                if !isPresented {
+                                    selectedContact = nil
+                                }
+                            }
+                        )) {
+                            if let contact = selectedContact {
+                                ChatDetailView(contact: contact)
+                            } else {
+                                EmptyView()
+                            }
                         }
                 }
             }
@@ -117,7 +128,7 @@ struct ChatListView: View {
             refreshFilteredConversations()
             Task { _ = try? await walletManager.refreshBalance() }
         }
-        .onChange(of: searchText) { _, newValue in
+        .onChange(of: searchText) { newValue in
             if newValue.isEmpty {
                 loadedConversationCount = conversationPageSize
                 scheduleFilteredConversationsRefresh(debounce: false)
@@ -125,13 +136,13 @@ struct ChatListView: View {
                 scheduleFilteredConversationsRefresh(debounce: true)
             }
         }
-        .onChange(of: chatService.conversations) { _, _ in
+        .onChange(of: chatService.conversations) { _ in
             scheduleFilteredConversationsRefresh(debounce: false)
         }
-        .onChange(of: contactsManager.contacts) { _, _ in
+        .onChange(of: contactsManager.contacts) { _ in
             scheduleFilteredConversationsRefresh(debounce: false)
         }
-        .onChange(of: settingsViewModel.settings.hideAutoCreatedPaymentChats) { _, _ in
+        .onChange(of: settingsViewModel.settings.hideAutoCreatedPaymentChats) { _ in
             scheduleFilteredConversationsRefresh(debounce: false)
         }
         .onDisappear {
@@ -140,7 +151,7 @@ struct ChatListView: View {
         .task {
             await contactsManager.fetchKNSDomainsForAllContacts()
         }
-        .onChange(of: chatService.pendingChatNavigation) { _, newValue in
+        .onChange(of: chatService.pendingChatNavigation) { newValue in
             if newValue != nil {
                 checkPendingNavigation()
             }
@@ -419,25 +430,27 @@ struct ChatListView: View {
 struct ConversationRow: View {
     let conversation: Conversation
     @EnvironmentObject var chatService: ChatService
+    @ObservedObject private var knsService = KNSService.shared
     private static let previewCache: NSCache<NSString, NSString> = {
         let cache = NSCache<NSString, NSString>()
         cache.countLimit = 2048
         return cache
     }()
 
+    private var avatarURLString: String? {
+        knsService.profileCache[conversation.contact.address]?.avatarURL
+    }
+
     var body: some View {
         let lastMessage = conversation.lastMessage
 
         HStack(spacing: 12) {
             // Avatar
-            Circle()
-                .fill(Color.accentColor.opacity(0.2))
-                .frame(width: 50, height: 50)
-                .overlay(
-                    Text(conversation.contact.alias.prefix(2).uppercased())
-                        .font(.headline)
-                        .foregroundColor(.accentColor)
-                )
+            KNSAvatarView(
+                avatarURLString: avatarURLString,
+                fallbackText: conversation.contact.alias,
+                size: 50
+            )
 
             // Content
             VStack(alignment: .leading, spacing: 4) {
@@ -620,7 +633,7 @@ struct ShimmeringText: View {
             .onAppear {
                 updateShimmer()
             }
-            .onChange(of: isShimmering) { _, _ in
+            .onChange(of: isShimmering) { _ in
                 updateShimmer()
             }
     }

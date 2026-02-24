@@ -11,6 +11,8 @@ struct KaChatApp: App {
     @StateObject private var settingsViewModel = SettingsViewModel()
     @StateObject private var pushManager = PushNotificationManager.shared
     @StateObject private var giftService = GiftService.shared
+    @State private var pendingOutboundShareId: String?
+    @State private var isProcessingOutboundShare = false
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -31,25 +33,32 @@ struct KaChatApp: App {
                 .environmentObject(giftService)
                 .onAppear {
                     ChatService.shared.settingsViewModel = settingsViewModel
+                    if #available(iOS 16.0, macCatalyst 16.0, *) {
+                        KaChatShortcutsProvider.updateAppShortcutParameters()
+                    }
                     if walletManager.currentWallet != nil {
                         Task {
                             await contactsManager.bootstrapSystemContactsIfNeeded()
                         }
                     }
                 }
-                .onChange(of: walletManager.currentWallet?.publicAddress) { _, newValue in
+                .onChange(of: walletManager.currentWallet?.publicAddress) { newValue in
                     guard newValue != nil else { return }
                     Task {
                         await contactsManager.bootstrapSystemContactsIfNeeded()
+                        await processPendingOutboundShareIfNeeded()
                     }
                 }
+                .onOpenURL { url in
+                    handleIncomingURL(url)
+                }
         }
-        .onChange(of: scenePhase) { oldPhase, newPhase in
-            handleScenePhaseChange(from: oldPhase, to: newPhase)
+        .onChange(of: scenePhase) { newPhase in
+            handleScenePhaseChange(to: newPhase)
         }
     }
 
-    private func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
+    private func handleScenePhaseChange(to newPhase: ScenePhase) {
         switch newPhase {
         case .background:
             // Schedule background fetch when app goes to background
@@ -80,6 +89,9 @@ struct KaChatApp: App {
             // Process any messages decrypted by notification extension
             Task {
                 await pushManager.processPendingMessages()
+            }
+            Task {
+                await processPendingOutboundShareIfNeeded()
             }
             // Refresh CloudKit first to pick up messages from other devices
             // Then sync messages that may have arrived while backgrounded
@@ -122,6 +134,76 @@ struct KaChatApp: App {
         @unknown default:
             break
         }
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        guard url.scheme?.lowercased() == "kachat",
+              url.host?.lowercased() == "share",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let shareId = components.queryItems?.first(where: { $0.name == "id" })?.value,
+              !shareId.isEmpty else {
+            return
+        }
+
+        pendingOutboundShareId = shareId
+        Task {
+            await processPendingOutboundShareIfNeeded()
+        }
+    }
+
+    @MainActor
+    private func processPendingOutboundShareIfNeeded() async {
+        guard !isProcessingOutboundShare else { return }
+        guard walletManager.currentWallet != nil else { return }
+
+        if pendingOutboundShareId == nil {
+            // Fallback path when Share Extension couldn't open URL directly.
+            pendingOutboundShareId = SharedDataManager.getOutboundShares().last?.id
+        }
+
+        guard let shareId = pendingOutboundShareId else { return }
+
+        isProcessingOutboundShare = true
+        defer { isProcessingOutboundShare = false }
+
+        SharedDataManager.pruneOutboundShares()
+        guard let share = SharedDataManager.getOutboundShare(id: shareId) else {
+            pendingOutboundShareId = nil
+            return
+        }
+
+        let cleanedText = share.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedText.isEmpty else {
+            SharedDataManager.removeOutboundShare(id: share.id)
+            pendingOutboundShareId = nil
+            return
+        }
+
+        let contact = contactsManager.getContact(byAddress: share.contactAddress)
+            ?? contactsManager.getOrCreateContact(address: share.contactAddress)
+
+        chatService.pendingChatNavigation = share.contactAddress
+        NotificationCenter.default.post(
+            name: .openChat,
+            object: nil,
+            userInfo: ["contactAddress": share.contactAddress]
+        )
+
+        if share.autoSend {
+            do {
+                try await chatService.sendMessage(to: contact, content: cleanedText)
+            } catch {
+                NSLog("[Share] Auto-send failed for %@, saved as draft: %@",
+                      String(share.contactAddress.suffix(10)),
+                      error.localizedDescription)
+                chatService.setDraft(cleanedText, for: share.contactAddress)
+            }
+        } else {
+            chatService.setDraft(cleanedText, for: share.contactAddress)
+        }
+
+        SharedDataManager.removeOutboundShare(id: share.id)
+        pendingOutboundShareId = nil
     }
 
     /// Pre-initialize heavy components to avoid lag on first user interaction
