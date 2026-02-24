@@ -186,6 +186,7 @@ Defaults are managed via `AppSettings`.
 ## Known Limitations
 
 - Per-contact realtime disable path is currently documented as unstable/broken and needs follow-up fixes.
+- TODO: Integrate VCC2 API in a future update; this is strongly desired to provide a more stable messaging pipeline.
 
 ## Support
 
