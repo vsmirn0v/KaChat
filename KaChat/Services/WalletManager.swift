@@ -395,6 +395,28 @@ final class WalletManager: ObservableObject {
         }
     }
 
+    /// Sign an arbitrary message using the current wallet's Schnorr private key.
+    /// Returns hex-encoded 64-byte Schnorr signature.
+    func signArbitraryMessage(_ message: String) throws -> String {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw KasiaError.encryptionError("Cannot sign empty message")
+        }
+        guard let privateKey = getPrivateKey() else {
+            throw KasiaError.walletNotFound
+        }
+
+        let digest = SHA256.hash(data: Data(trimmed.utf8))
+        var digestBytes = Array(digest)
+        let key = try P256K.Schnorr.PrivateKey(dataRepresentation: privateKey)
+        let signature = try key.signature(message: &digestBytes, auxiliaryRand: nil)
+        for index in digestBytes.indices {
+            digestBytes[index] = 0
+        }
+
+        return Data(signature.bytes).hexString
+    }
+
     /// Ensures the non-sensitive wallet record matches locally stored signing key material.
     /// If keychain sync returns a stale wallet record from another device/account, prefer
     /// local key material so message decryption and signing keep working on this device.

@@ -2,6 +2,7 @@ import SwiftUI
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import UIKit
+import PhotosUI
 
 struct ProfileView: View {
     @EnvironmentObject var walletManager: WalletManager
@@ -23,6 +24,9 @@ struct ProfileView: View {
     @State private var knsPrimaryDomain: String?
     @State private var knsProfileInfo: KNSAddressProfileInfo?
     @State private var showAvatarPreview = false
+    @State private var showKNSEditor = false
+    @State private var isSavingKNSProfile = false
+    @State private var knsSaveProgressText: String?
 
     static func preloadQRCode(for address: String) {
         ProfileQRCodeCache.preload(address: address, completion: nil)
@@ -75,6 +79,27 @@ struct ProfileView: View {
                     showAddContact = false
                     // Navigate to the new chat via the Chats tab
                     NotificationCenter.default.post(name: .openChat, object: nil, userInfo: ["contactAddress": contact.address])
+                }
+            }
+            .sheet(isPresented: $showKNSEditor) {
+                if let profileInfo = knsProfileInfo, profileInfo.assetId != nil {
+                    KNSProfileEditorSheet(profileInfo: profileInfo) { submission in
+                        showKNSEditor = false
+                        Task {
+                            await saveKNSProfile(submission: submission, profileInfo: profileInfo)
+                        }
+                    }
+                } else {
+                    NavigationStack {
+                        VStack(spacing: 12) {
+                            Text("KNS profile unavailable.")
+                                .foregroundColor(.secondary)
+                            Button("Close") {
+                                showKNSEditor = false
+                            }
+                        }
+                        .padding()
+                    }
                 }
             }
             .fullScreenCover(isPresented: $showAvatarPreview) {
@@ -259,6 +284,23 @@ struct ProfileView: View {
                     }
                 }
                 .padding(.vertical, 4)
+
+                if let assetId = profileInfo.assetId, !assetId.isEmpty {
+                    Button {
+                        showKNSEditor = true
+                    } label: {
+                        Label("Edit KNS Profile", systemImage: "pencil")
+                    }
+                }
+
+                if isSavingKNSProfile, let progress = knsSaveProgressText {
+                    HStack(spacing: 10) {
+                        ProgressView().scaleEffect(0.8)
+                        Text(progress)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
 
                 if let bannerURL = KNSProfileLinkBuilder.websiteURL(from: profileInfo.profile?.bannerUrl) {
                     AsyncImage(url: bannerURL) { phase in
@@ -572,6 +614,557 @@ struct ProfileView: View {
         showToast("\(fieldName) copied to clipboard.")
     }
 
+    private func saveKNSProfile(
+        submission: KNSProfileEditorSubmission,
+        profileInfo: KNSAddressProfileInfo
+    ) async {
+        guard let walletAddress = walletManager.currentWallet?.publicAddress else {
+            await MainActor.run {
+                showToast("Wallet not available.", style: .error)
+            }
+            return
+        }
+        guard let assetId = profileInfo.assetId, !assetId.isEmpty else {
+            await MainActor.run {
+                showToast("KNS asset id is missing.", style: .error)
+            }
+            return
+        }
+
+        await MainActor.run {
+            isSavingKNSProfile = true
+            knsSaveProgressText = "Preparing profile update..."
+        }
+
+        var values = submission.fieldValues()
+
+        do {
+            // Upload picked avatar/banner first; resulting URLs are written on-chain.
+            if let avatarData = submission.avatarUploadData {
+                await MainActor.run {
+                    knsSaveProgressText = "Uploading avatar..."
+                }
+                let signMessage = try KNSService.shared.buildImageUploadSigningMessage(
+                    assetId: assetId,
+                    uploadType: .avatar
+                )
+                let signature = try walletManager.signArbitraryMessage(signMessage)
+                let uploadedURL = try await KNSService.shared.uploadProfileImage(
+                    assetId: assetId,
+                    uploadType: .avatar,
+                    imageData: avatarData,
+                    mimeType: submission.avatarUploadMimeType ?? "image/jpeg",
+                    signMessage: signMessage,
+                    signature: signature
+                )
+                values[.avatarUrl] = uploadedURL
+            }
+
+            if let bannerData = submission.bannerUploadData {
+                await MainActor.run {
+                    knsSaveProgressText = "Uploading banner..."
+                }
+                let signMessage = try KNSService.shared.buildImageUploadSigningMessage(
+                    assetId: assetId,
+                    uploadType: .banner
+                )
+                let signature = try walletManager.signArbitraryMessage(signMessage)
+                let uploadedURL = try await KNSService.shared.uploadProfileImage(
+                    assetId: assetId,
+                    uploadType: .banner,
+                    imageData: bannerData,
+                    mimeType: submission.bannerUploadMimeType ?? "image/jpeg",
+                    signMessage: signMessage,
+                    signature: signature
+                )
+                values[.bannerUrl] = uploadedURL
+            }
+
+            if let email = values[.contactEmail],
+               !email.isEmpty,
+               !isLikelyValidEmail(email) {
+                throw KasiaError.apiError("Invalid email address format")
+            }
+            if let discord = values[.discord],
+               !discord.isEmpty,
+               KNSProfileLinkBuilder.discordURL(from: discord) == nil {
+                throw KasiaError.apiError("Discord must be a numeric user id or a valid /users/<id> URL")
+            }
+
+            let original = profileInfo.profile ?? .empty
+            let orderedKeys: [KNSProfileFieldKey] = [
+                .avatarUrl, .bannerUrl, .bio, .x, .website,
+                .telegram, .discord, .contactEmail, .github, .redirectUrl
+            ]
+
+            var changes: [(key: KNSProfileFieldKey, value: String)] = []
+            for key in orderedKeys {
+                let target = values[key] ?? ""
+                let current = (original.value(for: key) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if target != current {
+                    changes.append((key: key, value: target))
+                }
+            }
+
+            guard !changes.isEmpty else {
+                await MainActor.run {
+                    isSavingKNSProfile = false
+                    knsSaveProgressText = nil
+                    showToast("No KNS profile changes detected.")
+                }
+                return
+            }
+
+            var successCount = 0
+            var failedFields: [String] = []
+
+            for (index, change) in changes.enumerated() {
+                await MainActor.run {
+                    knsSaveProgressText = "Updating \(change.key.displayName) (\(index + 1)/\(changes.count))..."
+                }
+                do {
+                    _ = try await KNSProfileWriteService.shared.submitAddProfile(
+                        assetId: assetId,
+                        key: change.key,
+                        value: change.value,
+                        domainName: profileInfo.domainName
+                    )
+                    successCount += 1
+                } catch {
+                    failedFields.append(change.key.displayName)
+                    NSLog("[KNS] Failed to update %@: %@", change.key.rawValue, error.localizedDescription)
+                }
+            }
+
+            if let refreshed = await KNSService.shared.fetchProfile(for: walletAddress) {
+                await MainActor.run {
+                    knsProfileInfo = refreshed
+                }
+            }
+
+            await MainActor.run {
+                isSavingKNSProfile = false
+                knsSaveProgressText = nil
+                if successCount == changes.count {
+                    Haptics.success()
+                    showToast("KNS profile updated.")
+                } else if successCount > 0 {
+                    Haptics.impact(.medium)
+                    let failedList = failedFields.joined(separator: ", ")
+                    showToast("Updated \(successCount)/\(changes.count). Failed: \(failedList).", style: .error)
+                } else {
+                    Haptics.impact(.medium)
+                    showToast("KNS profile update failed.", style: .error)
+                }
+            }
+        } catch {
+            await MainActor.run {
+                isSavingKNSProfile = false
+                knsSaveProgressText = nil
+                Haptics.impact(.medium)
+                showToast(error.localizedDescription, style: .error)
+            }
+        }
+    }
+
+    private func isLikelyValidEmail(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let parts = trimmed.split(separator: "@")
+        guard parts.count == 2 else { return false }
+        guard !parts[0].isEmpty, !parts[1].isEmpty else { return false }
+        return parts[1].contains(".")
+    }
+
+}
+
+private struct KNSProfileEditorSubmission {
+    let avatarUrl: String
+    let bannerUrl: String
+    let bio: String
+    let x: String
+    let website: String
+    let telegram: String
+    let discord: String
+    let contactEmail: String
+    let github: String
+    let redirectUrl: String
+    let avatarUploadData: Data?
+    let avatarUploadMimeType: String?
+    let bannerUploadData: Data?
+    let bannerUploadMimeType: String?
+
+    func fieldValues() -> [KNSProfileFieldKey: String] {
+        [
+            .avatarUrl: normalizedValue(avatarUrl),
+            .bannerUrl: normalizedValue(bannerUrl),
+            .bio: normalizedValue(bio),
+            .x: normalizedValue(x),
+            .website: normalizedValue(website),
+            .telegram: normalizedValue(telegram),
+            .discord: normalizedValue(discord),
+            .contactEmail: normalizedValue(contactEmail),
+            .github: normalizedValue(github),
+            .redirectUrl: normalizedValue(redirectUrl)
+        ]
+    }
+
+    private func normalizedValue(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private struct KNSProfileEditorSheet: View {
+    let profileInfo: KNSAddressProfileInfo
+    let onSave: (KNSProfileEditorSubmission) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var avatarUrl: String
+    @State private var bannerUrl: String
+    @State private var bio: String
+    @State private var x: String
+    @State private var website: String
+    @State private var telegram: String
+    @State private var discord: String
+    @State private var contactEmail: String
+    @State private var github: String
+    @State private var redirectUrl: String
+
+    @State private var avatarUploadData: Data?
+    @State private var avatarUploadMimeType: String?
+    @State private var bannerUploadData: Data?
+    @State private var bannerUploadMimeType: String?
+
+    @State private var avatarPreviewImage: UIImage?
+    @State private var bannerPreviewImage: UIImage?
+    @State private var avatarPickerItem: PhotosPickerItem?
+    @State private var bannerPickerItem: PhotosPickerItem?
+    @State private var isLoadingAvatar = false
+    @State private var isLoadingBanner = false
+    @State private var imageLoadError: String?
+
+    init(
+        profileInfo: KNSAddressProfileInfo,
+        onSave: @escaping (KNSProfileEditorSubmission) -> Void
+    ) {
+        self.profileInfo = profileInfo
+        self.onSave = onSave
+
+        let profile = profileInfo.profile ?? .empty
+        _avatarUrl = State(initialValue: profile.avatarUrl ?? "")
+        _bannerUrl = State(initialValue: profile.bannerUrl ?? "")
+        _bio = State(initialValue: profile.bio ?? "")
+        _x = State(initialValue: profile.x ?? "")
+        _website = State(initialValue: profile.website ?? "")
+        _telegram = State(initialValue: profile.telegram ?? "")
+        _discord = State(initialValue: profile.discord ?? "")
+        _contactEmail = State(initialValue: profile.contactEmail ?? "")
+        _github = State(initialValue: profile.github ?? "")
+        _redirectUrl = State(initialValue: profile.redirectUrl ?? "")
+    }
+
+    private var canSave: Bool {
+        !isLoadingAvatar && !isLoadingBanner
+    }
+
+    private var displayName: String {
+        profileInfo.domainName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? profileInfo.domainName!
+            : "KNS Profile"
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Domain") {
+                    HStack {
+                        Text("Name")
+                        Spacer()
+                        Text(displayName)
+                            .foregroundColor(.secondary)
+                    }
+                    if let assetId = profileInfo.assetId, !assetId.isEmpty {
+                        HStack {
+                            Text("Asset ID")
+                            Spacer()
+                            Text(assetId)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+
+                Section("Avatar") {
+                    HStack(spacing: 12) {
+                        if let avatarPreviewImage {
+                            Image(uiImage: avatarPreviewImage)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 64, height: 64)
+                                .clipShape(Circle())
+                        } else {
+                            KNSAvatarView(
+                                avatarURLString: avatarUrl,
+                                fallbackText: displayName,
+                                size: 64
+                            )
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            PhotosPicker(selection: $avatarPickerItem, matching: .images) {
+                                Label("Choose Avatar", systemImage: "photo")
+                            }
+                            if !avatarUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || avatarUploadData != nil {
+                                Button(role: .destructive) {
+                                    clearAvatarSelection()
+                                } label: {
+                                    Label("Remove Avatar", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+                    if isLoadingAvatar {
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.8)
+                            Text("Processing avatar...")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                Section("Banner") {
+                    Group {
+                        if let bannerPreviewImage {
+                            Image(uiImage: bannerPreviewImage)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 110)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        } else if let bannerURL = KNSProfileLinkBuilder.websiteURL(from: bannerUrl) {
+                            AsyncImage(url: bannerURL) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(maxWidth: .infinity)
+                                        .frame(height: 110)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                case .empty:
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .fill(Color.secondary.opacity(0.15))
+                                        .frame(height: 110)
+                                        .overlay {
+                                            ProgressView().scaleEffect(0.8)
+                                        }
+                                case .failure:
+                                    EmptyView()
+                                @unknown default:
+                                    EmptyView()
+                                }
+                            }
+                        }
+                    }
+
+                    PhotosPicker(selection: $bannerPickerItem, matching: .images) {
+                        Label("Choose Banner", systemImage: "photo.on.rectangle")
+                    }
+                    if !bannerUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || bannerUploadData != nil {
+                        Button(role: .destructive) {
+                            clearBannerSelection()
+                        } label: {
+                            Label("Remove Banner", systemImage: "trash")
+                        }
+                    }
+                    if isLoadingBanner {
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.8)
+                            Text("Processing banner...")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                Section("Profile") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Bio")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        TextEditor(text: $bio)
+                            .frame(minHeight: 84)
+                    }
+                    TextField("X handle", text: $x)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Website", text: $website)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    TextField("Telegram", text: $telegram)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Discord user id", text: $discord)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Email", text: $contactEmail)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.emailAddress)
+                    TextField("GitHub", text: $github)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Redirect URL", text: $redirectUrl)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                }
+
+                if let imageLoadError, !imageLoadError.isEmpty {
+                    Section {
+                        Text(imageLoadError)
+                            .foregroundColor(.red)
+                            .font(.footnote)
+                    }
+                }
+            }
+            .navigationTitle("Edit KNS Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        onSave(
+                            KNSProfileEditorSubmission(
+                                avatarUrl: avatarUrl,
+                                bannerUrl: bannerUrl,
+                                bio: bio,
+                                x: x,
+                                website: website,
+                                telegram: telegram,
+                                discord: discord,
+                                contactEmail: contactEmail,
+                                github: github,
+                                redirectUrl: redirectUrl,
+                                avatarUploadData: avatarUploadData,
+                                avatarUploadMimeType: avatarUploadMimeType,
+                                bannerUploadData: bannerUploadData,
+                                bannerUploadMimeType: bannerUploadMimeType
+                            )
+                        )
+                    }
+                    .disabled(!canSave)
+                }
+            }
+            .onChange(of: avatarPickerItem) { newValue in
+                guard let newValue else { return }
+                Task {
+                    await loadPickedImage(newValue, kind: .avatar)
+                }
+            }
+            .onChange(of: bannerPickerItem) { newValue in
+                guard let newValue else { return }
+                Task {
+                    await loadPickedImage(newValue, kind: .banner)
+                }
+            }
+        }
+    }
+
+    private enum PickedImageKind {
+        case avatar
+        case banner
+    }
+
+    private func clearAvatarSelection() {
+        avatarUrl = ""
+        avatarPreviewImage = nil
+        avatarUploadData = nil
+        avatarUploadMimeType = nil
+        avatarPickerItem = nil
+        imageLoadError = nil
+    }
+
+    private func clearBannerSelection() {
+        bannerUrl = ""
+        bannerPreviewImage = nil
+        bannerUploadData = nil
+        bannerUploadMimeType = nil
+        bannerPickerItem = nil
+        imageLoadError = nil
+    }
+
+    private func loadPickedImage(_ item: PhotosPickerItem, kind: PickedImageKind) async {
+        await MainActor.run {
+            imageLoadError = nil
+            switch kind {
+            case .avatar:
+                isLoadingAvatar = true
+            case .banner:
+                isLoadingBanner = true
+            }
+        }
+
+        defer {
+            Task { @MainActor in
+                switch kind {
+                case .avatar:
+                    isLoadingAvatar = false
+                case .banner:
+                    isLoadingBanner = false
+                }
+            }
+        }
+
+        do {
+            guard let rawData = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: rawData) else {
+                throw KasiaError.apiError("Could not load selected image")
+            }
+
+            let prepared = prepareImageForUpload(image)
+            await MainActor.run {
+                switch kind {
+                case .avatar:
+                    avatarPreviewImage = prepared.image
+                    avatarUploadData = prepared.data
+                    avatarUploadMimeType = "image/jpeg"
+                case .banner:
+                    bannerPreviewImage = prepared.image
+                    bannerUploadData = prepared.data
+                    bannerUploadMimeType = "image/jpeg"
+                }
+            }
+        } catch {
+            await MainActor.run {
+                imageLoadError = error.localizedDescription
+                Haptics.impact(.medium)
+            }
+        }
+    }
+
+    private func prepareImageForUpload(_ image: UIImage) -> (image: UIImage, data: Data) {
+        let maxDimension: CGFloat = 1400
+        let size = image.size
+        let largest = max(size.width, size.height)
+        let scale = largest > maxDimension ? (maxDimension / largest) : 1
+        let targetSize = CGSize(width: size.width * scale, height: size.height * scale)
+
+        let rendererFormat = UIGraphicsImageRendererFormat.default()
+        rendererFormat.opaque = false
+        let rendered = UIGraphicsImageRenderer(size: targetSize, format: rendererFormat).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+        let encoded = rendered.jpegData(compressionQuality: 0.88) ?? image.jpegData(compressionQuality: 0.88) ?? Data()
+        return (rendered, encoded)
+    }
 }
 
 private enum ProfileQRCodeCache {
