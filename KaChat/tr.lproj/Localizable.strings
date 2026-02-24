@@ -323,3 +323,8 @@
 "Small Amount" = "Küçük Tutar";
 "Send Anyway" = "Yine de Gönder";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "0,1 KAS'tan az göndermek, ağın dust koruma limiti nedeniyle başarısız olabilir.";
+
+"Planned spend %@ KAS, but available balance %@ KAS is less than required." = "Planlanan harcama %@ KAS, ancak kullanılabilir bakiye %@ KAS gerekli tutardan düşüktür.";
+"No spendable funds available yet. Wait for confirmations and try again." = "Henüz harcanabilir bakiye yok. Onayları bekleyip tekrar deneyin.";
+
+"fee: %@ sompi" = "ücret: %@ sompi";

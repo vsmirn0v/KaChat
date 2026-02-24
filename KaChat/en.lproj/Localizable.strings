@@ -323,3 +323,8 @@
 "Small Amount" = "Small Amount";
 "Send Anyway" = "Send Anyway";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "Sending less than 0.1 KAS may fail due to the network dust protection limit.";
+
+"Planned spend %@ KAS, but available balance %@ KAS is less than required." = "Planned spend %@ KAS, but available balance %@ KAS is less than required.";
+"No spendable funds available yet. Wait for confirmations and try again." = "No spendable funds available yet. Wait for confirmations and try again.";
+
+"fee: %@ sompi" = "fee: %@ sompi";

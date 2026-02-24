@@ -471,9 +471,37 @@ extension ChatService {
     func formatInsufficientBalanceError(plannedSpendSompi: UInt64, availableSompi: UInt64) -> KasiaError {
         let planned = formatKasAmount(plannedSpendSompi)
         let available = formatKasAmount(availableSompi)
-        return KasiaError.networkError(
-            "Planned spend \(planned) KAS, but available balance \(available) KAS is less than required."
+        let template = NSLocalizedString(
+            "Planned spend %@ KAS, but available balance %@ KAS is less than required.",
+            comment: "Shown when balance is below required spend for send operation"
         )
+        let message = String(format: template, locale: Locale.current, planned, available)
+        return KasiaError.networkError(
+            message
+        )
+    }
+
+    func noSpendableFundsYetMessage() -> String {
+        NSLocalizedString(
+            "No spendable funds available yet. Wait for confirmations and try again.",
+            comment: "Shown when funds exist but not confirmed/spendable yet"
+        )
+    }
+
+    func matchesLocalizedTemplate(_ message: String, key: String) -> Bool {
+        let lowered = message.lowercased()
+        let localized = NSLocalizedString(key, comment: "").lowercased()
+        let segments = localized.components(separatedBy: "%@").filter { !$0.isEmpty }
+        guard !segments.isEmpty else { return lowered == localized }
+
+        var searchStart = lowered.startIndex
+        for segment in segments {
+            guard let range = lowered.range(of: segment, range: searchStart..<lowered.endIndex) else {
+                return false
+            }
+            searchStart = range.upperBound
+        }
+        return true
     }
 
     func isInsufficientFundsError(_ error: Error) -> Bool {
@@ -485,10 +513,10 @@ extension ChatService {
 
     func isInsufficientBalancePopupError(_ error: Error) -> Bool {
         if case let KasiaError.networkError(message) = error {
-            let lowered = message.lowercased()
-            return lowered.contains("planned spend")
-                && lowered.contains("available balance")
-                && lowered.contains("less than required")
+            return matchesLocalizedTemplate(
+                message,
+                key: "Planned spend %@ KAS, but available balance %@ KAS is less than required."
+            )
         }
         return false
     }
@@ -534,15 +562,18 @@ extension ChatService {
     }
 
     func isNoConfirmedInputsError(_ error: Error) -> Bool {
+        let localizedNoSpendableFunds = noSpendableFundsYetMessage().lowercased()
         if case let KasiaError.networkError(message) = error {
             let lowered = message.lowercased()
-            return lowered.contains("no spendable funds available yet")
+            return lowered.contains(localizedNoSpendableFunds)
+                || lowered.contains("no spendable funds available yet")
                 || lowered.contains("no confirmed spendable utxos available")
                 || lowered.contains("no spendable utxos available")
                 || lowered.contains("no utxos available")
         }
         let lowered = error.localizedDescription.lowercased()
-        return lowered.contains("no spendable funds available yet")
+        return lowered.contains(localizedNoSpendableFunds)
+            || lowered.contains("no spendable funds available yet")
             || lowered.contains("no confirmed spendable utxos available")
             || lowered.contains("no spendable utxos available")
             || lowered.contains("no utxos available")
@@ -600,7 +631,7 @@ extension ChatService {
 
         guard !availableUtxos.isEmpty else {
             if confirmedSpendableTotal > 0 {
-                throw KasiaError.networkError("No spendable funds available yet. Wait for confirmations and try again.")
+                throw KasiaError.networkError(noSpendableFundsYetMessage())
             }
             throw formatInsufficientBalanceError(
                 plannedSpendSompi: estimatedFee,
@@ -676,7 +707,7 @@ extension ChatService {
 
         guard !spendable.isEmpty else {
             if totalNonCoinbaseBalance > 0 {
-                throw KasiaError.networkError("No spendable funds available yet. Wait for confirmations and try again.")
+                throw KasiaError.networkError(noSpendableFundsYetMessage())
             }
             throw formatInsufficientBalanceError(
                 plannedSpendSompi: plannedSpend,
@@ -729,7 +760,7 @@ extension ChatService {
 
         guard !handshakeUtxos.isEmpty else {
             if totalNonCoinbaseBalance > 0 {
-                throw KasiaError.networkError("No spendable funds available yet. Wait for confirmations and try again.")
+                throw KasiaError.networkError(noSpendableFundsYetMessage())
             }
             throw formatInsufficientBalanceError(
                 plannedSpendSompi: plannedSpend,
@@ -964,7 +995,7 @@ extension ChatService {
 
                 NSLog("[ChatService] No confirmed spendable UTXOs available for %@",
                       String(activePendingTxId.prefix(12)))
-                throw KasiaError.networkError("No spendable funds available yet. Wait for confirmations and try again.")
+                throw KasiaError.networkError(noSpendableFundsYetMessage())
             }
 
             print("[ChatService] Found \(availableUtxos.count) available UTXOs for sending")

@@ -323,3 +323,8 @@
 "Small Amount" = "少額送金";
 "Send Anyway" = "送金する";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "0.1 KAS 未満の送金はネットワークのdust保護制限により失敗する可能性があります。";
+
+"Planned spend %@ KAS, but available balance %@ KAS is less than required." = "予定支出は %@ KAS ですが、利用可能残高 %@ KAS は必要額を下回っています。";
+"No spendable funds available yet. Wait for confirmations and try again." = "まだ利用可能な資金がありません。承認を待ってからもう一度お試しください。";
+
+"fee: %@ sompi" = "手数料: %@ sompi";

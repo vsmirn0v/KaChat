@@ -323,3 +323,8 @@
 "Small Amount" = "Малая сумма";
 "Send Anyway" = "Отправить всё равно";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "Отправка менее 0,1 KAS может не пройти из-за ограничения сети на минимальный размер транзакции (dust limit).";
+
+"Planned spend %@ KAS, but available balance %@ KAS is less than required." = "Планируемый расход %@ KAS, но доступный баланс %@ KAS меньше требуемого.";
+"No spendable funds available yet. Wait for confirmations and try again." = "Пока нет доступных для траты средств. Дождитесь подтверждений и попробуйте снова.";
+
+"fee: %@ sompi" = "плата: %@ sompi";

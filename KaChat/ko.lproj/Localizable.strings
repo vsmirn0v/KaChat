@@ -323,3 +323,8 @@
 "Small Amount" = "소액 송금";
 "Send Anyway" = "그래도 보내기";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "0.1 KAS 미만 전송은 네트워크 dust 보호 제한으로 인해 실패할 수 있습니다.";
+
+"Planned spend %@ KAS, but available balance %@ KAS is less than required." = "예정 지출은 %@ KAS이지만 사용 가능한 잔액 %@ KAS이(가) 필요 금액보다 적습니다.";
+"No spendable funds available yet. Wait for confirmations and try again." = "아직 사용 가능한 자금이 없습니다. 컨펌을 기다린 후 다시 시도하세요.";
+
+"fee: %@ sompi" = "수수료: %@ sompi";

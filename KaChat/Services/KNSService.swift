@@ -926,8 +926,8 @@ final class KNSProfileWriteService: ObservableObject {
             )
             let payloadJSON = try JSONEncoder().encode(addProfilePayload)
 
-            let utxos = try await nodePool.getUtxosByAddresses([wallet.publicAddress])
-                .filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
+            let fetchedUtxos = try await nodePool.getUtxosByAddresses([wallet.publicAddress])
+            let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
             guard !utxos.isEmpty else {
                 throw KasiaError.networkError("No spendable UTXOs available for KNS update")
             }

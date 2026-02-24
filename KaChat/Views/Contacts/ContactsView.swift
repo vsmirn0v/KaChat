@@ -27,6 +27,7 @@ struct ProfileView: View {
     @State private var showKNSEditor = false
     @State private var isSavingKNSProfile = false
     @State private var knsSaveProgressText: String?
+    @State private var failedKNSUpdates: [KNSProfileFieldKey: String] = [:]
 
     static func preloadQRCode(for address: String) {
         ProfileQRCodeCache.preload(address: address, completion: nil)
@@ -298,6 +299,38 @@ struct ProfileView: View {
                         ProgressView().scaleEffect(0.8)
                         Text(progress)
                             .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                if let assetId = profileInfo.assetId,
+                   !assetId.isEmpty,
+                   !failedKNSUpdates.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Failed updates")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        ForEach(failedKNSUpdates.keys.sorted(by: { $0.displayName < $1.displayName }), id: \.self) { key in
+                            let value = failedKNSUpdates[key] ?? ""
+                            Button {
+                                Task {
+                                    await retryFailedKNSField(
+                                        key: key,
+                                        value: value,
+                                        assetId: assetId,
+                                        domainName: profileInfo.domainName
+                                    )
+                                }
+                            } label: {
+                                HStack {
+                                    Text("Retry \(key.displayName)")
+                                    Spacer()
+                                    Image(systemName: "arrow.clockwise")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                            .disabled(isSavingKNSProfile)
+                        }
                     }
                     .padding(.vertical, 2)
                 }
@@ -634,6 +667,7 @@ struct ProfileView: View {
         await MainActor.run {
             isSavingKNSProfile = true
             knsSaveProgressText = "Preparing profile update..."
+            failedKNSUpdates = [:]
         }
 
         var values = submission.fieldValues()
@@ -718,6 +752,11 @@ struct ProfileView: View {
 
             var successCount = 0
             var failedFields: [String] = []
+            var failedChanges: [KNSProfileFieldKey: String] = [:]
+
+            for change in changes {
+                try validateKNSFieldValue(change.value, key: change.key, assetId: assetId)
+            }
 
             for (index, change) in changes.enumerated() {
                 await MainActor.run {
@@ -733,6 +772,7 @@ struct ProfileView: View {
                     successCount += 1
                 } catch {
                     failedFields.append(change.key.displayName)
+                    failedChanges[change.key] = change.value
                     NSLog("[KNS] Failed to update %@: %@", change.key.rawValue, error.localizedDescription)
                 }
             }
@@ -746,6 +786,7 @@ struct ProfileView: View {
             await MainActor.run {
                 isSavingKNSProfile = false
                 knsSaveProgressText = nil
+                failedKNSUpdates = failedChanges
                 if successCount == changes.count {
                     Haptics.success()
                     showToast("KNS profile updated.")
@@ -775,6 +816,88 @@ struct ProfileView: View {
         guard parts.count == 2 else { return false }
         guard !parts[0].isEmpty, !parts[1].isEmpty else { return false }
         return parts[1].contains(".")
+    }
+
+    private func retryFailedKNSField(
+        key: KNSProfileFieldKey,
+        value: String,
+        assetId: String,
+        domainName: String?
+    ) async {
+        guard !isSavingKNSProfile else { return }
+
+        do {
+            try validateKNSFieldValue(value, key: key, assetId: assetId)
+            await MainActor.run {
+                isSavingKNSProfile = true
+                knsSaveProgressText = "Retrying \(key.displayName)..."
+            }
+
+            _ = try await KNSProfileWriteService.shared.submitAddProfile(
+                assetId: assetId,
+                key: key,
+                value: value,
+                domainName: domainName
+            )
+
+            if let walletAddress = walletManager.currentWallet?.publicAddress,
+               let refreshed = await KNSService.shared.fetchProfile(for: walletAddress) {
+                await MainActor.run {
+                    knsProfileInfo = refreshed
+                }
+            }
+
+            await MainActor.run {
+                isSavingKNSProfile = false
+                knsSaveProgressText = nil
+                failedKNSUpdates.removeValue(forKey: key)
+                Haptics.success()
+                showToast("\(key.displayName) updated.")
+            }
+        } catch {
+            await MainActor.run {
+                isSavingKNSProfile = false
+                knsSaveProgressText = nil
+                Haptics.impact(.medium)
+                showToast("Retry failed: \(error.localizedDescription)", style: .error)
+            }
+        }
+    }
+
+    private func validateKNSFieldValue(
+        _ value: String,
+        key: KNSProfileFieldKey,
+        assetId: String
+    ) throws {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let maxLength: Int
+        switch key {
+        case .bio:
+            maxLength = 300
+        case .contactEmail:
+            maxLength = 254
+        case .x, .telegram, .github:
+            maxLength = 64
+        case .discord:
+            maxLength = 128
+        case .website, .redirectUrl, .avatarUrl, .bannerUrl:
+            maxLength = 2048
+        }
+
+        if trimmed.count > maxLength {
+            throw KasiaError.apiError("\(key.displayName) is too long (\(trimmed.count)/\(maxLength))")
+        }
+
+        let payload = KNSService.shared.buildAddProfilePayload(
+            assetId: assetId,
+            key: key,
+            value: trimmed
+        )
+        let payloadJSON = try JSONEncoder().encode(payload)
+        if payloadJSON.count > 520 {
+            throw KasiaError.apiError("\(key.displayName) is too long for KNS inscription payload")
+        }
     }
 
 }
@@ -870,9 +993,9 @@ private struct KNSProfileEditorSheet: View {
     }
 
     private var displayName: String {
-        profileInfo.domainName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? profileInfo.domainName!
-            : "KNS Profile"
+        guard let raw = profileInfo.domainName else { return "KNS Profile" }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "KNS Profile" : trimmed
     }
 
     var body: some View {
@@ -1112,17 +1235,6 @@ private struct KNSProfileEditorSheet: View {
             }
         }
 
-        defer {
-            Task { @MainActor in
-                switch kind {
-                case .avatar:
-                    isLoadingAvatar = false
-                case .banner:
-                    isLoadingBanner = false
-                }
-            }
-        }
-
         do {
             guard let rawData = try await item.loadTransferable(type: Data.self),
                   let image = UIImage(data: rawData) else {
@@ -1130,6 +1242,9 @@ private struct KNSProfileEditorSheet: View {
             }
 
             let prepared = prepareImageForUpload(image)
+            guard !prepared.data.isEmpty else {
+                throw KasiaError.apiError("Could not encode selected image")
+            }
             await MainActor.run {
                 switch kind {
                 case .avatar:
@@ -1146,6 +1261,15 @@ private struct KNSProfileEditorSheet: View {
             await MainActor.run {
                 imageLoadError = error.localizedDescription
                 Haptics.impact(.medium)
+            }
+        }
+
+        await MainActor.run {
+            switch kind {
+            case .avatar:
+                isLoadingAvatar = false
+            case .banner:
+                isLoadingBanner = false
             }
         }
     }

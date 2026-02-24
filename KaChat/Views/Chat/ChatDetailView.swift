@@ -1477,7 +1477,7 @@ struct ChatDetailView: View {
             if isEstimatingFee {
                 Text("fee: ---- sompi")
             } else if let fee = feeEstimateSompi ?? recordingFeeSompi {
-                Text("fee: \(fee) sompi")
+                Text(localizedFeeText(fee))
             } else {
                 Text("fee: -- sompi")
             }
@@ -2215,6 +2215,14 @@ struct ChatDetailView: View {
         return String(format: "%.8f", kas)
     }
 
+    private func localizedFeeText(_ feeSompi: UInt64) -> String {
+        let template = NSLocalizedString(
+            "fee: %@ sompi",
+            comment: "Fee label with resolved fee amount in sompi"
+        )
+        return String(format: template, locale: Locale.current, String(feeSompi))
+    }
+
     private func parseAmountSompi(_ text: String) -> UInt64 {
         let normalized = text.replacingOccurrences(of: ",", with: ".")
         guard let decimal = Decimal(string: normalized) else { return 0 }
@@ -2346,10 +2354,22 @@ struct ChatDetailView: View {
     }
 
     private func shouldShowRetryHint(for message: String) -> Bool {
+        let template = NSLocalizedString(
+            "Planned spend %@ KAS, but available balance %@ KAS is less than required.",
+            comment: "Shown when balance is below required spend for send operation"
+        ).lowercased()
+        let parts = template.components(separatedBy: "%@").filter { !$0.isEmpty }
+        if parts.isEmpty { return true }
+
         let lowered = message.lowercased()
-        return !(lowered.contains("planned spend")
-                 && lowered.contains("available balance")
-                 && lowered.contains("less than required"))
+        var searchStart = lowered.startIndex
+        for part in parts {
+            guard let range = lowered.range(of: part, range: searchStart..<lowered.endIndex) else {
+                return true
+            }
+            searchStart = range.upperBound
+        }
+        return false
     }
 
     private func shouldPromptGiftClaim(for error: Error) -> Bool {

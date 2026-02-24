@@ -323,3 +323,8 @@
 "Small Amount" = "小额转账";
 "Send Anyway" = "仍然发送";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "发送少于 0.1 KAS 的金额可能因网络 dust 保护限制而失败。";
+
+"Planned spend %@ KAS, but available balance %@ KAS is less than required." = "计划支出 %@ KAS，但可用余额 %@ KAS 低于所需金额。";
+"No spendable funds available yet. Wait for confirmations and try again." = "当前还没有可用可花费资金。请等待确认后再试。";
+
+"fee: %@ sompi" = "手续费: %@ sompi";

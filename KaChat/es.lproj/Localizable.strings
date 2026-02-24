@@ -323,3 +323,8 @@
 "Small Amount" = "Monto pequeño";
 "Send Anyway" = "Enviar de todos modos";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "Enviar menos de 0.1 KAS puede fallar debido al límite de protección contra polvo de la red.";
+
+"Planned spend %@ KAS, but available balance %@ KAS is less than required." = "Planeas gastar %@ KAS, pero el saldo disponible %@ KAS es menor que el requerido.";
+"No spendable funds available yet. Wait for confirmations and try again." = "Aún no hay fondos disponibles para gastar. Espera las confirmaciones e inténtalo de nuevo.";
+
+"fee: %@ sompi" = "tarifa: %@ sompi";
