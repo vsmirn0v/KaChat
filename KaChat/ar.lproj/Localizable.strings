@@ -328,3 +328,129 @@
 "No spendable funds available yet. Wait for confirmations and try again." = "لا توجد أموال قابلة للإنفاق حتى الآن. انتظر التأكيدات وحاول مرة أخرى.";
 
 "fee: %@ sompi" = "الرسوم: %@ sompi";
+
+/* Emoji Picker */
+"Search emoji" = "البحث عن إيموجي";
+"No emoji found" = "لم يتم العثور على أي إيموجي.";
+"Emoji picker" = "منتقي الإيموجي";
+
+"Sent %@ KAS" = "تم إرسال %@ KAS";
+"Received %@ KAS" = "تم استلام %@ KAS";
+"Sent %@ KAS — %@" = "تم إرسال %@ KAS — %@";
+"Received %@ KAS — %@" = "تم استلام %@ KAS — %@";
+"Payment: %@ KAS — %@" = "دفعة: %@ KAS — %@";
+"Sent %@ domain" = "تم إرسال النطاق %@";
+"Received %@ domain" = "تم استلام النطاق %@";
+"Sent domain transfer" = "تم إرسال نقل النطاق";
+"Received domain transfer" = "تم استلام نقل النطاق";
+
+/* KNS + Chat Info + Message Retention (auto-added) */
+"Incoming Notifications" = "الإخطارات الواردة";
+"Added" = "تمت الإضافة";
+"Last Message" = "الرسالة الأخيرة";
+"Sent" = "مرسل";
+"Received" = "تلقى";
+"Message retention" = "الاحتفاظ بالرسالة";
+"Link System Contact" = "ربط نظام الاتصال";
+"Linked to %@." = "مرتبط بـ %@.";
+"Name set to %@. Tap Save to apply." = "تم ضبط الاسم على %@. اضغط على حفظ للتطبيق.";
+"%@ copied to clipboard." = "تم نسخ %@ إلى الحافظة.";
+"KNS profile unavailable." = "الملف الشخصي KNS غير متاح.";
+"Inscribe submitted for %@." = "تم تقديم الإدراج لـ %@.";
+"%@ transferred to %@." = "تم نقل %@ إلى %@.";
+"Transfer submitted for %@." = "تم إرسال النقل لـ %@.";
+"Domain transfer unavailable." = "نقل النطاق غير متاح.";
+"No domains yet." = "لا توجد مجالات حتى الآن.";
+"Set %@ as primary" = "قم بتعيين %@ كإعداد أساسي";
+"Transfer %@" = "نقل %@";
+"Listed" = "مدرج";
+"Inscribe New Domain" = "تسجيل مجال جديد";
+"Name set to %@." = "تم ضبط الاسم على %@.";
+"Wallet not available." = "المحفظة غير متوفرة.";
+"Wallet not available" = "المحفظة غير متوفرة";
+"KNS domain id is missing." = "معرف المجال KNS مفقود.";
+"Primary domain set to %@." = "تم ضبط النطاق الأساسي على %@.";
+"Set primary failed: %@" = "فشل تعيين الأساسي: %@";
+"KNS Profile" = "KNS الملف الشخصي";
+"Loading profile..." = "جارٍ تحميل الملف الشخصي...";
+"On-chain profile data available." = "تتوفر بيانات الملف الشخصي على السلسلة.";
+"No on-chain profile fields set." = "لم يتم تعيين حقول الملف الشخصي على السلسلة.";
+"Edit KNS Profile" = "تحرير الملف الشخصي KNS";
+"Failed updates" = "التحديثات الفاشلة";
+"Retry %@" = "إعادة المحاولة %@";
+"KNS asset id is missing." = "معرف الأصل KNS مفقود.";
+"Preparing profile update..." = "جارٍ تحضير تحديث الملف الشخصي...";
+"Uploading avatar..." = "جارٍ تحميل الصورة الرمزية...";
+"Uploading banner..." = "جارٍ تحميل الشعار...";
+"No KNS profile changes detected." = "لم يتم اكتشاف أي تغييرات في ملف تعريف KNS.";
+"Updating %@ (%d/%d)..." = "جارٍ تحديث %@ (%d/%d)...";
+"KNS profile updated." = "تم تحديث الملف الشخصي KNS.";
+"Updated %d/%d. Failed: %@." = "تم التحديث %d/%d. فشل: %@.";
+"Updated %d/%d. Failed: %@. %@" = "تم التحديث %d/%d. فشل: %@. %@";
+"KNS profile update failed." = "فشل تحديث الملف الشخصي KNS.";
+"KNS profile update failed: %@" = "فشل تحديث الملف الشخصي KNS: %@";
+"Retrying %@..." = "جارٍ إعادة المحاولة %@...";
+"%@ updated." = "تم تحديث %@.";
+"Retry failed: %@" = "فشلت إعادة المحاولة: %@";
+"Domain" = "اِختِصاص";
+"Asset ID" = "معرف الأصول";
+"Avatar" = "الصورة الرمزية";
+"Choose Avatar" = "اختر الصورة الرمزية";
+"Remove Avatar" = "إزالة الصورة الرمزية";
+"Processing avatar..." = "جارٍ معالجة الصورة الرمزية...";
+"Banner" = "راية";
+"Choose Banner" = "اختر لافتة";
+"Remove Banner" = "إزالة الشعار";
+"Processing banner..." = "جارٍ معالجة الشعار...";
+"X handle" = "مقبض X";
+"Discord user id" = "معرف المستخدم الخلاف";
+"Redirect URL" = "إعادة توجيه URL";
+"Could not load selected image" = "تعذر تحميل الصورة المحددة";
+"Could not encode selected image" = "تعذر ترميز الصورة المحددة";
+"Selected data is not a valid image" = "البيانات المحددة ليست صورة صالحة";
+"Could not process selected image" = "تعذرت معالجة الصورة المحددة";
+"Could not initialize image encoder" = "تعذر تهيئة برنامج ترميز الصور";
+"Inscribe Domain" = "تسجيل المجال";
+"name" = "اسم";
+"Use lowercase letters, numbers, and hyphen." = "استخدم الحروف الصغيرة والأرقام والواصلة.";
+"Checking availability..." = "جارٍ التحقق من التوفر...";
+"%@ can be inscribed." = "يمكن تسجيل %@.";
+"This domain is not available." = "هذا المجال غير متوفر.";
+"Fee" = "مصاريف";
+"Service fee" = "رسوم الخدمة";
+"Reserved domain: no revenue payment is required." = "المجال المحجوز: لا يلزم دفع الإيرادات.";
+"Fee unavailable" = "الرسوم غير متوفرة";
+"Submitting inscription..." = "تقديم النقش...";
+"Inscribe" = "سجل";
+"Invalid domain label" = "تسمية المجال غير صالحة";
+"Transfer Domain" = "نقل المجال";
+"Recipient" = "متلقي";
+"kaspa:... or alice.kas" = "kaspa:... أو alice.kas";
+"Enter a Kaspa address or a `.kas` domain." = "أدخل عنوان Kaspa أو مجال `.kas`.";
+"Invalid recipient format." = "تنسيق المستلم غير صالح.";
+"Recipient looks valid." = "يبدو المستلم صالحًا.";
+"Submitting transfer..." = "جارٍ إرسال النقل...";
+"Transfer" = "تحويل";
+"Recipient is required" = "مطلوب المتلقي";
+
+/* KNS + Chat Info + Message Retention + Notification Mode (auto-added) */
+"Mode" = "وضع";
+"Disabled" = "عاجز";
+"Remote push" = "الدفع عن بعد";
+
+/* Message retention options (auto-added) */
+"Keep forever" = "إبقاء إلى الأبد";
+"30 days" = "30 يوما";
+"90 days" = "90 يوما";
+"1 year" = "1 سنة";
+
+/* Split view placeholder (auto-added) */
+"Select a chat" = "حدد دردشة";
+"Choose a conversation on the left" = "اختر محادثة على اليسار";
+
+/* Audio status labels (auto-added) */
+"Recording..." = "تسجيل...";
+"Audio ready" = "الصوت جاهز";
+
+/* Composer placeholder (auto-added) */
+"Message" = "رسالة";

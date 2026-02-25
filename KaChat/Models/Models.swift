@@ -97,9 +97,9 @@ enum ContactNotificationMode: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .off: return "Off"
-        case .noSound: return "No Sound"
-        case .sound: return "Sound"
+        case .off: return String(localized: "Off")
+        case .noSound: return String(localized: "No Sound")
+        case .sound: return String(localized: "Sound")
         }
     }
 }
@@ -372,13 +372,13 @@ enum MessageRetention: String, Codable, CaseIterable {
     var displayName: String {
         switch self {
         case .forever:
-            return "Keep forever"
+            return String(localized: "Keep forever")
         case .days30:
-            return "30 days"
+            return String(localized: "30 days")
         case .days90:
-            return "90 days"
+            return String(localized: "90 days")
         case .year1:
-            return "1 year"
+            return String(localized: "1 year")
         }
     }
 }
@@ -686,8 +686,8 @@ enum NotificationMode: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .disabled: return "Disabled"
-        case .remotePush: return "Remote push"
+        case .disabled: return String(localized: "Disabled")
+        case .remotePush: return String(localized: "Remote push")
         }
     }
 }

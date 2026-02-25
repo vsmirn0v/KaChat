@@ -328,3 +328,129 @@
 "No spendable funds available yet. Wait for confirmations and try again." = "No spendable funds available yet. Wait for confirmations and try again.";
 
 "fee: %@ sompi" = "fee: %@ sompi";
+
+/* Emoji Picker */
+"Search emoji" = "Search emoji";
+"No emoji found" = "No emoji found";
+"Emoji picker" = "Emoji picker";
+
+"Sent %@ KAS" = "Sent %@ KAS";
+"Received %@ KAS" = "Received %@ KAS";
+"Sent %@ KAS — %@" = "Sent %@ KAS — %@";
+"Received %@ KAS — %@" = "Received %@ KAS — %@";
+"Payment: %@ KAS — %@" = "Payment: %@ KAS — %@";
+"Sent %@ domain" = "Sent %@ domain";
+"Received %@ domain" = "Received %@ domain";
+"Sent domain transfer" = "Sent domain transfer";
+"Received domain transfer" = "Received domain transfer";
+
+/* KNS + Chat Info + Message Retention (auto-added) */
+"Incoming Notifications" = "Incoming Notifications";
+"Added" = "Added";
+"Last Message" = "Last Message";
+"Sent" = "Sent";
+"Received" = "Received";
+"Message retention" = "Message retention";
+"Link System Contact" = "Link System Contact";
+"Linked to %@." = "Linked to %@.";
+"Name set to %@. Tap Save to apply." = "Name set to %@. Tap Save to apply.";
+"%@ copied to clipboard." = "%@ copied to clipboard.";
+"KNS profile unavailable." = "KNS profile unavailable.";
+"Inscribe submitted for %@." = "Inscribe submitted for %@.";
+"%@ transferred to %@." = "%@ transferred to %@.";
+"Transfer submitted for %@." = "Transfer submitted for %@.";
+"Domain transfer unavailable." = "Domain transfer unavailable.";
+"No domains yet." = "No domains yet.";
+"Set %@ as primary" = "Set %@ as primary";
+"Transfer %@" = "Transfer %@";
+"Listed" = "Listed";
+"Inscribe New Domain" = "Inscribe New Domain";
+"Name set to %@." = "Name set to %@.";
+"Wallet not available." = "Wallet not available.";
+"Wallet not available" = "Wallet not available";
+"KNS domain id is missing." = "KNS domain id is missing.";
+"Primary domain set to %@." = "Primary domain set to %@.";
+"Set primary failed: %@" = "Set primary failed: %@";
+"KNS Profile" = "KNS Profile";
+"Loading profile..." = "Loading profile...";
+"On-chain profile data available." = "On-chain profile data available.";
+"No on-chain profile fields set." = "No on-chain profile fields set.";
+"Edit KNS Profile" = "Edit KNS Profile";
+"Failed updates" = "Failed updates";
+"Retry %@" = "Retry %@";
+"KNS asset id is missing." = "KNS asset id is missing.";
+"Preparing profile update..." = "Preparing profile update...";
+"Uploading avatar..." = "Uploading avatar...";
+"Uploading banner..." = "Uploading banner...";
+"No KNS profile changes detected." = "No KNS profile changes detected.";
+"Updating %@ (%d/%d)..." = "Updating %@ (%d/%d)...";
+"KNS profile updated." = "KNS profile updated.";
+"Updated %d/%d. Failed: %@." = "Updated %d/%d. Failed: %@.";
+"Updated %d/%d. Failed: %@. %@" = "Updated %d/%d. Failed: %@. %@";
+"KNS profile update failed." = "KNS profile update failed.";
+"KNS profile update failed: %@" = "KNS profile update failed: %@";
+"Retrying %@..." = "Retrying %@...";
+"%@ updated." = "%@ updated.";
+"Retry failed: %@" = "Retry failed: %@";
+"Domain" = "Domain";
+"Asset ID" = "Asset ID";
+"Avatar" = "Avatar";
+"Choose Avatar" = "Choose Avatar";
+"Remove Avatar" = "Remove Avatar";
+"Processing avatar..." = "Processing avatar...";
+"Banner" = "Banner";
+"Choose Banner" = "Choose Banner";
+"Remove Banner" = "Remove Banner";
+"Processing banner..." = "Processing banner...";
+"X handle" = "X handle";
+"Discord user id" = "Discord user id";
+"Redirect URL" = "Redirect URL";
+"Could not load selected image" = "Could not load selected image";
+"Could not encode selected image" = "Could not encode selected image";
+"Selected data is not a valid image" = "Selected data is not a valid image";
+"Could not process selected image" = "Could not process selected image";
+"Could not initialize image encoder" = "Could not initialize image encoder";
+"Inscribe Domain" = "Inscribe Domain";
+"name" = "name";
+"Use lowercase letters, numbers, and hyphen." = "Use lowercase letters, numbers, and hyphen.";
+"Checking availability..." = "Checking availability...";
+"%@ can be inscribed." = "%@ can be inscribed.";
+"This domain is not available." = "This domain is not available.";
+"Fee" = "Fee";
+"Service fee" = "Service fee";
+"Reserved domain: no revenue payment is required." = "Reserved domain: no revenue payment is required.";
+"Fee unavailable" = "Fee unavailable";
+"Submitting inscription..." = "Submitting inscription...";
+"Inscribe" = "Inscribe";
+"Invalid domain label" = "Invalid domain label";
+"Transfer Domain" = "Transfer Domain";
+"Recipient" = "Recipient";
+"kaspa:... or alice.kas" = "kaspa:... or alice.kas";
+"Enter a Kaspa address or a `.kas` domain." = "Enter a Kaspa address or a `.kas` domain.";
+"Invalid recipient format." = "Invalid recipient format.";
+"Recipient looks valid." = "Recipient looks valid.";
+"Submitting transfer..." = "Submitting transfer...";
+"Transfer" = "Transfer";
+"Recipient is required" = "Recipient is required";
+
+/* KNS + Chat Info + Message Retention + Notification Mode (auto-added) */
+"Mode" = "Mode";
+"Disabled" = "Disabled";
+"Remote push" = "Remote push";
+
+/* Message retention options (auto-added) */
+"Keep forever" = "Keep forever";
+"30 days" = "30 days";
+"90 days" = "90 days";
+"1 year" = "1 year";
+
+/* Split view placeholder (auto-added) */
+"Select a chat" = "Select a chat";
+"Choose a conversation on the left" = "Choose a conversation on the left";
+
+/* Audio status labels (auto-added) */
+"Recording..." = "Recording...";
+"Audio ready" = "Audio ready";
+
+/* Composer placeholder (auto-added) */
+"Message" = "Message";

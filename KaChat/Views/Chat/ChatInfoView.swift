@@ -150,7 +150,7 @@ struct ChatInfoView: View {
                     Button {
                         UIPasteboard.general.string = contact.address
                         Haptics.success()
-                        showToast("Address copied to clipboard.")
+                        showToast(localized("Address copied to clipboard."))
                     } label: {
                         HStack {
                             Text(contact.address)
@@ -183,7 +183,7 @@ struct ChatInfoView: View {
                             guard let sompi = contactBalanceSompi else { return }
                             UIPasteboard.general.string = formatKaspaExact(sompi)
                             Haptics.success()
-                            showToast("Balance copied to clipboard.")
+                            showToast(localized("Balance copied to clipboard."))
                         } label: {
                             HStack {
                                 Text(contactBalanceSompi.map { "\(formatKaspaExact($0)) KAS" } ?? "—")
@@ -227,7 +227,7 @@ struct ChatInfoView: View {
                             updatedContact.systemDisplayNameSnapshot = nil
                             updatedContact.systemContactLinkSource = nil
                             contact = updatedContact
-                            showToast("System contact unlinked.")
+                            showToast(localized("System contact unlinked."))
                         } label: {
                             Label("Unlink", systemImage: "minus.circle")
                         }
@@ -394,7 +394,7 @@ struct ChatInfoView: View {
                         Button {
                             UIPasteboard.general.string = contact.address
                             Haptics.success()
-                            showToast("Address copied to clipboard.")
+                            showToast(localized("Address copied to clipboard."))
                         } label: {
                             Label("Copy Address", systemImage: "doc.on.doc")
                         }
@@ -439,11 +439,11 @@ struct ChatInfoView: View {
                                     updatedContact.systemContactLinkSource = .manual
                                     updatedContact.alias = target.displayName
                                     contact = updatedContact
-                                    showToast("Linked to \(target.displayName).")
+                                    showToast(localizedFormat("Linked to %@.", target.displayName))
                                 }
                             } catch {
                                 await MainActor.run {
-                                    showToast("Failed to link system contact.", style: .error)
+                                    showToast(localized("Failed to link system contact."), style: .error)
                                 }
                             }
                         }
@@ -514,6 +514,14 @@ struct ChatInfoView: View {
         }
     }
 
+    private func localized(_ key: String) -> String {
+        NSLocalizedString(key, comment: "")
+    }
+
+    private func localizedFormat(_ key: String, _ args: CVarArg...) -> String {
+        String(format: NSLocalizedString(key, comment: ""), locale: Locale.current, arguments: args)
+    }
+
     private func formatKaspaExact(_ sompi: UInt64) -> String {
         let kas = Double(sompi) / 100_000_000.0
         return String(format: "%.8f", kas)
@@ -554,28 +562,31 @@ struct ChatInfoView: View {
     private func applyDomainAsAlias(_ domain: String) {
         editedAlias = domain
         Haptics.success()
-        showToast("Name set to \(domain). Tap Save to apply.")
+        showToast(localizedFormat("Name set to %@. Tap Save to apply.", domain))
     }
 
     @ViewBuilder
     private func profileLinkView(text: String, url: URL?, fieldName: String) -> some View {
-        Group {
-            if let url {
-                Link(text, destination: url)
-            } else {
-                Text(text)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .onLongPressGesture(minimumDuration: 0.45) {
-            copyProfileFieldValue(text, fieldName: fieldName)
+        if let url {
+            Link(text, destination: url)
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                        copyProfileFieldValue(text, fieldName: fieldName)
+                    }
+                )
+        } else {
+            Text(text)
+                .foregroundColor(.secondary)
+                .onLongPressGesture(minimumDuration: 0.45) {
+                    copyProfileFieldValue(text, fieldName: fieldName)
+                }
         }
     }
 
     private func copyProfileFieldValue(_ value: String, fieldName: String) {
         UIPasteboard.general.string = value
         Haptics.success()
-        showToast("\(fieldName) copied to clipboard.")
+        showToast(localizedFormat("%@ copied to clipboard.", fieldName))
     }
 
     private func makeQRCodeImage(from string: String) -> UIImage? {

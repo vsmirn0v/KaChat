@@ -233,7 +233,7 @@ struct ChatListView: View {
                 .font(.title3)
                 .fontWeight(.semibold)
 
-            Text("Choose a conversation on the left to view messages.")
+            Text("Choose a conversation on the left")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)

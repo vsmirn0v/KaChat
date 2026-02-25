@@ -328,3 +328,129 @@
 "No spendable funds available yet. Wait for confirmations and try again." = "এখনও খরচযোগ্য ফান্ড উপলব্ধ নয়। কনফার্মেশন হওয়া পর্যন্ত অপেক্ষা করুন এবং আবার চেষ্টা করুন।";
 
 "fee: %@ sompi" = "ফি: %@ sompi";
+
+/* Emoji Picker */
+"Search emoji" = "ইমোজি খুঁজুন";
+"No emoji found" = "কোনো ইমোজি পাওয়া যায়নি।";
+"Emoji picker" = "ইমোজি পিকার";
+
+"Sent %@ KAS" = "%@ KAS পাঠানো হয়েছে";
+"Received %@ KAS" = "%@ KAS গ্রহণ করা হয়েছে";
+"Sent %@ KAS — %@" = "%@ KAS পাঠানো হয়েছে — %@";
+"Received %@ KAS — %@" = "%@ KAS গ্রহণ করা হয়েছে — %@";
+"Payment: %@ KAS — %@" = "পেমেন্ট: %@ KAS — %@";
+"Sent %@ domain" = "%@ ডোমেইন পাঠানো হয়েছে";
+"Received %@ domain" = "%@ ডোমেইন গ্রহণ করা হয়েছে";
+"Sent domain transfer" = "ডোমেইন ট্রান্সফার পাঠানো হয়েছে";
+"Received domain transfer" = "ডোমেইন ট্রান্সফার গ্রহণ করা হয়েছে";
+
+/* KNS + Chat Info + Message Retention (auto-added) */
+"Incoming Notifications" = "ইনকামিং বিজ্ঞপ্তি";
+"Added" = "যোগ করা হয়েছে";
+"Last Message" = "শেষ বার্তা";
+"Sent" = "পাঠানো হয়েছে";
+"Received" = "গৃহীত";
+"Message retention" = "বার্তা ধারণ";
+"Link System Contact" = "লিঙ্ক সিস্টেম যোগাযোগ";
+"Linked to %@." = "%@ এর সাথে লিঙ্ক করা হয়েছে।";
+"Name set to %@. Tap Save to apply." = "নাম %@ এ সেট করা হয়েছে। আবেদন করতে সংরক্ষণ করুন আলতো চাপুন।";
+"%@ copied to clipboard." = "%@ ক্লিপবোর্ডে কপি করা হয়েছে।";
+"KNS profile unavailable." = "KNS প্রোফাইল অনুপলব্ধ৷";
+"Inscribe submitted for %@." = "%@ এর জন্য জমা খোদাই করুন।";
+"%@ transferred to %@." = "%@ %@ এ স্থানান্তরিত হয়েছে।";
+"Transfer submitted for %@." = "%@ এর জন্য স্থানান্তর জমা দেওয়া হয়েছে।";
+"Domain transfer unavailable." = "ডোমেন স্থানান্তর অনুপলব্ধ.";
+"No domains yet." = "এখনো কোনো ডোমেইন নেই।";
+"Set %@ as primary" = "প্রাথমিক হিসাবে %@ সেট করুন";
+"Transfer %@" = "স্থানান্তর %@";
+"Listed" = "তালিকাভুক্ত";
+"Inscribe New Domain" = "নতুন ডোমেইন লিখুন";
+"Name set to %@." = "নাম %@ এ সেট করা হয়েছে।";
+"Wallet not available." = "ওয়ালেট পাওয়া যাচ্ছে না।";
+"Wallet not available" = "ওয়ালেট পাওয়া যাচ্ছে না";
+"KNS domain id is missing." = "KNS ডোমেন আইডি অনুপস্থিত।";
+"Primary domain set to %@." = "প্রাথমিক ডোমেন %@ এ সেট করা হয়েছে।";
+"Set primary failed: %@" = "প্রাথমিক সেট ব্যর্থ হয়েছে: %@";
+"KNS Profile" = "KNS প্রোফাইল";
+"Loading profile..." = "প্রোফাইল লোড হচ্ছে...";
+"On-chain profile data available." = "অন-চেইন প্রোফাইল ডেটা উপলব্ধ।";
+"No on-chain profile fields set." = "কোনো অন-চেইন প্রোফাইল ফিল্ড সেট করা নেই।";
+"Edit KNS Profile" = "KNS প্রোফাইল সম্পাদনা করুন";
+"Failed updates" = "ব্যর্থ আপডেট";
+"Retry %@" = "পুনরায় চেষ্টা করুন %@";
+"KNS asset id is missing." = "KNS সম্পদ আইডি অনুপস্থিত।";
+"Preparing profile update..." = "প্রোফাইল আপডেট প্রস্তুত করা হচ্ছে...";
+"Uploading avatar..." = "অবতার আপলোড করা হচ্ছে...";
+"Uploading banner..." = "ব্যানার আপলোড করা হচ্ছে...";
+"No KNS profile changes detected." = "কোনো KNS প্রোফাইল পরিবর্তন সনাক্ত করা যায়নি।";
+"Updating %@ (%d/%d)..." = "আপডেট করা হচ্ছে %@ (%d/%d)...";
+"KNS profile updated." = "KNS প্রোফাইল আপডেট করা হয়েছে।";
+"Updated %d/%d. Failed: %@." = "আপডেট করা হয়েছে %d/%d। ব্যর্থ হয়েছে: %@।";
+"Updated %d/%d. Failed: %@. %@" = "আপডেট করা হয়েছে %d/%d। ব্যর্থ হয়েছে: %@। __টাকা৩__";
+"KNS profile update failed." = "KNS প্রোফাইল আপডেট ব্যর্থ হয়েছে৷";
+"KNS profile update failed: %@" = "KNS প্রোফাইল আপডেট ব্যর্থ হয়েছে: %@";
+"Retrying %@..." = "%@ পুনরায় চেষ্টা করা হচ্ছে...";
+"%@ updated." = "%@ আপডেট করা হয়েছে।";
+"Retry failed: %@" = "পুনরায় চেষ্টা ব্যর্থ হয়েছে: %@";
+"Domain" = "ডোমেইন";
+"Asset ID" = "সম্পদ আইডি";
+"Avatar" = "অবতার";
+"Choose Avatar" = "অবতার চয়ন করুন";
+"Remove Avatar" = "অবতার সরান";
+"Processing avatar..." = "অবতার প্রক্রিয়া করা হচ্ছে...";
+"Banner" = "ব্যানার";
+"Choose Banner" = "ব্যানার নির্বাচন করুন";
+"Remove Banner" = "ব্যানার সরান";
+"Processing banner..." = "ব্যানার প্রক্রিয়া করা হচ্ছে...";
+"X handle" = "এক্স হ্যান্ডেল";
+"Discord user id" = "ডিসকর্ড ইউজার আইডি";
+"Redirect URL" = "পুনঃনির্দেশ URL";
+"Could not load selected image" = "নির্বাচিত ছবি লোড করা যায়নি";
+"Could not encode selected image" = "নির্বাচিত ছবি এনকোড করা যায়নি";
+"Selected data is not a valid image" = "নির্বাচিত ডেটা একটি বৈধ ছবি নয়";
+"Could not process selected image" = "নির্বাচিত ছবি প্রক্রিয়া করা যায়নি";
+"Could not initialize image encoder" = "ইমেজ এনকোডার আরম্ভ করা যায়নি";
+"Inscribe Domain" = "ডোমেইন লিখুন";
+"name" = "নাম";
+"Use lowercase letters, numbers, and hyphen." = "ছোট হাতের অক্ষর, সংখ্যা এবং হাইফেন ব্যবহার করুন।";
+"Checking availability..." = "উপলব্ধতা পরীক্ষা করা হচ্ছে...";
+"%@ can be inscribed." = "%@ খোদাই করা যেতে পারে।";
+"This domain is not available." = "এই ডোমেইন উপলব্ধ নয়.";
+"Fee" = "ফি";
+"Service fee" = "পরিষেবা ফি";
+"Reserved domain: no revenue payment is required." = "সংরক্ষিত ডোমেইন: কোন রাজস্ব প্রদানের প্রয়োজন নেই।";
+"Fee unavailable" = "ফি অনুপলব্ধ";
+"Submitting inscription..." = "শিলালিপি জমা দেওয়া হচ্ছে...";
+"Inscribe" = "খোদাই করা";
+"Invalid domain label" = "অবৈধ ডোমেন লেবেল৷";
+"Transfer Domain" = "ডোমেইন স্থানান্তর করুন";
+"Recipient" = "প্রাপক";
+"kaspa:... or alice.kas" = "kaspa:... বা alice.kas";
+"Enter a Kaspa address or a `.kas` domain." = "একটি Kaspa ঠিকানা বা একটি `.kas` ডোমেন লিখুন।";
+"Invalid recipient format." = "অবৈধ প্রাপক বিন্যাস।";
+"Recipient looks valid." = "প্রাপক বৈধ দেখাচ্ছে।";
+"Submitting transfer..." = "স্থানান্তর জমা দেওয়া হচ্ছে...";
+"Transfer" = "স্থানান্তর";
+"Recipient is required" = "প্রাপক প্রয়োজন";
+
+/* KNS + Chat Info + Message Retention + Notification Mode (auto-added) */
+"Mode" = "মোড";
+"Disabled" = "অক্ষম";
+"Remote push" = "দূরবর্তী ধাক্কা";
+
+/* Message retention options (auto-added) */
+"Keep forever" = "চিরকাল রাখুন";
+"30 days" = "30 দিন";
+"90 days" = "90 দিন";
+"1 year" = "1 বছর";
+
+/* Split view placeholder (auto-added) */
+"Select a chat" = "একটি চ্যাট নির্বাচন করুন";
+"Choose a conversation on the left" = "বাম দিকে একটি কথোপকথন চয়ন করুন";
+
+/* Audio status labels (auto-added) */
+"Recording..." = "রেকর্ডিং...";
+"Audio ready" = "অডিও প্রস্তুত";
+
+/* Composer placeholder (auto-added) */
+"Message" = "বার্তা";

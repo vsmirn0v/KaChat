@@ -172,6 +172,7 @@ extension ChatService {
             if conversations.isEmpty {
                 conversations = loaded.sorted { ($0.lastMessage?.timestamp ?? .distantPast) < ($1.lastMessage?.timestamp ?? .distantPast) }
                 rebuildPendingOutgoingQueue()
+                cleanupSuppressedPaymentMessages()
                 return
             }
 
@@ -227,6 +228,7 @@ extension ChatService {
 
             conversations = merged.sorted { ($0.lastMessage?.timestamp ?? .distantPast) < ($1.lastMessage?.timestamp ?? .distantPast) }
             rebuildPendingOutgoingQueue()
+            cleanupSuppressedPaymentMessages()
         }
     }
 
@@ -835,6 +837,179 @@ extension ChatService {
         guard let data = try? JSONEncoder().encode(syncObjectCursors) else { return }
         userDefaults.set(data, forKey: syncCursorsKey)
         syncObjectCursorsDirty = false
+    }
+
+    func loadHiddenPaymentTxIds() {
+        guard let data = userDefaults.data(forKey: hiddenPaymentTxIdsKey),
+              let decoded = try? JSONDecoder().decode([String: UInt64].self, from: data) else {
+            hiddenPaymentTxIdTimestamps = [:]
+            return
+        }
+
+        hiddenPaymentTxIdTimestamps = decoded.reduce(into: [:]) { partial, item in
+            let txId = item.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !txId.isEmpty else { return }
+            partial[txId] = item.value
+        }
+        pruneHiddenPaymentTxIds()
+    }
+
+    func saveHiddenPaymentTxIds() {
+        guard let data = try? JSONEncoder().encode(hiddenPaymentTxIdTimestamps) else { return }
+        userDefaults.set(data, forKey: hiddenPaymentTxIdsKey)
+    }
+
+    func pruneHiddenPaymentTxIds(nowMs: UInt64? = nil) {
+        guard !hiddenPaymentTxIdTimestamps.isEmpty else { return }
+        let now = nowMs ?? currentTimeMs()
+        let cutoff = now > hiddenPaymentTxMaxAgeMs ? now - hiddenPaymentTxMaxAgeMs : 0
+        let beforeCount = hiddenPaymentTxIdTimestamps.count
+        hiddenPaymentTxIdTimestamps = hiddenPaymentTxIdTimestamps.filter { $0.value >= cutoff }
+        if hiddenPaymentTxIdTimestamps.count != beforeCount {
+            saveHiddenPaymentTxIds()
+        }
+    }
+
+    func isSuppressedPaymentTxId(_ txId: String) -> Bool {
+        let normalized = txId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return false }
+        return hiddenPaymentTxIdTimestamps[normalized] != nil
+    }
+
+    func registerKNSTransferChatHint(
+        txId: String,
+        domainName: String,
+        domainId: String,
+        counterpartyAddress: String,
+        isOutgoing: Bool,
+        timestampMs: UInt64? = nil
+    ) {
+        let normalizedTxId = txId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedDomain = domainName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedDomainId = domainId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCounterparty = counterpartyAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTxId.isEmpty,
+              !normalizedDomain.isEmpty,
+              !normalizedDomainId.isEmpty,
+              !normalizedCounterparty.isEmpty else {
+            return
+        }
+
+        knsTransferHintsByTxId[normalizedTxId] = KNSTransferChatHint(
+            txId: txId,
+            domainName: normalizedDomain,
+            domainId: normalizedDomainId,
+            counterpartyAddress: normalizedCounterparty,
+            isOutgoing: isOutgoing,
+            timestampMs: timestampMs ?? currentTimeMs()
+        )
+    }
+
+    func knsTransferChatHint(for txId: String) -> KNSTransferChatHint? {
+        let normalizedTxId = txId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedTxId.isEmpty else { return nil }
+        return knsTransferHintsByTxId[normalizedTxId]
+    }
+
+    func removeKNSTransferChatHint(for txId: String) {
+        let normalizedTxId = txId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedTxId.isEmpty else { return }
+        knsTransferHintsByTxId.removeValue(forKey: normalizedTxId)
+    }
+
+    func registerSuppressedPaymentTxIds(_ txIds: [String], reason: String) {
+        guard !txIds.isEmpty else { return }
+        pruneHiddenPaymentTxIds()
+
+        let now = currentTimeMs()
+        var normalizedTxIds = Set<String>()
+        var added = 0
+
+        for txId in txIds {
+            let normalized = txId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalized.isEmpty else { continue }
+            normalizedTxIds.insert(normalized)
+            if hiddenPaymentTxIdTimestamps[normalized] == nil {
+                added += 1
+            }
+            hiddenPaymentTxIdTimestamps[normalized] = now
+        }
+
+        guard !normalizedTxIds.isEmpty else { return }
+        saveHiddenPaymentTxIds()
+
+        let removed = removeSuppressedPaymentMessages(txIds: normalizedTxIds)
+        if added > 0 || removed > 0 {
+            NSLog(
+                "[ChatService] Registered %d suppressed payment tx ids (%@), removed=%d",
+                normalizedTxIds.count,
+                reason,
+                removed
+            )
+        }
+    }
+
+    @discardableResult
+    func removeSuppressedPaymentMessages(txIds: Set<String>) -> Int {
+        guard !txIds.isEmpty else { return 0 }
+        guard !conversations.isEmpty else { return 0 }
+
+        var removedCount = 0
+        var removedConversationCount = 0
+
+        for index in conversations.indices.reversed() {
+            let removedTxIds = conversations[index].messages.compactMap { message -> String? in
+                guard message.messageType == .payment else { return nil }
+                let normalized = message.txId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return txIds.contains(normalized) ? message.txId : nil
+            }
+            guard !removedTxIds.isEmpty else { continue }
+
+            let contactAddress = conversations[index].contact.address
+            conversations[index].messages.removeAll { message in
+                guard message.messageType == .payment else { return false }
+                let normalized = message.txId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return txIds.contains(normalized)
+            }
+            removedCount += removedTxIds.count
+
+            for txId in removedTxIds {
+                clearIncomingResolutionTracking(txId: txId)
+            }
+
+            if conversations[index].messages.isEmpty {
+                let contact = contactsManager.getContact(byAddress: contactAddress) ?? conversations[index].contact
+                if contact.isAutoAdded {
+                    conversations.remove(at: index)
+                    removedConversationCount += 1
+                    continue
+                }
+                conversations[index].unreadCount = 0
+            } else {
+                let unreadIncomingCount = conversations[index].messages.reduce(0) { partial, message in
+                    partial + (message.isOutgoing ? 0 : 1)
+                }
+                conversations[index].unreadCount = min(conversations[index].unreadCount, unreadIncomingCount)
+            }
+
+            markConversationDirty(contactAddress)
+        }
+
+        if removedCount > 0 {
+            saveMessages()
+            NSLog(
+                "[ChatService] Removed %d suppressed payment message(s), droppedConversations=%d",
+                removedCount,
+                removedConversationCount
+            )
+        }
+
+        return removedCount
+    }
+
+    func cleanupSuppressedPaymentMessages() {
+        guard !hiddenPaymentTxIdTimestamps.isEmpty else { return }
+        _ = removeSuppressedPaymentMessages(txIds: Set(hiddenPaymentTxIdTimestamps.keys))
     }
 
     func updateLastPollTime(_ blockTime: UInt64) {

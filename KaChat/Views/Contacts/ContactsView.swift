@@ -3,6 +3,8 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import UIKit
 import PhotosUI
+import ImageIO
+import UniformTypeIdentifiers
 
 struct ProfileView: View {
     @EnvironmentObject var walletManager: WalletManager
@@ -25,6 +27,10 @@ struct ProfileView: View {
     @State private var knsProfileInfo: KNSAddressProfileInfo?
     @State private var showAvatarPreview = false
     @State private var showKNSEditor = false
+    @State private var showKNSDomainInscribeSheet = false
+    @State private var showKNSDomainTransferSheet = false
+    @State private var transferDomainTarget: KNSDomain?
+    @State private var settingPrimaryDomainId: String?
     @State private var isSavingKNSProfile = false
     @State private var knsSaveProgressText: String?
     @State private var failedKNSUpdates: [KNSProfileFieldKey: String] = [:]
@@ -103,6 +109,59 @@ struct ProfileView: View {
                     }
                 }
             }
+            .sheet(isPresented: $showKNSDomainInscribeSheet) {
+                if let walletAddress = walletManager.currentWallet?.publicAddress {
+                    KNSDomainInscribeSheet(walletAddress: walletAddress) { result in
+                        Haptics.success()
+                        showToast(localizedFormat("Inscribe submitted for %@.", result.domain))
+                        Task {
+                            await refreshKNSData(for: walletAddress)
+                        }
+                    }
+                } else {
+                    NavigationStack {
+                        VStack(spacing: 12) {
+                            Text("Wallet not available.")
+                                .foregroundColor(.secondary)
+                            Button("Close") {
+                                showKNSDomainInscribeSheet = false
+                            }
+                        }
+                        .padding()
+                    }
+                }
+            }
+            .sheet(isPresented: $showKNSDomainTransferSheet, onDismiss: {
+                transferDomainTarget = nil
+            }) {
+                if let walletAddress = walletManager.currentWallet?.publicAddress,
+                   let domain = transferDomainTarget {
+                    KNSDomainTransferSheet(
+                        walletAddress: walletAddress,
+                        domain: domain
+                    ) { result in
+                        Haptics.success()
+                        let message = result.verified
+                            ? localizedFormat("%@ transferred to %@.", result.domain, result.recipientAddress)
+                            : localizedFormat("Transfer submitted for %@.", result.domain)
+                        showToast(message)
+                        Task {
+                            await refreshKNSData(for: walletAddress)
+                        }
+                    }
+                } else {
+                    NavigationStack {
+                        VStack(spacing: 12) {
+                            Text("Domain transfer unavailable.")
+                                .foregroundColor(.secondary)
+                            Button("Close") {
+                                showKNSDomainTransferSheet = false
+                            }
+                        }
+                        .padding()
+                    }
+                }
+            }
             .fullScreenCover(isPresented: $showAvatarPreview) {
                 KNSAvatarFullscreenView(
                     avatarURLString: knsProfileInfo?.avatarURL,
@@ -162,6 +221,7 @@ struct ProfileView: View {
                     knsDomains = []
                     knsPrimaryDomain = nil
                     knsProfileInfo = nil
+                    settingPrimaryDomainId = nil
                     return
                 }
                 qrImage = ProfileQRCodeCache.cachedImage(for: newValue)
@@ -203,8 +263,8 @@ struct ProfileView: View {
 
     @ViewBuilder
     private var knsDomainSection: some View {
-        if isLoadingKNS {
-            Section("KNS Domains") {
+        Section("KNS Domains") {
+            if isLoadingKNS {
                 HStack {
                     ProgressView()
                         .scaleEffect(0.8)
@@ -212,30 +272,76 @@ struct ProfileView: View {
                         .foregroundColor(.secondary)
                 }
             }
-        } else if !knsDomains.isEmpty {
-            Section("KNS Domains") {
+            if !isLoadingKNS && knsDomains.isEmpty {
+                Text("No domains yet.")
+                    .foregroundColor(.secondary)
+            }
+            if !knsDomains.isEmpty {
                 ForEach(knsDomains, id: \.inscriptionId) { domain in
-                    Button {
-                        applyDomainAsAccountName(domain.fullName)
-                    } label: {
-                        HStack {
-                            Text(domain.fullName)
-                                .font(.body)
-                                .foregroundColor(.primary)
-                            if domain.fullName == knsPrimaryDomain {
-                                Spacer()
-                                Text("Primary")
-                                    .font(.caption)
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 2)
-                                    .background(Color.accentColor)
-                                    .clipShape(Capsule())
+                    HStack(spacing: 10) {
+                        Button {
+                            applyDomainAsAccountName(domain.fullName)
+                        } label: {
+                            HStack {
+                                Text(domain.fullName)
+                                    .font(.body)
+                                    .foregroundColor(.primary)
+                                if isPrimaryDomain(domain.fullName) {
+                                    Spacer()
+                                    Text("Primary")
+                                        .font(.caption)
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 2)
+                                        .background(Color.accentColor)
+                                        .clipShape(Capsule())
+                                }
                             }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+
+                        if isSetPrimaryAllowed(domain) {
+                            Button {
+                                Task {
+                                    await setPrimaryDomain(domain)
+                                }
+                            } label: {
+                                if settingPrimaryDomainId == domain.inscriptionId {
+                                    ProgressView()
+                                        .scaleEffect(0.75)
+                                } else {
+                                    Image(systemName: "star")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(settingPrimaryDomainId != nil)
+                            .accessibilityLabel(localizedFormat("Set %@ as primary", domain.fullName))
+                        }
+
+                        if isDomainTransferAllowed(domain) {
+                            Button {
+                                startDomainTransfer(domain)
+                            } label: {
+                                Image(systemName: "arrowshape.turn.up.right")
+                                    .foregroundColor(.accentColor)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel(localizedFormat("Transfer %@", domain.fullName))
+                        } else if domain.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "listed" {
+                            Text("Listed")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                     }
-                    .buttonStyle(.plain)
                 }
+            }
+
+            Button {
+                showKNSDomainInscribeSheet = true
+            } label: {
+                Label("Inscribe New Domain", systemImage: "plus.circle")
             }
         }
     }
@@ -245,7 +351,94 @@ struct ProfileView: View {
         Haptics.success()
         Task {
             try? await walletManager.updateAlias(domain)
-            showToast("Name set to \(domain).")
+            showToast(localizedFormat("Name set to %@.", domain))
+        }
+    }
+
+    private func isPrimaryDomain(_ domainName: String) -> Bool {
+        let normalizedDomain = domainName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedPrimary = (knsPrimaryDomain ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalizedDomain == normalizedPrimary
+    }
+
+    private func isSetPrimaryAllowed(_ domain: KNSDomain) -> Bool {
+        let hasAssetId = !domain.inscriptionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return hasAssetId && !isPrimaryDomain(domain.fullName)
+    }
+
+    private func isDomainTransferAllowed(_ domain: KNSDomain) -> Bool {
+        let status = domain.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasAssetId = !domain.inscriptionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return hasAssetId && status != "listed"
+    }
+
+    private func startDomainTransfer(_ domain: KNSDomain) {
+        transferDomainTarget = domain
+        showKNSDomainTransferSheet = true
+    }
+
+    private func setPrimaryDomain(_ domain: KNSDomain) async {
+        guard settingPrimaryDomainId == nil else { return }
+        guard let walletAddress = walletManager.currentWallet?.publicAddress else {
+            await MainActor.run {
+                showToast(localized("Wallet not available."), style: .error)
+            }
+            return
+        }
+
+        let assetId = domain.inscriptionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !assetId.isEmpty else {
+            await MainActor.run {
+                showToast(localized("KNS domain id is missing."), style: .error)
+            }
+            return
+        }
+
+        await MainActor.run {
+            settingPrimaryDomainId = assetId
+        }
+        logKNSWrite("SET_PRIMARY_START domain=\(domain.fullName) asset=\(assetId)")
+
+        do {
+            try await submitSetPrimaryDomainWithSignatureFallback(domainId: assetId)
+            await MainActor.run {
+                knsPrimaryDomain = domain.fullName
+            }
+            await refreshKNSData(for: walletAddress)
+            await MainActor.run {
+                settingPrimaryDomainId = nil
+                Haptics.success()
+                showToast(localizedFormat("Primary domain set to %@.", domain.fullName))
+            }
+            logKNSWrite("SET_PRIMARY_SUCCESS domain=\(domain.fullName)")
+        } catch {
+            logKNSWrite("SET_PRIMARY_FAIL domain=\(domain.fullName) \(diagnosticError(error))")
+            let message = compactErrorText(error)
+            await MainActor.run {
+                settingPrimaryDomainId = nil
+                Haptics.impact(.medium)
+                showToast(localizedFormat("Set primary failed: %@", message), style: .error)
+            }
+        }
+    }
+
+    private func refreshKNSData(for address: String) async {
+        await MainActor.run {
+            isLoadingKNS = true
+        }
+        if let info = await KNSService.shared.fetchInfo(for: address) {
+            await MainActor.run {
+                knsDomains = info.allDomains
+                knsPrimaryDomain = info.primaryDomain
+            }
+        }
+        if let profileInfo = await KNSService.shared.fetchProfile(for: address) {
+            await MainActor.run {
+                knsProfileInfo = profileInfo
+            }
+        }
+        await MainActor.run {
+            isLoadingKNS = false
         }
     }
 
@@ -323,7 +516,7 @@ struct ProfileView: View {
                                 }
                             } label: {
                                 HStack {
-                                    Text("Retry \(key.displayName)")
+                                    Text(localizedFormat("Retry %@", key.displayName))
                                     Spacer()
                                     Image(systemName: "arrow.clockwise")
                                         .foregroundColor(.accentColor)
@@ -618,6 +811,14 @@ struct ProfileView: View {
         }
     }
 
+    private func localized(_ key: String) -> String {
+        NSLocalizedString(key, comment: "")
+    }
+
+    private func localizedFormat(_ key: String, _ args: CVarArg...) -> String {
+        String(format: NSLocalizedString(key, comment: ""), locale: Locale.current, arguments: args)
+    }
+
     private func formatDate(_ date: Date) -> String {
         SharedFormatting.mediumDateShortTime.string(from: date)
     }
@@ -629,22 +830,53 @@ struct ProfileView: View {
 
     @ViewBuilder
     private func profileLinkView(text: String, url: URL?, fieldName: String) -> some View {
-        Group {
-            if let url {
-                Link(text, destination: url)
-            } else {
-                Text(text).foregroundColor(.secondary)
-            }
-        }
-        .onLongPressGesture(minimumDuration: 0.45) {
-            copyProfileFieldValue(text, fieldName: fieldName)
+        if let url {
+            Link(text, destination: url)
+                .simultaneousGesture(
+                    LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                        copyProfileFieldValue(text, fieldName: fieldName)
+                    }
+                )
+        } else {
+            Text(text)
+                .foregroundColor(.secondary)
+                .onLongPressGesture(minimumDuration: 0.45) {
+                    copyProfileFieldValue(text, fieldName: fieldName)
+                }
         }
     }
 
     private func copyProfileFieldValue(_ value: String, fieldName: String) {
         UIPasteboard.general.string = value
         Haptics.success()
-        showToast("\(fieldName) copied to clipboard.")
+        showToast(localizedFormat("%@ copied to clipboard.", fieldName))
+    }
+
+    private func logKNSWrite(_ message: String) {
+        NSLog("[KNS_WRITE_UI] %@", message)
+    }
+
+    private func diagnosticError(_ error: Error) -> String {
+        let nsError = error as NSError
+        var parts: [String] = [
+            "type=\(String(describing: type(of: error)))",
+            "message=\(error.localizedDescription)",
+            "domain=\(nsError.domain)",
+            "code=\(nsError.code)"
+        ]
+        if let reason = nsError.userInfo[NSLocalizedFailureReasonErrorKey] as? String, !reason.isEmpty {
+            parts.append("reason=\(reason)")
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            parts.append("underlying=\(underlying.domain)#\(underlying.code):\(underlying.localizedDescription)")
+        }
+        return parts.joined(separator: " | ")
+    }
+
+    private func compactErrorText(_ error: Error, maxLength: Int = 160) -> String {
+        let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count > maxLength else { return text }
+        return String(text.prefix(maxLength - 3)) + "..."
     }
 
     private func saveKNSProfile(
@@ -653,76 +885,56 @@ struct ProfileView: View {
     ) async {
         guard let walletAddress = walletManager.currentWallet?.publicAddress else {
             await MainActor.run {
-                showToast("Wallet not available.", style: .error)
+                showToast(localized("Wallet not available."), style: .error)
             }
             return
         }
         guard let assetId = profileInfo.assetId, !assetId.isEmpty else {
             await MainActor.run {
-                showToast("KNS asset id is missing.", style: .error)
+                showToast(localized("KNS asset id is missing."), style: .error)
             }
             return
         }
 
         await MainActor.run {
             isSavingKNSProfile = true
-            knsSaveProgressText = "Preparing profile update..."
+            knsSaveProgressText = localized("Preparing profile update...")
             failedKNSUpdates = [:]
         }
+        logKNSWrite("SAVE_START address=\(walletAddress) asset=\(assetId)")
 
         var values = submission.fieldValues()
 
         do {
             // Upload picked avatar/banner first; resulting URLs are written on-chain.
             if let avatarData = submission.avatarUploadData {
+                logKNSWrite("UPLOAD_AVATAR_START bytes=\(avatarData.count)")
                 await MainActor.run {
-                    knsSaveProgressText = "Uploading avatar..."
+                    knsSaveProgressText = localized("Uploading avatar...")
                 }
-                let signMessage = try KNSService.shared.buildImageUploadSigningMessage(
-                    assetId: assetId,
-                    uploadType: .avatar
-                )
-                let signature = try walletManager.signArbitraryMessage(signMessage)
-                let uploadedURL = try await KNSService.shared.uploadProfileImage(
+                let uploadedURL = try await uploadProfileImageWithSignatureFallback(
                     assetId: assetId,
                     uploadType: .avatar,
                     imageData: avatarData,
-                    mimeType: submission.avatarUploadMimeType ?? "image/jpeg",
-                    signMessage: signMessage,
-                    signature: signature
+                    mimeType: submission.avatarUploadMimeType ?? "image/jpeg"
                 )
                 values[.avatarUrl] = uploadedURL
+                logKNSWrite("UPLOAD_AVATAR_OK url=\(uploadedURL)")
             }
 
             if let bannerData = submission.bannerUploadData {
+                logKNSWrite("UPLOAD_BANNER_START bytes=\(bannerData.count)")
                 await MainActor.run {
-                    knsSaveProgressText = "Uploading banner..."
+                    knsSaveProgressText = localized("Uploading banner...")
                 }
-                let signMessage = try KNSService.shared.buildImageUploadSigningMessage(
-                    assetId: assetId,
-                    uploadType: .banner
-                )
-                let signature = try walletManager.signArbitraryMessage(signMessage)
-                let uploadedURL = try await KNSService.shared.uploadProfileImage(
+                let uploadedURL = try await uploadProfileImageWithSignatureFallback(
                     assetId: assetId,
                     uploadType: .banner,
                     imageData: bannerData,
-                    mimeType: submission.bannerUploadMimeType ?? "image/jpeg",
-                    signMessage: signMessage,
-                    signature: signature
+                    mimeType: submission.bannerUploadMimeType ?? "image/jpeg"
                 )
                 values[.bannerUrl] = uploadedURL
-            }
-
-            if let email = values[.contactEmail],
-               !email.isEmpty,
-               !isLikelyValidEmail(email) {
-                throw KasiaError.apiError("Invalid email address format")
-            }
-            if let discord = values[.discord],
-               !discord.isEmpty,
-               KNSProfileLinkBuilder.discordURL(from: discord) == nil {
-                throw KasiaError.apiError("Discord must be a numeric user id or a valid /users/<id> URL")
+                logKNSWrite("UPLOAD_BANNER_OK url=\(uploadedURL)")
             }
 
             let original = profileInfo.profile ?? .empty
@@ -742,10 +954,11 @@ struct ProfileView: View {
             }
 
             guard !changes.isEmpty else {
+                logKNSWrite("SAVE_NO_CHANGES")
                 await MainActor.run {
                     isSavingKNSProfile = false
                     knsSaveProgressText = nil
-                    showToast("No KNS profile changes detected.")
+                    showToast(localized("No KNS profile changes detected."))
                 }
                 return
             }
@@ -753,15 +966,23 @@ struct ProfileView: View {
             var successCount = 0
             var failedFields: [String] = []
             var failedChanges: [KNSProfileFieldKey: String] = [:]
+            var failedMessages: [KNSProfileFieldKey: String] = [:]
 
             for change in changes {
                 try validateKNSFieldValue(change.value, key: change.key, assetId: assetId)
             }
+            logKNSWrite("SAVE_CHANGES count=\(changes.count) keys=\(changes.map { $0.key.rawValue }.joined(separator: ","))")
 
             for (index, change) in changes.enumerated() {
                 await MainActor.run {
-                    knsSaveProgressText = "Updating \(change.key.displayName) (\(index + 1)/\(changes.count))..."
+                    knsSaveProgressText = localizedFormat(
+                        "Updating %@ (%d/%d)...",
+                        change.key.displayName,
+                        index + 1,
+                        changes.count
+                    )
                 }
+                logKNSWrite("FIELD_START key=\(change.key.rawValue) valueLen=\(change.value.count) index=\(index + 1)/\(changes.count)")
                 do {
                     _ = try await KNSProfileWriteService.shared.submitAddProfile(
                         assetId: assetId,
@@ -770,10 +991,13 @@ struct ProfileView: View {
                         domainName: profileInfo.domainName
                     )
                     successCount += 1
+                    logKNSWrite("FIELD_OK key=\(change.key.rawValue)")
                 } catch {
                     failedFields.append(change.key.displayName)
                     failedChanges[change.key] = change.value
-                    NSLog("[KNS] Failed to update %@: %@", change.key.rawValue, error.localizedDescription)
+                    let message = compactErrorText(error)
+                    failedMessages[change.key] = message
+                    logKNSWrite("FIELD_FAIL key=\(change.key.rawValue) \(diagnosticError(error))")
                 }
             }
 
@@ -788,25 +1012,152 @@ struct ProfileView: View {
                 knsSaveProgressText = nil
                 failedKNSUpdates = failedChanges
                 if successCount == changes.count {
+                    logKNSWrite("SAVE_SUCCESS count=\(successCount)")
                     Haptics.success()
-                    showToast("KNS profile updated.")
+                    showToast(localized("KNS profile updated."))
                 } else if successCount > 0 {
+                    logKNSWrite("SAVE_PARTIAL success=\(successCount) failed=\(changes.count - successCount)")
                     Haptics.impact(.medium)
                     let failedList = failedFields.joined(separator: ", ")
-                    showToast("Updated \(successCount)/\(changes.count). Failed: \(failedList).", style: .error)
+                    let firstReason = failedMessages.values.first ?? ""
+                    if firstReason.isEmpty {
+                        showToast(
+                            localizedFormat(
+                                "Updated %d/%d. Failed: %@.",
+                                successCount,
+                                changes.count,
+                                failedList
+                            ),
+                            style: .error
+                        )
+                    } else {
+                        showToast(
+                            localizedFormat(
+                                "Updated %d/%d. Failed: %@. %@",
+                                successCount,
+                                changes.count,
+                                failedList,
+                                firstReason
+                            ),
+                            style: .error
+                        )
+                    }
                 } else {
+                    logKNSWrite("SAVE_FAILED count=\(changes.count)")
                     Haptics.impact(.medium)
-                    showToast("KNS profile update failed.", style: .error)
+                    let firstReason = failedMessages.values.first ?? ""
+                    if firstReason.isEmpty {
+                        showToast(localized("KNS profile update failed."), style: .error)
+                    } else {
+                        showToast(localizedFormat("KNS profile update failed: %@", firstReason), style: .error)
+                    }
                 }
             }
         } catch {
+            logKNSWrite("SAVE_ABORT \(diagnosticError(error))")
+            let message = compactErrorText(error)
             await MainActor.run {
                 isSavingKNSProfile = false
                 knsSaveProgressText = nil
                 Haptics.impact(.medium)
-                showToast(error.localizedDescription, style: .error)
+                showToast(localizedFormat("KNS profile update failed: %@", message), style: .error)
             }
         }
+    }
+
+    private func uploadProfileImageWithSignatureFallback(
+        assetId: String,
+        uploadType: KNSProfileImageUploadType,
+        imageData: Data,
+        mimeType: String
+    ) async throws -> String {
+        let signMessage = try KNSService.shared.buildImageUploadSigningMessage(
+            assetId: assetId,
+            uploadType: uploadType
+        )
+
+        let signingModes: [(WalletManager.ArbitraryMessageSigningMode, String)] = [
+            (.kaspaPersonalMessage, "kaspaPersonalMessage"),
+            (.rawUTF8, "rawUTF8"),
+            (.sha256Digest, "sha256Digest")
+        ]
+
+        var lastError: Error?
+        for (index, entry) in signingModes.enumerated() {
+            let signature = try walletManager.signArbitraryMessage(
+                signMessage,
+                mode: entry.0
+            )
+            logKNSWrite("UPLOAD_SIGN mode=\(entry.1) sigLen=\(signature.count) type=\(uploadType.rawValue)")
+            do {
+                return try await KNSService.shared.uploadProfileImage(
+                    assetId: assetId,
+                    uploadType: uploadType,
+                    imageData: imageData,
+                    mimeType: mimeType,
+                    signMessage: signMessage,
+                    signature: signature
+                )
+            } catch {
+                lastError = error
+                let hasNextMode = index < (signingModes.count - 1)
+                guard hasNextMode, isSignatureVerificationFailure(error) else {
+                    throw error
+                }
+                let nextModeName = signingModes[index + 1].1
+                logKNSWrite("UPLOAD_RETRY mode=\(nextModeName) type=\(uploadType.rawValue)")
+            }
+        }
+
+        if let lastError {
+            throw lastError
+        }
+        throw KasiaError.apiError("KNS image upload failed")
+    }
+
+    private func submitSetPrimaryDomainWithSignatureFallback(domainId: String) async throws {
+        let signMessage = try KNSService.shared.buildPrimaryNameSigningMessage(domainId: domainId)
+
+        let signingModes: [(WalletManager.ArbitraryMessageSigningMode, String)] = [
+            (.kaspaPersonalMessage, "kaspaPersonalMessage"),
+            (.rawUTF8, "rawUTF8"),
+            (.sha256Digest, "sha256Digest")
+        ]
+
+        var lastError: Error?
+        for (index, entry) in signingModes.enumerated() {
+            let signature = try walletManager.signArbitraryMessage(
+                signMessage,
+                mode: entry.0
+            )
+            logKNSWrite("SET_PRIMARY_SIGN mode=\(entry.1) sigLen=\(signature.count) asset=\(domainId)")
+            do {
+                _ = try await KNSService.shared.setPrimaryDomain(
+                    signMessage: signMessage,
+                    signature: signature
+                )
+                return
+            } catch {
+                lastError = error
+                let hasNextMode = index < (signingModes.count - 1)
+                guard hasNextMode, isSignatureVerificationFailure(error) else {
+                    throw error
+                }
+                let nextModeName = signingModes[index + 1].1
+                logKNSWrite("SET_PRIMARY_RETRY mode=\(nextModeName) asset=\(domainId)")
+            }
+        }
+
+        if let lastError {
+            throw lastError
+        }
+        throw KasiaError.apiError("KNS primary domain update failed")
+    }
+
+    private func isSignatureVerificationFailure(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("signature verification failed")
+            || message.contains("unauthorized")
     }
 
     private func isLikelyValidEmail(_ value: String) -> Bool {
@@ -827,10 +1178,11 @@ struct ProfileView: View {
         guard !isSavingKNSProfile else { return }
 
         do {
+            logKNSWrite("RETRY_START key=\(key.rawValue)")
             try validateKNSFieldValue(value, key: key, assetId: assetId)
             await MainActor.run {
                 isSavingKNSProfile = true
-                knsSaveProgressText = "Retrying \(key.displayName)..."
+                knsSaveProgressText = localizedFormat("Retrying %@...", key.displayName)
             }
 
             _ = try await KNSProfileWriteService.shared.submitAddProfile(
@@ -852,14 +1204,17 @@ struct ProfileView: View {
                 knsSaveProgressText = nil
                 failedKNSUpdates.removeValue(forKey: key)
                 Haptics.success()
-                showToast("\(key.displayName) updated.")
+                showToast(localizedFormat("%@ updated.", key.displayName))
             }
+            logKNSWrite("RETRY_OK key=\(key.rawValue)")
         } catch {
+            logKNSWrite("RETRY_FAIL key=\(key.rawValue) \(diagnosticError(error))")
+            let message = compactErrorText(error)
             await MainActor.run {
                 isSavingKNSProfile = false
                 knsSaveProgressText = nil
                 Haptics.impact(.medium)
-                showToast("Retry failed: \(error.localizedDescription)", style: .error)
+                showToast(localizedFormat("Retry failed: %@", message), style: .error)
             }
         }
     }
@@ -887,6 +1242,19 @@ struct ProfileView: View {
 
         if trimmed.count > maxLength {
             throw KasiaError.apiError("\(key.displayName) is too long (\(trimmed.count)/\(maxLength))")
+        }
+
+        switch key {
+        case .contactEmail:
+            if !trimmed.isEmpty && !isLikelyValidEmail(trimmed) {
+                throw KasiaError.apiError("Invalid email address format")
+            }
+        case .discord:
+            if !trimmed.isEmpty && KNSProfileLinkBuilder.discordURL(from: trimmed) == nil {
+                throw KasiaError.apiError("Discord must be a numeric user id or a valid /users/<id> URL")
+            }
+        default:
+            break
         }
 
         let payload = KNSService.shared.buildAddProfilePayload(
@@ -1236,25 +1604,24 @@ private struct KNSProfileEditorSheet: View {
         }
 
         do {
-            guard let rawData = try await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: rawData) else {
-                throw KasiaError.apiError("Could not load selected image")
+            guard let rawData = try await item.loadTransferable(type: Data.self) else {
+                throw KasiaError.apiError(String(localized: "Could not load selected image"))
             }
 
-            let prepared = prepareImageForUpload(image)
+            let prepared = try prepareImageForUpload(rawData)
             guard !prepared.data.isEmpty else {
-                throw KasiaError.apiError("Could not encode selected image")
+                throw KasiaError.apiError(String(localized: "Could not encode selected image"))
             }
             await MainActor.run {
                 switch kind {
                 case .avatar:
                     avatarPreviewImage = prepared.image
                     avatarUploadData = prepared.data
-                    avatarUploadMimeType = "image/jpeg"
+                    avatarUploadMimeType = prepared.mimeType
                 case .banner:
                     bannerPreviewImage = prepared.image
                     bannerUploadData = prepared.data
-                    bannerUploadMimeType = "image/jpeg"
+                    bannerUploadMimeType = prepared.mimeType
                 }
             }
         } catch {
@@ -1274,20 +1641,423 @@ private struct KNSProfileEditorSheet: View {
         }
     }
 
-    private func prepareImageForUpload(_ image: UIImage) -> (image: UIImage, data: Data) {
+    private func prepareImageForUpload(_ rawData: Data) throws -> (image: UIImage, data: Data, mimeType: String) {
         let maxDimension: CGFloat = 1400
-        let size = image.size
-        let largest = max(size.width, size.height)
-        let scale = largest > maxDimension ? (maxDimension / largest) : 1
-        let targetSize = CGSize(width: size.width * scale, height: size.height * scale)
-
-        let rendererFormat = UIGraphicsImageRendererFormat.default()
-        rendererFormat.opaque = false
-        let rendered = UIGraphicsImageRenderer(size: targetSize, format: rendererFormat).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        guard let source = CGImageSourceCreateWithData(rawData as CFData, nil) else {
+            throw KasiaError.apiError(String(localized: "Selected data is not a valid image"))
         }
-        let encoded = rendered.jpegData(compressionQuality: 0.88) ?? image.jpegData(compressionQuality: 0.88) ?? Data()
-        return (rendered, encoded)
+
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(maxDimension),
+            kCGImageSourceShouldCache: false
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(
+            source,
+            0,
+            thumbnailOptions as CFDictionary
+        ) else {
+            throw KasiaError.apiError(String(localized: "Could not process selected image"))
+        }
+
+        let previewImage = UIImage(cgImage: cgImage)
+        let outputData = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            outputData,
+            UTType.png.identifier as CFString,
+            1,
+            nil
+        ) else {
+            throw KasiaError.apiError(String(localized: "Could not initialize image encoder"))
+        }
+
+        CGImageDestinationAddImage(destination, cgImage, nil)
+        guard CGImageDestinationFinalize(destination) else {
+            throw KasiaError.apiError(String(localized: "Could not encode selected image"))
+        }
+
+        return (previewImage, outputData as Data, "image/png")
+    }
+}
+
+private struct KNSDomainInscribeSheet: View {
+    let walletAddress: String
+    let onComplete: (KNSDomainInscribeResult) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var domainInput = ""
+    @State private var feeTiers: [Int: Decimal] = [:]
+    @State private var availability: KNSDomainAvailability?
+    @State private var isCheckingAvailability = false
+    @State private var isSubmitting = false
+    @State private var feeError: String?
+    @State private var checkError: String?
+    @State private var submitError: String?
+    @State private var checkTask: Task<Void, Never>?
+
+    private var normalizedLabel: String? {
+        KNSService.shared.normalizeDomainLabel(domainInput)
+    }
+
+    private var fullDomain: String? {
+        guard let normalizedLabel else { return nil }
+        return "\(normalizedLabel).kas"
+    }
+
+    private var currentServiceFeeKas: Decimal? {
+        guard let label = normalizedLabel else { return nil }
+        guard !feeTiers.isEmpty else { return nil }
+        if availability?.isReservedDomain == true {
+            return 0
+        }
+        let tier = min(max(label.count, 1), 5)
+        return feeTiers[tier] ?? feeTiers[5]
+    }
+
+    private var canSubmit: Bool {
+        guard !isSubmitting, !isCheckingAvailability else { return false }
+        guard normalizedLabel != nil else { return false }
+        guard availability?.available == true else { return false }
+        return currentServiceFeeKas != nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Domain") {
+                    TextField("name", text: $domainInput)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    if let fullDomain {
+                        Text(fullDomain)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("Use lowercase letters, numbers, and hyphen.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if isCheckingAvailability {
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.8)
+                            Text("Checking availability...")
+                                .foregroundColor(.secondary)
+                        }
+                    } else if let checkError, !checkError.isEmpty {
+                        Text(checkError)
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                    } else if let availability {
+                        Text(
+                            availability.available
+                            ? localizedFormat("%@ can be inscribed.", availability.domain)
+                            : String(localized: "This domain is not available.")
+                        )
+                        .font(.footnote)
+                        .foregroundColor(availability.available ? .green : .red)
+                    }
+                }
+
+                Section("Fee") {
+                    if let fee = currentServiceFeeKas {
+                        HStack {
+                            Text("Service fee")
+                            Spacer()
+                            Text("\(formatKas(fee)) KAS")
+                                .foregroundColor(.secondary)
+                        }
+                        if availability?.isReservedDomain == true {
+                            Text("Reserved domain: no revenue payment is required.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        Text("Fee unavailable")
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let feeError, !feeError.isEmpty {
+                        Text(feeError)
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                    }
+                }
+
+                if isSubmitting {
+                    Section {
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.8)
+                            Text("Submitting inscription...")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                if let submitError, !submitError.isEmpty {
+                    Section {
+                        Text(submitError)
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            .navigationTitle("Inscribe Domain")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Inscribe") {
+                        submitInscribe()
+                    }
+                    .disabled(!canSubmit)
+                }
+            }
+            .task {
+                await loadFeeTiers()
+            }
+            .onChange(of: domainInput) { _ in
+                scheduleAvailabilityCheck()
+            }
+            .onDisappear {
+                checkTask?.cancel()
+            }
+        }
+    }
+
+    private func loadFeeTiers() async {
+        do {
+            let tiers = try await KNSService.shared.fetchInscribeFeeTiers()
+            await MainActor.run {
+                feeTiers = tiers
+                feeError = nil
+            }
+        } catch {
+            await MainActor.run {
+                feeError = error.localizedDescription
+            }
+        }
+    }
+
+    private func scheduleAvailabilityCheck() {
+        checkTask?.cancel()
+        submitError = nil
+        availability = nil
+
+        let raw = domainInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else {
+            checkError = nil
+            isCheckingAvailability = false
+            return
+        }
+        guard let label = normalizedLabel else {
+            checkError = String(localized: "Use lowercase letters, numbers, and hyphen.")
+            isCheckingAvailability = false
+            return
+        }
+
+        checkError = nil
+        isCheckingAvailability = true
+        let full = "\(label).kas"
+        checkTask = Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            do {
+                let result = try await KNSService.shared.checkDomainAvailability(
+                    address: walletAddress,
+                    domainName: full
+                )
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    availability = result
+                    isCheckingAvailability = false
+                    checkError = nil
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    availability = nil
+                    isCheckingAvailability = false
+                    checkError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func submitInscribe() {
+        guard let label = normalizedLabel else {
+            submitError = String(localized: "Invalid domain label")
+            return
+        }
+        isSubmitting = true
+        submitError = nil
+        Task {
+            do {
+                let result = try await KNSDomainInscribeService.shared.inscribeDomain(label: label)
+                await MainActor.run {
+                    isSubmitting = false
+                    onComplete(result)
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    isSubmitting = false
+                    submitError = error.localizedDescription
+                    Haptics.impact(.medium)
+                }
+            }
+        }
+    }
+
+    private func formatKas(_ value: Decimal) -> String {
+        let number = NSDecimalNumber(decimal: value)
+        let double = number.doubleValue
+        if abs(double.rounded() - double) < 0.0000001 {
+            return String(format: "%.0f", double)
+        }
+        return number.stringValue
+    }
+
+    private func localizedFormat(_ key: String, _ args: CVarArg...) -> String {
+        String(format: NSLocalizedString(key, comment: ""), locale: Locale.current, arguments: args)
+    }
+}
+
+private struct KNSDomainTransferSheet: View {
+    let walletAddress: String
+    let domain: KNSDomain
+    let onComplete: (KNSDomainTransferResult) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var recipientInput = ""
+    @State private var isSubmitting = false
+    @State private var submitError: String?
+
+    private var trimmedRecipientInput: String {
+        recipientInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isRecipientInputPlausible: Bool {
+        let value = trimmedRecipientInput
+        guard !value.isEmpty else { return false }
+        if value.lowercased().hasSuffix(".kas") {
+            return true
+        }
+        return KaspaAddress.isValid(value)
+    }
+
+    private var canSubmit: Bool {
+        !isSubmitting && isRecipientInputPlausible
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Domain") {
+                    Text(domain.fullName)
+                    Text(domain.inscriptionId)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Section("Recipient") {
+                    TextField("kaspa:... or alice.kas", text: $recipientInput)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    if trimmedRecipientInput.isEmpty {
+                        Text("Enter a Kaspa address or a `.kas` domain.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else if !isRecipientInputPlausible {
+                        Text("Invalid recipient format.")
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                    } else {
+                        Text("Recipient looks valid.")
+                            .font(.footnote)
+                            .foregroundColor(.green)
+                    }
+                }
+
+                if isSubmitting {
+                    Section {
+                        HStack(spacing: 8) {
+                            ProgressView().scaleEffect(0.8)
+                            Text("Submitting transfer...")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                if let submitError, !submitError.isEmpty {
+                    Section {
+                        Text(submitError)
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            .navigationTitle("Transfer Domain")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Transfer") {
+                        submitTransfer()
+                    }
+                    .disabled(!canSubmit)
+                }
+            }
+        }
+    }
+
+    private func submitTransfer() {
+        let recipient = trimmedRecipientInput
+        guard !recipient.isEmpty else {
+            submitError = String(localized: "Recipient is required")
+            return
+        }
+        guard !walletAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            submitError = String(localized: "Wallet not available")
+            return
+        }
+
+        isSubmitting = true
+        submitError = nil
+
+        Task {
+            do {
+                let result = try await KNSDomainTransferService.shared.transferDomain(
+                    domain: domain.fullName,
+                    assetId: domain.inscriptionId,
+                    to: recipient
+                )
+                await MainActor.run {
+                    isSubmitting = false
+                    onComplete(result)
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    isSubmitting = false
+                    submitError = error.localizedDescription
+                    Haptics.impact(.medium)
+                }
+            }
+        }
     }
 }
 

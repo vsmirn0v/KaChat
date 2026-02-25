@@ -617,6 +617,16 @@ extension ChatService {
             ? await fetchKaspaFullTransaction(txId: txId, retries: 2, delayNs: 800_000_000)
             : nil
 
+        if let fullTx,
+           await handleKNSOperationTransactionIfNeeded(
+            fullTx,
+            myAddress: myAddress,
+            source: "kns-utxo-incoming-resolve"
+           ) {
+            clearIncomingResolutionTracking(txId: txId)
+            return
+        }
+
         if (payloadHex?.isEmpty ?? true),
            let fullPayload = fullTx?.payload,
            !fullPayload.isEmpty {
@@ -640,6 +650,16 @@ extension ChatService {
         if info.sender == myAddress {
             if fullTx == nil {
                 fullTx = await fetchKaspaFullTransaction(txId: txId, retries: 3, delayNs: 800_000_000)
+            }
+
+            if let fullTx,
+               await handleKNSOperationTransactionIfNeeded(
+                fullTx,
+                myAddress: myAddress,
+                source: "kns-utxo-incoming-self-sender"
+               ) {
+                clearIncomingResolutionTracking(txId: txId)
+                return
             }
 
             if let fullTx,
@@ -1009,6 +1029,15 @@ extension ChatService {
         }
 
         if let fullTx = await fetchKaspaFullTransaction(txId: txId, retries: 3, delayNs: 800_000_000) {
+            if await handleKNSOperationTransactionIfNeeded(
+                fullTx,
+                myAddress: myAddress,
+                source: "kns-utxo-self-stash-candidate"
+            ) {
+                clearSelfStashRetryState(txId: txId)
+                return
+            }
+
             let inputAddresses = (fullTx.inputs ?? []).compactMap { $0.previousOutpointAddress }.filter { !$0.isEmpty }
             let outputAddresses = fullTx.outputs.compactMap { $0.scriptPublicKeyAddress }.filter { !$0.isEmpty }
 

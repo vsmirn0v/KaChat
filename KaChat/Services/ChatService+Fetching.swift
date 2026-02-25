@@ -147,11 +147,31 @@ extension ChatService {
         let transactions = await fetchFullTransactionsPaginated(for: address, stopAtBlockTime: blockTime)
         NSLog("[ChatService] Fetched total %d transactions from Kaspa API", transactions.count)
 
+        var knsHandledCount = 0
+        for transaction in transactions where isKNSRevealTransaction(transaction) {
+            if await handleKNSOperationTransactionIfNeeded(
+                transaction,
+                myAddress: address,
+                source: "kns-kaspa-rest-\(incoming ? "incoming" : "outgoing")"
+            ) {
+                knsHandledCount += 1
+            }
+        }
+        if knsHandledCount > 0 {
+            NSLog("[ChatService] Processed %d KNS reveal tx(s) during %@ payment fetch", knsHandledCount, direction)
+        }
+
         var payments: [PaymentResponse] = []
         var skippedOld = 0
         var skippedDirection = 0
+        var skippedSuppressed = 0
 
         for tx in transactions {
+            if isSuppressedPaymentTxId(tx.transactionId) {
+                skippedSuppressed += 1
+                continue
+            }
+
             // Get block time directly from transaction
             let txBlockTime = tx.blockTime ?? 0
 
@@ -343,7 +363,14 @@ extension ChatService {
         }
 
         let dirStr = incoming ? "incoming" : "outgoing"
-        NSLog("[ChatService] fetchPaymentsFromKaspaAPI DONE - found %d %@ payments (skipped: %d old, %d wrong direction)", payments.count, dirStr, skippedOld, skippedDirection)
+        NSLog(
+            "[ChatService] fetchPaymentsFromKaspaAPI DONE - found %d %@ payments (skipped: %d old, %d wrong direction, %d suppressed)",
+            payments.count,
+            dirStr,
+            skippedOld,
+            skippedDirection,
+            skippedSuppressed
+        )
         return payments
     }
 
@@ -650,6 +677,363 @@ extension ChatService {
             NSLog("[ChatService] Payload prefix '%@' starts with 'ciph_msg:' but not 'ciph_msg:1:self_stash:'", payloadString)
         }
         return matches
+    }
+
+    func isKNSRevealSignatureScript(_ signatureScriptHex: String) -> Bool {
+        let lowered = signatureScriptHex.lowercased()
+        guard lowered.contains("036b6e73") else { return false } // push "kns"
+
+        let hasKnownOp =
+            lowered.contains("226f70223a2261646450726f66696c6522") || // "op":"addProfile"
+            lowered.contains("226f70223a2263726561746522") || // "op":"create"
+            lowered.contains("226f70223a227472616e7366657222") // "op":"transfer"
+        guard hasKnownOp else { return false }
+
+        let hasKnownProtocolField =
+            lowered.contains("2270223a22646f6d61696e22") || // "p":"domain"
+            lowered.contains("226b6579223a") || // "key":
+            lowered.contains("226964223a") // "id":
+        return hasKnownProtocolField
+    }
+
+    func isKNSRevealTransaction(_ transaction: KaspaFullTransactionResponse) -> Bool {
+        guard let inputs = transaction.inputs, !inputs.isEmpty else { return false }
+        for input in inputs {
+            guard let signatureScript = input.signatureScript, !signatureScript.isEmpty else { continue }
+            if isKNSRevealSignatureScript(signatureScript) {
+                return true
+            }
+        }
+        return false
+    }
+
+    func suppressedKNSPaymentTxIds(from transactions: [KaspaFullTransactionResponse]) -> Set<String> {
+        guard !transactions.isEmpty else { return [] }
+
+        var revealTxIds = Set<String>()
+        var commitTxIds = Set<String>()
+
+        for transaction in transactions {
+            let txId = transaction.transactionId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !txId.isEmpty else { continue }
+            guard isKNSRevealTransaction(transaction) else { continue }
+
+            revealTxIds.insert(txId)
+            if let inputs = transaction.inputs {
+                for input in inputs {
+                    guard let rawHash = input.previousOutpointHash else { continue }
+                    let previousHash = rawHash
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                        .lowercased()
+                    guard !previousHash.isEmpty else { continue }
+                    commitTxIds.insert(previousHash)
+                }
+            }
+        }
+
+        return revealTxIds.union(commitTxIds)
+    }
+
+    @discardableResult
+    func suppressKNSPaymentTxIfNeeded(_ transaction: KaspaFullTransactionResponse, source: String) -> Bool {
+        let suppressed = suppressedKNSPaymentTxIds(from: [transaction])
+        guard !suppressed.isEmpty else { return false }
+        registerSuppressedPaymentTxIds(Array(suppressed), reason: source)
+        return suppressed.contains(transaction.transactionId.lowercased())
+    }
+
+    func decodeKNSRevealOperationJSON(signatureScriptHex: String) -> [String: Any]? {
+        let lowered = signatureScriptHex.lowercased()
+        guard let startRange = lowered.range(of: "7b22") else { return nil } // {"...
+        guard let endRange = lowered.range(
+            of: "7d",
+            options: .backwards,
+            range: startRange.lowerBound..<lowered.endIndex
+        ) else { return nil }
+
+        let jsonHex = String(lowered[startRange.lowerBound..<endRange.upperBound])
+        guard jsonHex.count % 2 == 0,
+              let jsonData = Data(hexString: jsonHex),
+              let object = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else {
+            return nil
+        }
+        return object
+    }
+
+    func parseKNSTransferOperation(from transaction: KaspaFullTransactionResponse) -> (domainId: String, recipientAddress: String?)? {
+        guard let inputs = transaction.inputs, !inputs.isEmpty else { return nil }
+
+        for input in inputs {
+            guard let signatureScript = input.signatureScript, !signatureScript.isEmpty else { continue }
+            guard isKNSRevealSignatureScript(signatureScript) else { continue }
+            guard let operationJSON = decodeKNSRevealOperationJSON(signatureScriptHex: signatureScript) else { continue }
+
+            guard let op = operationJSON["op"] as? String,
+                  op.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "transfer" else {
+                continue
+            }
+
+            if let proto = operationJSON["p"] as? String,
+               proto.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "domain" {
+                continue
+            }
+
+            guard let rawDomainId = operationJSON["id"] as? String else { continue }
+            let domainId = rawDomainId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !domainId.isEmpty else { continue }
+
+            let recipientAddress = (operationJSON["to"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (domainId: domainId, recipientAddress: recipientAddress)
+        }
+
+        return nil
+    }
+
+    @discardableResult
+    func handleKNSOperationTransactionIfNeeded(
+        _ transaction: KaspaFullTransactionResponse,
+        myAddress: String,
+        source: String
+    ) async -> Bool {
+        let suppressed = suppressedKNSPaymentTxIds(from: [transaction])
+        guard !suppressed.isEmpty else { return false }
+
+        registerSuppressedPaymentTxIds(Array(suppressed), reason: source)
+
+        if let transfer = parseKNSTransferOperation(from: transaction) {
+            await ingestKNSTransferMessage(
+                transaction: transaction,
+                domainId: transfer.domainId,
+                recipientAddress: transfer.recipientAddress,
+                myAddress: myAddress,
+                source: source
+            )
+        }
+
+        let normalizedTxId = transaction.transactionId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return suppressed.contains(normalizedTxId)
+    }
+
+    @discardableResult
+    func addKNSTransferMessageFromHintIfNeeded(
+        txId: String,
+        myAddress: String,
+        blockTimeMs: UInt64? = nil,
+        acceptingBlock: String? = nil
+    ) -> Bool {
+        guard let hint = knsTransferChatHint(for: txId) else { return false }
+
+        if let existing = findLocalMessage(txId: txId) {
+            if existing.messageType == .payment {
+                removeMessage(txId: txId)
+            } else {
+                removeKNSTransferChatHint(for: txId)
+                return true
+            }
+        }
+
+        let resolvedBlockTime = {
+            let provided = blockTimeMs ?? 0
+            return provided > 0 ? provided : hint.timestampMs
+        }()
+        let isOutgoing = hint.isOutgoing
+        let senderAddress = isOutgoing ? myAddress : hint.counterpartyAddress
+        let receiverAddress = isOutgoing ? hint.counterpartyAddress : myAddress
+        let content = localizedKNSTransferMessage(
+            domainName: hint.domainName,
+            isOutgoing: isOutgoing
+        )
+
+        let message = ChatMessage(
+            txId: txId,
+            senderAddress: senderAddress,
+            receiverAddress: receiverAddress,
+            content: content,
+            timestamp: Date(timeIntervalSince1970: TimeInterval(resolvedBlockTime) / 1000.0),
+            blockTime: resolvedBlockTime,
+            acceptingBlock: acceptingBlock,
+            isOutgoing: isOutgoing,
+            messageType: .contextual,
+            deliveryStatus: .sent
+        )
+        addMessageToConversation(message, contactAddress: hint.counterpartyAddress)
+        if resolvedBlockTime > lastPollTime {
+            updateLastPollTime(resolvedBlockTime)
+        }
+        removeKNSTransferChatHint(for: txId)
+        NSLog(
+            "[ChatService] Added KNS transfer message from hint tx=%@ domain=%@",
+            String(txId.prefix(12)),
+            hint.domainName
+        )
+        return true
+    }
+
+    func ingestKNSTransferMessage(
+        transaction: KaspaFullTransactionResponse,
+        domainId: String,
+        recipientAddress: String?,
+        myAddress: String,
+        source: String
+    ) async {
+        let txId = transaction.transactionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !txId.isEmpty else { return }
+
+        let blockTimeMs = transaction.acceptingBlockTime ?? transaction.blockTime ?? currentTimeMs()
+        if addKNSTransferMessageFromHintIfNeeded(
+            txId: txId,
+            myAddress: myAddress,
+            blockTimeMs: blockTimeMs,
+            acceptingBlock: transaction.acceptingBlockHash
+        ) {
+            return
+        }
+
+        if let existing = findLocalMessage(txId: txId) {
+            if existing.messageType == .payment {
+                removeMessage(txId: txId)
+            } else {
+                return
+            }
+        }
+
+        let myNormalized = myAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let recipient = recipientAddress?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !recipient.isEmpty else {
+            NSLog("[ChatService] KNS transfer %@ missing recipient in payload (%@)", String(txId.prefix(12)), source)
+            return
+        }
+
+        let isOutgoing = recipient.lowercased() != myNormalized
+        let contactAddress: String? = {
+            if isOutgoing {
+                return recipient
+            }
+            if let sender = deriveSenderFromFullTx(transaction, excluding: myAddress),
+               !sender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return sender
+            }
+            for output in transaction.outputs {
+                guard let outputAddress = output.scriptPublicKeyAddress?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                    !outputAddress.isEmpty else { continue }
+                let normalizedOutput = outputAddress.lowercased()
+                if normalizedOutput != myNormalized && normalizedOutput != recipient.lowercased() {
+                    return outputAddress
+                }
+            }
+            for output in transaction.outputs {
+                guard let outputAddress = output.scriptPublicKeyAddress?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                    !outputAddress.isEmpty else { continue }
+                if outputAddress.lowercased() != myNormalized {
+                    return outputAddress
+                }
+            }
+            return nil
+        }()
+
+        guard let contactAddress,
+              !contactAddress.isEmpty,
+              contactAddress.lowercased() != myNormalized,
+              isValidKaspaAddress(contactAddress) else {
+            NSLog("[ChatService] KNS transfer %@ has unresolved counterparty (%@)", String(txId.prefix(12)), source)
+            return
+        }
+
+        let domainName = await resolveKNSTransferDomainName(
+            domainId: domainId,
+            myAddress: myAddress,
+            counterpartyAddress: contactAddress
+        )
+        let content: String
+        if let domainName, !domainName.isEmpty {
+            content = localizedKNSTransferMessage(
+                domainName: domainName,
+                isOutgoing: isOutgoing
+            )
+        } else {
+            content = localizedKNSTransferMessage(
+                domainName: nil,
+                isOutgoing: isOutgoing
+            )
+        }
+
+        let message = ChatMessage(
+            txId: txId,
+            senderAddress: isOutgoing ? myAddress : contactAddress,
+            receiverAddress: isOutgoing ? contactAddress : myAddress,
+            content: content,
+            timestamp: Date(timeIntervalSince1970: TimeInterval(blockTimeMs) / 1000.0),
+            blockTime: blockTimeMs,
+            acceptingBlock: transaction.acceptingBlockHash,
+            isOutgoing: isOutgoing,
+            messageType: .contextual,
+            deliveryStatus: .sent
+        )
+        addMessageToConversation(message, contactAddress: contactAddress)
+        if blockTimeMs > lastPollTime {
+            updateLastPollTime(blockTimeMs)
+        }
+        removeKNSTransferChatHint(for: txId)
+        NSLog(
+            "[ChatService] Added KNS transfer message tx=%@ direction=%@ domain=%@ source=%@",
+            String(txId.prefix(12)),
+            isOutgoing ? "outgoing" : "incoming",
+            domainName ?? domainId,
+            source
+        )
+    }
+
+    func resolveKNSTransferDomainName(
+        domainId: String,
+        myAddress: String,
+        counterpartyAddress: String?
+    ) async -> String? {
+        let trimmedDomainId = domainId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDomainId.isEmpty else { return nil }
+
+        if let ownCached = cachedDomainNameForAssetId(trimmedDomainId, ownerAddress: myAddress) {
+            return ownCached
+        }
+        if let counterpartyAddress,
+           let counterpartyCached = cachedDomainNameForAssetId(trimmedDomainId, ownerAddress: counterpartyAddress) {
+            return counterpartyCached
+        }
+        if let anyCached = cachedDomainNameForAssetId(trimmedDomainId, ownerAddress: nil) {
+            return anyCached
+        }
+        for attempt in 1...3 {
+            if let resolved = await KNSService.shared.resolveDomainName(assetId: trimmedDomainId) {
+                return resolved
+            }
+            if attempt < 3 {
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+            }
+        }
+        return nil
+    }
+
+    func cachedDomainNameForAssetId(_ assetId: String, ownerAddress: String?) -> String? {
+        let normalizedAssetId = assetId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedAssetId.isEmpty else { return nil }
+
+        if let ownerAddress {
+            let normalizedOwner = ownerAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let info = KNSService.shared.domainCache[normalizedOwner],
+               let domain = info.allDomains.first(where: { $0.inscriptionId == normalizedAssetId }) {
+                return domain.fullName
+            }
+            return nil
+        }
+
+        for info in KNSService.shared.domainCache.values {
+            if let domain = info.allDomains.first(where: { $0.inscriptionId == normalizedAssetId }) {
+                return domain.fullName
+            }
+        }
+        return nil
     }
 
     nonisolated static func payloadPrefixString(from payloadHex: String, byteCount: Int) -> String? {
@@ -1648,6 +2032,18 @@ extension ChatService {
         var needsFullSync = false
 
         for payment in payments {
+            if isSuppressedPaymentTxId(payment.txId) {
+                _ = addKNSTransferMessageFromHintIfNeeded(
+                    txId: payment.txId,
+                    myAddress: myAddress,
+                    blockTimeMs: payment.blockTime,
+                    acceptingBlock: payment.acceptingBlock
+                )
+                let normalizedTxId = payment.txId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                _ = removeSuppressedPaymentMessages(txIds: [normalizedTxId])
+                continue
+            }
+
             if !isOutgoing, let amount = payment.amount, amount > 0 {
                 incomingResolutionAmountHints[payment.txId] = amount
             }
@@ -2367,20 +2763,39 @@ extension ChatService {
     func paymentContent(_ payment: PaymentResponse, isOutgoing: Bool) -> String {
         if let amount = payment.amount {
             let formatted = formatKasAmount(amount)
-            let direction = isOutgoing ? "Sent" : "Received"
             if let payload = decodePaymentPayload(payment.messagePayload),
                !payload.message.isEmpty {
-                return "\(direction) \(formatted) KAS — \(payload.message)"
+                let template = isOutgoing
+                    ? NSLocalizedString("Sent %@ KAS — %@", comment: "Outgoing payment with note")
+                    : NSLocalizedString("Received %@ KAS — %@", comment: "Incoming payment with note")
+                return String(format: template, formatted, payload.message)
             }
-            return "\(direction) \(formatted) KAS"
+            let template = isOutgoing
+                ? NSLocalizedString("Sent %@ KAS", comment: "Outgoing payment without note")
+                : NSLocalizedString("Received %@ KAS", comment: "Incoming payment without note")
+            return String(format: template, formatted)
         }
 
         if let payload = decodePaymentPayload(payment.messagePayload) {
-            let kasAmount = Double(payload.amount) / 100_000_000.0
-            return "Payment: \(kasAmount) KAS — \(payload.message)"
+            let formatted = formatKasAmount(payload.amount)
+            let template = NSLocalizedString("Payment: %@ KAS — %@", comment: "Fallback payment content with amount and note")
+            return String(format: template, formatted, payload.message)
         }
 
-        return "[Payment]"
+        return NSLocalizedString("[Payment]", comment: "Fallback payment label")
+    }
+
+    func localizedKNSTransferMessage(domainName: String?, isOutgoing: Bool) -> String {
+        let trimmedDomain = domainName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedDomain.isEmpty {
+            let template = isOutgoing
+                ? NSLocalizedString("Sent %@ domain", comment: "Outgoing KNS domain transfer message")
+                : NSLocalizedString("Received %@ domain", comment: "Incoming KNS domain transfer message")
+            return String(format: template, trimmedDomain)
+        }
+        return isOutgoing
+            ? NSLocalizedString("Sent domain transfer", comment: "Outgoing KNS domain transfer fallback")
+            : NSLocalizedString("Received domain transfer", comment: "Incoming KNS domain transfer fallback")
     }
 
     func formatKasAmount(_ sompi: UInt64) -> String {

@@ -37,7 +37,7 @@ struct MessageBubbleView: View {
 
             VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 4) {
                 // Message type indicator for special messages
-                if message.messageType != .contextual {
+                if shouldShowMessageTypeIndicator {
                     messageTypeIndicator
                 }
 
@@ -163,6 +163,76 @@ struct MessageBubbleView: View {
         message.messageType == .payment && message.deliveryStatus == .pending
     }
 
+    private var shouldShowMessageTypeIndicator: Bool {
+        message.messageType != .contextual || isKNSTransferMessage
+    }
+
+    private var isKNSTransferMessage: Bool {
+        guard message.messageType == .contextual else { return false }
+        let normalized = message.content
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if matchesSinglePlaceholderFormat(
+            normalizedContent: normalized,
+            localizedTemplate: NSLocalizedString("Sent %@ domain", comment: "Outgoing KNS domain transfer message")
+        ) {
+            return true
+        }
+        if matchesSinglePlaceholderFormat(
+            normalizedContent: normalized,
+            localizedTemplate: NSLocalizedString("Received %@ domain", comment: "Incoming KNS domain transfer message")
+        ) {
+            return true
+        }
+
+        let localizedOutgoingFallback = NSLocalizedString("Sent domain transfer", comment: "Outgoing KNS domain transfer fallback")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let localizedIncomingFallback = NSLocalizedString("Received domain transfer", comment: "Incoming KNS domain transfer fallback")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        if normalized == localizedOutgoingFallback || normalized == localizedIncomingFallback {
+            return true
+        }
+
+        // Backward compatibility for already-stored English messages.
+        if normalized.hasPrefix("sent ") && normalized.contains(".kas domain") {
+            return true
+        }
+        if normalized.hasPrefix("received ") && normalized.contains(".kas domain") {
+            return true
+        }
+        if normalized == "sent domain transfer" || normalized == "received domain transfer" {
+            return true
+        }
+        return false
+    }
+
+    private func matchesSinglePlaceholderFormat(
+        normalizedContent: String,
+        localizedTemplate: String
+    ) -> Bool {
+        let normalizedTemplate = localizedTemplate
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard let placeholderRange = normalizedTemplate.range(of: "%@") else {
+            return false
+        }
+
+        let prefix = String(normalizedTemplate[..<placeholderRange.lowerBound])
+        let suffix = String(normalizedTemplate[placeholderRange.upperBound...])
+        guard normalizedContent.hasPrefix(prefix),
+              normalizedContent.hasSuffix(suffix) else {
+            return false
+        }
+
+        let domainStart = normalizedContent.index(normalizedContent.startIndex, offsetBy: prefix.count)
+        let domainEnd = normalizedContent.index(normalizedContent.endIndex, offsetBy: -suffix.count)
+        guard domainStart <= domainEnd else { return false }
+        let domainPart = normalizedContent[domainStart..<domainEnd].trimmingCharacters(in: .whitespacesAndNewlines)
+        return !domainPart.isEmpty
+    }
+
     private func startShimmerIfNeeded() {
         guard shouldShowResolvingOverlay else {
             shimmerPhase = -1
@@ -285,7 +355,21 @@ struct MessageBubbleView: View {
             .clipShape(Capsule())
 
         case .contextual:
-            EmptyView()
+            if isKNSTransferMessage {
+                HStack(spacing: 4) {
+                    Image(systemName: "globe")
+                        .font(.caption2)
+                    Text("Domain")
+                        .font(.caption2)
+                }
+                .foregroundColor(.blue)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(Color.blue.opacity(0.1))
+                .clipShape(Capsule())
+            } else {
+                EmptyView()
+            }
 
         case .audio:
             HStack(spacing: 4) {

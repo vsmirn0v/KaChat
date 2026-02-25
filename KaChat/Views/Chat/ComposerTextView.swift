@@ -45,12 +45,19 @@ final class ComposerUITextView: UITextView {
 // MARK: - UIViewRepresentable
 
 struct ComposerTextView: UIViewRepresentable {
+    struct TextInsertionRequest: Equatable {
+        let id: UUID
+        let text: String
+    }
+
     @Binding var text: String
     @Binding var isFocused: Bool
     var onTextChange: (String) -> Void
     var onSubmit: () -> Void
-    var placeholder: String = "Message"
+    var placeholder: String = String(localized: "Message")
     var maxLines: Int = 5
+    var insertionRequest: TextInsertionRequest? = nil
+    var onInsertionHandled: ((UUID) -> Void)? = nil
 
     private static let placeholderTag = 999
 
@@ -110,9 +117,20 @@ struct ComposerTextView: UIViewRepresentable {
             uiView.text = text
             context.coordinator.isProgrammaticChange = false
             if let label = uiView.viewWithTag(Self.placeholderTag) as? UILabel {
+                label.text = placeholder
                 label.isHidden = !text.isEmpty
             }
             uiView.invalidateIntrinsicContentSize()
+        } else if let label = uiView.viewWithTag(Self.placeholderTag) as? UILabel,
+                  label.text != placeholder {
+            label.text = placeholder
+        }
+
+        if let request = insertionRequest,
+           context.coordinator.lastHandledInsertionID != request.id {
+            context.coordinator.lastHandledInsertionID = request.id
+            context.coordinator.insert(text: request.text, into: uiView)
+            onInsertionHandled?(request.id)
         }
 
         // Focus sync
@@ -138,9 +156,38 @@ struct ComposerTextView: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ComposerTextView
         var isProgrammaticChange = false
+        var lastHandledInsertionID: UUID?
 
         init(parent: ComposerTextView) {
             self.parent = parent
+        }
+
+        func insert(text insertedText: String, into textView: UITextView) {
+            let original = textView.text ?? ""
+            let nsText = original as NSString
+            let insertionLocation: Int
+            if textView.isFirstResponder {
+                let selected = textView.selectedRange
+                // Picker taps should insert additional emoji, not replace selected content.
+                insertionLocation = min(max(selected.location + selected.length, 0), nsText.length)
+            } else {
+                insertionLocation = nsText.length
+            }
+            let insertionRange = NSRange(location: insertionLocation, length: 0)
+            let updated = nsText.replacingCharacters(in: insertionRange, with: insertedText)
+            let newCursorLocation = insertionLocation + (insertedText as NSString).length
+
+            isProgrammaticChange = true
+            textView.text = updated
+            textView.selectedRange = NSRange(location: newCursorLocation, length: 0)
+            isProgrammaticChange = false
+
+            parent.text = updated
+            parent.onTextChange(updated)
+            if let label = textView.viewWithTag(ComposerTextView.placeholderTag) as? UILabel {
+                label.isHidden = !updated.isEmpty
+            }
+            textView.invalidateIntrinsicContentSize()
         }
 
         func textViewDidChange(_ textView: UITextView) {

@@ -111,6 +111,15 @@ final class ChatService: ObservableObject {
         let observedAt: Date
     }
 
+    struct KNSTransferChatHint {
+        let txId: String
+        let domainName: String
+        let domainId: String
+        let counterpartyAddress: String
+        let isOutgoing: Bool
+        let timestampMs: UInt64
+    }
+
     /// Computed connection status based on node subscription state
     var connectionStatus: RpcConnectionStatus {
         let nodePoolState = NodePoolService.shared.subscriptionState
@@ -171,9 +180,12 @@ final class ChatService: ObservableObject {
     var incomingResolutionPendingTxIds = Set<String>()
     var incomingResolutionWarningTxIds = Set<String>()
     var incomingResolutionAmountHints: [String: UInt64] = [:]
+    var hiddenPaymentTxIdTimestamps: [String: UInt64] = [:]
+    var knsTransferHintsByTxId: [String: KNSTransferChatHint] = [:]
     let incomingResolutionMaxAdditionalRetries = 10
     let incomingResolutionBaseDelayNs: UInt64 = 2_000_000_000
     let incomingResolutionMaxDelayNs: UInt64 = 300_000_000_000
+    let hiddenPaymentTxMaxAgeMs: UInt64 = 30 * 24 * 60 * 60 * 1000
     var selfStashRetryCounts: [String: Int] = [:]
     var selfStashFirstAttemptAt: [String: Date] = [:]
     var mempoolResolveInFlight = Set<String>()
@@ -201,6 +213,7 @@ final class ChatService: ObservableObject {
     let pushConsecutiveMissesKey = "kachat_push_consecutive_misses"
     let pushLastCatchUpSyncAtKey = "kachat_push_last_catchup_sync_at"
     let pushLastReregisterAtKey = "kachat_push_last_reregister_at"
+    let hiddenPaymentTxIdsKey = "kachat_hidden_payment_tx_ids_v1"
     let syncReorgBufferMs: UInt64 = 600_000
 
     var activeContacts: [Contact] {
@@ -290,6 +303,12 @@ final class ChatService: ObservableObject {
     var noInputRetryCounts: [String: Int] = [:]
     let spendableFundsRetryAttempts = 5
     let spendableFundsRetryBaseDelay: TimeInterval = 0.1
+    var lastMessageCompactionAt: Date = .distantPast
+    let messageCompactionCooldown: TimeInterval = 30
+    let messageCompactionInputThreshold = 4
+    let messageCompactionFeeThresholdSompi: UInt64 = 5_000
+    let messageCompactionMaxInputs = 8
+    let messageCompactionTargetBurstMessages = 8
 
     // Spam detection: track irrelevant TX notifications per contact (20+ in 1 minute = noisy)
     var contactTxNotifications: [String: [Date]] = [:]  // address -> timestamps
@@ -343,6 +362,7 @@ final class ChatService: ObservableObject {
         loadPendingSelfStash()
         loadDeclinedContacts()
         loadPushReliabilityState()
+        loadHiddenPaymentTxIds()
         observeContacts()
         observeSettings()
         observeRpcReconnection()
@@ -527,6 +547,8 @@ final class ChatService: ObservableObject {
         incomingResolutionPendingTxIds = []
         incomingResolutionWarningTxIds = []
         incomingResolutionAmountHints = [:]
+        hiddenPaymentTxIdTimestamps = [:]
+        knsTransferHintsByTxId = [:]
         suppressNotificationsUntilSynced = true  // Suppress notifications during initial sync
         hasCompletedInitialSync = false  // Allow full re-sync for new wallet
         userDefaults.removeObject(forKey: lastPollTimeKey)
@@ -547,6 +569,7 @@ final class ChatService: ObservableObject {
         userDefaults.removeObject(forKey: pushConsecutiveMissesKey)
         userDefaults.removeObject(forKey: pushLastCatchUpSyncAtKey)
         userDefaults.removeObject(forKey: pushLastReregisterAtKey)
+        userDefaults.removeObject(forKey: hiddenPaymentTxIdsKey)
         routingStates = [:]
         if !skipStoreClear {
             messageStore.clearAll()

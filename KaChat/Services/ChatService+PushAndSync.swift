@@ -677,9 +677,29 @@ extension ChatService {
             return true
         }
 
+        if isSuppressedPaymentTxId(txId) {
+            _ = addKNSTransferMessageFromHintIfNeeded(
+                txId: txId,
+                myAddress: wallet.publicAddress,
+                blockTimeMs: UInt64(max(0, timestamp))
+            )
+            NSLog("[ChatService] Push payment %@ is already suppressed", String(txId.prefix(12)))
+            return false
+        }
+
         let myAddress = wallet.publicAddress
         let isOutgoing = sender == myAddress
         let privateKey = WalletManager.shared.getPrivateKey()
+
+        if let tx = await fetchKaspaTransaction(txId: txId),
+           await handleKNSOperationTransactionIfNeeded(
+            tx,
+            myAddress: myAddress,
+            source: "kns-push-payment"
+           ) {
+            NSLog("[ChatService] Push payment %@ identified as KNS operation, suppressing", String(txId.prefix(12)))
+            return false
+        }
 
         if let payload, !payload.isEmpty {
             if isContextualPayload(payload) || isSelfStashPayload(payload) {
@@ -1002,6 +1022,15 @@ extension ChatService {
         myAddress: String
     ) async -> (receiver: String, amount: UInt64, payload: String?)? {
         guard let fullTx = await fetchKaspaTransaction(txId: txId) else {
+            return nil
+        }
+
+        if await handleKNSOperationTransactionIfNeeded(
+            fullTx,
+            myAddress: myAddress,
+            source: "kns-push-payment-details"
+        ) {
+            NSLog("[ChatService] Suppressing KNS tx %@ while resolving payment details", String(txId.prefix(12)))
             return nil
         }
 

@@ -95,6 +95,10 @@ struct ChatDetailView: View {
     @State private var longPressTimer: Timer? = nil
     @State private var isDraggingMenu = false
     @State private var isMessageFocused = false
+    @State private var showEmojiPicker = false
+    @State private var selectedEmojiCategory: EmojiCategory = .recent
+    @State private var emojiSearchText = ""
+    @State private var recentEmojis: [String] = ["👍", "❤️", "😂", "🔥", "🙏", "🎉", "✅", "🙂"]
     @State private var viewportResetTrigger = UUID()
     @State private var showDustWarning = false
     @State private var pendingDustAmountSompi: UInt64 = 0
@@ -609,6 +613,8 @@ struct ChatDetailView: View {
         .onDisappear {
             chatService.leaveConversation()
             cancelRecording()
+            showEmojiPicker = false
+            emojiSearchText = ""
             snapshotRebuildTask?.cancel()
             storedCountTask?.cancel()
             scrollInteractionResetWorkItem?.cancel()
@@ -651,6 +657,8 @@ struct ChatDetailView: View {
             messageText = ""
             inputMode = .message
             amountText = ""
+            showEmojiPicker = false
+            emojiSearchText = ""
             initialViewportPositioned = false
             didInitialScroll = false
             topVisibleMessageId = nil
@@ -1044,6 +1052,141 @@ struct ChatDetailView: View {
         }
     }
 
+    private enum EmojiCategory: String, CaseIterable, Identifiable {
+        case recent
+        case smileys
+        case gestures
+        case hearts
+        case symbols
+
+        var id: String { rawValue }
+
+        var icon: String {
+            switch self {
+            case .recent: return "clock"
+            case .smileys: return "face.smiling"
+            case .gestures: return "hand.raised"
+            case .hearts: return "heart"
+            case .symbols: return "star"
+            }
+        }
+
+        var emojis: [String] {
+            switch self {
+            case .recent:
+                return []
+            case .smileys:
+                return ["😀", "😄", "😁", "😎", "🥳", "🙂", "😉", "😊", "😇", "🤩", "😍", "😘", "🤗", "😌", "😋", "🤔", "😴", "🤯", "🥲", "😭", "😤", "🤝", "🫡", "😅"]
+            case .gestures:
+                return ["👍", "👎", "👌", "✌️", "🤞", "🤟", "🤘", "🤙", "👏", "🙌", "🙏", "💪", "🫶", "👋", "🖐️", "🤚", "☝️", "👇", "👉", "👈", "✍️", "🤝", "🫂", "🧠"]
+            case .hearts:
+                return ["❤️", "🧡", "💛", "💚", "🩵", "💙", "💜", "🩷", "🤍", "🖤", "🤎", "💔", "❤️‍🔥", "❤️‍🩹", "💖", "💗", "💓", "💕", "💞", "💘", "💝", "🥰", "😍", "😘"]
+            case .symbols:
+                return ["🔥", "✨", "⭐️", "🎉", "✅", "❌", "⚠️", "💯", "💸", "💎", "🔒", "🔑", "📌", "📈", "🚀", "🎯", "🏆", "🛡️", "💬", "📣", "🎵", "📷", "🎁", "🧩"]
+            }
+        }
+    }
+
+    private static let emojiKeywordIndex: [String: String] = [
+        "😀": "grinning face smile happy",
+        "😄": "grinning face with smiling eyes happy laugh",
+        "😁": "beaming face grin smile",
+        "😂": "face with tears of joy laugh crying laughing",
+        "😎": "smiling face with sunglasses cool",
+        "🥳": "partying face party celebration",
+        "🙂": "slightly smiling face smile",
+        "😉": "winking face wink",
+        "😊": "smiling face blush",
+        "😇": "smiling face halo angel",
+        "🤩": "star struck face wow",
+        "😍": "smiling face with heart eyes love",
+        "😘": "face blowing kiss kiss love",
+        "🤗": "hugging face hug",
+        "😌": "relieved face calm",
+        "😋": "face savoring food yummy tongue",
+        "🤔": "thinking face think",
+        "😴": "sleeping face tired sleep",
+        "🤯": "exploding head mind blown shock",
+        "🥲": "smiling face with tear emotional",
+        "😭": "loudly crying face cry sad tears",
+        "😤": "face with steam from nose frustrated",
+        "😅": "grinning face with sweat nervous laugh",
+        "🫡": "saluting face salute respect",
+
+        "👍": "thumbs up like approve",
+        "👎": "thumbs down dislike",
+        "👌": "ok hand",
+        "✌️": "victory hand peace",
+        "🤞": "crossed fingers luck",
+        "🤟": "love you gesture hand sign",
+        "🤘": "sign of the horns rock",
+        "🤙": "call me hand shaka",
+        "👏": "clapping hands clap",
+        "🙌": "raising hands celebrate",
+        "🙏": "folded hands pray thanks",
+        "💪": "flexed biceps strong muscle",
+        "🫶": "heart hands love",
+        "👋": "waving hand hello",
+        "🖐️": "hand with fingers splayed",
+        "🤚": "raised back of hand stop",
+        "☝️": "index pointing up point up",
+        "👇": "index pointing down point down",
+        "👉": "index pointing right point right",
+        "👈": "index pointing left point left",
+        "✍️": "writing hand write",
+        "🤝": "handshake deal agree",
+        "🫂": "people hugging hug",
+        "🧠": "brain mind",
+
+        "❤️": "red heart love",
+        "🧡": "orange heart",
+        "💛": "yellow heart",
+        "💚": "green heart",
+        "🩵": "light blue heart",
+        "💙": "blue heart",
+        "💜": "purple heart",
+        "🩷": "pink heart",
+        "🤍": "white heart",
+        "🖤": "black heart",
+        "🤎": "brown heart",
+        "💔": "broken heart breakup",
+        "❤️‍🔥": "heart on fire passion",
+        "❤️‍🩹": "mending heart heal",
+        "💖": "sparkling heart",
+        "💗": "growing heart",
+        "💓": "beating heart",
+        "💕": "two hearts",
+        "💞": "revolving hearts",
+        "💘": "heart with arrow cupid",
+        "💝": "heart with ribbon gift",
+        "🥰": "smiling face with hearts in love",
+
+        "🔥": "fire lit hot",
+        "✨": "sparkles sparkle shine",
+        "⭐️": "star",
+        "🎉": "party popper celebration confetti",
+        "✅": "check mark done success",
+        "❌": "cross mark x cancel",
+        "⚠️": "warning caution alert",
+        "💯": "hundred points 100",
+        "💸": "money with wings spend cash",
+        "💎": "gem stone diamond",
+        "🔒": "lock secure private",
+        "🔑": "key unlock access",
+        "📌": "pushpin pin",
+        "📈": "chart increasing growth",
+        "🚀": "rocket launch",
+        "🎯": "direct hit target",
+        "🏆": "trophy winner",
+        "🛡️": "shield protection",
+        "💬": "speech balloon message chat",
+        "📣": "megaphone announce",
+        "🎵": "musical note music",
+        "📷": "camera photo",
+        "🎁": "wrapped gift present",
+        "🧩": "puzzle piece"
+    ]
+
     private struct ModeMenuItem: Identifiable {
         let id = UUID()
         let title: LocalizedStringKey
@@ -1097,10 +1240,18 @@ struct ChatDetailView: View {
     // MARK: - Unified Input Bar (handles all handshake states)
 
     private var inputBar: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 8) {
+            if showEmojiPicker && !isDeclined && inputMode == .message {
+                emojiPicker
+            }
+
             ZStack(alignment: .topLeading) {
                 HStack(spacing: 12) {
                     inputFieldWithState
+
+                    if !isDeclined && inputMode == .message {
+                        emojiToggleButton
+                    }
 
                     sendButtonWithMenu
                 }
@@ -1115,6 +1266,7 @@ struct ChatDetailView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+        .animation(.easeInOut(duration: 0.16), value: showEmojiPicker)
     }
 
     private var bottomFade: some View {
@@ -1155,6 +1307,8 @@ struct ChatDetailView: View {
         Group {
             if isDeclined {
                 EmptyView()
+            } else if shouldShowComposerQuickActions {
+                composerQuickActions
             } else {
                 sendButtonWithGesture(
                     tapAction: { handleSend() },
@@ -1162,6 +1316,216 @@ struct ChatDetailView: View {
                 )
             }
         }
+    }
+
+    private var emojiToggleButton: some View {
+        Button {
+            if showEmojiPicker {
+                showEmojiPicker = false
+                emojiSearchText = ""
+            } else {
+                selectedEmojiCategory = recentEmojis.isEmpty ? .smileys : .recent
+                emojiSearchText = ""
+                showEmojiPicker = true
+                isMessageFocused = true
+            }
+        } label: {
+            Image(systemName: "face.smiling")
+                .font(.title3)
+                .foregroundColor(showEmojiPicker ? .accentColor : .primary)
+                .frame(width: 44, height: 44)
+                .background(glassBackground(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Emoji picker"))
+    }
+
+    private var shouldShowComposerQuickActions: Bool {
+        inputMode == .message && messageText.isEmpty
+    }
+
+    private var canSendRequestToCommunicate: Bool {
+        !hasOutgoingHandshakeMessage && !hasIncomingHandshakeMessage && !isRespondingHandshake
+    }
+
+    private var composerQuickActions: some View {
+        HStack(spacing: 8) {
+            composerQuickActionButton(
+                title: "Send KAS",
+                icon: "k.circle.fill"
+            ) {
+                switchMode(.payment)
+            }
+
+            composerQuickActionButton(
+                title: "Send audio",
+                icon: "mic.circle.fill"
+            ) {
+                switchMode(.audio)
+            }
+
+            if canSendRequestToCommunicate {
+                composerQuickActionButton(
+                    title: "Request to communicate",
+                    icon: "hand.wave"
+                ) {
+                    sendHandshake()
+                }
+            }
+        }
+    }
+
+    private func composerQuickActionButton(
+        title: LocalizedStringKey,
+        icon: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundColor(.accentColor)
+                .frame(width: 44, height: 44)
+                .background(glassBackground(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(title))
+    }
+
+    private var emojiPicker: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                ForEach(EmojiCategory.allCases) { category in
+                    Button {
+                        selectedEmojiCategory = category
+                    } label: {
+                        Image(systemName: category.icon)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(selectedEmojiCategory == category ? .accentColor : .secondary)
+                            .frame(width: 28, height: 28)
+                            .background(
+                                Circle()
+                                    .fill(selectedEmojiCategory == category ? Color.accentColor.opacity(0.16) : Color.clear)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    showEmojiPicker = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+
+                TextField("Search emoji", text: $emojiSearchText)
+                    .textInputAutocapitalization(.never)
+                    .disableAutocorrection(true)
+
+                if !emojiSearchText.isEmpty {
+                    Button {
+                        emojiSearchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.primary.opacity(0.08))
+            )
+
+            if emojisForPicker.isEmpty {
+                Text("No emoji found")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 6)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(emojisForPicker, id: \.self) { emoji in
+                            Button {
+                                insertEmoji(emoji)
+                            } label: {
+                                Text(emoji)
+                                    .font(.system(size: 28))
+                                    .frame(width: 38, height: 38)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                }
+            }
+        }
+        .padding(10)
+        .background(glassBackground(cornerRadius: 16))
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    private var emojisForSelectedCategory: [String] {
+        if selectedEmojiCategory == .recent {
+            if recentEmojis.isEmpty {
+                return EmojiCategory.smileys.emojis
+            }
+            return recentEmojis
+        }
+        return selectedEmojiCategory.emojis
+    }
+
+    private var allAvailableEmojisInOrder: [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        let source = recentEmojis + EmojiCategory.allCases.filter { $0 != .recent }.flatMap { $0.emojis }
+        for emoji in source where seen.insert(emoji).inserted {
+            ordered.append(emoji)
+        }
+        return ordered
+    }
+
+    private var emojiSearchTokens: [String] {
+        emojiSearchText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+    }
+
+    private var emojisForPicker: [String] {
+        guard !emojiSearchTokens.isEmpty else {
+            return emojisForSelectedCategory
+        }
+        return allAvailableEmojisInOrder.filter { emojiMatchesSearch($0) }
+    }
+
+    private func emojiMatchesSearch(_ emoji: String) -> Bool {
+        guard !emojiSearchTokens.isEmpty else { return true }
+        let keywords = Self.emojiKeywordIndex[emoji] ?? ""
+        let searchableText = "\(emoji) \(keywords)".lowercased()
+        return emojiSearchTokens.allSatisfy { searchableText.contains($0) }
+    }
+
+    private func insertEmoji(_ emoji: String) {
+        recentEmojis.removeAll { $0 == emoji }
+        recentEmojis.insert(emoji, at: 0)
+        if recentEmojis.count > 24 {
+            recentEmojis = Array(recentEmojis.prefix(24))
+        }
+        messageText += emoji
+        scheduleFeeEstimate(for: messageText)
+        chatService.setDraft(messageText, for: contact.address)
+        isMessageFocused = true
     }
 
     private func sendButtonWithGesture(tapAction: @escaping () -> Void, isDisabled: Bool) -> some View {
@@ -1426,7 +1790,7 @@ struct ChatDetailView: View {
                 HStack {
                     if isRecording {
                         ProgressView()
-                        Text("Recording… \(Int(recordingDuration))s")
+                        Text("\(String(localized: "Recording...")) \(Int(recordingDuration))s")
                         Spacer()
                         Button {
                             cancelRecording()
@@ -1451,7 +1815,7 @@ struct ChatDetailView: View {
                             Image(systemName: previewIsPlaying ? "pause.circle.fill" : "play.circle.fill")
                                 .foregroundColor(.accentColor)
                         }
-                        Text("Audio ready • \(previewLabel)")
+                        Text("\(String(localized: "Audio ready")) • \(previewLabel)")
                         Spacer()
                         Button {
                             cancelRecording()
@@ -1560,6 +1924,10 @@ struct ChatDetailView: View {
         let wasKeyboardOpen = isMessageFocused || isPaymentFocused
 
         inputMode = mode
+        if mode != .message {
+            showEmojiPicker = false
+            emojiSearchText = ""
+        }
         feeEstimateSompi = nil
         isEstimatingFee = false
         if mode != .payment { amountText = "" }

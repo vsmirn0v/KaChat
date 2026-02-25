@@ -208,6 +208,119 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         persistProfileCache()
     }
 
+    /// Normalize user input to a KNS label (without `.kas`) for inscription.
+    /// Returns nil when value is empty or has unsupported characters.
+    func normalizeDomainLabel(_ raw: String) -> String? {
+        var value = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !value.isEmpty else { return nil }
+        if value.hasSuffix(".kas") {
+            value = String(value.dropLast(4))
+        }
+        guard !value.isEmpty else { return nil }
+        guard !value.hasPrefix("-"), !value.hasSuffix("-") else { return nil }
+
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789-")
+        guard value.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+            return nil
+        }
+        return value
+    }
+
+    /// Fetch KNS inscription fee tiers in KAS units.
+    /// Tier keys: 1...5 where 5 means "5+ chars".
+    func fetchInscribeFeeTiers() async throws -> [Int: Decimal] {
+        guard var components = URLComponents(string: baseURL) else {
+            throw KasiaError.networkError("Invalid KNS base URL")
+        }
+        components.path += "/fee"
+        guard let url = components.url else {
+            throw KasiaError.networkError("Invalid KNS fee URL")
+        }
+
+        let (data, response) = try await fetchData(from: url)
+        guard let http = response as? HTTPURLResponse else {
+            throw KasiaError.networkError("No HTTP response from KNS fee endpoint")
+        }
+        guard http.statusCode == 200 else {
+            let responseText = String(data: data, encoding: .utf8) ?? ""
+            throw KasiaError.networkError("KNS fee fetch failed (\(http.statusCode)): \(responseText)")
+        }
+
+        let decoded = try JSONDecoder().decode(KNSInscribeFeeResponse.self, from: data)
+        guard decoded.success else {
+            throw KasiaError.apiError(decoded.error ?? decoded.message ?? "KNS fee fetch failed")
+        }
+        guard let rawFeeMap = decoded.data?.fee, !rawFeeMap.isEmpty else {
+            throw KasiaError.apiError("KNS fee response is missing tier data")
+        }
+
+        var mapped: [Int: Decimal] = [:]
+        for (key, value) in rawFeeMap {
+            guard let tier = Int(key), tier > 0 else { continue }
+            mapped[tier] = value
+        }
+        guard !mapped.isEmpty else {
+            throw KasiaError.apiError("KNS fee response has invalid tier data")
+        }
+        return mapped
+    }
+
+    /// Check whether a domain is available for inscription.
+    /// - Parameters:
+    ///   - address: wallet address used by KNS backend checks
+    ///   - domainName: full domain (with or without `.kas`)
+    func checkDomainAvailability(
+        address: String,
+        domainName: String
+    ) async throws -> KNSDomainAvailability {
+        guard let normalized = normalizeDomainName(domainName) else {
+            throw KasiaError.apiError("Invalid domain name")
+        }
+
+        guard var components = URLComponents(string: baseURL) else {
+            throw KasiaError.networkError("Invalid KNS base URL")
+        }
+        components.path += "/domains/check"
+        guard let url = components.url else {
+            throw KasiaError.networkError("Invalid KNS domain check URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(
+            KNSDomainCheckRequest(
+                address: address,
+                domainNames: [normalized]
+            )
+        )
+
+        let (data, response) = try await fetchData(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw KasiaError.networkError("No HTTP response from KNS domain check endpoint")
+        }
+        guard http.statusCode == 200 else {
+            let responseText = String(data: data, encoding: .utf8) ?? ""
+            throw KasiaError.networkError("KNS domain check failed (\(http.statusCode)): \(responseText)")
+        }
+
+        let decoded = try JSONDecoder().decode(KNSDomainCheckResponse.self, from: data)
+        guard decoded.success else {
+            throw KasiaError.apiError(decoded.error ?? decoded.message ?? "KNS domain check failed")
+        }
+        guard let domains = decoded.data?.domains, !domains.isEmpty else {
+            throw KasiaError.apiError("KNS domain check response is empty")
+        }
+        let matched = domains.first(where: { $0.domain.lowercased() == normalized }) ?? domains[0]
+        return KNSDomainAvailability(
+            domain: matched.domain.lowercased(),
+            available: matched.available,
+            isReservedDomain: matched.isReservedDomain
+        )
+    }
+
     /// Get cached/fetched KNS profile for an address.
     func getProfile(for address: String, network: NetworkType = .mainnet) async -> KNSAddressProfileInfo? {
         if let cached = profileCache[address] {
@@ -262,6 +375,29 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         }
     }
 
+    /// Resolve domain full name from domain asset id.
+    func resolveDomainName(assetId: String) async -> String? {
+        let trimmedAssetId = assetId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAssetId.isEmpty else { return nil }
+
+        for info in domainCache.values {
+            if let matched = info.allDomains.first(where: { $0.inscriptionId == trimmedAssetId }) {
+                return matched.fullName
+            }
+        }
+
+        let (profileData, _) = await fetchDomainProfileResult(
+            assetId: trimmedAssetId,
+            baseURL: baseURL,
+            keys: nil
+        )
+        guard let profileData,
+              let fullName = profileData.fullName else {
+            return nil
+        }
+        return normalizeDomainName(fullName)
+    }
+
     // MARK: - Phase 2 Write Primitives
 
     /// Build canonical `addProfile` inscription operation payload.
@@ -278,20 +414,92 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         )
     }
 
+    /// Build canonical `transfer` payload for domain asset transfer.
+    func buildTransferDomainPayload(
+        assetId: String,
+        toAddress: String
+    ) -> KNSTransferDomainPayload {
+        KNSTransferDomainPayload(
+            op: "transfer",
+            p: "domain",
+            id: assetId,
+            to: toAddress
+        )
+    }
+
     /// Build the message string that must be signed for image upload authorization.
     func buildImageUploadSigningMessage(
         assetId: String,
         uploadType: KNSProfileImageUploadType
     ) throws -> String {
-        let payload = KNSProfileImageUploadSigningPayload(
-            assetId: assetId,
-            uploadType: uploadType.rawValue
-        )
-        let encoder = JSONEncoder()
-        guard let string = String(data: try encoder.encode(payload), encoding: .utf8) else {
-            throw KasiaError.encryptionError("Failed to encode image upload signing message")
+        let trimmedAssetId = assetId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAssetId.isEmpty else {
+            throw KasiaError.apiError("Missing KNS asset id")
         }
-        return string
+        // Match app.knsdomains.org payload bytes exactly.
+        return #"{"assetId":"\#(trimmedAssetId)","uploadType":"\#(uploadType.rawValue)"}"#
+    }
+
+    /// Build the message string that must be signed to set domain as primary.
+    func buildPrimaryNameSigningMessage(
+        domainId: String,
+        timestampMs: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000)
+    ) throws -> String {
+        let trimmedDomainId = domainId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDomainId.isEmpty else {
+            throw KasiaError.apiError("Missing KNS domain id")
+        }
+        // Match app.knsdomains.org payload bytes exactly.
+        return #"{"domainId":"\#(trimmedDomainId)","timestamp":\#(timestampMs)}"#
+    }
+
+    /// Set primary KNS domain for the signed wallet.
+    @discardableResult
+    func setPrimaryDomain(
+        signMessage: String,
+        signature: String
+    ) async throws -> Bool {
+        let trimmedSignMessage = signMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSignMessage.isEmpty else {
+            throw KasiaError.apiError("Missing signed message payload")
+        }
+        let trimmedSignature = signature.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSignature.isEmpty else {
+            throw KasiaError.apiError("Missing signature")
+        }
+
+        guard var components = URLComponents(string: baseURL) else {
+            throw KasiaError.networkError("Invalid KNS base URL")
+        }
+        components.path += "/domain/primary-name"
+        guard let url = components.url else {
+            throw KasiaError.networkError("Invalid KNS primary domain URL")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(
+            KNSSetPrimaryNameRequest(
+                signMessage: trimmedSignMessage,
+                signature: trimmedSignature
+            )
+        )
+
+        let (data, response) = try await fetchData(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw KasiaError.networkError("No HTTP response from KNS primary domain endpoint")
+        }
+        guard http.statusCode == 200 else {
+            let responseText = String(data: data, encoding: .utf8) ?? ""
+            throw KasiaError.networkError("KNS set primary failed (\(http.statusCode)): \(responseText)")
+        }
+
+        let decoded = try JSONDecoder().decode(KNSBasicAPIResponse.self, from: data)
+        guard decoded.success else {
+            throw KasiaError.apiError(decoded.error ?? decoded.message ?? "KNS set primary failed")
+        }
+        return true
     }
 
     /// Upload avatar/banner image to KNS storage.
@@ -876,6 +1084,32 @@ final class KNSProfileWriteService: ObservableObject {
 
     private init() {}
 
+    private func log(_ message: String) {
+        NSLog("[KNS_WRITE] %@", message)
+    }
+
+    private func diagnosticError(_ error: Error) -> String {
+        let nsError = error as NSError
+        var parts: [String] = [
+            "type=\(String(describing: type(of: error)))",
+            "message=\(error.localizedDescription)",
+            "domain=\(nsError.domain)",
+            "code=\(nsError.code)"
+        ]
+
+        if let reason = nsError.userInfo[NSLocalizedFailureReasonErrorKey] as? String, !reason.isEmpty {
+            parts.append("reason=\(reason)")
+        }
+        if let suggestion = nsError.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String, !suggestion.isEmpty {
+            parts.append("suggestion=\(suggestion)")
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            parts.append("underlying=\(underlying.domain)#\(underlying.code):\(underlying.localizedDescription)")
+        }
+
+        return parts.joined(separator: " | ")
+    }
+
     /// Submit KNS `addProfile` commit-reveal transaction pair and verify indexing.
     @discardableResult
     func submitAddProfile(
@@ -885,6 +1119,7 @@ final class KNSProfileWriteService: ObservableObject {
         domainName: String? = nil
     ) async throws -> KNSCommitRevealResult {
         let trimmedAssetId = assetId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAssetId.isEmpty else {
             throw KasiaError.apiError("Missing KNS asset id")
         }
@@ -915,6 +1150,7 @@ final class KNSProfileWriteService: ObservableObject {
         inFlightOperation = operation
 
         do {
+            log("START field=\(key.rawValue) valueLen=\(trimmedValue.count) asset=\(trimmedAssetId)")
             operation.status = .submittingCommit
             operation.updatedAt = Date()
             inFlightOperation = operation
@@ -922,12 +1158,15 @@ final class KNSProfileWriteService: ObservableObject {
             let addProfilePayload = knsService.buildAddProfilePayload(
                 assetId: trimmedAssetId,
                 key: key,
-                value: value
+                value: trimmedValue
             )
             let payloadJSON = try JSONEncoder().encode(addProfilePayload)
+            log("PAYLOAD field=\(key.rawValue) jsonBytes=\(payloadJSON.count)")
 
             let fetchedUtxos = try await nodePool.getUtxosByAddresses([wallet.publicAddress])
             let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
+            let totalSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+            log("UTXO field=\(key.rawValue) total=\(fetchedUtxos.count) spendable=\(utxos.count) sumSompi=\(totalSompi)")
             guard !utxos.isEmpty else {
                 throw KasiaError.networkError("No spendable UTXOs available for KNS update")
             }
@@ -938,7 +1177,13 @@ final class KNSProfileWriteService: ObservableObject {
                 payloadJSON: payloadJSON,
                 utxos: utxos
             )
+            log("COMMIT_BUILT field=\(key.rawValue) commitAmount=\(commitContext.commitAmountSompi) revealAmount=\(commitContext.revealAmountSompi)")
             let (commitTxId, _) = try await nodePool.submitTransaction(commitTx, allowOrphan: false)
+            log("COMMIT_SUBMITTED field=\(key.rawValue) txId=\(commitTxId)")
+            ChatService.shared.registerSuppressedPaymentTxIds(
+                [commitTxId],
+                reason: "kns-profile-commit"
+            )
 
             operation.commitTxId = commitTxId
             operation.status = .submittingReveal
@@ -953,6 +1198,11 @@ final class KNSProfileWriteService: ObservableObject {
                 revealTargetAddress: wallet.publicAddress
             )
             let (revealTxId, _) = try await submitRevealWithFallback(revealTx)
+            log("REVEAL_SUBMITTED field=\(key.rawValue) txId=\(revealTxId)")
+            ChatService.shared.registerSuppressedPaymentTxIds(
+                [commitTxId, revealTxId],
+                reason: "kns-profile-reveal"
+            )
 
             operation.revealTxId = revealTxId
             operation.status = .verifying
@@ -964,23 +1214,27 @@ final class KNSProfileWriteService: ObservableObject {
                 assetId: trimmedAssetId,
                 domainName: domainName,
                 key: key,
-                expectedValue: value,
+                expectedValue: trimmedValue,
                 timeout: 90
             )
             guard verified else {
+                log("VERIFY_TIMEOUT field=\(key.rawValue) commitTx=\(commitTxId) revealTx=\(revealTxId)")
                 throw KasiaError.apiError("KNS profile update was submitted but verification timed out")
             }
 
             operation.status = .success
             operation.updatedAt = Date()
             inFlightOperation = nil
+            log("SUCCESS field=\(key.rawValue) commitTx=\(commitTxId) revealTx=\(revealTxId)")
 
             return KNSCommitRevealResult(commitTxId: commitTxId, revealTxId: revealTxId)
         } catch {
+            let details = diagnosticError(error)
             operation.status = .failed
-            operation.errorMessage = error.localizedDescription
+            operation.errorMessage = details
             operation.updatedAt = Date()
             inFlightOperation = nil
+            log("FAIL field=\(key.rawValue) \(details)")
             throw error
         }
     }
@@ -991,10 +1245,417 @@ final class KNSProfileWriteService: ObservableObject {
         } catch {
             let message = error.localizedDescription.lowercased()
             if message.contains("orphan") {
+                log("REVEAL_RETRY allowOrphan=true reason=\(error.localizedDescription)")
                 return try await nodePool.submitTransaction(revealTx, allowOrphan: true)
             }
             throw error
         }
+    }
+}
+
+@MainActor
+final class KNSDomainInscribeService: ObservableObject {
+    static let shared = KNSDomainInscribeService()
+
+    @Published private(set) var isSubmitting = false
+
+    private let knsService = KNSService.shared
+    private let nodePool = NodePoolService.shared
+    private let walletManager = WalletManager.shared
+
+    private static let mainnetRevenueAddress = "kaspa:qyp4nvaq3pdq7609z09fvdgwtc9c7rg07fuw5zgeee7xpr085de59eseqfcmynn"
+
+    private init() {}
+
+    private func log(_ message: String) {
+        NSLog("[KNS_INSCRIBE] %@", message)
+    }
+
+    @discardableResult
+    func inscribeDomain(label rawLabel: String) async throws -> KNSDomainInscribeResult {
+        guard !isSubmitting else {
+            throw KasiaError.apiError("Another KNS domain inscription is already running")
+        }
+        guard let wallet = walletManager.currentWallet else {
+            throw KasiaError.walletNotFound
+        }
+        guard let privateKey = walletManager.getPrivateKey() else {
+            throw KasiaError.keychainError("Could not get private key")
+        }
+        guard let label = knsService.normalizeDomainLabel(rawLabel) else {
+            throw KasiaError.apiError("Invalid domain label")
+        }
+
+        let fullDomain = "\(label).kas"
+        log("START domain=\(fullDomain) address=\(wallet.publicAddress)")
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        let availability = try await knsService.checkDomainAvailability(
+            address: wallet.publicAddress,
+            domainName: fullDomain
+        )
+        guard availability.available else {
+            throw KasiaError.apiError("Domain \(fullDomain) is not available")
+        }
+
+        let feeTiers = try await knsService.fetchInscribeFeeTiers()
+        let revealKas = try revealAmountKas(label: label, isReservedDomain: availability.isReservedDomain, feeTiers: feeTiers)
+        let commitKas = commitAmountKas(for: revealKas)
+        let revealSompi = try kasToSompi(revealKas)
+        let commitSompi = try kasToSompi(commitKas)
+        log("AMOUNTS domain=\(fullDomain) revealKas=\(revealKas) commitKas=\(commitKas) revealSompi=\(revealSompi) commitSompi=\(commitSompi)")
+
+        let payload = KNSCreateDomainPayload(op: "create", p: "domain", v: label)
+        let payloadJSON = try JSONEncoder().encode(payload)
+
+        let fetchedUtxos = try await nodePool.getUtxosByAddresses([wallet.publicAddress])
+        let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
+        guard !utxos.isEmpty else {
+            throw KasiaError.networkError("No spendable UTXOs available for KNS inscription")
+        }
+        log("UTXO domain=\(fullDomain) total=\(fetchedUtxos.count) spendable=\(utxos.count)")
+
+        let (commitTx, commitContext) = try KasiaTransactionBuilder.buildKNSAddProfileCommitTx(
+            from: wallet.publicAddress,
+            senderPrivateKey: privateKey,
+            payloadJSON: payloadJSON,
+            utxos: utxos,
+            title: "kns",
+            commitAmountSompi: commitSompi,
+            revealAmountSompi: revealSompi
+        )
+        let (commitTxId, _) = try await nodePool.submitTransaction(commitTx, allowOrphan: false)
+        log("COMMIT_SUBMITTED domain=\(fullDomain) txId=\(commitTxId)")
+        ChatService.shared.registerSuppressedPaymentTxIds(
+            [commitTxId],
+            reason: "kns-inscribe-commit"
+        )
+
+        let revealTarget = try revealTargetAddress(
+            walletAddress: wallet.publicAddress,
+            isReservedDomain: availability.isReservedDomain
+        )
+        let revealTx = try KasiaTransactionBuilder.buildKNSAddProfileRevealTx(
+            walletAddress: wallet.publicAddress,
+            senderPrivateKey: privateKey,
+            commitTxId: commitTxId,
+            commitContext: commitContext,
+            revealTargetAddress: revealTarget
+        )
+        let (revealTxId, _) = try await submitRevealWithFallback(revealTx)
+        log("REVEAL_SUBMITTED domain=\(fullDomain) txId=\(revealTxId)")
+        ChatService.shared.registerSuppressedPaymentTxIds(
+            [commitTxId, revealTxId],
+            reason: "kns-inscribe-reveal"
+        )
+
+        let verified = await verifyDomainOwnership(
+            fullDomain: fullDomain,
+            expectedOwnerAddress: wallet.publicAddress
+        )
+        log("VERIFY domain=\(fullDomain) verified=\(verified)")
+
+        _ = await knsService.fetchInfo(for: wallet.publicAddress)
+        _ = await knsService.fetchProfile(for: wallet.publicAddress)
+
+        return KNSDomainInscribeResult(
+            domain: fullDomain,
+            isReservedDomain: availability.isReservedDomain,
+            serviceFeeSompi: revealSompi,
+            commitTxId: commitTxId,
+            revealTxId: revealTxId,
+            verified: verified
+        )
+    }
+
+    private func revealTargetAddress(walletAddress: String, isReservedDomain: Bool) throws -> String {
+        if isReservedDomain {
+            return walletAddress
+        }
+        switch AppSettings.load().networkType {
+        case .mainnet:
+            return Self.mainnetRevenueAddress
+        case .testnet:
+            throw KasiaError.apiError("KNS domain inscription revenue address is not configured for testnet")
+        }
+    }
+
+    private func revealAmountKas(
+        label: String,
+        isReservedDomain: Bool,
+        feeTiers: [Int: Decimal]
+    ) throws -> Decimal {
+        if isReservedDomain {
+            return 0
+        }
+        let tier = min(max(label.count, 1), 5)
+        if let fee = feeTiers[tier] ?? feeTiers[5] {
+            return fee
+        }
+        throw KasiaError.apiError("KNS fee tier data is missing")
+    }
+
+    private func commitAmountKas(for revealKas: Decimal) -> Decimal {
+        if revealKas <= 1 {
+            return 2
+        }
+        let value = NSDecimalNumber(decimal: revealKas).doubleValue * 1.05
+        return Decimal(Int(round(value)))
+    }
+
+    private func kasToSompi(_ kas: Decimal) throws -> UInt64 {
+        guard kas >= 0 else {
+            throw KasiaError.apiError("Negative KAS amount is invalid")
+        }
+        let scaled = NSDecimalNumber(decimal: kas).multiplying(by: NSDecimalNumber(value: 100_000_000))
+        let rounded = scaled.rounding(
+            accordingToBehavior: NSDecimalNumberHandler(
+                roundingMode: .plain,
+                scale: 0,
+                raiseOnExactness: false,
+                raiseOnOverflow: true,
+                raiseOnUnderflow: true,
+                raiseOnDivideByZero: true
+            )
+        )
+        if rounded == .notANumber {
+            throw KasiaError.apiError("Failed to convert KAS amount to sompi")
+        }
+        let asInt64 = rounded.int64Value
+        guard asInt64 >= 0 else {
+            throw KasiaError.apiError("Negative sompi amount is invalid")
+        }
+        return UInt64(asInt64)
+    }
+
+    private func submitRevealWithFallback(_ revealTx: KaspaRpcTransaction) async throws -> (txId: String, endpoint: String) {
+        do {
+            return try await nodePool.submitTransaction(revealTx, allowOrphan: false)
+        } catch {
+            let message = error.localizedDescription.lowercased()
+            if message.contains("orphan") {
+                log("REVEAL_RETRY allowOrphan=true reason=\(error.localizedDescription)")
+                return try await nodePool.submitTransaction(revealTx, allowOrphan: true)
+            }
+            throw error
+        }
+    }
+
+    private func verifyDomainOwnership(
+        fullDomain: String,
+        expectedOwnerAddress: String,
+        timeout: TimeInterval = 90,
+        pollInterval: TimeInterval = 2
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let resolution = await knsService.resolveDomain(fullDomain),
+               resolution.ownerAddress == expectedOwnerAddress {
+                return true
+            }
+            let nanos = UInt64(max(0.1, pollInterval) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanos)
+        }
+        return false
+    }
+}
+
+@MainActor
+final class KNSDomainTransferService: ObservableObject {
+    static let shared = KNSDomainTransferService()
+
+    @Published private(set) var isSubmitting = false
+
+    private let knsService = KNSService.shared
+    private let nodePool = NodePoolService.shared
+    private let walletManager = WalletManager.shared
+
+    private init() {}
+
+    private func log(_ message: String) {
+        NSLog("[KNS_TRANSFER] %@", message)
+    }
+
+    @discardableResult
+    func transferDomain(
+        domain fullDomain: String,
+        assetId rawAssetId: String,
+        to rawRecipient: String
+    ) async throws -> KNSDomainTransferResult {
+        guard !isSubmitting else {
+            throw KasiaError.apiError("Another KNS domain transfer is already running")
+        }
+        guard let wallet = walletManager.currentWallet else {
+            throw KasiaError.walletNotFound
+        }
+        guard let privateKey = walletManager.getPrivateKey() else {
+            throw KasiaError.keychainError("Could not get private key")
+        }
+
+        let assetId = rawAssetId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !assetId.isEmpty else {
+            throw KasiaError.apiError("Missing domain asset id")
+        }
+
+        let domain = fullDomain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !domain.isEmpty else {
+            throw KasiaError.apiError("Missing domain name")
+        }
+
+        let recipientAddress = try await resolveRecipientAddress(
+            rawRecipient,
+            walletAddress: wallet.publicAddress
+        )
+
+        log("START domain=\(domain) asset=\(assetId) from=\(wallet.publicAddress) to=\(recipientAddress)")
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        if let resolution = await knsService.resolveDomain(domain),
+           resolution.ownerAddress.lowercased() != wallet.publicAddress.lowercased() {
+            throw KasiaError.apiError("Domain is not owned by current wallet")
+        }
+
+        let payload = knsService.buildTransferDomainPayload(
+            assetId: assetId,
+            toAddress: recipientAddress
+        )
+        let payloadJSON = try JSONEncoder().encode(payload)
+        log("PAYLOAD domain=\(domain) jsonBytes=\(payloadJSON.count)")
+
+        let fetchedUtxos = try await nodePool.getUtxosByAddresses([wallet.publicAddress])
+        let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
+        guard !utxos.isEmpty else {
+            throw KasiaError.networkError("No spendable UTXOs available for KNS transfer")
+        }
+        log("UTXO domain=\(domain) total=\(fetchedUtxos.count) spendable=\(utxos.count)")
+
+        // KNS web app submits transfers with tx.amount=0, which maps to 2 KAS commit funding.
+        let revealSompi: UInt64 = 0
+        let commitSompi: UInt64 = 200_000_000
+        log("AMOUNTS domain=\(domain) revealSompi=\(revealSompi) commitSompi=\(commitSompi)")
+
+        let (commitTx, commitContext) = try KasiaTransactionBuilder.buildKNSAddProfileCommitTx(
+            from: wallet.publicAddress,
+            senderPrivateKey: privateKey,
+            payloadJSON: payloadJSON,
+            utxos: utxos,
+            title: "kns",
+            commitAmountSompi: commitSompi,
+            revealAmountSompi: revealSompi
+        )
+        let (commitTxId, _) = try await nodePool.submitTransaction(commitTx, allowOrphan: false)
+        log("COMMIT_SUBMITTED domain=\(domain) txId=\(commitTxId)")
+        ChatService.shared.registerSuppressedPaymentTxIds(
+            [commitTxId],
+            reason: "kns-transfer-commit"
+        )
+
+        let revealTx = try KasiaTransactionBuilder.buildKNSAddProfileRevealTx(
+            walletAddress: wallet.publicAddress,
+            senderPrivateKey: privateKey,
+            commitTxId: commitTxId,
+            commitContext: commitContext,
+            revealTargetAddress: wallet.publicAddress
+        )
+        let (revealTxId, _) = try await submitRevealWithFallback(revealTx)
+        log("REVEAL_SUBMITTED domain=\(domain) txId=\(revealTxId)")
+        ChatService.shared.registerSuppressedPaymentTxIds(
+            [commitTxId, revealTxId],
+            reason: "kns-transfer-reveal"
+        )
+        ChatService.shared.registerKNSTransferChatHint(
+            txId: revealTxId,
+            domainName: domain,
+            domainId: assetId,
+            counterpartyAddress: recipientAddress,
+            isOutgoing: true
+        )
+
+        let verified = await verifyDomainOwnership(
+            fullDomain: domain,
+            expectedOwnerAddress: recipientAddress
+        )
+        log("VERIFY domain=\(domain) verified=\(verified)")
+
+        _ = await knsService.fetchInfo(for: wallet.publicAddress)
+        _ = await knsService.fetchProfile(for: wallet.publicAddress)
+        _ = await knsService.fetchInfo(for: recipientAddress)
+
+        return KNSDomainTransferResult(
+            domain: domain,
+            recipientAddress: recipientAddress,
+            commitTxId: commitTxId,
+            revealTxId: revealTxId,
+            verified: verified
+        )
+    }
+
+    private func resolveRecipientAddress(
+        _ raw: String,
+        walletAddress: String
+    ) async throws -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw KasiaError.apiError("Recipient address is required")
+        }
+
+        let resolvedAddress: String
+        if trimmed.lowercased().hasSuffix(".kas") {
+            guard let resolution = await knsService.resolveDomain(trimmed) else {
+                throw KasiaError.apiError("Could not resolve recipient KNS domain")
+            }
+            resolvedAddress = resolution.ownerAddress
+        } else {
+            resolvedAddress = trimmed
+        }
+
+        guard KaspaAddress.isValid(resolvedAddress) else {
+            throw KasiaError.apiError("Recipient address is invalid")
+        }
+        guard let recipient = KaspaAddress(address: resolvedAddress),
+              let wallet = KaspaAddress(address: walletAddress) else {
+            throw KasiaError.apiError("Recipient address is invalid")
+        }
+        guard recipient.hrp == wallet.hrp else {
+            throw KasiaError.apiError("Recipient address network does not match current wallet")
+        }
+        guard resolvedAddress.lowercased() != walletAddress.lowercased() else {
+            throw KasiaError.apiError("Recipient address must be different from your wallet")
+        }
+        return resolvedAddress
+    }
+
+    private func submitRevealWithFallback(_ revealTx: KaspaRpcTransaction) async throws -> (txId: String, endpoint: String) {
+        do {
+            return try await nodePool.submitTransaction(revealTx, allowOrphan: false)
+        } catch {
+            let message = error.localizedDescription.lowercased()
+            if message.contains("orphan") {
+                log("REVEAL_RETRY allowOrphan=true reason=\(error.localizedDescription)")
+                return try await nodePool.submitTransaction(revealTx, allowOrphan: true)
+            }
+            throw error
+        }
+    }
+
+    private func verifyDomainOwnership(
+        fullDomain: String,
+        expectedOwnerAddress: String,
+        timeout: TimeInterval = 90,
+        pollInterval: TimeInterval = 2
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let resolution = await knsService.resolveDomain(fullDomain),
+               resolution.ownerAddress.lowercased() == expectedOwnerAddress.lowercased() {
+                return true
+            }
+            let nanos = UInt64(max(0.1, pollInterval) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanos)
+        }
+        return false
     }
 }
 
@@ -1324,6 +1985,42 @@ struct KNSCommitRevealResult: Equatable, Codable {
     let revealTxId: String
 }
 
+struct KNSDomainAvailability: Equatable, Codable {
+    let domain: String
+    let available: Bool
+    let isReservedDomain: Bool
+}
+
+struct KNSDomainInscribeResult: Equatable, Codable {
+    let domain: String
+    let isReservedDomain: Bool
+    let serviceFeeSompi: UInt64
+    let commitTxId: String
+    let revealTxId: String
+    let verified: Bool
+}
+
+struct KNSCreateDomainPayload: Equatable, Codable {
+    let op: String
+    let p: String
+    let v: String
+}
+
+struct KNSTransferDomainPayload: Equatable, Codable {
+    let op: String
+    let p: String
+    let id: String
+    let to: String
+}
+
+struct KNSDomainTransferResult: Equatable, Codable {
+    let domain: String
+    let recipientAddress: String
+    let commitTxId: String
+    let revealTxId: String
+    let verified: Bool
+}
+
 struct KNSAddProfilePayload: Equatable, Codable {
     let op: String
     let id: String
@@ -1353,9 +2050,53 @@ private struct KNSDomainOwnerData: Codable {
     let id: String?
 }
 
+private struct KNSInscribeFeeResponse: Codable {
+    let success: Bool
+    let data: KNSInscribeFeeData?
+    let message: String?
+    let error: String?
+}
+
+private struct KNSInscribeFeeData: Codable {
+    let fee: [String: Decimal]?
+}
+
+private struct KNSDomainCheckRequest: Codable {
+    let address: String
+    let domainNames: [String]
+}
+
+private struct KNSSetPrimaryNameRequest: Codable {
+    let signMessage: String
+    let signature: String
+}
+
+private struct KNSDomainCheckResponse: Codable {
+    let success: Bool
+    let data: KNSDomainCheckData?
+    let message: String?
+    let error: String?
+}
+
+private struct KNSDomainCheckData: Codable {
+    let domains: [KNSDomainCheckEntry]?
+}
+
+private struct KNSDomainCheckEntry: Codable {
+    let domain: String
+    let available: Bool
+    let isReservedDomain: Bool
+}
+
 private struct KNSPrimaryNameResponse: Codable {
     let success: Bool
     let data: KNSPrimaryNameData?
+    let message: String?
+    let error: String?
+}
+
+private struct KNSBasicAPIResponse: Codable {
+    let success: Bool
     let message: String?
     let error: String?
 }
@@ -1428,11 +2169,6 @@ private struct KNSDomainProfilePayload: Codable {
             github: github
         ).sanitized()
     }
-}
-
-private struct KNSProfileImageUploadSigningPayload: Codable {
-    let assetId: String
-    let uploadType: String
 }
 
 private struct KNSImageUploadResponse: Codable {

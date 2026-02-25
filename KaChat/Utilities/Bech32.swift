@@ -241,8 +241,16 @@ struct KaspaAddress {
             return false
         }
 
-        // Check payload length (32 bytes for pubkey, 32 bytes for script hash)
-        guard decoded.data.count == 32 else {
+        // Version-specific payload lengths:
+        // v0  => 32-byte x-only Schnorr pubkey
+        // v1  => 33-byte compressed ECDSA pubkey
+        // v8  => 32-byte script hash
+        switch decoded.version {
+        case 0, 8:
+            guard decoded.data.count == 32 else { return false }
+        case 1:
+            guard decoded.data.count == 33 else { return false }
+        default:
             return false
         }
 
@@ -273,12 +281,19 @@ struct KaspaAddress {
         var script = Data()
 
         switch kaspaAddr.type {
-        case .pubKey, .pubKeyECDSA:
+        case .pubKey:
             // P2PK: <pubkey_length> <pubkey> OP_CHECKSIG
             let pubKey = kaspaAddr.payload
             script.append(UInt8(pubKey.count))
             script.append(pubKey)
             script.append(0xAC) // OP_CHECKSIG
+
+        case .pubKeyECDSA:
+            // P2PK ECDSA: <pubkey_length> <pubkey> OP_CHECKSIGECDSA
+            let pubKey = kaspaAddr.payload
+            script.append(UInt8(pubKey.count))
+            script.append(pubKey)
+            script.append(0xAB) // OP_CHECKSIGECDSA
 
         case .scriptHash:
             // P2SH: OP_BLAKE2B <script_hash_length> <script_hash> OP_EQUAL

@@ -593,6 +593,96 @@ extension ChatService {
         scheduledSendRetries.remove(pendingTxId)
     }
 
+    func shouldAttemptMessageUtxoCompaction(
+        currentMessageTx: KaspaRpcTransaction,
+        plannedFeeSompi: UInt64,
+        singleInputFeeSompi: UInt64,
+        availableUtxos: [UTXO]
+    ) -> Bool {
+        guard Date().timeIntervalSince(lastMessageCompactionAt) >= messageCompactionCooldown else {
+            return false
+        }
+        let spendableCount = availableUtxos.filter { !$0.isCoinbase }.count
+        guard spendableCount >= 2 else { return false }
+
+        if currentMessageTx.inputs.count >= messageCompactionInputThreshold {
+            return true
+        }
+        guard currentMessageTx.inputs.count > 1 else {
+            return false
+        }
+
+        let extraFeeSompi = plannedFeeSompi > singleInputFeeSompi
+            ? plannedFeeSompi - singleInputFeeSompi
+            : 0
+        return extraFeeSompi >= messageCompactionFeeThresholdSompi
+    }
+
+    func messageCompactionTargetOutputSompi(
+        alias: String,
+        content: String,
+        recipientPublicKey: Data,
+        senderScriptPubKey: Data
+    ) -> UInt64 {
+        let fallback = addSompiSafely(KasiaTransactionBuilder.dustThreshold, 30_000)
+        guard let burstMultiplier = UInt64(exactly: messageCompactionTargetBurstMessages) else {
+            return fallback
+        }
+
+        do {
+            let payload = try KasiaTransactionBuilder.buildContextualMessagePayload(
+                alias: alias,
+                message: content,
+                recipientPublicKey: recipientPublicKey
+            )
+            let singleInputFee = KasiaTransactionBuilder.estimateContextualMessageFee(
+                payload: payload,
+                inputCount: 1,
+                senderScriptPubKey: senderScriptPubKey
+            )
+            let (burstTotal, overflow) = singleInputFee.multipliedReportingOverflow(by: burstMultiplier)
+            let safeBurstTotal = overflow ? UInt64.max : burstTotal
+            return addSompiSafely(KasiaTransactionBuilder.dustThreshold, safeBurstTotal)
+        } catch {
+            return fallback
+        }
+    }
+
+    func autoCompactMessageUtxos(
+        rpcManager: NodePoolService,
+        walletAddress: String,
+        privateKey: Data,
+        senderScriptPubKey: Data,
+        availableUtxos: [UTXO],
+        minOutputAmount: UInt64
+    ) async throws -> (txId: String, endpoint: String) {
+        let spendableUtxos = availableUtxos.filter { !$0.isCoinbase }
+        let compaction = try KasiaTransactionBuilder.buildMessageCompactionTx(
+            from: walletAddress,
+            senderPrivateKey: privateKey,
+            utxos: spendableUtxos,
+            minOutputAmount: minOutputAmount,
+            maxInputs: messageCompactionMaxInputs
+        )
+
+        let usesUnconfirmedInputs = compaction.selectedUtxos.contains { $0.blockDaaScore == 0 }
+        let submitted = try await rpcManager.submitTransaction(
+            compaction.transaction,
+            allowOrphan: usesUnconfirmedInputs
+        )
+        reserveMessageOutpoints(compaction.selectedUtxos)
+        consumePendingUtxos(compaction.selectedUtxos)
+        addPendingOutputs(from: compaction.transaction, txId: submitted.txId, senderScriptPubKey: senderScriptPubKey)
+        lastMessageCompactionAt = Date()
+
+        NSLog("[ChatService] Auto-compaction tx %@ submitted (inputs=%d, output=%llu, allowOrphan=%@)",
+              String(submitted.txId.prefix(12)),
+              compaction.selectedUtxos.count,
+              compaction.outputAmount,
+              usesUnconfirmedInputs ? "true" : "false")
+        return submitted
+    }
+
     func ensureSufficientBalanceForMessageSend(
         to contact: Contact,
         content: String,
@@ -1000,21 +1090,139 @@ extension ChatService {
 
             print("[ChatService] Found \(availableUtxos.count) available UTXOs for sending")
 
-            // Build the transaction
-            let transaction = try KasiaTransactionBuilder.buildContextualMessageTx(
-                from: wallet.publicAddress,
-                to: contact.address,
-                alias: alias,
-                message: content,
-                senderPrivateKey: privateKey,
-                recipientPublicKey: recipientPublicKey,
-                utxos: availableUtxos
+            let buildMessageTransaction: ([UTXO]) throws -> KaspaRpcTransaction = { candidateUtxos in
+                try KasiaTransactionBuilder.buildContextualMessageTx(
+                    from: wallet.publicAddress,
+                    to: contact.address,
+                    alias: alias,
+                    message: content,
+                    senderPrivateKey: privateKey,
+                    recipientPublicKey: recipientPublicKey,
+                    utxos: candidateUtxos
+                )
+            }
+
+            var candidateUtxos = availableUtxos
+            var transaction = try buildMessageTransaction(candidateUtxos)
+            var spentUtxos = spentMessageUtxos(from: transaction, candidates: candidateUtxos)
+            let initialMessageInputCount = transaction.inputs.count
+            var totalInputSompi = spentUtxos.reduce(UInt64(0)) { partial, utxo in
+                addSompiSafely(partial, utxo.amount)
+            }
+            var totalOutputSompi = transaction.outputs.reduce(UInt64(0)) { partial, output in
+                addSompiSafely(partial, output.value)
+            }
+            var effectiveFeeSompi = totalInputSompi > totalOutputSompi
+                ? totalInputSompi - totalOutputSompi
+                : 0
+            let singleInputFeeSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
+                payload: transaction.payload,
+                inputCount: 1,
+                senderScriptPubKey: senderScriptPubKey
             )
-            // Submit the transaction
-            let (txId, endpoint) = try await rpcManager.submitTransaction(transaction, allowOrphan: false)
+
+            if shouldAttemptMessageUtxoCompaction(
+                currentMessageTx: transaction,
+                plannedFeeSompi: effectiveFeeSompi,
+                singleInputFeeSompi: singleInputFeeSompi,
+                availableUtxos: candidateUtxos
+            ) {
+                let compactionTarget = messageCompactionTargetOutputSompi(
+                    alias: alias,
+                    content: content,
+                    recipientPublicKey: recipientPublicKey,
+                    senderScriptPubKey: senderScriptPubKey
+                )
+                var didSubmitCompaction = false
+                do {
+                    let compactionResult = try await autoCompactMessageUtxos(
+                        rpcManager: rpcManager,
+                        walletAddress: wallet.publicAddress,
+                        privateKey: privateKey,
+                        senderScriptPubKey: senderScriptPubKey,
+                        availableUtxos: candidateUtxos,
+                        minOutputAmount: compactionTarget
+                    )
+                    didSubmitCompaction = true
+                    print("[ChatService] Auto-compaction submitted: \(compactionResult.txId) via \(compactionResult.endpoint)")
+
+                    candidateUtxos = prepareMessageUtxos(confirmed: utxos)
+                    transaction = try buildMessageTransaction(candidateUtxos)
+                    spentUtxos = spentMessageUtxos(from: transaction, candidates: candidateUtxos)
+                    totalInputSompi = spentUtxos.reduce(UInt64(0)) { partial, utxo in
+                        addSompiSafely(partial, utxo.amount)
+                    }
+                    totalOutputSompi = transaction.outputs.reduce(UInt64(0)) { partial, output in
+                        addSompiSafely(partial, output.value)
+                    }
+                    effectiveFeeSompi = totalInputSompi > totalOutputSompi
+                        ? totalInputSompi - totalOutputSompi
+                        : 0
+                    NSLog("[ChatService] Auto-compaction refreshed message inputs for %@: %d -> %d",
+                          String(activePendingTxId.prefix(12)),
+                          initialMessageInputCount,
+                          transaction.inputs.count)
+                } catch {
+                    if didSubmitCompaction {
+                        throw error
+                    }
+                    NSLog("[ChatService] Auto-compaction skipped for %@: %@",
+                          String(activePendingTxId.prefix(12)),
+                          error.localizedDescription)
+                }
+            }
+
+            let usesUnconfirmedInputs = spentUtxos.contains { $0.blockDaaScore == 0 }
+            let extraFeeSompi = effectiveFeeSompi > singleInputFeeSompi
+                ? effectiveFeeSompi - singleInputFeeSompi
+                : 0
+            NSLog("[ChatService] Message tx plan %@: inputs=%d fee=%llu singleInputFee=%llu extra=%llu allowOrphan=%@",
+                  String(activePendingTxId.prefix(12)),
+                  transaction.inputs.count,
+                  effectiveFeeSompi,
+                  singleInputFeeSompi,
+                  extraFeeSompi,
+                  usesUnconfirmedInputs ? "true" : "false")
+
+            let txId: String
+            let endpoint: String
+            do {
+                let submitted = try await rpcManager.submitTransaction(
+                    transaction,
+                    allowOrphan: usesUnconfirmedInputs
+                )
+                txId = submitted.txId
+                endpoint = submitted.endpoint
+            } catch {
+                let shouldFallbackToConfirmed = usesUnconfirmedInputs &&
+                    (shouldRetrySendError(error) || shouldRetryNoSpendableFundsError(error))
+                guard shouldFallbackToConfirmed else { throw error }
+
+                let confirmedOnlyUtxos = candidateUtxos.filter { $0.blockDaaScore > 0 }
+                guard !confirmedOnlyUtxos.isEmpty else { throw error }
+
+                NSLog("[ChatService] Message submit fallback to confirmed-only inputs for %@",
+                      String(activePendingTxId.prefix(12)))
+
+                let confirmedOnlyTransaction = try buildMessageTransaction(confirmedOnlyUtxos)
+                let confirmedOnlyInputs = confirmedOnlyTransaction.inputs.count
+                if confirmedOnlyInputs > 2 {
+                    NSLog("[ChatService] Skipping expensive confirmed-only fallback for %@ (inputs=%d)",
+                          String(activePendingTxId.prefix(12)),
+                          confirmedOnlyInputs)
+                    throw error
+                }
+
+                transaction = confirmedOnlyTransaction
+                spentUtxos = spentMessageUtxos(from: transaction, candidates: confirmedOnlyUtxos)
+
+                let submitted = try await rpcManager.submitTransaction(transaction, allowOrphan: false)
+                txId = submitted.txId
+                endpoint = submitted.endpoint
+            }
+
             print("[ChatService] Transaction submitted: \(txId) via \(endpoint)")
 
-            let spentUtxos = spentMessageUtxos(from: transaction, candidates: availableUtxos)
             reserveMessageOutpoints(spentUtxos)
             consumePendingUtxos(spentUtxos)
             addPendingOutputs(from: transaction, txId: txId, senderScriptPubKey: senderScriptPubKey)
@@ -1353,9 +1561,21 @@ extension ChatService {
     func prepareMessageUtxos(confirmed: [UTXO]) -> [UTXO] {
         let now = Date()
         pruneMessageUtxoCaches(confirmed: confirmed, now: now)
-        return confirmed
+        let confirmedSpendable = confirmed
             .filter { $0.blockDaaScore > 0 && !$0.isCoinbase }
-            .filter { reservedMessageOutpoints[outpointKey($0.outpoint)] == nil }
+        let pendingSpendable = pendingMessageUtxos.values
+            .map(\.utxo)
+            .filter { !$0.isCoinbase }
+
+        var merged: [UTXO] = []
+        var seenOutpoints = Set<String>()
+        for utxo in pendingSpendable + confirmedSpendable {
+            let key = outpointKey(utxo.outpoint)
+            guard reservedMessageOutpoints[key] == nil else { continue }
+            guard seenOutpoints.insert(key).inserted else { continue }
+            merged.append(utxo)
+        }
+        return merged
     }
 
     func pruneMessageUtxoCaches(confirmed: [UTXO], now: Date) {
@@ -1583,11 +1803,12 @@ extension ChatService {
         if pendingTxId == nil {
             let formattedAmount = formatKasAmount(amountSompi)
             let pendingTimestamp = Date()
+            let pendingTemplate = NSLocalizedString("Sent %@ KAS", comment: "Outgoing payment without note")
             let pendingMessage = ChatMessage(
                 txId: activePendingTxId,
                 senderAddress: wallet.publicAddress,
                 receiverAddress: contact.address,
-                content: "Sent \(formattedAmount) KAS",
+                content: String(format: pendingTemplate, formattedAmount),
                 timestamp: pendingTimestamp,
                 blockTime: UInt64(pendingTimestamp.timeIntervalSince1970 * 1000),
                 acceptingBlock: nil,
@@ -1721,7 +1942,11 @@ extension ChatService {
             throw KasiaError.invalidAddress
         }
 
-        let alias = primaryOurAlias(for: contact.address) ?? String(repeating: "0", count: 12)
+        let privateKey = WalletManager.shared.getPrivateKey()
+        if let privateKey {
+            ensureRoutingState(for: contact.address, privateKey: privateKey)
+        }
+        let alias = outgoingAlias(for: contact.address)
         let payload = try KasiaTransactionBuilder.buildContextualMessagePayload(
             alias: alias,
             message: trimmed,
@@ -1731,16 +1956,103 @@ extension ChatService {
         // Use fallback method - doesn't require gRPC connection
         let utxos = try await fetchUtxosWithFallback(for: wallet.publicAddress)
 
-        let spendable = utxos.filter { !$0.isCoinbase }
-        guard !spendable.isEmpty else {
+        let availableUtxos = prepareMessageUtxos(confirmed: utxos)
+        guard !availableUtxos.isEmpty else {
             throw KasiaError.networkError("No spendable UTXOs")
         }
 
-        return KasiaTransactionBuilder.estimateContextualMessageFee(
-            payload: payload,
-            inputCount: spendable.count,
+        guard let privateKey else {
+            return KasiaTransactionBuilder.estimateContextualMessageFee(
+                payload: payload,
+                inputCount: 1,
+                senderScriptPubKey: senderScriptPubKey
+            )
+        }
+
+        let estimateFeeFromBuiltTx: (KaspaRpcTransaction, [UTXO]) -> UInt64 = { transaction, candidates in
+            let spent = self.spentMessageUtxos(from: transaction, candidates: candidates)
+            let totalInputSompi = spent.reduce(UInt64(0)) { partial, utxo in
+                self.addSompiSafely(partial, utxo.amount)
+            }
+            let totalOutputSompi = transaction.outputs.reduce(UInt64(0)) { partial, output in
+                self.addSompiSafely(partial, output.value)
+            }
+            return totalInputSompi > totalOutputSompi
+                ? totalInputSompi - totalOutputSompi
+                : 0
+        }
+
+        var messageTx = try KasiaTransactionBuilder.buildContextualMessageTx(
+            from: wallet.publicAddress,
+            to: contact.address,
+            alias: alias,
+            message: trimmed,
+            senderPrivateKey: privateKey,
+            recipientPublicKey: recipientPublicKey,
+            utxos: availableUtxos
+        )
+        var messageFee = estimateFeeFromBuiltTx(messageTx, availableUtxos)
+        var estimatedAfterCompaction = false
+        let singleInputFeeSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
+            payload: messageTx.payload,
+            inputCount: 1,
             senderScriptPubKey: senderScriptPubKey
         )
+
+        // Mirror send-time heuristic: if message would be expensive, estimate post-compaction send fee.
+        if shouldAttemptMessageUtxoCompaction(
+            currentMessageTx: messageTx,
+            plannedFeeSompi: messageFee,
+            singleInputFeeSompi: singleInputFeeSompi,
+            availableUtxos: availableUtxos
+        ) {
+            let compactionTarget = messageCompactionTargetOutputSompi(
+                alias: alias,
+                content: trimmed,
+                recipientPublicKey: recipientPublicKey,
+                senderScriptPubKey: senderScriptPubKey
+            )
+
+            if let compaction = try? KasiaTransactionBuilder.buildMessageCompactionTx(
+                from: wallet.publicAddress,
+                senderPrivateKey: privateKey,
+                utxos: availableUtxos.filter { !$0.isCoinbase },
+                minOutputAmount: compactionTarget,
+                maxInputs: messageCompactionMaxInputs
+            ) {
+                let spentKeys = Set(compaction.selectedUtxos.map { outpointKey($0.outpoint) })
+                var compactedCandidates = availableUtxos.filter { !spentKeys.contains(outpointKey($0.outpoint)) }
+
+                if let compactionOutput = compaction.transaction.outputs.first {
+                    let syntheticCompactionUtxo = UTXO(
+                        address: "",
+                        outpoint: UTXO.Outpoint(
+                            transactionId: String(repeating: "a", count: 64),
+                            index: 0
+                        ),
+                        amount: compactionOutput.value,
+                        scriptPublicKey: senderScriptPubKey,
+                        blockDaaScore: 0,
+                        isCoinbase: false
+                    )
+                    compactedCandidates.insert(syntheticCompactionUtxo, at: 0)
+                }
+
+                messageTx = try KasiaTransactionBuilder.buildContextualMessageTx(
+                    from: wallet.publicAddress,
+                    to: contact.address,
+                    alias: alias,
+                    message: trimmed,
+                    senderPrivateKey: privateKey,
+                    recipientPublicKey: recipientPublicKey,
+                    utxos: compactedCandidates
+                )
+                messageFee = estimateFeeFromBuiltTx(messageTx, compactedCandidates)
+                estimatedAfterCompaction = true
+            }
+        }
+
+        return messageFee
     }
 
     func estimatePaymentFee(to contact: Contact, amountSompi: UInt64, note: String = "") async throws -> UInt64 {

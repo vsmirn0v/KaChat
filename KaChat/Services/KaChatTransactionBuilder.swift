@@ -90,6 +90,52 @@ struct KasiaTransactionBuilder {
         return estimateFee(payload: payload, inputCount: inputCount, outputs: [output]) + 3
     }
 
+    /// Build a self-spend compaction transaction for message UTXOs.
+    /// Produces a single self output with empty payload to reduce future input count.
+    static func buildMessageCompactionTx(
+        from senderAddress: String,
+        senderPrivateKey: Data,
+        utxos: [UTXO],
+        minOutputAmount: UInt64,
+        maxInputs: Int = 8
+    ) throws -> (transaction: KaspaRpcTransaction, selectedUtxos: [UTXO], outputAmount: UInt64) {
+        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: senderAddress) else {
+            throw KasiaError.invalidAddress
+        }
+
+        let selection = try selectUtxosForMessageCompaction(
+            utxos: utxos,
+            senderScriptPubKey: senderScriptPubKey,
+            minOutputAmount: minOutputAmount,
+            maxInputs: maxInputs
+        )
+
+        let unsignedTx = KaspaRpcTransaction(
+            version: 0,
+            inputs: selection.utxos.map { utxo in
+                KaspaRpcTransactionInput(
+                    previousOutpoint: utxo.outpoint,
+                    signatureScript: Data(),
+                    sequence: 0,
+                    sigOpCount: 1
+                )
+            },
+            outputs: [
+                KaspaRpcTransactionOutput(
+                    value: selection.outputAmount,
+                    scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
+                )
+            ],
+            lockTime: 0,
+            subnetworkId: standardSubnetworkId,
+            gas: 0,
+            payload: Data()
+        )
+
+        let signedTx = try signTransaction(unsignedTx, privateKey: senderPrivateKey, utxos: selection.utxos)
+        return (transaction: signedTx, selectedUtxos: selection.utxos, outputAmount: selection.outputAmount)
+    }
+
     /// Build a payment transaction
     /// Uses same encoding as contextual messages (wrapPayloads=true, verboseData=true, legacyVersionByte=true)
     static func buildPaymentTx(
@@ -436,6 +482,7 @@ struct KasiaTransactionBuilder {
     struct KNSCommitContext {
         let redeemScript: Data
         let commitAddress: String
+        let commitScriptPubKey: Data
         let commitAmountSompi: UInt64
         let revealAmountSompi: UInt64
         let commitOutputIndex: UInt32
@@ -453,9 +500,6 @@ struct KasiaTransactionBuilder {
     ) throws -> (transaction: KaspaRpcTransaction, context: KNSCommitContext) {
         guard commitAmountSompi > 0 else {
             throw KasiaError.networkError("KNS commit amount must be positive")
-        }
-        guard revealAmountSompi > 0 else {
-            throw KasiaError.networkError("KNS reveal amount must be positive")
         }
 
         guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: senderAddress) else {
@@ -518,6 +562,7 @@ struct KasiaTransactionBuilder {
         let context = KNSCommitContext(
             redeemScript: redeemScript,
             commitAddress: commitAddress,
+            commitScriptPubKey: commitScriptPubKey,
             commitAmountSompi: commitAmountSompi,
             revealAmountSompi: revealAmountSompi,
             commitOutputIndex: 0
@@ -543,18 +588,20 @@ struct KasiaTransactionBuilder {
             throw KasiaError.invalidAddress
         }
 
-        let recipientOutput = KaspaRpcTransactionOutput(
-            value: commitContext.revealAmountSompi,
-            scriptPublicKey: KaspaScriptPublicKey(version: 0, script: targetScriptPubKey)
-        )
+        let recipientOutput: KaspaRpcTransactionOutput? = commitContext.revealAmountSompi > 0
+            ? KaspaRpcTransactionOutput(
+                value: commitContext.revealAmountSompi,
+                scriptPublicKey: KaspaScriptPublicKey(version: 0, script: targetScriptPubKey)
+            )
+            : nil
 
         // Signature script is push(sig+hashtype) + push(redeemScript)
         let signatureScriptSize = 66 + canonicalPushDataSize(commitContext.redeemScript.count)
+        let baseOutputs = recipientOutput.map { [$0] } ?? []
         let feeWithChange = estimateFee(
             payload: Data(),
             inputCount: 1,
-            outputs: [
-                recipientOutput,
+            outputs: baseOutputs + [
                 KaspaRpcTransactionOutput(
                     value: 0,
                     scriptPublicKey: KaspaScriptPublicKey(version: 0, script: changeScriptPubKey)
@@ -563,12 +610,12 @@ struct KasiaTransactionBuilder {
             signatureScriptSize: signatureScriptSize
         ) + revealPriorityFeeSompi
 
-        guard commitContext.commitAmountSompi > commitContext.revealAmountSompi,
+        guard commitContext.commitAmountSompi >= commitContext.revealAmountSompi,
               commitContext.commitAmountSompi - commitContext.revealAmountSompi >= feeWithChange else {
             throw KasiaError.networkError("KNS reveal amount cannot be covered by commit output")
         }
 
-        var outputs: [KaspaRpcTransactionOutput] = [recipientOutput]
+        var outputs: [KaspaRpcTransactionOutput] = baseOutputs
         var change = commitContext.commitAmountSompi - commitContext.revealAmountSompi - feeWithChange
 
         if change > dustThreshold {
@@ -582,10 +629,10 @@ struct KasiaTransactionBuilder {
             let feeNoChange = estimateFee(
                 payload: Data(),
                 inputCount: 1,
-                outputs: [recipientOutput],
+                outputs: baseOutputs,
                 signatureScriptSize: signatureScriptSize
             ) + revealPriorityFeeSompi
-            guard commitContext.commitAmountSompi > commitContext.revealAmountSompi,
+            guard commitContext.commitAmountSompi >= commitContext.revealAmountSompi,
                   commitContext.commitAmountSompi - commitContext.revealAmountSompi >= feeNoChange else {
                 throw KasiaError.networkError("Insufficient commit amount for KNS reveal fee")
             }
@@ -598,6 +645,10 @@ struct KasiaTransactionBuilder {
                     )
                 )
             }
+        }
+
+        guard !outputs.isEmpty else {
+            throw KasiaError.networkError("KNS reveal transaction has no spendable outputs after fees")
         }
 
         let unsignedTx = KaspaRpcTransaction(
@@ -623,6 +674,7 @@ struct KasiaTransactionBuilder {
         return try signKNSRevealTransaction(
             unsignedTx,
             privateKey: senderPrivateKey,
+            utxoScriptPubKey: commitContext.commitScriptPubKey,
             redeemScript: commitContext.redeemScript,
             commitAmountSompi: commitContext.commitAmountSompi
         )
@@ -725,6 +777,11 @@ struct KasiaTransactionBuilder {
         let fee: UInt64
     }
 
+    private struct MessageCompactionSelection {
+        let utxos: [UTXO]
+        let outputAmount: UInt64
+    }
+
     /// Select a minimal UTXO set for contextual messages.
     /// Prefers fewer inputs to avoid quickly consuming all confirmed UTXOs.
     private static func selectUtxosForContextualMessage(
@@ -732,8 +789,9 @@ struct KasiaTransactionBuilder {
         payload: Data,
         senderScriptPubKey: Data
     ) throws -> ContextualSelection {
-        let spendable = utxos
-            .filter { !$0.isCoinbase }
+        let spendable = utxos.filter { !$0.isCoinbase }
+        let pending = spendable
+            .filter { $0.blockDaaScore == 0 }
             .sorted { $0.amount > $1.amount }
 
         guard !spendable.isEmpty else {
@@ -745,10 +803,30 @@ struct KasiaTransactionBuilder {
             scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
         )
 
+        // Prefer chaining on a single pending self-change UTXO when it can cover fee+dust.
+        let singleInputFee = estimateFee(payload: payload, inputCount: 1, outputs: [outputTemplate]) + 3
+        if let pendingSingle = pending.first(where: { $0.amount > singleInputFee && ($0.amount - singleInputFee) > dustThreshold }) {
+            return ContextualSelection(utxos: [pendingSingle], totalInput: pendingSingle.amount, fee: singleInputFee)
+        }
+
+        // Otherwise, use global largest-first order. This avoids combining many tiny pending UTXOs
+        // before trying a larger confirmed one.
+        let prioritized = spendable.sorted { lhs, rhs in
+            if lhs.amount != rhs.amount {
+                return lhs.amount > rhs.amount
+            }
+            let lhsPending = lhs.blockDaaScore == 0
+            let rhsPending = rhs.blockDaaScore == 0
+            if lhsPending != rhsPending {
+                return lhsPending
+            }
+            return lhs.outpoint.transactionId > rhs.outpoint.transactionId
+        }
+
         var selected: [UTXO] = []
         var total: UInt64 = 0
 
-        for utxo in spendable {
+        for utxo in prioritized {
             selected.append(utxo)
             total = try addSompiChecked(total, utxo.amount, context: "contextual selection")
 
@@ -816,6 +894,74 @@ struct KasiaTransactionBuilder {
         }
 
         throw KasiaError.networkError("Insufficient funds for payment")
+    }
+
+    /// Select confirmed UTXOs for a bounded-input self-compaction transaction.
+    private static func selectUtxosForMessageCompaction(
+        utxos: [UTXO],
+        senderScriptPubKey: Data,
+        minOutputAmount: UInt64,
+        maxInputs: Int
+    ) throws -> MessageCompactionSelection {
+        let boundedMaxInputs = max(2, maxInputs)
+        let spendable = utxos.filter { !$0.isCoinbase }
+        let confirmed = spendable
+            .filter { $0.blockDaaScore > 0 }
+            .sorted { $0.amount > $1.amount }
+        let pending = spendable
+            .filter { $0.blockDaaScore == 0 }
+            .sorted { $0.amount > $1.amount }
+        let candidates = confirmed + pending
+
+        guard candidates.count >= 2 else {
+            throw KasiaError.networkError("Not enough spendable UTXOs for compaction")
+        }
+
+        let outputTemplate = KaspaRpcTransactionOutput(
+            value: 0,
+            scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
+        )
+
+        var selected: [UTXO] = []
+        var total: UInt64 = 0
+        var bestSelection: MessageCompactionSelection?
+
+        for utxo in candidates.prefix(boundedMaxInputs) {
+            selected.append(utxo)
+            total = try addSompiChecked(total, utxo.amount, context: "message compaction selection")
+
+            guard selected.count >= 2 else { continue }
+
+            let fee = estimateFee(payload: Data(), inputCount: selected.count, outputs: [outputTemplate]) + 3
+            guard total > fee && total - fee > dustThreshold else { continue }
+
+            let outputAmount = total - fee
+            let candidateSelection = MessageCompactionSelection(
+                utxos: selected,
+                outputAmount: outputAmount
+            )
+            if let currentBest = bestSelection {
+                if candidateSelection.utxos.count > currentBest.utxos.count ||
+                    (candidateSelection.utxos.count == currentBest.utxos.count &&
+                        candidateSelection.outputAmount > currentBest.outputAmount) {
+                    bestSelection = candidateSelection
+                }
+            } else {
+                bestSelection = candidateSelection
+            }
+        }
+
+        if let bestSelection {
+            if bestSelection.outputAmount < minOutputAmount {
+                NSLog("[TxBuilder] Compaction target not met (target=%llu, got=%llu) - using best input reduction set (%d inputs)",
+                      minOutputAmount,
+                      bestSelection.outputAmount,
+                      bestSelection.utxos.count)
+            }
+            return bestSelection
+        }
+
+        throw KasiaError.networkError("Insufficient spendable funds for compaction")
     }
 
     /// Build payment payload (encrypted payment JSON, hex inside ciph_msg:1:pay:)
@@ -942,6 +1088,7 @@ struct KasiaTransactionBuilder {
     private static func signKNSRevealTransaction(
         _ transaction: KaspaRpcTransaction,
         privateKey: Data,
+        utxoScriptPubKey: Data,
         redeemScript: Data,
         commitAmountSompi: UInt64
     ) throws -> KaspaRpcTransaction {
@@ -950,7 +1097,7 @@ struct KasiaTransactionBuilder {
         let sighash = try computeSighash(
             transaction: transaction,
             inputIndex: 0,
-            utxoScriptPubKey: redeemScript,
+            utxoScriptPubKey: utxoScriptPubKey,
             utxoAmount: commitAmountSompi
         )
         var sighashBytes = [UInt8](sighash)

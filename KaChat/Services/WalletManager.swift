@@ -397,7 +397,18 @@ final class WalletManager: ObservableObject {
 
     /// Sign an arbitrary message using the current wallet's Schnorr private key.
     /// Returns hex-encoded 64-byte Schnorr signature.
-    func signArbitraryMessage(_ message: String) throws -> String {
+    enum ArbitraryMessageSigningMode {
+        /// Kaspa wallet-compatible personal message signing:
+        /// schnorr_sign(blake2b-256(key="PersonalMessageSigningHash", msg=utf8(message))).
+        case kaspaPersonalMessage
+        case rawUTF8
+        case sha256Digest
+    }
+
+    func signArbitraryMessage(
+        _ message: String,
+        mode: ArbitraryMessageSigningMode = .rawUTF8
+    ) throws -> String {
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw KasiaError.encryptionError("Cannot sign empty message")
@@ -406,12 +417,27 @@ final class WalletManager: ObservableObject {
             throw KasiaError.walletNotFound
         }
 
-        let digest = SHA256.hash(data: Data(trimmed.utf8))
-        var digestBytes = Array(digest)
+        var messageBytes: [UInt8]
+        switch mode {
+        case .kaspaPersonalMessage:
+            let digest = Blake2b.hash(
+                Data(message.utf8),
+                digestLength: 32,
+                key: "PersonalMessageSigningHash"
+            )
+            messageBytes = Array(digest)
+        case .rawUTF8:
+            // Keep bytes exactly as provided by caller (no normalization).
+            messageBytes = Array(message.utf8)
+        case .sha256Digest:
+            // Legacy mode used by some existing server integrations.
+            messageBytes = Array(SHA256.hash(data: Data(message.utf8)))
+        }
+
         let key = try P256K.Schnorr.PrivateKey(dataRepresentation: privateKey)
-        let signature = try key.signature(message: &digestBytes, auxiliaryRand: nil)
-        for index in digestBytes.indices {
-            digestBytes[index] = 0
+        let signature = try key.signature(message: &messageBytes, auxiliaryRand: nil)
+        for index in messageBytes.indices {
+            messageBytes[index] = 0
         }
 
         return Data(signature.bytes).hexString
