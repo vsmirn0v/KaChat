@@ -636,3 +636,6 @@
 
 /* Composer placeholder (auto-added) */
 "Message" = "信息";
+
+/* KNS Bio label (auto-added) */
+"Bio" = "简介";

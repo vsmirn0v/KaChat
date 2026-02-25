@@ -1936,16 +1936,16 @@ enum KNSProfileFieldKey: String, CaseIterable, Codable {
 
     var displayName: String {
         switch self {
-        case .redirectUrl: return "Redirect"
-        case .avatarUrl: return "Avatar"
-        case .bannerUrl: return "Banner"
-        case .bio: return "Bio"
-        case .x: return "X"
-        case .website: return "Website"
-        case .telegram: return "Telegram"
-        case .discord: return "Discord"
-        case .contactEmail: return "Email"
-        case .github: return "GitHub"
+        case .redirectUrl: return String(localized: "Redirect")
+        case .avatarUrl: return String(localized: "Avatar")
+        case .bannerUrl: return String(localized: "Banner")
+        case .bio: return String(localized: "Bio")
+        case .x: return String(localized: "X")
+        case .website: return String(localized: "Website")
+        case .telegram: return String(localized: "Telegram")
+        case .discord: return String(localized: "Discord")
+        case .contactEmail: return String(localized: "Email")
+        case .github: return String(localized: "GitHub")
         }
     }
 }

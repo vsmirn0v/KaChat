@@ -362,11 +362,11 @@ struct ChatInfoView: View {
                         }
                     }
                     HStack {
-                        StatItem(label: "Sent", value: messageSent)
+                        StatItem(label: String(localized: "Sent"), value: messageSent)
                         Divider().frame(height: 32)
-                        StatItem(label: "Received", value: messageReceived)
+                        StatItem(label: String(localized: "Received"), value: messageReceived)
                         Divider().frame(height: 32)
-                        StatItem(label: "Total", value: messageSent + messageReceived)
+                        StatItem(label: String(localized: "Total"), value: messageSent + messageReceived)
                     }
                     .padding(.vertical, 4)
                 }

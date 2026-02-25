@@ -541,3 +541,6 @@
 
 /* Composer placeholder (auto-added) */
 "Message" = "Nachricht";
+
+/* KNS Bio label (auto-added) */
+"Bio" = "Bio";

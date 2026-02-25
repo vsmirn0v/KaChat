@@ -636,3 +636,6 @@
 
 /* Composer placeholder (auto-added) */
 "Message" = "Tin nhắn";
+
+/* KNS Bio label (auto-added) */
+"Bio" = "Tiểu sử";

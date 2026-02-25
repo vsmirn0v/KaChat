@@ -636,3 +636,6 @@
 
 /* Composer placeholder (auto-added) */
 "Message" = "メッセージ";
+
+/* KNS Bio label (auto-added) */
+"Bio" = "バイオ";
