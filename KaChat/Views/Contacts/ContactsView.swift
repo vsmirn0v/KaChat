@@ -528,29 +528,12 @@ struct ProfileView: View {
                     .padding(.vertical, 2)
                 }
 
-                if let bannerURL = KNSProfileLinkBuilder.websiteURL(from: profileInfo.profile?.bannerUrl) {
-                    AsyncImage(url: bannerURL) { phase in
-                        switch phase {
-                        case .success(let image):
-                            image
-                                .resizable()
-                                .scaledToFill()
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 120)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                        case .empty:
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(Color.secondary.opacity(0.15))
-                                .frame(height: 120)
-                                .overlay {
-                                    ProgressView().scaleEffect(0.8)
-                                }
-                        case .failure:
-                            EmptyView()
-                        @unknown default:
-                            EmptyView()
-                        }
-                    }
+                if KNSProfileLinkBuilder.websiteURL(from: profileInfo.profile?.bannerUrl) != nil {
+                    KNSBannerImageView(
+                        bannerURLString: profileInfo.profile?.bannerUrl,
+                        height: 120,
+                        cornerRadius: 10
+                    )
                 }
 
                 if let bio = profileInfo.profile?.bio {
@@ -1435,29 +1418,12 @@ private struct KNSProfileEditorSheet: View {
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 110)
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
-                        } else if let bannerURL = KNSProfileLinkBuilder.websiteURL(from: bannerUrl) {
-                            AsyncImage(url: bannerURL) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image
-                                        .resizable()
-                                        .scaledToFill()
-                                        .frame(maxWidth: .infinity)
-                                        .frame(height: 110)
-                                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                                case .empty:
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .fill(Color.secondary.opacity(0.15))
-                                        .frame(height: 110)
-                                        .overlay {
-                                            ProgressView().scaleEffect(0.8)
-                                        }
-                                case .failure:
-                                    EmptyView()
-                                @unknown default:
-                                    EmptyView()
-                                }
-                            }
+                        } else if KNSProfileLinkBuilder.websiteURL(from: bannerUrl) != nil {
+                            KNSBannerImageView(
+                                bannerURLString: bannerUrl,
+                                height: 110,
+                                cornerRadius: 10
+                            )
                         }
                     }
 

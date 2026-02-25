@@ -19,6 +19,7 @@ struct ChatListView: View {
     @State private var isPaginatingConversations = false
     @State private var filteredConversationsCache: [Conversation] = []
     @State private var searchFilterTask: Task<Void, Never>?
+    @State private var avatarPrefetchTask: Task<Void, Never>?
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .all
 
     private let conversationPageSize = 80
@@ -138,6 +139,7 @@ struct ChatListView: View {
         }
         .onChange(of: chatService.conversations) { _ in
             scheduleFilteredConversationsRefresh(debounce: false)
+            scheduleAvatarPrefetch()
         }
         .onChange(of: contactsManager.contacts) { _ in
             scheduleFilteredConversationsRefresh(debounce: false)
@@ -147,9 +149,11 @@ struct ChatListView: View {
         }
         .onDisappear {
             searchFilterTask?.cancel()
+            avatarPrefetchTask?.cancel()
         }
         .task {
             await contactsManager.fetchKNSDomainsForAllContacts()
+            await preloadAvatarsForAllChats(forceProfileRefresh: false)
         }
         .onChange(of: chatService.pendingChatNavigation) { newValue in
             if newValue != nil {
@@ -334,6 +338,46 @@ struct ChatListView: View {
             }
         } else {
             refreshFilteredConversations()
+        }
+    }
+
+    private func scheduleAvatarPrefetch() {
+        avatarPrefetchTask?.cancel()
+        avatarPrefetchTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            guard !Task.isCancelled else { return }
+            await preloadAvatarsForAllChats(forceProfileRefresh: false)
+        }
+    }
+
+    @MainActor
+    private func preloadAvatarsForAllChats(forceProfileRefresh: Bool) async {
+        let addresses = Array(Set(chatService.conversations.map { $0.contact.address }))
+        guard !addresses.isEmpty else { return }
+
+        let kns = KNSService.shared
+        let addressesToFetch: [String]
+        if forceProfileRefresh {
+            addressesToFetch = addresses
+        } else {
+            addressesToFetch = addresses.filter { kns.profileCache[$0] == nil }
+        }
+
+        if !addressesToFetch.isEmpty {
+            await fetchProfilesInBatches(for: addressesToFetch)
+        }
+
+        let avatarURLs = addresses.compactMap { address in
+            kns.profileCache[address]?.avatarURL
+        }
+        await KNSProfileImagePrefetcher.preload(rawURLStrings: avatarURLs, maxConcurrent: 6)
+    }
+
+    @MainActor
+    private func fetchProfilesInBatches(for addresses: [String]) async {
+        guard !addresses.isEmpty else { return }
+        for address in addresses {
+            _ = await KNSService.shared.fetchProfile(for: address)
         }
     }
 
@@ -534,6 +578,12 @@ struct ConversationRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle()) // Make entire row tappable
+        .task(id: conversation.contact.address) {
+            let address = conversation.contact.address
+            if knsService.profileCache[address] == nil {
+                _ = await knsService.fetchProfile(for: address)
+            }
+        }
     }
 
     private func formatDate(_ date: Date) -> String {

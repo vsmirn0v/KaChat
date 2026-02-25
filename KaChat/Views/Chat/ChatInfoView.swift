@@ -98,27 +98,91 @@ struct ChatInfoView: View {
                     }
                     .padding(.vertical, 8)
 
-                    if let bannerURL = KNSProfileLinkBuilder.websiteURL(from: knsProfile?.bannerUrl) {
-                        AsyncImage(url: bannerURL) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 110)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                            case .empty:
-                                RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color.secondary.opacity(0.15))
-                                    .frame(height: 110)
-                                    .overlay {
-                                        ProgressView().scaleEffect(0.8)
-                                    }
-                            case .failure:
-                                EmptyView()
-                            @unknown default:
-                                EmptyView()
+                    if KNSProfileLinkBuilder.websiteURL(from: knsProfile?.bannerUrl) != nil {
+                        KNSBannerImageView(
+                            bannerURLString: knsProfile?.bannerUrl,
+                            height: 110,
+                            cornerRadius: 10
+                        )
+                    }
+                }
+
+                if let profile = knsProfile, hasProfileDetailFields {
+                    Section("KNS Profile") {
+                        if let bio = profile.bio {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Bio")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text(bio)
+                                    .font(.body)
+                            }
+                            .padding(.vertical, 2)
+                            .onLongPressGesture(minimumDuration: 0.45) {
+                                copyProfileFieldValue(bio, fieldName: "Bio")
+                            }
+                        }
+                        if let x = profile.x {
+                            LabeledContent("X") {
+                                profileLinkView(
+                                    text: x,
+                                    url: KNSProfileLinkBuilder.xURL(from: x),
+                                    fieldName: "X"
+                                )
+                            }
+                        }
+                        if let website = profile.website {
+                            LabeledContent("Website") {
+                                profileLinkView(
+                                    text: website,
+                                    url: KNSProfileLinkBuilder.websiteURL(from: website),
+                                    fieldName: "Website"
+                                )
+                            }
+                        }
+                        if let telegram = profile.telegram {
+                            LabeledContent("Telegram") {
+                                profileLinkView(
+                                    text: telegram,
+                                    url: KNSProfileLinkBuilder.telegramURL(from: telegram),
+                                    fieldName: "Telegram"
+                                )
+                            }
+                        }
+                        if let discord = profile.discord {
+                            LabeledContent("Discord") {
+                                profileLinkView(
+                                    text: discord,
+                                    url: KNSProfileLinkBuilder.discordURL(from: discord),
+                                    fieldName: "Discord"
+                                )
+                            }
+                        }
+                        if let contactEmail = profile.contactEmail {
+                            LabeledContent("Email") {
+                                profileLinkView(
+                                    text: contactEmail,
+                                    url: KNSProfileLinkBuilder.emailURL(from: contactEmail),
+                                    fieldName: "Email"
+                                )
+                            }
+                        }
+                        if let github = profile.github {
+                            LabeledContent("GitHub") {
+                                profileLinkView(
+                                    text: github,
+                                    url: KNSProfileLinkBuilder.githubURL(from: github),
+                                    fieldName: "GitHub"
+                                )
+                            }
+                        }
+                        if let redirectUrl = profile.redirectUrl {
+                            LabeledContent("Redirect") {
+                                profileLinkView(
+                                    text: redirectUrl,
+                                    url: KNSProfileLinkBuilder.websiteURL(from: redirectUrl),
+                                    fieldName: "Redirect"
+                                )
                             }
                         }
                     }
@@ -271,87 +335,6 @@ struct ChatInfoView: View {
                     }
                 }
 
-                if let profile = knsProfile, hasProfileDetailFields {
-                    Section("KNS Profile") {
-                        if let bio = profile.bio {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Bio")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                Text(bio)
-                                    .font(.body)
-                            }
-                            .padding(.vertical, 2)
-                            .onLongPressGesture(minimumDuration: 0.45) {
-                                copyProfileFieldValue(bio, fieldName: "Bio")
-                            }
-                        }
-                        if let x = profile.x {
-                            LabeledContent("X") {
-                                profileLinkView(
-                                    text: x,
-                                    url: KNSProfileLinkBuilder.xURL(from: x),
-                                    fieldName: "X"
-                                )
-                            }
-                        }
-                        if let website = profile.website {
-                            LabeledContent("Website") {
-                                profileLinkView(
-                                    text: website,
-                                    url: KNSProfileLinkBuilder.websiteURL(from: website),
-                                    fieldName: "Website"
-                                )
-                            }
-                        }
-                        if let telegram = profile.telegram {
-                            LabeledContent("Telegram") {
-                                profileLinkView(
-                                    text: telegram,
-                                    url: KNSProfileLinkBuilder.telegramURL(from: telegram),
-                                    fieldName: "Telegram"
-                                )
-                            }
-                        }
-                        if let discord = profile.discord {
-                            LabeledContent("Discord") {
-                                profileLinkView(
-                                    text: discord,
-                                    url: KNSProfileLinkBuilder.discordURL(from: discord),
-                                    fieldName: "Discord"
-                                )
-                            }
-                        }
-                        if let contactEmail = profile.contactEmail {
-                            LabeledContent("Email") {
-                                profileLinkView(
-                                    text: contactEmail,
-                                    url: KNSProfileLinkBuilder.emailURL(from: contactEmail),
-                                    fieldName: "Email"
-                                )
-                            }
-                        }
-                        if let github = profile.github {
-                            LabeledContent("GitHub") {
-                                profileLinkView(
-                                    text: github,
-                                    url: KNSProfileLinkBuilder.githubURL(from: github),
-                                    fieldName: "GitHub"
-                                )
-                            }
-                        }
-                        if let redirectUrl = profile.redirectUrl {
-                            LabeledContent("Redirect") {
-                                profileLinkView(
-                                    text: redirectUrl,
-                                    url: KNSProfileLinkBuilder.websiteURL(from: redirectUrl),
-                                    fieldName: "Redirect"
-                                )
-                            }
-                        }
-                    }
-                }
-
                 Section("Info") {
                     LabeledContent("Added") {
                         Text(contact.addedAt, style: .date)
@@ -473,13 +456,15 @@ struct ChatInfoView: View {
                 linkedSystemContactSource = contact.systemContactLinkSource
             }
             .task {
-                // Fetch KNS domains/profile if not already cached
-                if knsInfo == nil || knsProfileInfo == nil {
-                    isLoadingKNS = true
+                // Always force-refresh selected contact profile when opening chat info.
+                // This avoids being stuck on stale/empty debounced cache entries.
+                isLoadingKNS = true
+                if knsInfo == nil {
                     _ = await contactsManager.fetchKNSInfo(for: contact)
-                    _ = await contactsManager.fetchKNSProfile(for: contact)
-                    isLoadingKNS = false
                 }
+                _ = await contactsManager.fetchKNSProfile(for: contact)
+                isLoadingKNS = false
+
                 isLoadingBalance = true
                 await contactsManager.refreshBalance(for: contact.address)
                 isLoadingBalance = false

@@ -169,15 +169,12 @@ final class ContactsManager: ObservableObject {
 
     /// Fetch KNS info for a specific contact
     func fetchKNSInfo(for contact: Contact, network: NetworkType = .mainnet) async -> KNSAddressInfo? {
-        await knsService.refreshIfNeeded(for: [contact.address], network: network)
-        await knsService.refreshProfilesIfNeeded(for: [contact.address], network: network)
-        return knsService.domainCache[contact.address]
+        await knsService.fetchInfo(for: contact.address, network: network)
     }
 
     /// Fetch selected KNS profile for a specific contact.
     func fetchKNSProfile(for contact: Contact, network: NetworkType = .mainnet) async -> KNSAddressProfileInfo? {
-        await knsService.refreshProfilesIfNeeded(for: [contact.address], network: network)
-        return knsService.profileCache[contact.address]
+        await knsService.fetchProfile(for: contact.address, network: network)
     }
 
     func balanceSompi(for address: String) -> UInt64? {
