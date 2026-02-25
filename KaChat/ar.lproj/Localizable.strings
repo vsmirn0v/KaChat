@@ -344,7 +344,6 @@
 "Sent domain transfer" = "تم إرسال نقل النطاق";
 "Received domain transfer" = "تم استلام نقل النطاق";
 
-/* KNS + Chat Info + Message Retention (auto-added) */
 "Incoming Notifications" = "الإخطارات الواردة";
 "Added" = "تمت الإضافة";
 "Last Message" = "الرسالة الأخيرة";
@@ -433,27 +432,21 @@
 "Transfer" = "تحويل";
 "Recipient is required" = "مطلوب المتلقي";
 
-/* KNS + Chat Info + Message Retention + Notification Mode (auto-added) */
 "Mode" = "وضع";
 "Disabled" = "عاجز";
 "Remote push" = "الدفع عن بعد";
 
-/* Message retention options (auto-added) */
 "Keep forever" = "إبقاء إلى الأبد";
 "30 days" = "30 يوما";
 "90 days" = "90 يوما";
 "1 year" = "1 سنة";
 
-/* Split view placeholder (auto-added) */
 "Select a chat" = "حدد دردشة";
 "Choose a conversation on the left" = "اختر محادثة على اليسار";
 
-/* Audio status labels (auto-added) */
 "Recording..." = "تسجيل...";
 "Audio ready" = "الصوت جاهز";
 
-/* Composer placeholder (auto-added) */
 "Message" = "رسالة";
 
-/* KNS Bio label (auto-added) */
 "Bio" = "السيرة الذاتية";

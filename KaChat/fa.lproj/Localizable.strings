@@ -344,7 +344,6 @@
 "Sent domain transfer" = "انتقال دامنه ارسال شد";
 "Received domain transfer" = "انتقال دامنه دریافت شد";
 
-/* KNS + Chat Info + Message Retention (auto-added) */
 "Incoming Notifications" = "اعلان های دریافتی";
 "Added" = "اضافه شد";
 "Last Message" = "آخرین پیام";
@@ -433,119 +432,21 @@
 "Transfer" = "انتقال";
 "Recipient is required" = "دریافت کننده الزامی است";
 
-/* KNS + Chat Info + Message Retention + Notification Mode (auto-added) */
-"Incoming Notifications" = "اعلان های دریافتی";
-"Added" = "اضافه شد";
-"Last Message" = "آخرین پیام";
-"Sent" = "ارسال شد";
-"Received" = "دریافت کرد";
-"Message retention" = "حفظ پیام";
-"Link System Contact" = "لینک تماس با سیستم";
-"Linked to %@." = "پیوند به %@.";
-"Name set to %@. Tap Save to apply." = "نام روی %@ تنظیم شد. برای اعمال روی ذخیره ضربه بزنید.";
-"%@ copied to clipboard." = "%@ در کلیپ بورد کپی شد.";
-"KNS profile unavailable." = "نمایه KNS در دسترس نیست.";
-"Inscribe submitted for %@." = "Inscribe ارسال شده برای %@.";
-"%@ transferred to %@." = "%@ به %@ منتقل شد.";
-"Transfer submitted for %@." = "انتقال برای %@ ارسال شد.";
-"Domain transfer unavailable." = "انتقال دامنه در دسترس نیست.";
-"No domains yet." = "هنوز دامنه ای وجود ندارد.";
-"Set %@ as primary" = "%@ را به عنوان اصلی تنظیم کنید";
-"Transfer %@" = "انتقال %@";
-"Listed" = "فهرست شده است";
-"Inscribe New Domain" = "دامنه جدید را ثبت کنید";
-"Name set to %@." = "نام روی %@ تنظیم شد.";
-"Wallet not available." = "کیف پول در دسترس نیست";
-"Wallet not available" = "کیف پول در دسترس نیست";
-"KNS domain id is missing." = "شناسه دامنه KNS وجود ندارد.";
-"Primary domain set to %@." = "دامنه اصلی روی %@ تنظیم شد.";
-"Set primary failed: %@" = "تنظیم اولیه ناموفق بود: %@";
-"KNS Profile" = "KNS نمایه";
-"Loading profile..." = "در حال بارگیری نمایه...";
-"On-chain profile data available." = "داده های نمایه روی زنجیره در دسترس است.";
-"No on-chain profile fields set." = "فیلدهای نمایه روی زنجیره تنظیم نشده است.";
-"Edit KNS Profile" = "ویرایش KNS نمایه";
-"Failed updates" = "به روز رسانی ناموفق";
-"Retry %@" = "سعی مجدد %@";
-"KNS asset id is missing." = "شناسه دارایی KNS وجود ندارد.";
-"Preparing profile update..." = "در حال آماده سازی به روز رسانی نمایه...";
-"Uploading avatar..." = "در حال آپلود آواتار...";
-"Uploading banner..." = "در حال آپلود بنر...";
-"No KNS profile changes detected." = "هیچ تغییر نمایه KNS شناسایی نشد.";
-"Updating %@ (%d/%d)..." = "در حال به روز رسانی %@ (%d/%d)...";
-"KNS profile updated." = "نمایه KNS به روز شد.";
-"Updated %d/%d. Failed: %@." = "به روز شد %d/%d. ناموفق: %@.";
-"Updated %d/%d. Failed: %@. %@" = "به روز شد %d/%d. ناموفق: %@. %@";
-"KNS profile update failed." = "به‌روزرسانی نمایه KNS انجام نشد.";
-"KNS profile update failed: %@" = "به‌روزرسانی نمایه KNS انجام نشد: %@";
-"Retrying %@..." = "تلاش مجدد %@...";
-"%@ updated." = "%@ به روز شد.";
-"Retry failed: %@" = "تلاش مجدد ناموفق بود: %@";
-"Domain" = "دامنه";
-"Asset ID" = "شناسه دارایی";
-"Avatar" = "آواتار";
-"Choose Avatar" = "آواتار را انتخاب کنید";
-"Remove Avatar" = "آواتار را حذف کنید";
-"Processing avatar..." = "در حال پردازش آواتار...";
-"Banner" = "بنر";
-"Choose Banner" = "بنر را انتخاب کنید";
-"Remove Banner" = "حذف بنر";
-"Processing banner..." = "در حال پردازش بنر...";
-"X handle" = "دسته X";
-"Discord user id" = "شناسه کاربر Discord";
-"Redirect URL" = "تغییر مسیر URL";
-"Could not load selected image" = "تصویر انتخابی بارگیری نشد";
-"Could not encode selected image" = "تصویر انتخاب شده رمزگذاری نشد";
-"Selected data is not a valid image" = "داده های انتخابی تصویر معتبری نیستند";
-"Could not process selected image" = "تصویر انتخابی پردازش نشد";
-"Could not initialize image encoder" = "رمزگذار تصویر راه اندازی نشد";
-"Inscribe Domain" = "ثبت دامنه";
-"name" = "نام";
-"Use lowercase letters, numbers, and hyphen." = "از حروف کوچک، اعداد و خط فاصله استفاده کنید.";
-"Checking availability..." = "بررسی در دسترس بودن...";
-"%@ can be inscribed." = "%@ را می توان درج کرد.";
-"This domain is not available." = "این دامنه در دسترس نیست.";
-"Fee" = "هزینه";
-"Service fee" = "هزینه خدمات";
-"Reserved domain: no revenue payment is required." = "دامنه رزرو شده: نیازی به پرداخت درآمد نیست.";
-"Fee unavailable" = "هزینه در دسترس نیست";
-"Submitting inscription..." = "در حال ارسال کتیبه ...";
-"Inscribe" = "درج کنید";
-"Invalid domain label" = "برچسب دامنه نامعتبر است";
-"Transfer Domain" = "انتقال دامنه";
-"Recipient" = "گیرنده";
-"kaspa:... or alice.kas" = "kaspa:... یا alice.kas";
-"Enter a Kaspa address or a `.kas` domain." = "آدرس Kaspa یا دامنه `.kas` را وارد کنید.";
-"Invalid recipient format." = "قالب گیرنده نامعتبر است.";
-"Recipient looks valid." = "گیرنده معتبر به نظر می رسد.";
-"Submitting transfer..." = "در حال ارسال انتقال...";
-"Transfer" = "انتقال";
-"Recipient is required" = "دریافت کننده الزامی است";
 "Mode" = "حالت";
 "Disabled" = "از کار افتاده است";
 "Remote push" = "فشار از راه دور";
 
-/* KNS + Chat Info + Message Retention + Notification Mode (auto-added) */
-"Mode" = "حالت";
-"Disabled" = "از کار افتاده است";
-"Remote push" = "فشار از راه دور";
-
-/* Message retention options (auto-added) */
 "Keep forever" = "برای همیشه نگه دارید";
 "30 days" = "30 روز";
 "90 days" = "90 روز";
 "1 year" = "1 سال";
 
-/* Split view placeholder (auto-added) */
 "Select a chat" = "یک چت را انتخاب کنید";
 "Choose a conversation on the left" = "یک مکالمه را در سمت چپ انتخاب کنید";
 
-/* Audio status labels (auto-added) */
 "Recording..." = "در حال ضبط ...";
 "Audio ready" = "صدا آماده است";
 
-/* Composer placeholder (auto-added) */
 "Message" = "پیام";
 
-/* KNS Bio label (auto-added) */
 "Bio" = "بیوگرافی";

@@ -344,96 +344,6 @@
 "Sent domain transfer" = "Domain-Transfer gesendet";
 "Received domain transfer" = "Domain-Transfer empfangen";
 
-/* KNS + Chat Info + Message Retention (auto-added) */
-"Incoming Notifications" = "Eingehende Benachrichtigungen";
-"Added" = "Hinzugefügt";
-"Last Message" = "Letzte Nachricht";
-"Sent" = "Gesendet";
-"Received" = "Erhalten";
-"Message retention" = "Nachrichtenaufbewahrung";
-"Link System Contact" = "Systemkontakt verknüpfen";
-"Linked to %@." = "Verknüpft mit %@.";
-"Name set to %@. Tap Save to apply." = "Name auf %@ gesetzt. Tippen Sie zum Anwenden auf „Speichern“.";
-"%@ copied to clipboard." = "%@ in die Zwischenablage kopiert.";
-"KNS profile unavailable." = "KNS-Profil nicht verfügbar.";
-"Inscribe submitted for %@." = "Anmeldung eingereicht für %@.";
-"%@ transferred to %@." = "%@ wurde an %@ übertragen.";
-"Transfer submitted for %@." = "Überweisung für %@ eingereicht.";
-"Domain transfer unavailable." = "Domainübertragung nicht möglich.";
-"No domains yet." = "Noch keine Domains.";
-"Set %@ as primary" = "Legen Sie %@ als primär fest";
-"Transfer %@" = "Übertragen %@";
-"Listed" = "Gelistet";
-"Inscribe New Domain" = "Neue Domain eintragen";
-"Name set to %@." = "Name auf %@ gesetzt.";
-"Wallet not available." = "Wallet nicht verfügbar.";
-"Wallet not available" = "Wallet nicht verfügbar";
-"KNS domain id is missing." = "Die Domänen-ID KNS fehlt.";
-"Primary domain set to %@." = "Primäre Domäne auf %@ festgelegt.";
-"Set primary failed: %@" = "Primäres Festlegen fehlgeschlagen: %@";
-"KNS Profile" = "KNS Profil";
-"Loading profile..." = "Profil wird geladen...";
-"On-chain profile data available." = "On-Chain-Profildaten verfügbar.";
-"No on-chain profile fields set." = "Keine On-Chain-Profilfelder festgelegt.";
-"Edit KNS Profile" = "Bearbeiten Sie das KNS-Profil";
-"Failed updates" = "Fehlgeschlagene Updates";
-"Retry %@" = "Wiederholen Sie %@";
-"KNS asset id is missing." = "KNS Asset-ID fehlt.";
-"Preparing profile update..." = "Profilaktualisierung wird vorbereitet...";
-"Uploading avatar..." = "Avatar wird hochgeladen...";
-"Uploading banner..." = "Banner wird hochgeladen...";
-"No KNS profile changes detected." = "Keine KNS-Profiländerungen erkannt.";
-"Updating %@ (%d/%d)..." = "%@ (%d/%d) wird aktualisiert...";
-"KNS profile updated." = "KNS-Profil aktualisiert.";
-"Updated %d/%d. Failed: %@." = "Aktualisiert %d/%d. Fehlgeschlagen: %@.";
-"Updated %d/%d. Failed: %@. %@" = "Aktualisiert %d/%d. Fehlgeschlagen: %@. %@";
-"KNS profile update failed." = "KNS Profilaktualisierung fehlgeschlagen.";
-"KNS profile update failed: %@" = "KNS Profilaktualisierung fehlgeschlagen: %@";
-"Retrying %@..." = "%@ wird erneut versucht...";
-"%@ updated." = "%@ aktualisiert.";
-"Retry failed: %@" = "Wiederholungsversuch fehlgeschlagen: %@";
-"Domain" = "Domain";
-"Asset ID" = "Asset-ID";
-"Avatar" = "Avatar";
-"Choose Avatar" = "Wählen Sie Avatar";
-"Remove Avatar" = "Avatar entfernen";
-"Processing avatar..." = "Avatar wird verarbeitet...";
-"Banner" = "Banner";
-"Choose Banner" = "Wählen Sie Banner";
-"Remove Banner" = "Banner entfernen";
-"Processing banner..." = "Banner wird verarbeitet...";
-"X handle" = "X-Griff";
-"Discord user id" = "Discord-Benutzer-ID";
-"Redirect URL" = "Weiterleitungs-URL";
-"Could not load selected image" = "Das ausgewählte Bild konnte nicht geladen werden";
-"Could not encode selected image" = "Das ausgewählte Bild konnte nicht kodiert werden";
-"Selected data is not a valid image" = "Ausgewählte Daten sind kein gültiges Bild";
-"Could not process selected image" = "Das ausgewählte Bild konnte nicht verarbeitet werden";
-"Could not initialize image encoder" = "Der Bildencoder konnte nicht initialisiert werden";
-"Inscribe Domain" = "Domain eintragen";
-"name" = "Name";
-"Use lowercase letters, numbers, and hyphen." = "Verwenden Sie Kleinbuchstaben, Zahlen und Bindestriche.";
-"Checking availability..." = "Verfügbarkeit prüfen...";
-"%@ can be inscribed." = "%@ kann beschriftet werden.";
-"This domain is not available." = "Diese Domain ist nicht verfügbar.";
-"Fee" = "Gebühr";
-"Service fee" = "Servicegebühr";
-"Reserved domain: no revenue payment is required." = "Reservierte Domain: Es ist keine Umsatzzahlung erforderlich.";
-"Fee unavailable" = "Gebühr nicht verfügbar";
-"Submitting inscription..." = "Anmeldung wird eingereicht...";
-"Inscribe" = "Beschriften";
-"Invalid domain label" = "Ungültige Domänenbezeichnung";
-"Transfer Domain" = "Domain übertragen";
-"Recipient" = "Empfänger";
-"kaspa:... or alice.kas" = "kaspa:... oder alice.kas";
-"Enter a Kaspa address or a `.kas` domain." = "Geben Sie eine Kaspa-Adresse oder eine `.kas`-Domäne ein.";
-"Invalid recipient format." = "Ungültiges Empfängerformat.";
-"Recipient looks valid." = "Der Empfänger sieht gültig aus.";
-"Submitting transfer..." = "Überweisung wird gesendet...";
-"Transfer" = "Überweisen";
-"Recipient is required" = "Der Empfänger ist erforderlich";
-
-/* KNS + Chat Info + Message Retention + Notification Mode (auto-added) */
 "Incoming Notifications" = "Eingehende Benachrichtigungen";
 "Added" = "Hinzugefügt";
 "Last Message" = "Letzte Nachricht";
@@ -525,22 +435,17 @@
 "Disabled" = "Deaktiviert";
 "Remote push" = "Remote-Push";
 
-/* Message retention options (auto-added) */
 "Keep forever" = "Für immer behalten";
 "30 days" = "30 Tage";
 "90 days" = "90 Tage";
 "1 year" = "1 Jahr";
 
-/* Split view placeholder (auto-added) */
 "Select a chat" = "Wählen Sie einen Chat aus";
 "Choose a conversation on the left" = "Wählen Sie links eine Konversation aus";
 
-/* Audio status labels (auto-added) */
 "Recording..." = "Aufnahme...";
 "Audio ready" = "Audio bereit";
 
-/* Composer placeholder (auto-added) */
 "Message" = "Nachricht";
 
-/* KNS Bio label (auto-added) */
 "Bio" = "Bio";

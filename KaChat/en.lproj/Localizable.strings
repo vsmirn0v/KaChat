@@ -344,7 +344,6 @@
 "Sent domain transfer" = "Sent domain transfer";
 "Received domain transfer" = "Received domain transfer";
 
-/* KNS + Chat Info + Message Retention (auto-added) */
 "Incoming Notifications" = "Incoming Notifications";
 "Added" = "Added";
 "Last Message" = "Last Message";
@@ -433,27 +432,21 @@
 "Transfer" = "Transfer";
 "Recipient is required" = "Recipient is required";
 
-/* KNS + Chat Info + Message Retention + Notification Mode (auto-added) */
 "Mode" = "Mode";
 "Disabled" = "Disabled";
 "Remote push" = "Remote push";
 
-/* Message retention options (auto-added) */
 "Keep forever" = "Keep forever";
 "30 days" = "30 days";
 "90 days" = "90 days";
 "1 year" = "1 year";
 
-/* Split view placeholder (auto-added) */
 "Select a chat" = "Select a chat";
 "Choose a conversation on the left" = "Choose a conversation on the left";
 
-/* Audio status labels (auto-added) */
 "Recording..." = "Recording...";
 "Audio ready" = "Audio ready";
 
-/* Composer placeholder (auto-added) */
 "Message" = "Message";
 
-/* KNS Bio label (auto-added) */
 "Bio" = "Bio";

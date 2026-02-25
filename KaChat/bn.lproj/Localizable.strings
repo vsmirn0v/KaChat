@@ -344,7 +344,6 @@
 "Sent domain transfer" = "ডোমেইন ট্রান্সফার পাঠানো হয়েছে";
 "Received domain transfer" = "ডোমেইন ট্রান্সফার গ্রহণ করা হয়েছে";
 
-/* KNS + Chat Info + Message Retention (auto-added) */
 "Incoming Notifications" = "ইনকামিং বিজ্ঞপ্তি";
 "Added" = "যোগ করা হয়েছে";
 "Last Message" = "শেষ বার্তা";
@@ -433,27 +432,21 @@
 "Transfer" = "স্থানান্তর";
 "Recipient is required" = "প্রাপক প্রয়োজন";
 
-/* KNS + Chat Info + Message Retention + Notification Mode (auto-added) */
 "Mode" = "মোড";
 "Disabled" = "অক্ষম";
 "Remote push" = "দূরবর্তী ধাক্কা";
 
-/* Message retention options (auto-added) */
 "Keep forever" = "চিরকাল রাখুন";
 "30 days" = "30 দিন";
 "90 days" = "90 দিন";
 "1 year" = "1 বছর";
 
-/* Split view placeholder (auto-added) */
 "Select a chat" = "একটি চ্যাট নির্বাচন করুন";
 "Choose a conversation on the left" = "বাম দিকে একটি কথোপকথন চয়ন করুন";
 
-/* Audio status labels (auto-added) */
 "Recording..." = "রেকর্ডিং...";
 "Audio ready" = "অডিও প্রস্তুত";
 
-/* Composer placeholder (auto-added) */
 "Message" = "বার্তা";
 
-/* KNS Bio label (auto-added) */
 "Bio" = "বায়ো";
