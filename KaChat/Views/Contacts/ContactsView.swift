@@ -950,6 +950,7 @@ struct ProfileView: View {
             var failedFields: [String] = []
             var failedChanges: [KNSProfileFieldKey: String] = [:]
             var failedMessages: [KNSProfileFieldKey: String] = [:]
+            var primaryPromotionFailure: String?
 
             for change in changes {
                 try validateKNSFieldValue(change.value, key: change.key, assetId: assetId)
@@ -984,6 +985,18 @@ struct ProfileView: View {
                 }
             }
 
+            if successCount > 0 {
+                switch await promoteEditedDomainToPrimaryIfNeeded(
+                    walletAddress: walletAddress,
+                    editedAssetId: assetId
+                ) {
+                case .notNeeded, .success:
+                    break
+                case .failed(let message):
+                    primaryPromotionFailure = message
+                }
+            }
+
             if let refreshed = await KNSService.shared.fetchProfile(for: walletAddress) {
                 await MainActor.run {
                     knsProfileInfo = refreshed
@@ -996,13 +1009,18 @@ struct ProfileView: View {
                 failedKNSUpdates = failedChanges
                 if successCount == changes.count {
                     logKNSWrite("SAVE_SUCCESS count=\(successCount)")
-                    Haptics.success()
-                    showToast(localized("KNS profile updated."))
+                    if let primaryPromotionFailure, !primaryPromotionFailure.isEmpty {
+                        Haptics.impact(.medium)
+                        showToast(localizedFormat("Set primary failed: %@", primaryPromotionFailure), style: .error)
+                    } else {
+                        Haptics.success()
+                        showToast(localized("KNS profile updated."))
+                    }
                 } else if successCount > 0 {
                     logKNSWrite("SAVE_PARTIAL success=\(successCount) failed=\(changes.count - successCount)")
                     Haptics.impact(.medium)
                     let failedList = failedFields.joined(separator: ", ")
-                    let firstReason = failedMessages.values.first ?? ""
+                    let firstReason = failedMessages.values.first ?? primaryPromotionFailure ?? ""
                     if firstReason.isEmpty {
                         showToast(
                             localizedFormat(
@@ -1045,6 +1063,56 @@ struct ProfileView: View {
                 Haptics.impact(.medium)
                 showToast(localizedFormat("KNS profile update failed: %@", message), style: .error)
             }
+        }
+    }
+
+    private enum KNSPrimaryPromotionResult {
+        case notNeeded
+        case success
+        case failed(String)
+    }
+
+    private func promoteEditedDomainToPrimaryIfNeeded(
+        walletAddress: String,
+        editedAssetId rawEditedAssetId: String
+    ) async -> KNSPrimaryPromotionResult {
+        let editedAssetId = rawEditedAssetId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !editedAssetId.isEmpty else {
+            return .notNeeded
+        }
+
+        guard let info = await KNSService.shared.fetchInfo(for: walletAddress) else {
+            return .notNeeded
+        }
+        guard info.primaryDomain == nil else {
+            return .notNeeded
+        }
+
+        guard let selectedFallbackDomain = info.allDomains.first(where: {
+            $0.inscriptionId.trimmingCharacters(in: .whitespacesAndNewlines) == editedAssetId
+        }) else {
+            return .notNeeded
+        }
+
+        logKNSWrite("AUTO_PRIMARY_START domain=\(selectedFallbackDomain.fullName) asset=\(editedAssetId)")
+        do {
+            try await submitSetPrimaryDomainWithSignatureFallback(domainId: editedAssetId)
+            if let refreshedInfo = await KNSService.shared.fetchInfo(for: walletAddress) {
+                await MainActor.run {
+                    knsPrimaryDomain = refreshedInfo.primaryDomain ?? selectedFallbackDomain.fullName
+                    knsDomains = refreshedInfo.allDomains
+                }
+            } else {
+                await MainActor.run {
+                    knsPrimaryDomain = selectedFallbackDomain.fullName
+                }
+            }
+            logKNSWrite("AUTO_PRIMARY_SUCCESS domain=\(selectedFallbackDomain.fullName)")
+            return .success
+        } catch {
+            let message = compactErrorText(error)
+            logKNSWrite("AUTO_PRIMARY_FAIL domain=\(selectedFallbackDomain.fullName) \(diagnosticError(error))")
+            return .failed(message)
         }
     }
 

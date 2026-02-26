@@ -737,35 +737,41 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
     // MARK: - Private API calls
 
-    private func fetchPrimaryNameResult(for address: String, baseURL: String) async -> (domain: String?, hadError: Bool) {
-        guard var components = URLComponents(string: baseURL) else { return (nil, true) }
+    private func fetchPrimaryNameResult(
+        for address: String,
+        baseURL: String
+    ) async -> (domain: String?, inscriptionId: String?, hadError: Bool) {
+        guard var components = URLComponents(string: baseURL) else { return (nil, nil, true) }
         components.path += "/primary-name/\(address)"
-        guard let url = components.url else { return (nil, true) }
+        guard let url = components.url else { return (nil, nil, true) }
 
         do {
             let (data, response) = try await fetchData(from: url)
 
             guard let httpResponse = response as? HTTPURLResponse else {
-                return (nil, true)
+                return (nil, nil, true)
             }
 
             if httpResponse.statusCode == 404 {
-                return (nil, false)
+                return (nil, nil, false)
             }
 
             guard httpResponse.statusCode == 200 else {
-                return (nil, true)
+                return (nil, nil, true)
             }
 
             let result = try JSONDecoder().decode(KNSPrimaryNameResponse.self, from: data)
             guard result.success, let domainData = result.data?.domain else {
-                return (nil, false)
+                return (nil, nil, false)
             }
 
-            return (normalizeDomainName(domainData.fullName), false)
+            let normalizedDomain = normalizeDomainName(domainData.fullName)
+            let inscriptionId = result.data?.inscriptionId?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return (normalizedDomain, inscriptionId?.isEmpty == false ? inscriptionId : nil, false)
         } catch {
             NSLog("[KNS] Primary name fetch error for %@: %@", address, error.localizedDescription)
-            return (nil, true)
+            return (nil, nil, true)
         }
     }
 
@@ -855,7 +861,10 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     }
 
     private func fetchInfoInternal(for address: String, network: NetworkType) async -> (info: KNSAddressInfo?, hadError: Bool) {
-        let (primaryDomain, primaryError) = await fetchPrimaryNameResult(for: address, baseURL: baseURL)
+        let (primaryDomain, primaryInscriptionId, primaryError) = await fetchPrimaryNameResult(
+            for: address,
+            baseURL: baseURL
+        )
         let (allDomains, assetsError) = await fetchAllDomains(for: address, baseURL: baseURL)
         let hadError = primaryError || assetsError
 
@@ -864,15 +873,26 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         }
 
         if allDomains.isEmpty && primaryDomain == nil {
-            let info = KNSAddressInfo(address: address, primaryDomain: nil, allDomains: [], fetchedAt: Date())
+            let info = KNSAddressInfo(
+                address: address,
+                primaryDomain: nil,
+                primaryInscriptionId: nil,
+                allDomains: [],
+                fetchedAt: Date()
+            )
             updateCache(info, address: address)
             return (info, false)
         }
 
         let finalPrimary = primaryDomain ?? allDomains.first?.fullName
+        var finalPrimaryInscriptionId = primaryInscriptionId
+        if finalPrimaryInscriptionId == nil, let finalPrimary {
+            finalPrimaryInscriptionId = allDomains.first(where: { $0.fullName == finalPrimary })?.inscriptionId
+        }
         let info = KNSAddressInfo(
             address: address,
             primaryDomain: finalPrimary,
+            primaryInscriptionId: finalPrimaryInscriptionId,
             allDomains: allDomains,
             fetchedAt: Date()
         )
@@ -890,17 +910,27 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         if domainInfo == nil {
             domainInfo = await fetchInfo(for: address, network: network)
         }
-        let selectedDomain: KNSDomain? = {
+        let selectedProfileTarget: (assetId: String, domainName: String?)? = {
             guard let domainInfo else { return nil }
-            if let primary = domainInfo.primaryDomain {
-                if let matched = domainInfo.allDomains.first(where: { $0.fullName == primary }) {
-                    return matched
+            if let primaryAssetId = domainInfo.primaryInscriptionId?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !primaryAssetId.isEmpty {
+                if let matched = domainInfo.allDomains.first(where: { $0.inscriptionId == primaryAssetId }) {
+                    return (matched.inscriptionId, matched.fullName)
                 }
+                return (primaryAssetId, domainInfo.primaryDomain)
             }
-            return domainInfo.allDomains.first
+            if let primary = domainInfo.primaryDomain,
+               let matched = domainInfo.allDomains.first(where: { $0.fullName == primary }) {
+                return (matched.inscriptionId, matched.fullName)
+            }
+            if let first = domainInfo.allDomains.first {
+                return (first.inscriptionId, first.fullName)
+            }
+            return nil
         }()
 
-        guard let selectedDomain else {
+        guard let selectedProfileTarget else {
             let info = KNSAddressProfileInfo(
                 address: address,
                 domainName: nil,
@@ -913,7 +943,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         }
 
         let (profileData, profileError) = await fetchDomainProfileResult(
-            assetId: selectedDomain.inscriptionId,
+            assetId: selectedProfileTarget.assetId,
             baseURL: baseURL
         )
 
@@ -924,8 +954,8 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         let profile = profileData?.profile?.toModel()
         let info = KNSAddressProfileInfo(
             address: address,
-            domainName: profileData?.fullName ?? selectedDomain.fullName,
-            assetId: selectedDomain.inscriptionId,
+            domainName: profileData?.fullName ?? selectedProfileTarget.domainName,
+            assetId: selectedProfileTarget.assetId,
             profile: profile,
             fetchedAt: Date()
         )
@@ -1018,6 +1048,8 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
         for (address, info) in decoded {
             let primary = normalizeDomainName(info.primaryDomain)
+            let primaryInscriptionId = info.primaryInscriptionId?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             let domains = info.allDomains.compactMap { domain -> KNSDomain? in
                 guard let normalized = normalizeDomainName(domain.fullName) else {
                     return nil
@@ -1031,9 +1063,14 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
                 )
             }
             let finalPrimary = primary ?? domains.first?.fullName
+            var finalPrimaryInscriptionId = primaryInscriptionId?.isEmpty == false ? primaryInscriptionId : nil
+            if finalPrimaryInscriptionId == nil, let finalPrimary {
+                finalPrimaryInscriptionId = domains.first(where: { $0.fullName == finalPrimary })?.inscriptionId
+            }
             let cleaned = KNSAddressInfo(
                 address: info.address,
                 primaryDomain: finalPrimary,
+                primaryInscriptionId: finalPrimaryInscriptionId,
                 allDomains: domains,
                 fetchedAt: info.fetchedAt
             )
@@ -1664,6 +1701,7 @@ final class KNSDomainTransferService: ObservableObject {
 struct KNSAddressInfo: Equatable, Codable {
     let address: String
     let primaryDomain: String?
+    let primaryInscriptionId: String?
     let allDomains: [KNSDomain]
     let fetchedAt: Date
 

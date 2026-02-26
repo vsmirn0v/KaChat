@@ -456,12 +456,10 @@ struct ChatInfoView: View {
                 linkedSystemContactSource = contact.systemContactLinkSource
             }
             .task {
-                // Always force-refresh selected contact profile when opening chat info.
-                // This avoids being stuck on stale/empty debounced cache entries.
+                // Always force-refresh selected contact KNS info and profile when opening chat info.
+                // This ensures profile selection is anchored to the latest primary domain metadata.
                 isLoadingKNS = true
-                if knsInfo == nil {
-                    _ = await contactsManager.fetchKNSInfo(for: contact)
-                }
+                _ = await contactsManager.fetchKNSInfo(for: contact)
                 _ = await contactsManager.fetchKNSProfile(for: contact)
                 isLoadingKNS = false
 
