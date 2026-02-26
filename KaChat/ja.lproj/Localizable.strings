@@ -327,6 +327,7 @@
 "Planned spend %@ KAS, but available balance %@ KAS is less than required." = "予定支出は %@ KAS ですが、利用可能残高 %@ KAS は必要額を下回っています。";
 "No spendable funds available yet. Wait for confirmations and try again." = "まだ利用可能な資金がありません。承認を待ってからもう一度お試しください。";
 
+"available: %@ KAS" = "利用可能: %@ KAS";
 "fee: %@ sompi" = "手数料: %@ sompi";
 
 /* Emoji Picker */

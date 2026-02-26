@@ -1645,6 +1645,8 @@ extension ChatService {
         subscriptionRetryTask = nil
         pendingResubscriptionTask?.cancel()
         pendingResubscriptionTask = nil
+        subscriptionBalanceRefreshTask?.cancel()
+        subscriptionBalanceRefreshTask = nil
         needsResubscriptionAfterSync = false
 
         // Clean up UTXO subscription

@@ -327,6 +327,7 @@
 "Planned spend %@ KAS, but available balance %@ KAS is less than required." = "ההוצאה המתוכננת היא %@ KAS, אך היתרה הזמינה %@ KAS נמוכה מהנדרש.";
 "No spendable funds available yet. Wait for confirmations and try again." = "עדיין אין יתרה זמינה להוצאה. המתן לאישורים ונסה שוב.";
 
+"available: %@ KAS" = "זמין: %@ KAS";
 "fee: %@ sompi" = "עמלה: %@ sompi";
 
 /* Emoji Picker */

@@ -327,6 +327,7 @@
 "Planned spend %@ KAS, but available balance %@ KAS is less than required." = "खर्च की योजना %@ KAS है, लेकिन उपलब्ध शेष %@ KAS आवश्यक राशि से कम है।";
 "No spendable funds available yet. Wait for confirmations and try again." = "अभी खर्च करने योग्य फंड उपलब्ध नहीं हैं। पुष्टि होने तक प्रतीक्षा करें और फिर से प्रयास करें।";
 
+"available: %@ KAS" = "उपलब्ध: %@ KAS";
 "fee: %@ sompi" = "शुल्क: %@ sompi";
 
 /* Emoji Picker */

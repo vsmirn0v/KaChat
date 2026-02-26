@@ -287,6 +287,8 @@ extension ChatService {
         subscriptionRetryTask = nil
         pendingResubscriptionTask?.cancel()
         pendingResubscriptionTask = nil
+        subscriptionBalanceRefreshTask?.cancel()
+        subscriptionBalanceRefreshTask = nil
         needsResubscriptionAfterSync = false
         NSLog("[ChatService] Starting message sync...")
 
@@ -449,6 +451,7 @@ extension ChatService {
             lastSubscribedAddressCount = addressList.count
             lastSubscribedAddresses = Set(addressList)
             NSLog("[ChatService] Real-time notifications active for %d addresses", addressList.count)
+            scheduleBalanceRefreshAfterSubscriptionEnabled()
 
             // If this is a restart, sync messages/payments to catch anything missed during downtime
             if isRestart {
@@ -492,6 +495,32 @@ extension ChatService {
             if !isUtxoSubscribed {
                 NSLog("[ChatService] All pool nodes failed, retrying in 1s...")
                 scheduleSubscriptionRetry()
+            }
+        }
+    }
+
+    func scheduleBalanceRefreshAfterSubscriptionEnabled() {
+        subscriptionBalanceRefreshTask?.cancel()
+        subscriptionBalanceRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let delaysNs: [UInt64] = [0, 500_000_000, 1_500_000_000]
+            for (attemptIndex, delayNs) in delaysNs.enumerated() {
+                if delayNs > 0 {
+                    try? await Task.sleep(nanoseconds: delayNs)
+                }
+                guard !Task.isCancelled else { return }
+                guard self.isUtxoSubscribed else { return }
+
+                do {
+                    let total = try await WalletManager.shared.refreshBalance()
+                    NSLog("[ChatService] Post-subscription balance refreshed on attempt %d: %@ sompi",
+                          attemptIndex + 1, String(total))
+                    return
+                } catch {
+                    NSLog("[ChatService] Post-subscription balance refresh attempt %d failed: %@",
+                          attemptIndex + 1, error.localizedDescription)
+                }
             }
         }
     }

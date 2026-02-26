@@ -327,6 +327,7 @@
 "Planned spend %@ KAS, but available balance %@ KAS is less than required." = "مقدار برنامه‌ریزی‌شده برای خرج %@ KAS است، اما موجودی قابل‌دسترس %@ KAS کمتر از مقدار لازم است.";
 "No spendable funds available yet. Wait for confirmations and try again." = "هنوز موجودی قابل خرج در دسترس نیست. منتظر تاییدها بمانید و دوباره تلاش کنید.";
 
+"available: %@ KAS" = "موجودی در دسترس: %@ KAS";
 "fee: %@ sompi" = "کارمزد: %@ sompi";
 
 /* Emoji Picker */

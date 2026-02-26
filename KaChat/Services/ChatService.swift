@@ -268,6 +268,7 @@ final class ChatService: ObservableObject {
     var lastSubscribedAddressCount = 0
     var lastSubscribedAddresses: Set<String> = []
     var pendingResubscriptionTask: Task<Void, Never>?
+    var subscriptionBalanceRefreshTask: Task<Void, Never>?
     var needsResubscriptionAfterSync = false
     var catchUpSyncInFlight = false
 
@@ -506,6 +507,8 @@ final class ChatService: ObservableObject {
         subscriptionRetryTask = nil
         pendingResubscriptionTask?.cancel()
         pendingResubscriptionTask = nil
+        subscriptionBalanceRefreshTask?.cancel()
+        subscriptionBalanceRefreshTask = nil
         conversations = []
         lastSubscribedAddressCount = 0
         lastSubscribedAddresses = []

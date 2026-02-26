@@ -327,6 +327,7 @@
 "Planned spend %@ KAS, but available balance %@ KAS is less than required." = "খরচের পরিকল্পনা %@ KAS, কিন্তু উপলব্ধ ব্যালেন্স %@ KAS প্রয়োজনীয় পরিমাণের চেয়ে কম।";
 "No spendable funds available yet. Wait for confirmations and try again." = "এখনও খরচযোগ্য ফান্ড উপলব্ধ নয়। কনফার্মেশন হওয়া পর্যন্ত অপেক্ষা করুন এবং আবার চেষ্টা করুন।";
 
+"available: %@ KAS" = "উপলব্ধ: %@ KAS";
 "fee: %@ sompi" = "ফি: %@ sompi";
 
 /* Emoji Picker */

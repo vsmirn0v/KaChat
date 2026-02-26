@@ -98,6 +98,7 @@ struct ChatDetailView: View {
     @State private var showEmojiPicker = false
     @State private var selectedEmojiCategory: EmojiCategory = .recent
     @State private var emojiSearchText = ""
+    @State private var keyboardOverlapHeight: CGFloat = 0
     @State private var recentEmojis: [String] = ["👍", "❤️", "😂", "🔥", "🙏", "🎉", "✅", "🙂"]
     @State private var viewportResetTrigger = UUID()
     @State private var showDustWarning = false
@@ -122,6 +123,10 @@ struct ChatDetailView: View {
             return wallet.balanceSompi
         }
         return contactsManager.balanceSompi(for: contact.address)
+    }
+
+    private var walletBalanceSompi: UInt64? {
+        walletManager.currentWallet?.balanceSompi
     }
 
     private var messages: [ChatMessage] {
@@ -550,6 +555,12 @@ struct ChatDetailView: View {
         .onChange(of: amountText) { newValue in
             schedulePaymentFee(for: newValue)
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            updateKeyboardOverlap(from: notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardOverlapHeight = 0
+        }
         .onChange(of: settingsViewModel.settings.feeEstimationEnabled) { enabled in
             if enabled {
                 switch inputMode {
@@ -613,6 +624,7 @@ struct ChatDetailView: View {
         .onDisappear {
             chatService.leaveConversation()
             cancelRecording()
+            keyboardOverlapHeight = 0
             showEmojiPicker = false
             emojiSearchText = ""
             snapshotRebuildTask?.cancel()
@@ -1249,18 +1261,25 @@ struct ChatDetailView: View {
                 HStack(spacing: 12) {
                     inputFieldWithState
 
-                    if !isDeclined && inputMode == .message {
+                    if !isDeclined && inputMode == .message && !isVirtualKeyboardVisible {
                         emojiToggleButton
                     }
 
                     sendButtonWithMenu
                 }
 
-                if shouldShowFeeRow && !isDeclined {
-                    feeBubble
-                        .offset(x: 32, y: -26)
-                        .transition(.opacity)
-                        .allowsHitTesting(false)
+                if shouldShowComposerHelperRow && !isDeclined {
+                    HStack(spacing: 6) {
+                        if shouldShowFeeBubble {
+                            feeBubble
+                        }
+                        if shouldShowAvailableBalanceBubble {
+                            availableBalanceBubble
+                        }
+                    }
+                    .offset(x: 32, y: -26)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
                 }
             }
         }
@@ -1309,6 +1328,14 @@ struct ChatDetailView: View {
                 EmptyView()
             } else if shouldShowComposerQuickActions {
                 composerQuickActions
+            } else if shouldShowAudioModeSwitchActions {
+                HStack(spacing: 8) {
+                    audioModeSwitchActions
+                    sendButtonWithGesture(
+                        tapAction: { handleSend() },
+                        isDisabled: !canSend
+                    )
+                }
             } else {
                 sendButtonWithGesture(
                     tapAction: { handleSend() },
@@ -1341,7 +1368,22 @@ struct ChatDetailView: View {
     }
 
     private var shouldShowComposerQuickActions: Bool {
-        inputMode == .message && messageText.isEmpty
+        switch inputMode {
+        case .message:
+            return messageText.isEmpty
+        case .payment:
+            return amountText.isEmpty
+        case .audio:
+            return false
+        }
+    }
+
+    private var shouldShowAudioModeSwitchActions: Bool {
+        inputMode == .audio && !hasAudioDraft
+    }
+
+    private var hasAudioDraft: Bool {
+        isRecording || isEncodingAudio || recordedAudioPreviewURL != nil || recordedAudioURL != nil
     }
 
     private var canSendRequestToCommunicate: Bool {
@@ -1350,27 +1392,64 @@ struct ChatDetailView: View {
 
     private var composerQuickActions: some View {
         HStack(spacing: 8) {
+            switch inputMode {
+            case .message:
+                composerQuickActionButton(
+                    title: "Send KAS",
+                    icon: "k.circle.fill"
+                ) {
+                    switchMode(.payment)
+                }
+
+                composerQuickActionButton(
+                    title: "Send audio",
+                    icon: "mic.circle.fill"
+                ) {
+                    switchMode(.audio)
+                }
+
+                if canSendRequestToCommunicate {
+                    composerQuickActionButton(
+                        title: "Request to communicate",
+                        icon: "hand.wave"
+                    ) {
+                        sendHandshake()
+                    }
+                }
+            case .payment:
+                composerQuickActionButton(
+                    title: "Send message",
+                    icon: "text.bubble.fill"
+                ) {
+                    switchMode(.message)
+                }
+
+                composerQuickActionButton(
+                    title: "Send audio",
+                    icon: "mic.circle.fill"
+                ) {
+                    switchMode(.audio)
+                }
+            case .audio:
+                EmptyView()
+            }
+        }
+    }
+
+    private var audioModeSwitchActions: some View {
+        HStack(spacing: 8) {
+            composerQuickActionButton(
+                title: "Send message",
+                icon: "text.bubble.fill"
+            ) {
+                switchMode(.message)
+            }
+
             composerQuickActionButton(
                 title: "Send KAS",
                 icon: "k.circle.fill"
             ) {
                 switchMode(.payment)
-            }
-
-            composerQuickActionButton(
-                title: "Send audio",
-                icon: "mic.circle.fill"
-            ) {
-                switchMode(.audio)
-            }
-
-            if canSendRequestToCommunicate {
-                composerQuickActionButton(
-                    title: "Request to communicate",
-                    icon: "hand.wave"
-                ) {
-                    sendHandshake()
-                }
             }
         }
     }
@@ -1866,6 +1945,21 @@ struct ChatDetailView: View {
         }
     }
 
+    private var availableBalanceBubble: some View {
+        HStack(spacing: 6) {
+            if let balanceSompi = walletBalanceSompi {
+                Text(localizedAvailableBalanceText(balanceSompi))
+            } else {
+                Text(localizedAvailableBalanceText(nil))
+            }
+        }
+        .font(.caption2)
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(glassBackground(cornerRadius: 14))
+    }
+
     private func glassBackground(cornerRadius: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(.regularMaterial)
@@ -1885,6 +1979,19 @@ struct ChatDetailView: View {
         } else {
             feeShimmerPhase = -1
         }
+    }
+
+    private var isVirtualKeyboardVisible: Bool {
+        // A small threshold avoids treating accessory bars as a full software keyboard.
+        keyboardOverlapHeight > 80
+    }
+
+    private func updateKeyboardOverlap(from notification: Notification) {
+        guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            return
+        }
+        let overlap = UIScreen.main.bounds.intersection(endFrame).height
+        keyboardOverlapHeight = max(0, overlap)
     }
 
     private func clearFeeEstimationState() {
@@ -2090,7 +2197,7 @@ struct ChatDetailView: View {
         }
     }
 
-    private var shouldShowFeeRow: Bool {
+    private var shouldShowFeeBubble: Bool {
         guard isFeeEstimationEnabled else { return false }
         switch inputMode {
         case .message:
@@ -2100,6 +2207,14 @@ struct ChatDetailView: View {
         case .audio:
             return isRecording || isEncodingAudio || recordedAudioPreviewURL != nil
         }
+    }
+
+    private var shouldShowAvailableBalanceBubble: Bool {
+        inputMode == .payment
+    }
+
+    private var shouldShowComposerHelperRow: Bool {
+        shouldShowFeeBubble || shouldShowAvailableBalanceBubble
     }
 
     private func scheduleFeeEstimate(for text: String) {
@@ -2589,6 +2704,15 @@ struct ChatDetailView: View {
             comment: "Fee label with resolved fee amount in sompi"
         )
         return String(format: template, locale: Locale.current, String(feeSompi))
+    }
+
+    private func localizedAvailableBalanceText(_ balanceSompi: UInt64?) -> String {
+        let template = NSLocalizedString(
+            "available: %@ KAS",
+            comment: "Available wallet balance helper label near fee bubble in payment mode"
+        )
+        let value = balanceSompi.map(formatKaspaExact) ?? "--"
+        return String(format: template, locale: Locale.current, value)
     }
 
     private func parseAmountSompi(_ text: String) -> UInt64 {

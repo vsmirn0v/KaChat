@@ -327,6 +327,7 @@
 "Planned spend %@ KAS, but available balance %@ KAS is less than required." = "الإنفاق المخطط %@ KAS، لكن الرصيد المتاح %@ KAS أقل من المطلوب.";
 "No spendable funds available yet. Wait for confirmations and try again." = "لا توجد أموال قابلة للإنفاق حتى الآن. انتظر التأكيدات وحاول مرة أخرى.";
 
+"available: %@ KAS" = "المتاح: %@ KAS";
 "fee: %@ sompi" = "الرسوم: %@ sompi";
 
 /* Emoji Picker */

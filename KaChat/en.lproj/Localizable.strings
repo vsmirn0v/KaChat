@@ -327,6 +327,7 @@
 "Planned spend %@ KAS, but available balance %@ KAS is less than required." = "Planned spend %@ KAS, but available balance %@ KAS is less than required.";
 "No spendable funds available yet. Wait for confirmations and try again." = "No spendable funds available yet. Wait for confirmations and try again.";
 
+"available: %@ KAS" = "available: %@ KAS";
 "fee: %@ sompi" = "fee: %@ sompi";
 
 /* Emoji Picker */

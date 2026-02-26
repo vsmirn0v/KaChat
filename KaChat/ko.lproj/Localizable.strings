@@ -327,6 +327,7 @@
 "Planned spend %@ KAS, but available balance %@ KAS is less than required." = "예정 지출은 %@ KAS이지만 사용 가능한 잔액 %@ KAS이(가) 필요 금액보다 적습니다.";
 "No spendable funds available yet. Wait for confirmations and try again." = "아직 사용 가능한 자금이 없습니다. 컨펌을 기다린 후 다시 시도하세요.";
 
+"available: %@ KAS" = "사용 가능: %@ KAS";
 "fee: %@ sompi" = "수수료: %@ sompi";
 
 /* Emoji Picker */

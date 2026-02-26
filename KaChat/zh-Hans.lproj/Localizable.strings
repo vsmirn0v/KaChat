@@ -327,6 +327,7 @@
 "Planned spend %@ KAS, but available balance %@ KAS is less than required." = "计划支出 %@ KAS，但可用余额 %@ KAS 低于所需金额。";
 "No spendable funds available yet. Wait for confirmations and try again." = "当前还没有可用可花费资金。请等待确认后再试。";
 
+"available: %@ KAS" = "可用: %@ KAS";
 "fee: %@ sompi" = "手续费: %@ sompi";
 
 /* Emoji Picker */

@@ -327,6 +327,7 @@
 "Planned spend %@ KAS, but available balance %@ KAS is less than required." = "Planlanan harcama %@ KAS, ancak kullanılabilir bakiye %@ KAS gerekli tutardan düşüktür.";
 "No spendable funds available yet. Wait for confirmations and try again." = "Henüz harcanabilir bakiye yok. Onayları bekleyip tekrar deneyin.";
 
+"available: %@ KAS" = "kullanılabilir: %@ KAS";
 "fee: %@ sompi" = "ücret: %@ sompi";
 
 /* Emoji Picker */

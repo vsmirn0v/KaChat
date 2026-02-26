@@ -327,6 +327,7 @@
 "Planned spend %@ KAS, but available balance %@ KAS is less than required." = "Dự kiến chi %@ KAS, nhưng số dư khả dụng %@ KAS thấp hơn mức yêu cầu.";
 "No spendable funds available yet. Wait for confirmations and try again." = "Hiện chưa có số dư có thể chi tiêu. Hãy đợi xác nhận rồi thử lại.";
 
+"available: %@ KAS" = "khả dụng: %@ KAS";
 "fee: %@ sompi" = "phí: %@ sompi";
 
 /* Emoji Picker */
