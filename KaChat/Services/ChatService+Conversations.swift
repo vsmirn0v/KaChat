@@ -890,25 +890,6 @@ extension ChatService {
             throw KasiaError.keychainError("Could not get private key")
         }
 
-        do {
-            try await ensureSufficientBalanceForMessageSend(
-                to: contact,
-                content: trimmed,
-                walletAddress: wallet.publicAddress,
-                privateKey: privateKey
-            )
-        } catch {
-            if isInsufficientBalancePopupError(error) {
-                throw error
-            } else if isNoConfirmedInputsError(error) {
-                NSLog("[ChatService] Message send precheck deferred: %@", error.localizedDescription)
-            } else if shouldBypassBalancePrecheck(error) {
-                NSLog("[ChatService] Message balance precheck unavailable, continuing send: %@", error.localizedDescription)
-            } else {
-                throw error
-            }
-        }
-
         let pendingTxId = "pending_\(UUID().uuidString)"
         let pendingTimestamp = Date()
         let pendingMessage = ChatMessage(
@@ -925,6 +906,27 @@ extension ChatService {
         addMessageToConversation(pendingMessage, contactAddress: contact.address)
         enqueuePendingOutgoing(contactAddress: contact.address, pendingTxId: pendingTxId, messageType: messageType, timestamp: pendingTimestamp)
         saveMessages()
+
+        do {
+            try await ensureSufficientBalanceForMessageSend(
+                to: contact,
+                content: trimmed,
+                walletAddress: wallet.publicAddress,
+                privateKey: privateKey
+            )
+        } catch {
+            if isInsufficientBalancePopupError(error) {
+                markPendingMessageFailed(pendingTxId, contactAddress: contact.address)
+                throw error
+            } else if isNoConfirmedInputsError(error) {
+                NSLog("[ChatService] Message send precheck deferred: %@", error.localizedDescription)
+            } else if shouldBypassBalancePrecheck(error) {
+                NSLog("[ChatService] Message balance precheck unavailable, continuing send: %@", error.localizedDescription)
+            } else {
+                markPendingMessageFailed(pendingTxId, contactAddress: contact.address)
+                throw error
+            }
+        }
 
         try await enqueueOutgoingTxOperation {
             try await self.sendMessageInternal(
