@@ -2571,15 +2571,14 @@ struct ChatDetailView: View {
         isEstimatingFee = true
         recordingFeeTask = Task {
             do {
-                let payload: [String: Any] = [
-                    "type": "file",
-                    "name": fileName,
-                    "size": fileSize,
-                    "mimeType": mime,
-                    "content": contentString
-                ]
-                let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
-                guard let jsonString = String(data: jsonData, encoding: .utf8) else { return }
+                let payload = AttachmentPayload(
+                    name: fileName,
+                    size: fileSize,
+                    mimeType: mime,
+                    content: contentString,
+                    storage: AttachmentStorage(kind: .inline)
+                )
+                guard let jsonString = payload.asMessageContent() else { return }
                 let estimate = try await chatService.estimateMessageFee(to: contact, content: jsonString)
                 await MainActor.run {
                     self.recordingFeeSompi = estimate

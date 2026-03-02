@@ -2650,29 +2650,10 @@ extension ChatService {
     }
 
     func formatNotificationBody(_ content: String) -> String {
-        // Check if content is a file JSON payload
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else {
+        guard let attachment = AttachmentPayload.from(content: content) else {
             return content
         }
-
-        guard let data = content.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              json["type"] as? String == "file",
-              let mimeType = json["mimeType"] as? String else {
-            return content
-        }
-
-        let mime = mimeType.lowercased()
-        if mime.hasPrefix("image/") {
-            return "Sent a photo"
-        } else if mime.hasPrefix("audio/") {
-            return "Sent a voice message"
-        } else if mime.hasPrefix("video/") {
-            return "Sent a video"
-        } else {
-            return "Sent a file"
-        }
+        return attachment.notificationText
     }
 
     func updateConversation(
@@ -2745,19 +2726,7 @@ extension ChatService {
     }
 
     func messageType(for content: String) -> ChatMessage.MessageType {
-        guard let data = content.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-              let type = json["type"] as? String,
-              type == "file",
-              let mime = json["mimeType"] as? String else {
-            return .contextual
-        }
-
-        if mime.lowercased().hasPrefix("audio/") {
-            return .audio
-        }
-
-        return .contextual
+        AttachmentPayload.from(content: content)?.inferredMessageType ?? .contextual
     }
 
     func paymentContent(_ payment: PaymentResponse, isOutgoing: Bool) -> String {

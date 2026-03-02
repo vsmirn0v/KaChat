@@ -605,33 +605,7 @@ struct ConversationRow: View {
         }
 
         let result: String
-        // Check if content is a file JSON payload
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else {
-            result = content
-            Self.previewCache.setObject(result as NSString, forKey: key)
-            return result
-        }
-
-        guard let data = content.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              json["type"] as? String == "file",
-              let mimeType = json["mimeType"] as? String else {
-            result = content
-            Self.previewCache.setObject(result as NSString, forKey: key)
-            return result
-        }
-
-        let mime = mimeType.lowercased()
-        if mime.hasPrefix("image/") {
-            result = "Photo"
-        } else if mime.hasPrefix("audio/") {
-            result = "Voice message"
-        } else if mime.hasPrefix("video/") {
-            result = "Video"
-        } else {
-            result = "File"
-        }
+        result = AttachmentPayload.from(content: content)?.previewText ?? content
         Self.previewCache.setObject(result as NSString, forKey: key)
         return result
     }

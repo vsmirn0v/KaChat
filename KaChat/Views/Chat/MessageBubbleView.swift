@@ -92,6 +92,8 @@ struct MessageBubbleView: View {
                         onCopy: onCopy,
                         onRetry: shouldShowRetry ? { onRetry?(message) } : nil
                     )
+                } else if let media {
+                    attachmentPlaceholderBubble(for: media)
                 } else {
                     LinkifiedMessageTextView(
                         text: message.content,
@@ -396,6 +398,54 @@ struct MessageBubbleView: View {
         onCopy?(toast, .success)
     }
 
+    private func attachmentPlaceholderBubble(for media: MediaFile) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: media.iconName)
+                    .font(.title3)
+                    .foregroundColor(message.isOutgoing ? .white : .accentColor)
+                Text(media.name)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(message.isOutgoing ? .white : .primary)
+                    .lineLimit(2)
+            }
+
+            HStack(spacing: 6) {
+                if let size = media.formattedSize {
+                    Text(size)
+                }
+                Text(media.isRemoteReference ? "Off-chain attachment" : "Attachment")
+            }
+            .font(.caption)
+            .foregroundColor(message.isOutgoing ? Color.white.opacity(0.85) : .secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(message.isOutgoing ? kaspaBubbleColor : Color(.systemGray5))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .contextMenu {
+            Button {
+                handleCopy(media.name, toast: "File name copied.")
+            } label: {
+                Label("Copy File Name", systemImage: "doc.on.doc")
+            }
+
+            Button {
+                handleCopy(message.txId, toast: "Transaction ID copied.")
+            } label: {
+                Label("Copy Transaction ID", systemImage: "number")
+            }
+
+            if shouldShowRetry {
+                Button {
+                    onRetry?(message)
+                } label: {
+                    Label("Retry Send", systemImage: "arrow.clockwise")
+                }
+            }
+        }
+    }
+
     private var mediaFile: MediaFile? {
         MediaFile.from(message.content, cacheKey: message.txId)
     }
@@ -627,12 +677,13 @@ private struct ShimmerOverlay: View {
     }
 }
 
-private struct MediaFile: Codable {
-    let type: String
+private struct MediaFile {
     let name: String
     let size: Int?
     let mimeType: String
-    let content: String
+    let content: String?
+    let storage: AttachmentStorage?
+    let thumbnail: AttachmentThumbnail?
 
     private final class OptionalMediaFileBox: NSObject {
         let value: MediaFile?
@@ -664,6 +715,39 @@ private struct MediaFile: Codable {
         mimeType.lowercased().hasPrefix("audio/")
     }
 
+    var isRemoteReference: Bool {
+        if storage?.kind == .remote {
+            return true
+        }
+        return !hasInlineContent
+    }
+
+    var hasInlineContent: Bool {
+        guard let content else { return false }
+        return !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var formattedSize: String? {
+        guard let size else { return nil }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(max(0, size)))
+    }
+
+    var iconName: String {
+        let mime = mimeType.lowercased()
+        if mime.hasPrefix("image/") {
+            return "photo"
+        }
+        if mime.hasPrefix("video/") {
+            return "video"
+        }
+        if mime.hasPrefix("audio/") {
+            return "waveform"
+        }
+        return "doc"
+    }
+
     var fileData: Data? {
         fileData(cacheKey: nil)
     }
@@ -673,6 +757,8 @@ private struct MediaFile: Codable {
            let cached = Self.dataCache.object(forKey: key) {
             return cached as Data
         }
+        let candidateContent = content ?? thumbnail?.content
+        guard let content = candidateContent else { return nil }
         let decoded = Self.dataFromDataURL(content) ?? Data(base64Encoded: content)
         if let key = Self.cacheKey(from: cacheKey), let decoded {
             Self.dataCache.setObject(decoded as NSData, forKey: key, cost: decoded.count)
@@ -702,21 +788,20 @@ private struct MediaFile: Codable {
             return cached.value
         }
 
-        guard text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{") else {
+        guard let payload = AttachmentPayload.from(content: text) else {
             if let key = cacheKey(from: cacheToken) {
                 parsedCache.setObject(OptionalMediaFileBox(nil), forKey: key)
             }
             return nil
         }
-        guard let data = text.data(using: .utf8) else { return nil }
-        let decoder = JSONDecoder()
-        guard let file = try? decoder.decode(MediaFile.self, from: data),
-              file.type == "file" else {
-            if let key = cacheKey(from: cacheToken) {
-                parsedCache.setObject(OptionalMediaFileBox(nil), forKey: key)
-            }
-            return nil
-        }
+        let file = MediaFile(
+            name: payload.name,
+            size: payload.size,
+            mimeType: payload.mimeType,
+            content: payload.content,
+            storage: payload.storage,
+            thumbnail: payload.thumbnail
+        )
         if let key = cacheKey(from: cacheToken) {
             parsedCache.setObject(OptionalMediaFileBox(file), forKey: key)
         }

@@ -955,20 +955,69 @@ extension ChatService {
         let resolvedMimeType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? "audio/webm"
             : mimeType
-        let base64 = audioData.base64EncodedString()
-        let payload: [String: Any] = [
-            "type": "file",
-            "name": resolvedFileName,
-            "size": audioData.count,
-            "mimeType": resolvedMimeType,
-            "content": "data:\(resolvedMimeType);base64,\(base64)"
-        ]
-        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
-        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
-            throw KasiaError.networkError("Failed to prepare audio payload")
+        try await sendInlineAttachment(
+            to: contact,
+            data: audioData,
+            fileName: resolvedFileName,
+            mimeType: resolvedMimeType
+        )
+    }
+
+    func sendInlineAttachment(
+        to contact: Contact,
+        data: Data,
+        fileName: String,
+        mimeType: String
+    ) async throws {
+        guard !data.isEmpty else {
+            throw KasiaError.networkError("Attachment file is empty")
         }
 
-        try await sendMessage(to: contact, content: jsonString, messageType: .audio)
+        let content = "data:\(mimeType);base64,\(data.base64EncodedString())"
+        let payload = AttachmentPayload(
+            name: fileName,
+            size: data.count,
+            mimeType: mimeType,
+            content: content,
+            storage: AttachmentStorage(kind: .inline)
+        )
+        try await sendAttachmentPayload(to: contact, payload: payload)
+    }
+
+    func sendRemoteAttachmentReference(
+        to contact: Contact,
+        fileName: String,
+        fileSize: Int?,
+        mimeType: String,
+        provider: AttachmentProvider,
+        objectKey: String,
+        checksumSha256: String? = nil,
+        encryption: AttachmentEncryptionMetadata? = nil,
+        thumbnail: AttachmentThumbnail? = nil
+    ) async throws {
+        let payload = AttachmentPayload(
+            name: fileName,
+            size: fileSize,
+            mimeType: mimeType,
+            content: nil,
+            storage: AttachmentStorage(
+                kind: .remote,
+                provider: provider,
+                objectKey: objectKey,
+                checksumSha256: checksumSha256,
+                sizeBytes: fileSize
+            ),
+            encryption: encryption,
+            thumbnail: thumbnail
+        )
+        try await sendAttachmentPayload(to: contact, payload: payload)
+    }
+
+    func sendAttachmentPayload(to contact: Contact, payload: AttachmentPayload) async throws {
+        guard let content = payload.asMessageContent() else {
+            throw KasiaError.networkError("Failed to encode attachment payload")
+        }
+        try await sendMessage(to: contact, content: content, messageType: payload.inferredMessageType)
     }
 
     func retryOutgoingMessage(_ message: ChatMessage, contact: Contact) async throws {

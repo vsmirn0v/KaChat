@@ -10,6 +10,7 @@
 		19319293ACD84C2AB108D745 /* KNSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A61ACF41FEA483D9EF0924F /* KNSService.swift */; };
 		3068057B0F9F4906B2600F39 /* ChatInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C4C922EA822400194F497F9 /* ChatInfoView.swift */; };
 		43BBF34D2F15A52900B42BDA /* KaChatNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		ATCH00010001000100000001 /* AttachmentTransferService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ATCH00010001000000000001 /* AttachmentTransferService.swift */; };
 		B2B2B2B20001000100000001 /* Blake2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B20001000000000001 /* Blake2b.swift */; };
 		BGTM00012E0100000002 /* BackgroundTaskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BGTM00012E0100000001 /* BackgroundTaskManager.swift */; };
 		CPTV00010001000100000001 /* ComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPTV00010001000000000001 /* ComposerTextView.swift */; };
@@ -80,10 +81,10 @@
 		SHREXT000100010001000001 /* KaChatShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = SHREXT000100010000000002 /* KaChatShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		SHRT00010001000100000001 /* KaChatContactEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = SHRT000100010000000001 /* KaChatContactEntity.swift */; };
 		SHRT00010001000100000002 /* KaChatShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = SHRT000100010000000002 /* KaChatShortcuts.swift */; };
-		XCFW00020001 /* GRPCAll.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010001 /* GRPCAll.xcframework */; };
-		XCFW00020002 /* SwiftProtobuf.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010002 /* SwiftProtobuf.xcframework */; };
-		XCFW00020003 /* P256K.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010003 /* P256K.xcframework */; };
-		XCFW00020004 /* P256K.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010003 /* P256K.xcframework */; };
+		F00000010000000000000001 /* GRPC in Frameworks */ = {isa = PBXBuildFile; productRef = F00010000000000000000001 /* GRPC */; };
+		F00000020000000000000001 /* NIO in Frameworks */ = {isa = PBXBuildFile; productRef = F00010000000000000000002 /* NIO */; };
+		F00000030000000000000001 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = F00010000000000000000003 /* SwiftProtobuf */; };
+		F00000040000000000000001 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = F00010000000000000000004 /* P256K */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -122,6 +123,7 @@
 		1C4C922EA822400194F497F9 /* ChatInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatInfoView.swift; sourceTree = "<group>"; };
 		4348A8842F2EC4AD00A5518E /* KaChatRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KaChatRelease.entitlements; sourceTree = "<group>"; };
 		43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KaChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		ATCH00010001000000000001 /* AttachmentTransferService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentTransferService.swift; sourceTree = "<group>"; };
 		6A61ACF41FEA483D9EF0924F /* KNSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSService.swift; sourceTree = "<group>"; };
 		B2B2B2B20001000000000001 /* Blake2b.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Blake2b.swift; sourceTree = "<group>"; };
 		BGTM00012E0100000001 /* BackgroundTaskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskManager.swift; sourceTree = "<group>"; };
@@ -244,7 +246,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				XCFW00020004 /* P256K.xcframework in Frameworks */,
+				F00000040000000000000001 /* P256K in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -252,9 +254,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				XCFW00020001 /* GRPCAll.xcframework in Frameworks */,
-				XCFW00020002 /* SwiftProtobuf.xcframework in Frameworks */,
-				XCFW00020003 /* P256K.xcframework in Frameworks */,
+				F00000010000000000000001 /* GRPC in Frameworks */,
+				F00000020000000000000001 /* NIO in Frameworks */,
+				F00000030000000000000001 /* SwiftProtobuf in Frameworks */,
+				F00000040000000000000001 /* P256K in Frameworks */,
 				E82000012D4C000200000003 /* YbridOpus in Frameworks */,
 				E8F1A0062F4B000100000006 /* external/opus/Opus.xcframework in Frameworks */,
 			);
@@ -337,6 +340,7 @@
 				E81000062D4C000100000004 /* WalletManager.swift */,
 				E81000082D4C000100000005 /* KeychainService.swift */,
 				E810000A2D4C000100000006 /* KaChatAPIClient.swift */,
+				ATCH00010001000000000001 /* AttachmentTransferService.swift */,
 				E810000C2D4C000100000007 /* ContactsManager.swift */,
 				E810000E2D4C000100000008 /* ChatService.swift */,
 				CSEX00010001000000000001 /* ChatService+PushAndSync.swift */,
@@ -508,9 +512,9 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 43BBF3522F15A52900B42BDA /* Build configuration list for PBXNativeTarget "KaChatNotificationService" */;
 			buildPhases = (
-				43BBF3422F15A52900B42BDA /* Sources */,
-				43BBF3432F15A52900B42BDA /* Frameworks */,
 				43BBF3442F15A52900B42BDA /* Resources */,
+				43BBF3432F15A52900B42BDA /* Frameworks */,
+				43BBF3422F15A52900B42BDA /* Sources */,
 				BNUM00010001000000000002 /* Set Build Number */,
 			);
 			buildRules = (
@@ -521,11 +525,14 @@
 				43BBF3472F15A52900B42BDA /* KaChatNotificationService */,
 			);
 			name = KaChatNotificationService;
+			packageProductDependencies = (
+				F00010000000000000000004 /* P256K */,
+			);
 			productName = KaChatNotificationService;
 			productReference = 43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
-		E80000032D4C000000000003 /* KaChat */ = {
+			E80000032D4C000000000003 /* KaChat */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = E80000082D4C000000000008 /* Build configuration list for PBXNativeTarget "KaChat" */;
 			buildPhases = (
@@ -544,6 +551,10 @@
 			name = KaChat;
 			packageProductDependencies = (
 				E82000022D4C000200000004 /* YbridOpus */,
+				F00010000000000000000001 /* GRPC */,
+				F00010000000000000000002 /* NIO */,
+				F00010000000000000000003 /* SwiftProtobuf */,
+				F00010000000000000000004 /* P256K */,
 			);
 			productName = KaChat;
 			productReference = E80000002D4C000000000000 /* KaChat.app */;
@@ -619,6 +630,10 @@
 			mainGroup = E80000002D4C000000000001;
 			packageReferences = (
 				E82000032D4C000200000005 /* XCRemoteSwiftPackageReference "opus-swift" */,
+				F00010000000000000000005 /* XCRemoteSwiftPackageReference "grpc-swift" */,
+				F00010000000000000000006 /* XCRemoteSwiftPackageReference "swift-nio" */,
+				F00010000000000000000007 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
+				F00010000000000000000008 /* XCRemoteSwiftPackageReference "secp256k1.swift" */,
 			);
 			productRefGroup = E80000022D4C000000000002 /* Products */;
 			projectDirPath = "";
@@ -725,6 +740,7 @@
 				E81000072D4C000100000004 /* WalletManager.swift in Sources */,
 				E81000092D4C000100000005 /* KeychainService.swift in Sources */,
 				E810000B2D4C000100000006 /* KaChatAPIClient.swift in Sources */,
+				ATCH00010001000100000001 /* AttachmentTransferService.swift in Sources */,
 				E810000D2D4C000100000007 /* ContactsManager.swift in Sources */,
 				E810000F2D4C000100000008 /* ChatService.swift in Sources */,
 				CSEX00010001000100000001 /* ChatService+PushAndSync.swift in Sources */,
@@ -852,6 +868,10 @@
 				INFOPLIST_KEY_CFBundleDisplayName = KaChatNotificationService;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025 KaChat. All rights reserved.";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Frameworks",
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -888,6 +908,10 @@
 				INFOPLIST_KEY_CFBundleDisplayName = KaChatNotificationService;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2025 KaChat. All rights reserved.";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Frameworks",
+				);
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1078,9 +1102,6 @@
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=macosx*]" = "DEBUG OPUS_CATALYST $(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				"SWIFT_INCLUDE_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/Frameworks/GRPCAll.xcframework/ios-arm64/GRPCAll.framework/Modules";
-				"SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/Frameworks/GRPCAll.xcframework/ios-arm64_x86_64-simulator/GRPCAll.framework/Modules";
-				"SWIFT_INCLUDE_PATHS[sdk=macosx*]" = "$(SRCROOT)/Frameworks/GRPCAll.xcframework/ios-arm64_x86_64-maccatalyst/GRPCAll.framework/Modules";
 				SWIFT_OBJC_BRIDGING_HEADER = "KaChat/KaChat-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1132,9 +1153,6 @@
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=macosx*]" = "OPUS_CATALYST $(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				"SWIFT_INCLUDE_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/Frameworks/GRPCAll.xcframework/ios-arm64/GRPCAll.framework/Modules";
-				"SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/Frameworks/GRPCAll.xcframework/ios-arm64_x86_64-simulator/GRPCAll.framework/Modules";
-				"SWIFT_INCLUDE_PATHS[sdk=macosx*]" = "$(SRCROOT)/Frameworks/GRPCAll.xcframework/ios-arm64_x86_64-maccatalyst/GRPCAll.framework/Modules";
 				SWIFT_OBJC_BRIDGING_HEADER = "KaChat/KaChat-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1251,7 +1269,7 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
+		/* Begin XCRemoteSwiftPackageReference section */
 		E82000032D4C000200000005 /* XCRemoteSwiftPackageReference "opus-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/ybrid/opus-swift.git";
@@ -1260,9 +1278,61 @@
 				version = 0.8.0;
 			};
 		};
-/* End XCRemoteSwiftPackageReference section */
+		F00010000000000000000005 /* XCRemoteSwiftPackageReference "grpc-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/grpc/grpc-swift.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.23.1;
+			};
+		};
+		F00010000000000000000006 /* XCRemoteSwiftPackageReference "swift-nio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio.git";
+			requirement = {
+				kind = exactVersion;
+				version = 2.92.1;
+			};
+		};
+		F00010000000000000000007 /* XCRemoteSwiftPackageReference "swift-protobuf" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-protobuf.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.33.3;
+			};
+		};
+		F00010000000000000000008 /* XCRemoteSwiftPackageReference "secp256k1.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/GigaBitcoin/secp256k1.swift.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.21.1;
+			};
+		};
+	/* End XCRemoteSwiftPackageReference section */
 
-/* Begin XCSwiftPackageProductDependency section */
+		/* Begin XCSwiftPackageProductDependency section */
+		F00010000000000000000001 /* GRPC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F00010000000000000000005 /* XCRemoteSwiftPackageReference "grpc-swift" */;
+			productName = GRPC;
+		};
+		F00010000000000000000002 /* NIO */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F00010000000000000000006 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIO;
+		};
+		F00010000000000000000003 /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F00010000000000000000007 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
+		};
+		F00010000000000000000004 /* P256K */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F00010000000000000000008 /* XCRemoteSwiftPackageReference "secp256k1.swift" */;
+			productName = P256K;
+		};
 		E82000022D4C000200000004 /* YbridOpus */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = E82000032D4C000200000005 /* XCRemoteSwiftPackageReference "opus-swift" */;

@@ -332,6 +332,224 @@ struct ChatMessage: Codable, Identifiable, Equatable {
     }
 }
 
+enum AttachmentStorageKind: String, Codable {
+    case inline
+    case remote
+}
+
+enum AttachmentProvider: String, Codable {
+    case r2
+    case s3
+    case b2
+    case wasabi
+    case custom
+}
+
+struct AttachmentStorage: Codable, Equatable {
+    let kind: AttachmentStorageKind
+    let provider: AttachmentProvider?
+    let objectKey: String?
+    let bucket: String?
+    let region: String?
+    let endpoint: String?
+    let checksumSha256: String?
+    let sizeBytes: Int?
+
+    init(
+        kind: AttachmentStorageKind,
+        provider: AttachmentProvider? = nil,
+        objectKey: String? = nil,
+        bucket: String? = nil,
+        region: String? = nil,
+        endpoint: String? = nil,
+        checksumSha256: String? = nil,
+        sizeBytes: Int? = nil
+    ) {
+        self.kind = kind
+        self.provider = provider
+        self.objectKey = objectKey
+        self.bucket = bucket
+        self.region = region
+        self.endpoint = endpoint
+        self.checksumSha256 = checksumSha256
+        self.sizeBytes = sizeBytes
+    }
+}
+
+struct AttachmentEncryptionMetadata: Codable, Equatable {
+    let contentAlgorithm: String
+    let wrappedFileKey: String?
+    let wrappedKeyAlgorithm: String?
+    let keyId: String?
+    let nonce: String?
+
+    init(
+        contentAlgorithm: String,
+        wrappedFileKey: String? = nil,
+        wrappedKeyAlgorithm: String? = nil,
+        keyId: String? = nil,
+        nonce: String? = nil
+    ) {
+        self.contentAlgorithm = contentAlgorithm
+        self.wrappedFileKey = wrappedFileKey
+        self.wrappedKeyAlgorithm = wrappedKeyAlgorithm
+        self.keyId = keyId
+        self.nonce = nonce
+    }
+}
+
+struct AttachmentThumbnail: Codable, Equatable {
+    let mimeType: String
+    let content: String?
+    let width: Int?
+    let height: Int?
+
+    init(mimeType: String, content: String? = nil, width: Int? = nil, height: Int? = nil) {
+        self.mimeType = mimeType
+        self.content = content
+        self.width = width
+        self.height = height
+    }
+}
+
+struct AttachmentPayload: Codable, Equatable {
+    let type: String
+    let version: Int
+    let name: String
+    let size: Int?
+    let mimeType: String
+    let content: String?
+    let storage: AttachmentStorage?
+    let encryption: AttachmentEncryptionMetadata?
+    let thumbnail: AttachmentThumbnail?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case version
+        case name
+        case size
+        case mimeType
+        case content
+        case storage
+        case encryption
+        case thumbnail
+    }
+
+    init(
+        name: String,
+        size: Int?,
+        mimeType: String,
+        content: String? = nil,
+        storage: AttachmentStorage? = nil,
+        encryption: AttachmentEncryptionMetadata? = nil,
+        thumbnail: AttachmentThumbnail? = nil,
+        version: Int = 1
+    ) {
+        self.type = "file"
+        self.version = version
+        self.name = name
+        self.size = size
+        self.mimeType = mimeType
+        self.content = content
+        self.storage = storage
+        self.encryption = encryption
+        self.thumbnail = thumbnail
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decode(String.self, forKey: .type)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        name = try container.decode(String.self, forKey: .name)
+        size = try container.decodeIfPresent(Int.self, forKey: .size)
+        mimeType = try container.decode(String.self, forKey: .mimeType)
+        content = try container.decodeIfPresent(String.self, forKey: .content)
+        storage = try container.decodeIfPresent(AttachmentStorage.self, forKey: .storage)
+        encryption = try container.decodeIfPresent(AttachmentEncryptionMetadata.self, forKey: .encryption)
+        thumbnail = try container.decodeIfPresent(AttachmentThumbnail.self, forKey: .thumbnail)
+    }
+
+    var normalizedMimeType: String {
+        mimeType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    var isImage: Bool {
+        normalizedMimeType.hasPrefix("image/")
+    }
+
+    var isAudio: Bool {
+        normalizedMimeType.hasPrefix("audio/")
+    }
+
+    var isVideo: Bool {
+        normalizedMimeType.hasPrefix("video/")
+    }
+
+    var hasInlineContent: Bool {
+        guard let content else { return false }
+        return !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var isRemoteReference: Bool {
+        if storage?.kind == .remote {
+            return true
+        }
+        return !hasInlineContent
+    }
+
+    var inferredMessageType: ChatMessage.MessageType {
+        isAudio ? .audio : .contextual
+    }
+
+    var previewText: String {
+        if isImage {
+            return "Photo"
+        }
+        if isAudio {
+            return "Voice message"
+        }
+        if isVideo {
+            return "Video"
+        }
+        return "File"
+    }
+
+    var notificationText: String {
+        if isImage {
+            return "Sent a photo"
+        }
+        if isAudio {
+            return "Sent a voice message"
+        }
+        if isVideo {
+            return "Sent a video"
+        }
+        return "Sent a file"
+    }
+
+    var formattedSize: String? {
+        guard let size else { return nil }
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(max(0, size)))
+    }
+
+    func asMessageContent() -> String? {
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(self) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func from(content text: String) -> AttachmentPayload? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else { return nil }
+        guard let data = text.data(using: .utf8) else { return nil }
+        guard let payload = try? JSONDecoder().decode(AttachmentPayload.self, from: data) else { return nil }
+        guard payload.type == "file" else { return nil }
+        return payload
+    }
+}
+
 struct Conversation: Identifiable, Equatable {
     let id: UUID
     let contact: Contact
