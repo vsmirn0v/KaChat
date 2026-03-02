@@ -1,6 +1,8 @@
 import SwiftUI
 import AVFoundation
 import AVFAudio
+import PhotosUI
+import UniformTypeIdentifiers
 #if canImport(YbridOpus)
 import YbridOpus
 #endif
@@ -103,6 +105,9 @@ struct ChatDetailView: View {
     @State private var viewportResetTrigger = UUID()
     @State private var showDustWarning = false
     @State private var pendingDustAmountSompi: UInt64 = 0
+    @State private var attachmentPhotoPickerItem: PhotosPickerItem?
+    @State private var attachmentVideoPickerItem: PhotosPickerItem?
+    @State private var isShowingDocumentPicker = false
     @FocusState private var isPaymentFocused: Bool
 
     private let maxRecordingDuration: TimeInterval = 10 // seconds
@@ -552,8 +557,42 @@ struct ChatDetailView: View {
         } message: {
             Text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
         }
+        .fileImporter(
+            isPresented: $isShowingDocumentPicker,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: false
+        ) { result in
+            guard case .success(let urls) = result else {
+                if case .failure(let pickerError) = result {
+                    error = pickerError.localizedDescription
+                }
+                return
+            }
+            guard let url = urls.first else { return }
+            Task {
+                await sendAttachment(from: url)
+            }
+        }
         .onChange(of: amountText) { newValue in
             schedulePaymentFee(for: newValue)
+        }
+        .onChange(of: attachmentPhotoPickerItem) { newValue in
+            guard let newValue else { return }
+            Task {
+                await sendAttachment(from: newValue, fallbackPrefix: "image", mimeTypeHint: "image/jpeg")
+                await MainActor.run {
+                    attachmentPhotoPickerItem = nil
+                }
+            }
+        }
+        .onChange(of: attachmentVideoPickerItem) { newValue in
+            guard let newValue else { return }
+            Task {
+                await sendAttachment(from: newValue, fallbackPrefix: "video", mimeTypeHint: "video/mp4")
+                await MainActor.run {
+                    attachmentVideoPickerItem = nil
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
             updateKeyboardOverlap(from: notification)
@@ -1261,6 +1300,10 @@ struct ChatDetailView: View {
                 HStack(spacing: 12) {
                     inputFieldWithState
 
+                    if !isDeclined && inputMode == .message {
+                        attachmentMenuButton
+                    }
+
                     if !isDeclined && inputMode == .message && !isVirtualKeyboardVisible {
                         emojiToggleButton
                     }
@@ -1286,6 +1329,38 @@ struct ChatDetailView: View {
         .padding(.horizontal)
         .padding(.vertical, 8)
         .animation(.easeInOut(duration: 0.16), value: showEmojiPicker)
+    }
+
+    private var attachmentMenuButton: some View {
+        Menu {
+            PhotosPicker(
+                selection: $attachmentPhotoPickerItem,
+                matching: .images
+            ) {
+                Label("Photo", systemImage: "photo")
+            }
+
+            PhotosPicker(
+                selection: $attachmentVideoPickerItem,
+                matching: .videos
+            ) {
+                Label("Video", systemImage: "video")
+            }
+
+            Button {
+                isShowingDocumentPicker = true
+            } label: {
+                Label("File", systemImage: "doc")
+            }
+        } label: {
+            Image(systemName: "paperclip")
+                .font(.title3)
+                .foregroundColor(.primary)
+                .frame(width: 44, height: 44)
+                .background(glassBackground(cornerRadius: 14))
+        }
+        .menuStyle(.borderlessButton)
+        .buttonStyle(.plain)
     }
 
     private var bottomFade: some View {
@@ -1727,7 +1802,7 @@ struct ChatDetailView: View {
         if isRespondingHandshake {
             return true
         }
-        if isSending && inputMode != .message {
+        if isSending {
             return true
         }
         return false
@@ -1740,7 +1815,7 @@ struct ChatDetailView: View {
     private var canSend: Bool {
         switch inputMode {
         case .message:
-            return true
+            return !isSending
         case .payment:
             return canSendPayment
         case .audio:
@@ -1813,6 +1888,83 @@ struct ChatDetailView: View {
                 await MainActor.run {
                     self.error = displayErrorMessage(error)
                 }
+            }
+        }
+    }
+
+    private func sendAttachment(data: Data, fileName: String, mimeType: String) async {
+        await MainActor.run {
+            isSending = true
+            error = nil
+        }
+
+        do {
+            try await chatService.sendAttachment(
+                to: contact,
+                data: data,
+                fileName: fileName,
+                mimeType: mimeType
+            )
+            await MainActor.run {
+                isSending = false
+            }
+        } catch {
+            await MainActor.run {
+                isSending = false
+                self.error = displayErrorMessage(error)
+            }
+        }
+    }
+
+    private func sendAttachment(
+        from pickerItem: PhotosPickerItem,
+        fallbackPrefix: String,
+        mimeTypeHint: String
+    ) async {
+        do {
+            guard let data = try await pickerItem.loadTransferable(type: Data.self),
+                  !data.isEmpty else {
+                throw KasiaError.networkError("Selected media is empty")
+            }
+
+            let supportedType = pickerItem.supportedContentTypes.first
+            let mimeType = supportedType?.preferredMIMEType ?? mimeTypeHint
+            let fileExtension = supportedType?.preferredFilenameExtension
+                ?? (fallbackPrefix == "video" ? "mp4" : "jpg")
+            let fileName = "\(fallbackPrefix)_\(Int(Date().timeIntervalSince1970)).\(fileExtension)"
+            await sendAttachment(data: data, fileName: fileName, mimeType: mimeType)
+        } catch {
+            await MainActor.run {
+                isSending = false
+                self.error = displayErrorMessage(error)
+            }
+        }
+    }
+
+    private func sendAttachment(from url: URL) async {
+        do {
+            let hasSecurityScope = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasSecurityScope {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let data = try Data(contentsOf: url)
+            guard !data.isEmpty else {
+                throw KasiaError.networkError("Selected file is empty")
+            }
+
+            let type = UTType(filenameExtension: url.pathExtension.lowercased()) ?? .data
+            let mimeType = type.preferredMIMEType ?? "application/octet-stream"
+            let fileName = url.lastPathComponent.isEmpty
+                ? "file_\(Int(Date().timeIntervalSince1970))"
+                : url.lastPathComponent
+            await sendAttachment(data: data, fileName: fileName, mimeType: mimeType)
+        } catch {
+            await MainActor.run {
+                isSending = false
+                self.error = displayErrorMessage(error)
             }
         }
     }

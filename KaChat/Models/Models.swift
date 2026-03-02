@@ -349,6 +349,7 @@ struct AttachmentStorage: Codable, Equatable {
     let kind: AttachmentStorageKind
     let provider: AttachmentProvider?
     let objectKey: String?
+    let attachmentId: String?
     let bucket: String?
     let region: String?
     let endpoint: String?
@@ -359,6 +360,7 @@ struct AttachmentStorage: Codable, Equatable {
         kind: AttachmentStorageKind,
         provider: AttachmentProvider? = nil,
         objectKey: String? = nil,
+        attachmentId: String? = nil,
         bucket: String? = nil,
         region: String? = nil,
         endpoint: String? = nil,
@@ -368,6 +370,7 @@ struct AttachmentStorage: Codable, Equatable {
         self.kind = kind
         self.provider = provider
         self.objectKey = objectKey
+        self.attachmentId = attachmentId
         self.bucket = bucket
         self.region = region
         self.endpoint = endpoint

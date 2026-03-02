@@ -16,6 +16,10 @@ struct MessageBubbleView: View {
     let onDeclineHandshake: (() -> Void)?
     @State private var showImagePreview = false
     @State private var shimmerPhase: CGFloat = -1
+    @State private var isLoadingRemoteAttachment = false
+    @State private var remoteAttachmentLoadTask: Task<Void, Never>?
+    @State private var remoteAttachmentData: Data?
+    @State private var remoteAttachmentLoadFailed = false
 
     init(message: ChatMessage, onCopy: ((String, ToastStyle) -> Void)? = nil, onRetry: ((ChatMessage) -> Void)? = nil, onAcceptHandshake: (() -> Void)? = nil, onDeclineHandshake: (() -> Void)? = nil) {
         self.message = message
@@ -27,7 +31,8 @@ struct MessageBubbleView: View {
 
     var body: some View {
         let media = mediaFile
-        let image = media?.image(cacheKey: message.txId)
+        let attachmentData = media?.fileData(cacheKey: message.txId) ?? remoteAttachmentData
+        let image = attachmentData.flatMap { UIImage(data: $0) }
         let isSingleEmojiOnly = isSingleEmojiOnlyMessage(message.content)
 
         HStack {
@@ -82,7 +87,7 @@ struct MessageBubbleView: View {
                             title: media.name
                         )
                     }
-                } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
+                } else if let media, media.isAudio, let data = attachmentData {
                     LazyAudioBubble(
                         data: data,
                         mimeType: media.mimeType,
@@ -93,7 +98,11 @@ struct MessageBubbleView: View {
                         onRetry: shouldShowRetry ? { onRetry?(message) } : nil
                     )
                 } else if let media {
-                    attachmentPlaceholderBubble(for: media)
+                    if media.isRemoteReference {
+                        attachmentPlaceholderBubble(for: media)
+                    } else {
+                        attachmentPlaceholderBubble(for: media)
+                    }
                 } else {
                     LinkifiedMessageTextView(
                         text: message.content,
@@ -153,6 +162,14 @@ struct MessageBubbleView: View {
             }
             .onChange(of: shouldShowResolvingOverlay) { _ in
                 startShimmerIfNeeded()
+            }
+            .onAppear {
+                if let media {
+                    startRemoteAttachmentLoadIfNeeded(media)
+                }
+            }
+            .onDisappear {
+                remoteAttachmentLoadTask?.cancel()
             }
 
             if !message.isOutgoing {
@@ -415,6 +432,17 @@ struct MessageBubbleView: View {
                     Text(size)
                 }
                 Text(media.isRemoteReference ? "Off-chain attachment" : "Attachment")
+                if media.isRemoteReference {
+                    if isLoadingRemoteAttachment {
+                        ProgressView().scaleEffect(0.75)
+                    } else if remoteAttachmentData != nil {
+                        Text("Downloaded")
+                            .foregroundColor(message.isOutgoing ? .green.opacity(0.9) : .green.opacity(0.7))
+                    } else if remoteAttachmentLoadFailed {
+                        Text("Download failed")
+                            .foregroundColor(.red.opacity(0.9))
+                    }
+                }
             }
             .font(.caption)
             .foregroundColor(message.isOutgoing ? Color.white.opacity(0.85) : .secondary)
@@ -448,6 +476,39 @@ struct MessageBubbleView: View {
 
     private var mediaFile: MediaFile? {
         MediaFile.from(message.content, cacheKey: message.txId)
+    }
+
+    private func startRemoteAttachmentLoadIfNeeded(_ media: MediaFile) {
+        guard media.isRemoteReference else { return }
+        guard let cacheKey = media.remoteDownloadCacheKey else {
+            remoteAttachmentLoadFailed = true
+            return
+        }
+
+        if let cached = media.remoteData(cacheKey: cacheKey) {
+            remoteAttachmentData = cached
+            remoteAttachmentLoadFailed = false
+            return
+        }
+
+        if remoteAttachmentData != nil || isLoadingRemoteAttachment {
+            return
+        }
+
+        remoteAttachmentLoadTask?.cancel()
+        isLoadingRemoteAttachment = true
+        remoteAttachmentLoadFailed = false
+        remoteAttachmentLoadTask = Task { @MainActor [media, cacheKey] in
+            defer { isLoadingRemoteAttachment = false }
+            do {
+                let data = try await AttachmentTransferService.shared.downloadCiphertext(attachmentId: media.remoteDownloadId)
+                remoteAttachmentData = data
+                media.saveRemoteData(data, cacheKey: cacheKey)
+                remoteAttachmentLoadFailed = false
+            } catch {
+                remoteAttachmentLoadFailed = true
+            }
+        }
     }
 
     private func isSingleEmojiOnlyMessage(_ text: String) -> Bool {
@@ -706,6 +767,11 @@ private struct MediaFile {
         cache.totalCostLimit = 50 * 1024 * 1024
         return cache
     }()
+    private static let remoteDataCache: NSCache<NSString, NSData> = {
+        let cache = NSCache<NSString, NSData>()
+        cache.totalCostLimit = 40 * 1024 * 1024
+        return cache
+    }()
 
     var isImage: Bool {
         mimeType.lowercased().hasPrefix("image/")
@@ -720,6 +786,14 @@ private struct MediaFile {
             return true
         }
         return !hasInlineContent
+    }
+
+    var remoteDownloadId: String {
+        storage?.attachmentId ?? storage?.objectKey ?? storage?.checksumSha256 ?? name
+    }
+
+    var remoteDownloadCacheKey: String? {
+        storage?.attachmentId ?? storage?.objectKey
     }
 
     var hasInlineContent: Bool {
@@ -764,6 +838,20 @@ private struct MediaFile {
             Self.dataCache.setObject(decoded as NSData, forKey: key, cost: decoded.count)
         }
         return decoded
+    }
+
+    func remoteData(cacheKey: String?) -> Data? {
+        guard let key = Self.cacheKey(from: cacheKey),
+              let cached = Self.remoteDataCache.object(forKey: key) else {
+            return nil
+        }
+        return cached as Data
+    }
+
+    func saveRemoteData(_ data: Data, cacheKey: String) {
+        if let key = Self.cacheKey(from: cacheKey) {
+            Self.remoteDataCache.setObject(data as NSData, forKey: key, cost: data.count)
+        }
     }
 
     func image(cacheKey: String?) -> UIImage? {

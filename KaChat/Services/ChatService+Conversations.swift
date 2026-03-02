@@ -4,6 +4,8 @@ import UIKit
 import UserNotifications
 import CryptoKit
 
+private let maxInlineAttachmentBytes = 8_000
+
 // MARK: - Conversation state, message sending, handshake sending, fee estimation
 
 extension ChatService {
@@ -984,6 +986,60 @@ extension ChatService {
         try await sendAttachmentPayload(to: contact, payload: payload)
     }
 
+    func sendAttachment(
+        to contact: Contact,
+        data: Data,
+        fileName: String,
+        mimeType: String
+    ) async throws {
+        guard !data.isEmpty else {
+            throw KasiaError.networkError("Attachment file is empty")
+        }
+
+        let resolvedFileName = fileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "attachment"
+            : fileName
+        let resolvedMimeType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "application/octet-stream"
+            : mimeType
+        let payloadBytes = data.count
+
+        if payloadBytes <= maxInlineAttachmentBytes {
+            try await sendInlineAttachment(
+                to: contact,
+                data: data,
+                fileName: resolvedFileName,
+                mimeType: resolvedMimeType
+            )
+            return
+        }
+
+        let checksum = CryptoUtils.dataToHex(CryptoUtils.sha256(data))
+        let prepare = try await AttachmentTransferService.shared.prepareUpload(
+            fileName: resolvedFileName,
+            mimeType: resolvedMimeType,
+            sizeBytes: payloadBytes,
+            checksumSha256: checksum
+        )
+        try await AttachmentTransferService.shared.uploadCiphertext(data, using: prepare)
+        _ = try await AttachmentTransferService.shared.completeUpload(
+            attachmentId: prepare.attachmentId,
+            objectKey: prepare.objectKey,
+            sizeBytes: payloadBytes,
+            checksumSha256: checksum
+        )
+        try await sendRemoteAttachmentReference(
+            to: contact,
+            fileName: resolvedFileName,
+            fileSize: payloadBytes,
+            mimeType: resolvedMimeType,
+            provider: prepare.provider,
+            objectKey: prepare.objectKey,
+            attachmentId: prepare.attachmentId,
+            checksumSha256: checksum
+        )
+    }
+
     func sendRemoteAttachmentReference(
         to contact: Contact,
         fileName: String,
@@ -991,6 +1047,7 @@ extension ChatService {
         mimeType: String,
         provider: AttachmentProvider,
         objectKey: String,
+        attachmentId: String? = nil,
         checksumSha256: String? = nil,
         encryption: AttachmentEncryptionMetadata? = nil,
         thumbnail: AttachmentThumbnail? = nil
@@ -1004,6 +1061,7 @@ extension ChatService {
                 kind: .remote,
                 provider: provider,
                 objectKey: objectKey,
+                attachmentId: attachmentId,
                 checksumSha256: checksumSha256,
                 sizeBytes: fileSize
             ),

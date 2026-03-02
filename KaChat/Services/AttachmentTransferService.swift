@@ -69,6 +69,31 @@ final class AttachmentTransferService {
         return try await postJSON(path: downloadPath, body: request)
     }
 
+    func downloadCiphertext(
+        attachmentId: String
+    ) async throws -> Data {
+        let response = try await requestDownload(attachmentId: attachmentId)
+        guard let url = URL(string: response.downloadURL) else {
+            throw AttachmentTransferError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        for (name, value) in response.downloadHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AttachmentTransferError.invalidResponse
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw AttachmentTransferError.serverError(statusCode: httpResponse.statusCode, reason: nil)
+        }
+
+        return data
+    }
+
     func uploadCiphertext(_ data: Data, using prepareResponse: AttachmentUploadPrepareResponse) async throws {
         guard let url = URL(string: prepareResponse.uploadURL) else {
             throw AttachmentTransferError.invalidURL
