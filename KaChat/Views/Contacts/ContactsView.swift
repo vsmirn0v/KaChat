@@ -27,9 +27,8 @@ struct ProfileView: View {
     @State private var knsProfileInfo: KNSAddressProfileInfo?
     @State private var showAvatarPreview = false
     @State private var showKNSEditor = false
-    @State private var showKNSDomainInscribeSheet = false
-    @State private var showKNSDomainTransferSheet = false
-    @State private var transferDomainTarget: KNSDomain?
+    @State private var inscribeSheetContext: KNSDomainInscribeSheetContext?
+    @State private var transferSheetContext: KNSDomainTransferSheetContext?
     @State private var settingPrimaryDomainId: String?
     @State private var isSavingKNSProfile = false
     @State private var knsSaveProgressText: String?
@@ -37,6 +36,17 @@ struct ProfileView: View {
 
     static func preloadQRCode(for address: String) {
         ProfileQRCodeCache.preload(address: address, completion: nil)
+    }
+
+    private struct KNSDomainInscribeSheetContext: Identifiable {
+        let id = UUID()
+        let walletAddress: String
+    }
+
+    private struct KNSDomainTransferSheetContext: Identifiable {
+        let id = UUID()
+        let walletAddress: String
+        let domain: KNSDomain
     }
 
     var body: some View {
@@ -109,56 +119,27 @@ struct ProfileView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showKNSDomainInscribeSheet) {
-                if let walletAddress = walletManager.currentWallet?.publicAddress {
-                    KNSDomainInscribeSheet(walletAddress: walletAddress) { result in
-                        Haptics.success()
-                        showToast(localizedFormat("Inscribe submitted for %@.", result.domain))
-                        Task {
-                            await refreshKNSData(for: walletAddress)
-                        }
-                    }
-                } else {
-                    NavigationStack {
-                        VStack(spacing: 12) {
-                            Text("Wallet not available.")
-                                .foregroundColor(.secondary)
-                            Button("Close") {
-                                showKNSDomainInscribeSheet = false
-                            }
-                        }
-                        .padding()
+            .sheet(item: $inscribeSheetContext) { context in
+                KNSDomainInscribeSheet(walletAddress: context.walletAddress) { result in
+                    Haptics.success()
+                    showToast(localizedFormat("Inscribe submitted for %@.", result.domain))
+                    Task {
+                        await refreshKNSData(for: context.walletAddress)
                     }
                 }
             }
-            .sheet(isPresented: $showKNSDomainTransferSheet, onDismiss: {
-                transferDomainTarget = nil
-            }) {
-                if let walletAddress = walletManager.currentWallet?.publicAddress,
-                   let domain = transferDomainTarget {
-                    KNSDomainTransferSheet(
-                        walletAddress: walletAddress,
-                        domain: domain
-                    ) { result in
-                        Haptics.success()
-                        let message = result.verified
-                            ? localizedFormat("%@ transferred to %@.", result.domain, result.recipientAddress)
-                            : localizedFormat("Transfer submitted for %@.", result.domain)
-                        showToast(message)
-                        Task {
-                            await refreshKNSData(for: walletAddress)
-                        }
-                    }
-                } else {
-                    NavigationStack {
-                        VStack(spacing: 12) {
-                            Text("Domain transfer unavailable.")
-                                .foregroundColor(.secondary)
-                            Button("Close") {
-                                showKNSDomainTransferSheet = false
-                            }
-                        }
-                        .padding()
+            .sheet(item: $transferSheetContext) { context in
+                KNSDomainTransferSheet(
+                    walletAddress: context.walletAddress,
+                    domain: context.domain
+                ) { result in
+                    Haptics.success()
+                    let message = result.verified
+                        ? localizedFormat("%@ transferred to %@.", result.domain, result.recipientAddress)
+                        : localizedFormat("Transfer submitted for %@.", result.domain)
+                    showToast(message)
+                    Task {
+                        await refreshKNSData(for: context.walletAddress)
                     }
                 }
             }
@@ -339,7 +320,11 @@ struct ProfileView: View {
             }
 
             Button {
-                showKNSDomainInscribeSheet = true
+                guard let walletAddress = walletManager.currentWallet?.publicAddress else {
+                    showToast(localized("Wallet not available."), style: .error)
+                    return
+                }
+                inscribeSheetContext = KNSDomainInscribeSheetContext(walletAddress: walletAddress)
             } label: {
                 Label("Inscribe New Domain", systemImage: "plus.circle")
             }
@@ -373,8 +358,11 @@ struct ProfileView: View {
     }
 
     private func startDomainTransfer(_ domain: KNSDomain) {
-        transferDomainTarget = domain
-        showKNSDomainTransferSheet = true
+        guard let walletAddress = walletManager.currentWallet?.publicAddress else {
+            showToast(localized("Wallet not available."), style: .error)
+            return
+        }
+        transferSheetContext = KNSDomainTransferSheetContext(walletAddress: walletAddress, domain: domain)
     }
 
     private func setPrimaryDomain(_ domain: KNSDomain) async {
