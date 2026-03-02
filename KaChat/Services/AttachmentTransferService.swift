@@ -72,14 +72,14 @@ final class AttachmentTransferService {
     func downloadCiphertext(
         attachmentId: String
     ) async throws -> Data {
-        let response = try await requestDownload(attachmentId: attachmentId)
-        guard let url = URL(string: response.downloadURL) else {
+        let downloadResponse = try await requestDownload(attachmentId: attachmentId)
+        guard let url = URL(string: downloadResponse.downloadURL) else {
             throw AttachmentTransferError.invalidURL
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        for (name, value) in response.downloadHeaders {
+        for (name, value) in downloadResponse.downloadHeaders {
             request.setValue(value, forHTTPHeaderField: name)
         }
 
