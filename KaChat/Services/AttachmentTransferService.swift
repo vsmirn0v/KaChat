@@ -5,9 +5,15 @@ final class AttachmentTransferService {
     static let shared = AttachmentTransferService()
 
     private let authDomain = "kasia-attachments-auth:v1"
-    private let uploadPreparePath = "/v1/attachments/init"
-    private let uploadCompletePath = "/v1/attachments/complete"
-    private let downloadPath = "/v1/attachments/download"
+    private let uploadPreparePaths = ["/v1/attachments/init", "/attachments/init"]
+    private let uploadCompletePaths = ["/v1/attachments/complete", "/attachments/complete"]
+    private let downloadPaths = ["/v1/attachments/download", "/attachments/download"]
+    private enum AttachmentRoute: String {
+        case prepare
+        case complete
+        case download
+    }
+    private var cachedRoutes: [AttachmentRoute: String] = [:]
 
     private let session: URLSession
 
@@ -30,15 +36,19 @@ final class AttachmentTransferService {
         sizeBytes: Int,
         checksumSha256: String?
     ) async throws -> AttachmentUploadPrepareResponse {
-        let auth = try buildAuth(method: "POST", path: uploadPreparePath, resourceId: fileName)
-        let request = AttachmentUploadPrepareRequest(
-            fileName: fileName,
-            mimeType: mimeType,
-            sizeBytes: sizeBytes,
-            checksumSha256: checksumSha256,
-            auth: auth
-        )
-        return try await postJSON(path: uploadPreparePath, body: request)
+        return try await postJSON(
+            paths: uploadPreparePaths,
+            route: .prepare,
+            resourceId: fileName
+        ) { auth in
+            AttachmentUploadPrepareRequest(
+                fileName: fileName,
+                mimeType: mimeType,
+                sizeBytes: sizeBytes,
+                checksumSha256: checksumSha256,
+                auth: auth
+            )
+        }
     }
 
     func completeUpload(
@@ -47,26 +57,34 @@ final class AttachmentTransferService {
         sizeBytes: Int,
         checksumSha256: String?
     ) async throws -> AttachmentUploadCompleteResponse {
-        let auth = try buildAuth(method: "POST", path: uploadCompletePath, resourceId: attachmentId)
-        let request = AttachmentUploadCompleteRequest(
-            attachmentId: attachmentId,
-            objectKey: objectKey,
-            sizeBytes: sizeBytes,
-            checksumSha256: checksumSha256,
-            auth: auth
-        )
-        return try await postJSON(path: uploadCompletePath, body: request)
+        return try await postJSON(
+            paths: uploadCompletePaths,
+            route: .complete,
+            resourceId: attachmentId
+        ) { auth in
+            AttachmentUploadCompleteRequest(
+                attachmentId: attachmentId,
+                objectKey: objectKey,
+                sizeBytes: sizeBytes,
+                checksumSha256: checksumSha256,
+                auth: auth
+            )
+        }
     }
 
     func requestDownload(
         attachmentId: String
     ) async throws -> AttachmentDownloadResponse {
-        let auth = try buildAuth(method: "POST", path: downloadPath, resourceId: attachmentId)
-        let request = AttachmentDownloadRequest(
-            attachmentId: attachmentId,
-            auth: auth
-        )
-        return try await postJSON(path: downloadPath, body: request)
+        return try await postJSON(
+            paths: downloadPaths,
+            route: .download,
+            resourceId: attachmentId
+        ) { auth in
+            AttachmentDownloadRequest(
+                attachmentId: attachmentId,
+                auth: auth
+            )
+        }
     }
 
     func downloadCiphertext(
@@ -164,16 +182,85 @@ final class AttachmentTransferService {
         )
     }
 
-    private func postJSON<Response: Decodable, Body: Encodable>(path: String, body: Body) async throws -> Response {
+    private func postJSON<Response: Decodable, Body: Encodable>(
+        paths: [String],
+        route: AttachmentRoute,
+        resourceId: String,
+        makeBody: (_ auth: AttachmentAuthRequest) throws -> Body
+    ) async throws -> Response {
+        if let cached = cachedRoutes[route] {
+            do {
+                let response: Response = try await postJSON(
+                    path: cached,
+                    resourceId: resourceId,
+                    makeBody: makeBody
+                )
+                cachedRoutes[route] = cached
+                return response
+            } catch AttachmentTransferError.serverError(let statusCode, let reason) where statusCode == 404 {
+                NSLog("[AttachmentTransferService] Cached endpoint %@ failed with 404: %@", cached, reason ?? "unknown")
+                cachedRoutes.removeValue(forKey: route)
+            }
+        }
+
+        var pathsToTry = paths
+        if let cached = cachedRoutes[route] {
+            pathsToTry = paths.filter { $0 != cached }
+        }
+
+        var lastResponseError: AttachmentTransferError?
+        for path in pathsToTry {
+            do {
+                let response: Response = try await postJSON(
+                    path: path,
+                    resourceId: resourceId,
+                    makeBody: makeBody
+                )
+                cachedRoutes[route] = path
+                return response
+            } catch let error as AttachmentTransferError {
+                if case .serverError(let statusCode, _) = error, statusCode == 404 {
+                    NSLog("[AttachmentTransferService] Tried attachment endpoint path %@ got 404", path)
+                    lastResponseError = error
+                    continue
+                }
+                throw error
+            }
+        }
+
+        if let lastResponseError {
+            throw AttachmentTransferError.endpointNotFound(
+                route: route.rawValue,
+                attempts: pathsToTry,
+                reason: {
+                    if case .serverError(_, let reason) = lastResponseError {
+                        return reason
+                    }
+                    return nil
+                }()
+            )
+        }
+
+        throw AttachmentTransferError.invalidResponse
+    }
+
+    private func postJSON<Response: Decodable, Body: Encodable>(
+        path: String,
+        resourceId: String,
+        makeBody: (_ auth: AttachmentAuthRequest) throws -> Body
+    ) async throws -> Response {
         guard let url = URL(string: baseURL + path) else {
             throw AttachmentTransferError.invalidURL
         }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 30
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.httpBody = try JSONEncoder().encode(body)
+        let auth = try buildAuth(method: "POST", path: path, resourceId: resourceId)
+        let authenticatedBody = try makeBody(auth)
+        request.httpBody = try JSONEncoder().encode(authenticatedBody)
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -319,6 +406,7 @@ enum AttachmentTransferError: LocalizedError {
     case invalidResponse
     case decodeFailed(String)
     case serverError(statusCode: Int, reason: String?)
+    case endpointNotFound(route: String, attempts: [String], reason: String?)
 
     var errorDescription: String? {
         switch self {
@@ -335,6 +423,12 @@ enum AttachmentTransferError: LocalizedError {
                 return "Attachment request failed (\(statusCode)): \(reason)"
             }
             return "Attachment request failed (\(statusCode))."
+        case .endpointNotFound(let route, let attempts, let reason):
+            let attempted = attempts.joined(separator: ", ")
+            if let reason, !reason.isEmpty {
+                return "Attachment endpoint for \(route) not found (\(attempted)). Reason: \(reason)"
+            }
+            return "Attachment endpoint for \(route) not found. Tried: \(attempted)."
         }
     }
 }
