@@ -44,12 +44,11 @@
 		E81000372D4C00010000001C /* Bech32.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000362D4C00010000001C /* Bech32.swift */; };
 		E81000392D4C00010000001D /* BIP39.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000382D4C00010000001D /* BIP39.swift */; };
 		E810003B2D4C00010000001F /* KaChatCipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810003A2D4C00010000001E /* KaChatCipher.swift */; };
-		E82000012D4C000200000003 /* YbridOpus in Frameworks */ = {isa = PBXBuildFile; platformFilter = ios; productRef = E82000022D4C000200000004 /* YbridOpus */; };
 		E83000012D4C000200000006 /* OpusBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = E83000032D4C000200000008 /* OpusBridge.m */; };
 		E8F100122D4C0001000000FF /* Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F100112D4C0001000000FF /* Toast.swift */; };
 		E8F100152D4C0001000001FF /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F100142D4C0001000001FF /* QRScannerView.swift */; };
 		E8F1A0032F4B000100000003 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F1A0042F4B000100000004 /* Haptics.swift */; };
-		E8F1A0062F4B000100000006 /* external/opus/Opus.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */; platformFilter = maccatalyst; };
+		E8F1A0062F4B000100000006 /* external/opus/Opus.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */; };
 		ENGL00012F70000100000002 /* english.txt in Resources */ = {isa = PBXBuildFile; fileRef = ENGL00012F70000100000001 /* english.txt */; };
 		F5A71C3C1061AA2FFE3F837F /* KaChatTransactionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */; };
 		GEOIP00012F90000100000002 /* geoip-lite.json in Resources */ = {isa = PBXBuildFile; fileRef = GEOIP00012F90000100000001 /* geoip-lite.json */; };
@@ -60,6 +59,7 @@
 		GRPC00010001000100000017 /* rpc.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000007 /* rpc.pb.swift */; };
 		GRPC00010001000100000018 /* p2p.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000008 /* p2p.pb.swift */; };
 		KASPATYPES001 /* KaspaTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = KASPATYPES002 /* KaspaTypes.swift */; };
+		KFPOLICY000100010001 /* KaspaFeePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = KFPOLICY000100010002 /* KaspaFeePolicy.swift */; };
 		KNAV00010001000100000001 /* KNSAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KNAV000100010000000001 /* KNSAvatarView.swift */; };
 		L10N000300000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = L10N000200000001 /* Localizable.strings */; };
 		MSGS00012F5C000100000002 /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = MSGS00012F5C000100000001 /* MessageStore.swift */; };
@@ -80,10 +80,10 @@
 		SHREXT000100010001000001 /* KaChatShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = SHREXT000100010000000002 /* KaChatShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		SHRT00010001000100000001 /* KaChatContactEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = SHRT000100010000000001 /* KaChatContactEntity.swift */; };
 		SHRT00010001000100000002 /* KaChatShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = SHRT000100010000000002 /* KaChatShortcuts.swift */; };
-		XCFW00020001 /* GRPCAll.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010001 /* GRPCAll.xcframework */; };
-		XCFW00020002 /* SwiftProtobuf.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010002 /* SwiftProtobuf.xcframework */; };
-		XCFW00020003 /* P256K.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010003 /* P256K.xcframework */; };
-		XCFW00020004 /* P256K.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = XCFW00010003 /* P256K.xcframework */; };
+		SPMGRPC000100010001 /* GRPC in Frameworks */ = {isa = PBXBuildFile; productRef = SPMGRPC000100010002 /* GRPC */; };
+		SPMP256K000100010001 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = SPMP256K000100010003 /* P256K */; };
+		SPMP256K000100010002 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = SPMP256K000100010003 /* P256K */; };
+		SPMPB000100010001 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = SPMPB000100010002 /* SwiftProtobuf */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -175,6 +175,7 @@
 		GRPC00010001000100000007 /* rpc.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = rpc.pb.swift; sourceTree = "<group>"; };
 		GRPC00010001000100000008 /* p2p.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = p2p.pb.swift; sourceTree = "<group>"; };
 		KASPATYPES002 /* KaspaTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaTypes.swift; sourceTree = "<group>"; };
+		KFPOLICY000100010002 /* KaspaFeePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaFeePolicy.swift; sourceTree = "<group>"; };
 		KNAV000100010000000001 /* KNSAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSAvatarView.swift; sourceTree = "<group>"; };
 		L10N000100000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N000100000002 /* ar-EG */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "ar-EG"; path = "ar-EG.lproj/Localizable.strings"; sourceTree = "<group>"; };
@@ -244,7 +245,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				XCFW00020004 /* P256K.xcframework in Frameworks */,
+				SPMP256K000100010002 /* P256K in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -252,10 +253,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				XCFW00020001 /* GRPCAll.xcframework in Frameworks */,
-				XCFW00020002 /* SwiftProtobuf.xcframework in Frameworks */,
-				XCFW00020003 /* P256K.xcframework in Frameworks */,
-				E82000012D4C000200000003 /* YbridOpus in Frameworks */,
+				SPMGRPC000100010001 /* GRPC in Frameworks */,
+				SPMPB000100010001 /* SwiftProtobuf in Frameworks */,
+				SPMP256K000100010001 /* P256K in Frameworks */,
 				E8F1A0062F4B000100000006 /* external/opus/Opus.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -349,6 +349,7 @@
 				E81000382D4C00010000001D /* BIP39.swift */,
 				6A61ACF41FEA483D9EF0924F /* KNSService.swift */,
 				FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */,
+				KFPOLICY000100010002 /* KaspaFeePolicy.swift */,
 				B2B2B2B20001000000000001 /* Blake2b.swift */,
 				BGTM00012E0100000001 /* BackgroundTaskManager.swift */,
 				KASPATYPES002 /* KaspaTypes.swift */,
@@ -521,6 +522,9 @@
 				43BBF3472F15A52900B42BDA /* KaChatNotificationService */,
 			);
 			name = KaChatNotificationService;
+			packageProductDependencies = (
+				SPMP256K000100010003 /* P256K */,
+			);
 			productName = KaChatNotificationService;
 			productReference = 43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -543,7 +547,9 @@
 			);
 			name = KaChat;
 			packageProductDependencies = (
-				E82000022D4C000200000004 /* YbridOpus */,
+				SPMGRPC000100010002 /* GRPC */,
+				SPMPB000100010002 /* SwiftProtobuf */,
+				SPMP256K000100010003 /* P256K */,
 			);
 			productName = KaChat;
 			productReference = E80000002D4C000000000000 /* KaChat.app */;
@@ -618,7 +624,9 @@
 			);
 			mainGroup = E80000002D4C000000000001;
 			packageReferences = (
-				E82000032D4C000200000005 /* XCRemoteSwiftPackageReference "opus-swift" */,
+				SPMGRPC000100010003 /* XCRemoteSwiftPackageReference "grpc-swift" */,
+				SPMPB000100010003 /* XCRemoteSwiftPackageReference "swift-protobuf" */,
+				SPMP256K000100010004 /* XCRemoteSwiftPackageReference "swift-secp256k1" */,
 			);
 			productRefGroup = E80000022D4C000000000002 /* Products */;
 			projectDirPath = "";
@@ -760,6 +768,7 @@
 				19319293ACD84C2AB108D745 /* KNSService.swift in Sources */,
 				E83000012D4C000200000006 /* OpusBridge.m in Sources */,
 				F5A71C3C1061AA2FFE3F837F /* KaChatTransactionBuilder.swift in Sources */,
+				KFPOLICY000100010001 /* KaspaFeePolicy.swift in Sources */,
 				B2B2B2B20001000100000001 /* Blake2b.swift in Sources */,
 				BGTM00012E0100000002 /* BackgroundTaskManager.swift in Sources */,
 				KASPATYPES001 /* KaspaTypes.swift in Sources */,
@@ -1047,6 +1056,8 @@
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				DEVELOPMENT_TEAM = RP4Z22SFSD;
 				GENERATE_INFOPLIST_FILE = YES;
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/external/opus/Opus.xcframework/ios-arm64/Headers";
+				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/external/opus/Opus.xcframework/ios-arm64_x86_64-simulator/Headers";
 				"HEADER_SEARCH_PATHS[sdk=macosx*]" = "$(SRCROOT)/external/opus/Opus.xcframework/ios-arm64_x86_64-maccatalyst/Headers";
 				INFOPLIST_FILE = KaChat/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = KaChat;
@@ -1076,11 +1087,9 @@
 				SUPPORTS_MACCATALYST = YES;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
-				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=macosx*]" = "DEBUG OPUS_CATALYST $(inherited)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG OPUS_BRIDGE $(inherited)";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=macosx*]" = "DEBUG OPUS_BRIDGE OPUS_CATALYST $(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				"SWIFT_INCLUDE_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/Frameworks/GRPCAll.xcframework/ios-arm64/GRPCAll.framework/Modules";
-				"SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/Frameworks/GRPCAll.xcframework/ios-arm64_x86_64-simulator/GRPCAll.framework/Modules";
-				"SWIFT_INCLUDE_PATHS[sdk=macosx*]" = "$(SRCROOT)/Frameworks/GRPCAll.xcframework/ios-arm64_x86_64-maccatalyst/GRPCAll.framework/Modules";
 				SWIFT_OBJC_BRIDGING_HEADER = "KaChat/KaChat-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1101,6 +1110,8 @@
 				DEVELOPMENT_TEAM = RP4Z22SFSD;
 				ENABLE_DEBUG_DYLIB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				"HEADER_SEARCH_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/external/opus/Opus.xcframework/ios-arm64/Headers";
+				"HEADER_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/external/opus/Opus.xcframework/ios-arm64_x86_64-simulator/Headers";
 				"HEADER_SEARCH_PATHS[sdk=macosx*]" = "$(SRCROOT)/external/opus/Opus.xcframework/ios-arm64_x86_64-maccatalyst/Headers";
 				INFOPLIST_FILE = KaChat/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = KaChat;
@@ -1130,11 +1141,9 @@
 				SUPPORTS_MACCATALYST = YES;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
-				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=macosx*]" = "OPUS_CATALYST $(inherited)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "OPUS_BRIDGE $(inherited)";
+				"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=macosx*]" = "OPUS_BRIDGE OPUS_CATALYST $(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				"SWIFT_INCLUDE_PATHS[sdk=iphoneos*]" = "$(SRCROOT)/Frameworks/GRPCAll.xcframework/ios-arm64/GRPCAll.framework/Modules";
-				"SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*]" = "$(SRCROOT)/Frameworks/GRPCAll.xcframework/ios-arm64_x86_64-simulator/GRPCAll.framework/Modules";
-				"SWIFT_INCLUDE_PATHS[sdk=macosx*]" = "$(SRCROOT)/Frameworks/GRPCAll.xcframework/ios-arm64_x86_64-maccatalyst/GRPCAll.framework/Modules";
 				SWIFT_OBJC_BRIDGING_HEADER = "KaChat/KaChat-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -1252,21 +1261,47 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		E82000032D4C000200000005 /* XCRemoteSwiftPackageReference "opus-swift" */ = {
+		SPMGRPC000100010003 /* XCRemoteSwiftPackageReference "grpc-swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/ybrid/opus-swift.git";
+			repositoryURL = "https://github.com/grpc/grpc-swift.git";
 			requirement = {
 				kind = exactVersion;
-				version = 0.8.0;
+				version = 1.9.0;
+			};
+		};
+		SPMP256K000100010004 /* XCRemoteSwiftPackageReference "swift-secp256k1" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/21-DOT-DEV/swift-secp256k1.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.20.0;
+			};
+		};
+		SPMPB000100010003 /* XCRemoteSwiftPackageReference "swift-protobuf" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-protobuf.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.38.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		E82000022D4C000200000004 /* YbridOpus */ = {
+		SPMGRPC000100010002 /* GRPC */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = E82000032D4C000200000005 /* XCRemoteSwiftPackageReference "opus-swift" */;
-			productName = YbridOpus;
+			package = SPMGRPC000100010003 /* XCRemoteSwiftPackageReference "grpc-swift" */;
+			productName = GRPC;
+		};
+		SPMP256K000100010003 /* P256K */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SPMP256K000100010004 /* XCRemoteSwiftPackageReference "swift-secp256k1" */;
+			productName = P256K;
+		};
+		SPMPB000100010002 /* SwiftProtobuf */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SPMPB000100010003 /* XCRemoteSwiftPackageReference "swift-protobuf" */;
+			productName = SwiftProtobuf;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

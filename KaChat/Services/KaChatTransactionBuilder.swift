@@ -1016,8 +1016,9 @@ struct KasiaTransactionBuilder {
         return (selected, totalAmount)
     }
 
-    /// Calculate transaction fee based on compute mass (1 sompi per gram)
-    /// Note: Storage mass is a separate validity check (must be <= 100000), not part of fee.
+    /// Calculate the Toccata minimum standard fee.
+    /// Fee mass is max(compute mass, normalized transient mass), where post-Toccata
+    /// transient mass normalizes to 2 grams per estimated transaction byte.
     private static func estimateFee(payload: Data, inputCount: Int, outputs: [KaspaRpcTransactionOutput]) -> UInt64 {
         estimateFee(payload: payload, inputCount: inputCount, outputs: outputs, signatureScriptSize: 66)
     }
@@ -1035,15 +1036,19 @@ struct KasiaTransactionBuilder {
             sigOpCount: 1
         )
         let inputs = Array(repeating: dummyInput, count: inputCount)
-        return computeComputeMass(
+        let computeMass = computeComputeMass(
             version: 0,
             inputs: inputs,
             outputs: outputs,
-            payload: payload,
-            subnetworkId: standardSubnetworkId,
-            gas: 0,
-            lockTime: 0
+            payload: payload
         )
+        let estimatedBytes = estimateTransactionByteCount(
+            version: 0,
+            inputs: inputs,
+            outputs: outputs,
+            payload: payload
+        )
+        return KaspaFeePolicy.minimumStandardFee(computeMass: computeMass, estimatedTransactionBytes: estimatedBytes)
     }
 
     private static func buildKNSRedeemScript(
@@ -1507,39 +1512,60 @@ struct KasiaTransactionBuilder {
     /// Storage mass parameter: C = SOMPI_PER_KAS * 10_000 = 1 trillion (KIP-0009)
     private static let storageMassParameter: UInt64 = 100_000_000 * 10_000
 
-    /// Compute non-contextual compute mass per consensus MassCalculator::calc_non_contextual_masses
+    /// Compute non-contextual compute mass per consensus MassCalculator::calc_non_contextual_masses.
     private static func computeComputeMass(
         version: UInt16,
         inputs: [KaspaRpcTransactionInput],
         outputs: [KaspaRpcTransactionOutput],
-        payload: Data,
-        subnetworkId: Data,
-        gas: UInt64,
-        lockTime: UInt64
+        payload: Data
     ) -> UInt64 {
         // Consensus parameters (shared across nets)
         let massPerTxByte: UInt64 = 1
         let massPerScriptPubKeyByte: UInt64 = 10
         let massPerSigOp: UInt64 = 1000
 
-        // Re-encode the transaction (with mass=0) to get the exact byte length
-        let txForSize = KaspaRpcTransaction(
+        let estimatedBytes = estimateTransactionByteCount(
             version: version,
             inputs: inputs,
             outputs: outputs,
-            lockTime: lockTime,
-            subnetworkId: subnetworkId,
-            gas: gas,
             payload: payload
         )
-        var encoded = Data()
-        txForSize.encodeTo(&encoded)
 
-        let txSizeMass = UInt64(encoded.count) * massPerTxByte
+        let txSizeMass = estimatedBytes * massPerTxByte
         let spkMass = outputs.reduce(0) { $0 + (2 + UInt64($1.scriptPublicKey.script.count)) * massPerScriptPubKeyByte }
         let sigOpMass = inputs.reduce(0) { $0 + UInt64($1.sigOpCount) * massPerSigOp }
 
         return txSizeMass + spkMass + sigOpMass
+    }
+
+    private static func estimateTransactionByteCount(
+        version: UInt16,
+        inputs: [KaspaRpcTransactionInput],
+        outputs: [KaspaRpcTransactionOutput],
+        payload: Data
+    ) -> UInt64 {
+        let inputBytes = inputs.reduce(UInt64(0)) { total, input in
+            var size: UInt64 = 32 + 4 // previous outpoint
+            size += 8 + UInt64(input.signatureScript.count)
+            size += 8 // sequence
+            if version >= 1 {
+                size += 2 // compute_budget
+            }
+            return total + size
+        }
+
+        let outputBytes = outputs.reduce(UInt64(0)) { total, output in
+            total + 8 + 2 + 8 + UInt64(output.scriptPublicKey.script.count)
+        }
+
+        return 2 // version
+            + 8 + inputBytes
+            + 8 + outputBytes
+            + 8 // lock time
+            + 20 // subnetwork id
+            + 8 // gas
+            + 32 // payload hash
+            + 8 + UInt64(payload.count)
     }
 
     /// Compute storage mass per KIP-0009

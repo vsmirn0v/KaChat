@@ -1108,7 +1108,7 @@ private struct AudioShareSheet: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
-#if canImport(YbridOpus) || OPUS_CATALYST
+#if canImport(YbridOpus) || OPUS_BRIDGE || OPUS_CATALYST
 private enum WebMOpusDecodeError: LocalizedError {
     case invalidWebM(String)
     case missingOpusHead

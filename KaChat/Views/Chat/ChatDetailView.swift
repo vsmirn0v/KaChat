@@ -2627,7 +2627,7 @@ struct ChatDetailView: View {
                     maxBytes: maxAudioBytes
                 )
             } catch let error as WebMOpusEncodingError {
-                #if canImport(YbridOpus) || OPUS_CATALYST
+                #if canImport(YbridOpus) || OPUS_BRIDGE || OPUS_CATALYST
                 if case .audioReadFailed = error {
                     try await Task.sleep(nanoseconds: 200_000_000)
                     try await WebMOpusEncoder.encode(
@@ -2937,7 +2937,7 @@ private final class ScrollViewIntrospectorView: UIView {
     }
 }
 
-#if canImport(YbridOpus) || OPUS_CATALYST
+#if canImport(YbridOpus) || OPUS_BRIDGE || OPUS_CATALYST
 private enum WebMOpusEncodingError: LocalizedError {
     case invalidFormat(String)
     case conversionFailed(String)
