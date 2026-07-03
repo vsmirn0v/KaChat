@@ -1266,7 +1266,7 @@
 			repositoryURL = "https://github.com/grpc/grpc-swift.git";
 			requirement = {
 				kind = exactVersion;
-				version = 1.9.0;
+				version = 1.27.5;
 			};
 		};
 		SPMP256K000100010004 /* XCRemoteSwiftPackageReference "swift-secp256k1" */ = {
