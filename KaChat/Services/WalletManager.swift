@@ -99,10 +99,13 @@ final class WalletManager: ObservableObject {
                 self.currentWallet = updated
                 isBalanceRefreshing = true
                 ContactsManager.shared.setActiveWalletAddress(canonicalWallet.publicAddress)
-                // Switch MessageStore to this wallet's store and CloudKit zone
-                await MessageStore.shared.setCurrentWallet(canonicalWallet.publicAddress)
+                ChatService.shared.loadChatListSnapshot(for: canonicalWallet.publicAddress)
                 SharedDataManager.syncWalletAddressForExtension()
                 SharedDataManager.setPrivateKeyAvailable(true)
+                isLoading = false
+                // Switch MessageStore to this wallet's store and CloudKit zone
+                await MessageStore.shared.setCurrentWallet(canonicalWallet.publicAddress)
+                ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                 Task { _ = try? await refreshBalance() }
                 return
             }
@@ -230,6 +233,7 @@ final class WalletManager: ObservableObject {
         isBalanceRefreshing = false
         UserDefaults.standard.removeObject(forKey: logoutFlagKey)
         if let walletAddressToDelete {
+            ChatListSnapshotStore.clear(walletAddress: walletAddressToDelete)
             ContactsManager.shared.deletePersistedContacts(forWalletAddress: walletAddressToDelete)
         }
         ContactsManager.shared.setActiveWalletAddress(nil)

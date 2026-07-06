@@ -41,6 +41,7 @@ final class ChatService: ObservableObject {
     @Published var conversations: [Conversation] = [] {
         didSet {
             scheduleBadgeUpdate()
+            persistChatListSnapshotIfPossible()
         }
     }
     @Published var isLoading = false
@@ -509,7 +510,10 @@ final class ChatService: ObservableObject {
         pendingResubscriptionTask = nil
         subscriptionBalanceRefreshTask?.cancel()
         subscriptionBalanceRefreshTask = nil
+        let wasSuppressingSnapshotPersistence = suppressChatListSnapshotPersistence
+        suppressChatListSnapshotPersistence = true
         conversations = []
+        suppressChatListSnapshotPersistence = wasSuppressingSnapshotPersistence
         lastSubscribedAddressCount = 0
         lastSubscribedAddresses = []
         needsResubscriptionAfterSync = false
@@ -587,6 +591,8 @@ final class ChatService: ObservableObject {
     /// Setup UTXO subscription for real-time payment and message notifications
     /// Task for subscription retry
     var subscriptionRetryTask: Task<Void, Never>?
+    var startPollingWhenStoreReadyTask: Task<Void, Never>?
+    var suppressChatListSnapshotPersistence = false
 
     /// Debounce state for CloudKit import on remote store change
     var cloudKitImportTimer: Timer?

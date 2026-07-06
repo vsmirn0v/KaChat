@@ -93,46 +93,7 @@ struct MessageBubbleView: View {
                         onRetry: shouldShowRetry ? { onRetry?(message) } : nil
                     )
                 } else {
-                    LinkifiedMessageTextView(
-                        text: message.content,
-                        isOutgoing: message.isOutgoing,
-                        isSingleEmojiOnly: isSingleEmojiOnly,
-                        onLinkLongPress: { url in
-                            handleCopy(url.absoluteString, toast: "Link copied to clipboard.")
-                        }
-                    )
-                        .padding(.horizontal, isSingleEmojiOnly ? 0 : 12)
-                        .padding(.vertical, isSingleEmojiOnly ? 0 : 8)
-                        .background(isSingleEmojiOnly ? Color.clear : (message.isOutgoing ? kaspaBubbleColor : Color(.systemGray5)))
-                        .clipShape(RoundedRectangle(cornerRadius: isSingleEmojiOnly ? 0 : 16))
-                        .overlay {
-                            if !isSingleEmojiOnly && shouldShowResolvingOverlay {
-                                ShimmerOverlay(phase: shimmerPhase)
-                                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                                    .allowsHitTesting(false)
-                            }
-                        }
-                        .contextMenu {
-                            Button {
-                                handleCopy(message.content, toast: "Message copied to clipboard.")
-                            } label: {
-                                Label("Copy Message", systemImage: "doc.on.doc")
-                            }
-
-                            Button {
-                                handleCopy(message.txId, toast: "Transaction ID copied.")
-                            } label: {
-                                Label("Copy Transaction ID", systemImage: "number")
-                            }
-
-                            if shouldShowRetry {
-                                Button {
-                                    onRetry?(message)
-                                } label: {
-                                    Label("Retry Send", systemImage: "arrow.clockwise")
-                                }
-                            }
-                        }
+                    messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
                 }
 
                 // Timestamp and status
@@ -256,6 +217,61 @@ struct MessageBubbleView: View {
 
     private var shouldShowStatusIcon: Bool {
         message.isOutgoing || message.deliveryStatus == .warning
+    }
+
+    private func messageTextBubble(isSingleEmojiOnly: Bool) -> some View {
+        messageTextContent(isSingleEmojiOnly: isSingleEmojiOnly)
+            .padding(.horizontal, isSingleEmojiOnly ? 0 : 12)
+            .padding(.vertical, isSingleEmojiOnly ? 0 : 8)
+            .background(isSingleEmojiOnly ? Color.clear : (message.isOutgoing ? kaspaBubbleColor : Color(.systemGray5)))
+            .clipShape(RoundedRectangle(cornerRadius: isSingleEmojiOnly ? 0 : 16))
+            .overlay {
+                if !isSingleEmojiOnly && shouldShowResolvingOverlay {
+                    ShimmerOverlay(phase: shimmerPhase)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .allowsHitTesting(false)
+                }
+            }
+            .contextMenu {
+                Button {
+                    handleCopy(message.content, toast: "Message copied to clipboard.")
+                } label: {
+                    Label("Copy Message", systemImage: "doc.on.doc")
+                }
+
+                Button {
+                    handleCopy(message.txId, toast: "Transaction ID copied.")
+                } label: {
+                    Label("Copy Transaction ID", systemImage: "number")
+                }
+
+                if shouldShowRetry {
+                    Button {
+                        onRetry?(message)
+                    } label: {
+                        Label("Retry Send", systemImage: "arrow.clockwise")
+                    }
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func messageTextContent(isSingleEmojiOnly: Bool) -> some View {
+        if MessageTextRenderPlan.requiresLinkTextView(message.content) {
+            LinkifiedMessageTextView(
+                text: message.content,
+                isOutgoing: message.isOutgoing,
+                isSingleEmojiOnly: isSingleEmojiOnly,
+                onLinkLongPress: { url in
+                    handleCopy(url.absoluteString, toast: "Link copied to clipboard.")
+                }
+            )
+        } else {
+            Text(message.content)
+                .font(isSingleEmojiOnly ? .system(size: UIFont.preferredFont(forTextStyle: .body).pointSize * 5.0) : .body)
+                .foregroundStyle(isSingleEmojiOnly ? Color.primary : (message.isOutgoing ? Color.white : Color.primary))
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @ViewBuilder

@@ -271,6 +271,18 @@ extension ChatService {
     }
 
     func startPolling(interval: TimeInterval = 10.0) {
+        guard WalletManager.shared.currentWallet != nil else {
+            startPollingWhenStoreReadyTask?.cancel()
+            startPollingWhenStoreReadyTask = nil
+            return
+        }
+        guard isMessageStoreReadyForCurrentWallet() else {
+            scheduleStartPollingWhenStoreReady(interval: interval)
+            return
+        }
+        startPollingWhenStoreReadyTask?.cancel()
+        startPollingWhenStoreReadyTask = nil
+
         // If initial sync already completed (e.g. Mac Catalyst window reopen),
         // just ensure subscription/polling is running — skip the heavy 4-phase sync.
         if hasCompletedInitialSync {
@@ -360,6 +372,22 @@ extension ChatService {
                 self.startFallbackPolling()
                 NSLog("[ChatService] RPC unavailable - using fallback polling (%.0fs delay after each sync)", pollDelayAfterSync)
             }
+        }
+    }
+
+    private func isMessageStoreReadyForCurrentWallet() -> Bool {
+        guard let walletAddress = WalletManager.shared.currentWallet?.publicAddress else { return false }
+        return messageStore.isStoreLoaded && messageStore.currentWalletAddress == walletAddress
+    }
+
+    private func scheduleStartPollingWhenStoreReady(interval: TimeInterval) {
+        guard startPollingWhenStoreReadyTask == nil else { return }
+        NSLog("[ChatService] Delaying message sync until wallet message store is ready")
+        startPollingWhenStoreReadyTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard let self else { return }
+            self.startPollingWhenStoreReadyTask = nil
+            self.startPolling(interval: interval)
         }
     }
 

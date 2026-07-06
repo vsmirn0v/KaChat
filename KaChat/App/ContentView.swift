@@ -5,11 +5,15 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if walletManager.isLoading {
+            switch LaunchRouter.route(
+                isWalletMetadataLoading: walletManager.isLoading,
+                hasCurrentWallet: walletManager.currentWallet != nil
+            ) {
+            case .loading:
                 LoadingView()
-            } else if walletManager.currentWallet != nil {
+            case .mainApp:
                 MainTabView()
-            } else {
+            case .onboarding:
                 OnboardingView()
             }
         }

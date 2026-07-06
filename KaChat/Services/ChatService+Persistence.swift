@@ -68,6 +68,19 @@ extension ChatService {
     /// Public method to reload messages from the message store.
     /// Call this after CloudKit sync to pick up messages from other devices.
     /// - Parameter forceReload: If true, reloads even if conversations are not empty
+    func loadChatListSnapshot(for walletAddress: String) {
+        guard conversations.isEmpty else { return }
+        let cached = ChatListSnapshotStore.load(walletAddress: walletAddress)
+        guard !cached.isEmpty else { return }
+        conversations = cached
+    }
+
+    func persistChatListSnapshotIfPossible() {
+        guard !suppressChatListSnapshotPersistence else { return }
+        guard let walletAddress = WalletManager.shared.currentWallet?.publicAddress else { return }
+        ChatListSnapshotStore.save(conversations, walletAddress: walletAddress)
+    }
+
     func loadMessagesFromStoreIfNeeded(onlyIfEmpty: Bool = true) {
         if onlyIfEmpty {
             _loadMessagesFromStoreIfNeeded(onlyIfEmpty: true)
