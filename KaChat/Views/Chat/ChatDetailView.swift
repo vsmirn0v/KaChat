@@ -229,6 +229,10 @@ struct ChatDetailView: View {
         return Array(messages.suffix(min(loadedMessageCount, messages.count)))
     }
 
+    private var displayedTimelineItems: [ChatTimelineItem] {
+        ChatTimelineLayout.items(for: displayedMessages)
+    }
+
     private func shouldPrefer(_ candidate: ChatMessage, over existing: ChatMessage) -> Bool {
         let existingPlaceholder = isPlaceholderContent(existing.content)
         let candidatePlaceholder = isPlaceholderContent(candidate.content)
@@ -310,24 +314,29 @@ struct ChatDetailView: View {
                                     isTopAnchorVisible = false
                                     hasLoadedCurrentTopPage = false
                                 }
-                            ForEach(Array(displayedMessages.enumerated()), id: \.element.id) { index, message in
-                                messageRow(message)
-                                    .id(message.id)
-                                    .onAppear {
-                                        if index == 0 {
-                                            topVisibleMessageId = message.id
-                                            triggerTopPaginationIfNeeded(using: proxy)
+                            ForEach(displayedTimelineItems) { item in
+                                switch item {
+                                case .daySeparator(let day):
+                                    daySeparator(day)
+                                case .message(let index, let message):
+                                    messageRow(message)
+                                        .id(message.id)
+                                        .onAppear {
+                                            if index == 0 {
+                                                topVisibleMessageId = message.id
+                                                triggerTopPaginationIfNeeded(using: proxy)
+                                            }
+                                            if initialViewportPositioned, index <= nearTopPrefetchThresholdIndex() {
+                                                scheduleOlderPrefetchIfNeeded()
+                                            }
                                         }
-                                        if initialViewportPositioned, index <= nearTopPrefetchThresholdIndex() {
-                                            scheduleOlderPrefetchIfNeeded()
+                                        .onDisappear {
+                                            if index == 0, topVisibleMessageId == message.id {
+                                                topVisibleMessageId = nil
+                                                hasLoadedCurrentTopPage = false
+                                            }
                                         }
-                                    }
-                                    .onDisappear {
-                                        if index == 0, topVisibleMessageId == message.id {
-                                            topVisibleMessageId = nil
-                                            hasLoadedCurrentTopPage = false
-                                        }
-                                    }
+                                }
                             }
                             if shouldShowUnnotifiedWarning {
                                 unnotifiedMessageBanner
@@ -2182,6 +2191,33 @@ struct ChatDetailView: View {
             onAcceptHandshake: needsHandshakeResponse ? { acceptHandshake() } : nil,
             onDeclineHandshake: needsHandshakeResponse ? { declineHandshake() } : nil
         )
+    }
+
+    private func daySeparator(_ day: Date) -> some View {
+        let isToday = MessageDaySeparatorFormatter.isToday(day)
+        let label = MessageDaySeparatorFormatter.label(for: day)
+        return HStack {
+            Spacer(minLength: 0)
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .foregroundStyle(isToday ? Color.accentColor : Color.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background {
+                    Capsule()
+                        .fill(isToday ? Color.accentColor.opacity(0.12) : Color(.systemGray6))
+                }
+                .overlay {
+                    Capsule()
+                        .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+                }
+                .accessibilityLabel(label)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 2)
     }
 
     private func retryOutgoingMessage(_ message: ChatMessage) {
