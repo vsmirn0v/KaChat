@@ -13,6 +13,7 @@
 		3F4C10022F72000100000002 /* ChatListSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F4C10022F72000100000001 /* ChatListSnapshotStore.swift */; };
 		43BBF34D2F15A52900B42BDA /* KaChatNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		4D3D20012F72000200000002 /* MessageTextRenderPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */; };
+		4D3D20022F72000200000002 /* MessageReplySwipePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20022F72000200000001 /* MessageReplySwipePolicy.swift */; };
 		B2B2B2B20001000100000001 /* Blake2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B20001000000000001 /* Blake2b.swift */; };
 		BCAR00010001000100000001 /* BroadcastAudioRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAR00010001000000000001 /* BroadcastAudioRecording.swift */; };
 		BCCV00010001000100000001 /* BroadcastChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCV00010001000000000001 /* BroadcastChannelView.swift */; };
@@ -136,6 +137,7 @@
 		4348A8842F2EC4AD00A5518E /* KaChatRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KaChatRelease.entitlements; sourceTree = "<group>"; };
 		43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KaChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTextRenderPlan.swift; sourceTree = "<group>"; };
+		4D3D20022F72000200000001 /* MessageReplySwipePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageReplySwipePolicy.swift; sourceTree = "<group>"; };
 		6A61ACF41FEA483D9EF0924F /* KNSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSService.swift; sourceTree = "<group>"; };
 		B2B2B2B20001000000000001 /* Blake2b.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Blake2b.swift; sourceTree = "<group>"; };
 		BCAR00010001000000000001 /* BroadcastAudioRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastAudioRecording.swift; sourceTree = "<group>"; };
@@ -456,6 +458,7 @@
 				CPTV00010001000000000001 /* ComposerTextView.swift */,
 				E81000342D4C00010000001B /* MessageBubbleView.swift */,
 				4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */,
+				4D3D20022F72000200000001 /* MessageReplySwipePolicy.swift */,
 				BCLV00010001000000000001 /* BroadcastListView.swift */,
 				BCCV00010001000000000001 /* BroadcastChannelView.swift */,
 				BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */,
@@ -785,6 +788,7 @@
 				CPTV00010001000100000001 /* ComposerTextView.swift in Sources */,
 				3068057B0F9F4906B2600F39 /* ChatInfoView.swift in Sources */,
 				4D3D20012F72000200000002 /* MessageTextRenderPlan.swift in Sources */,
+				4D3D20022F72000200000002 /* MessageReplySwipePolicy.swift in Sources */,
 				E810001B2D4C00010000000E /* ContactsView.swift in Sources */,
 				E810001D2D4C00010000000F /* SettingsView.swift in Sources */,
 				E8F100122D4C0001000000FF /* Toast.swift in Sources */,

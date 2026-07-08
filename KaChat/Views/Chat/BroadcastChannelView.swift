@@ -31,6 +31,7 @@ struct BroadcastChannelView: View {
     @State private var feeEstimateTask: Task<Void, Never>?
     @State private var feeShimmerPhase: CGFloat = -1
     @State private var revealOffset: CGFloat = 0
+    @State private var isReplySwipeActive = false
     private let maxRevealOffset: CGFloat = 64
 
     private var myAddress: String? {
@@ -174,6 +175,12 @@ struct BroadcastChannelView: View {
                                             showToast("Transaction ID copied.")
                                         },
                                         onRetry: { broadcastService.retryBroadcast(message) },
+                                        onReplySwipeActiveChange: { active in
+                                            isReplySwipeActive = active
+                                            if active {
+                                                revealOffset = 0
+                                            }
+                                        },
                                         revealOffset: revealOffset,
                                         maxRevealOffset: maxRevealOffset
                                     )
@@ -233,6 +240,7 @@ struct BroadcastChannelView: View {
                             // the ScrollView's own vertical scrolling still works normally.
                             DragGesture(minimumDistance: 8)
                                 .onChanged { value in
+                                    guard !isReplySwipeActive else { return }
                                     guard abs(value.translation.width) > abs(value.translation.height) else { return }
                                     revealOffset = min(max(value.translation.width, -maxRevealOffset), 0)
                                 }
@@ -686,8 +694,12 @@ private struct BroadcastMessageRow: View {
     let onCopyMessage: () -> Void
     let onCopyTxId: () -> Void
     let onRetry: () -> Void
+    let onReplySwipeActiveChange: (Bool) -> Void
     let revealOffset: CGFloat
     let maxRevealOffset: CGFloat
+    @State private var replySwipeOffset: CGFloat = 0
+    @State private var isReplySwipeActive = false
+    @State private var hasArmedReplySwipe = false
 
     private var displayText: String {
         replyQuote?.text ?? message.content
@@ -706,13 +718,21 @@ private struct BroadcastMessageRow: View {
         min(max(-revealOffset / maxRevealOffset, 0), 1)
     }
 
+    private var replySwipeProgress: CGFloat {
+        min(max(-replySwipeOffset / MessageReplySwipePolicy.triggerDistance, 0), 1)
+    }
+
     var body: some View {
         ZStack(alignment: .trailing) {
             Text(timeText)
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .padding(.trailing, 12)
-                .opacity(revealProgress)
+                .opacity(revealProgress * (1 - replySwipeProgress))
+
+            replySwipeIndicator
+                .opacity(replySwipeProgress)
+                .scaleEffect(0.85 + (0.15 * replySwipeProgress))
 
             HStack(alignment: .bottom, spacing: 8) {
                 if !isOwnMessage {
@@ -740,8 +760,67 @@ private struct BroadcastMessageRow: View {
                     Spacer(minLength: 40)
                 }
             }
-            .offset(x: revealOffset)
+            .offset(x: revealOffset + replySwipeOffset)
+            .simultaneousGesture(replySwipeGesture)
         }
+    }
+
+    private var replySwipeIndicator: some View {
+        Image(systemName: "arrowshape.turn.up.left.fill")
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundColor(.accentColor)
+            .frame(width: 28, height: 28)
+            .background(Circle().fill(Color.accentColor.opacity(0.14)))
+            .padding(.trailing, 16)
+            .accessibilityHidden(true)
+    }
+
+    private var replySwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                let offset = MessageReplySwipePolicy.visualOffset(
+                    for: value.translation,
+                    maxOffset: maxRevealOffset
+                )
+                guard offset < 0 || isReplySwipeActive else { return }
+
+                if offset < 0 && !isReplySwipeActive {
+                    isReplySwipeActive = true
+                    onReplySwipeActiveChange(true)
+                }
+                replySwipeOffset = offset
+
+                let shouldArm = MessageReplySwipePolicy.shouldTriggerReply(
+                    translation: value.translation,
+                    predictedEndTranslation: value.predictedEndTranslation
+                )
+                if shouldArm && !hasArmedReplySwipe {
+                    hasArmedReplySwipe = true
+                    Haptics.selection()
+                } else if !shouldArm && hasArmedReplySwipe {
+                    hasArmedReplySwipe = false
+                }
+            }
+            .onEnded { value in
+                let shouldReply = MessageReplySwipePolicy.shouldTriggerReply(
+                    translation: value.translation,
+                    predictedEndTranslation: value.predictedEndTranslation
+                )
+
+                if shouldReply {
+                    Haptics.impact(.light)
+                    onReply()
+                }
+
+                hasArmedReplySwipe = false
+                if isReplySwipeActive {
+                    isReplySwipeActive = false
+                    onReplySwipeActiveChange(false)
+                }
+                withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.86)) {
+                    replySwipeOffset = 0
+                }
+            }
     }
 
     private var avatarButton: some View {

@@ -80,6 +80,7 @@ struct ChatDetailView: View {
     @State private var isEstimatingFee = false
     @State private var feeEstimateTask: Task<Void, Never>?
     @State private var revealOffset: CGFloat = 0
+    @State private var isReplySwipeActive = false
     private let maxRevealOffset: CGFloat = 64
     @State private var inputMode: InputMode = .message
     @State private var amountText = ""
@@ -500,6 +501,7 @@ struct ChatDetailView: View {
                         // mostly-horizontal drags so vertical scrolling is unaffected.
                         DragGesture(minimumDistance: 8)
                             .onChanged { value in
+                                guard !isReplySwipeActive else { return }
                                 guard abs(value.translation.width) > abs(value.translation.height) else { return }
                                 revealOffset = min(max(value.translation.width, -maxRevealOffset), 0)
                             }
@@ -1980,6 +1982,12 @@ struct ChatDetailView: View {
             replyQuote: replyQuote,
             replySenderDisplayName: replyQuote.map { replyDisplayName(for: $0.replyToSender) },
             onReply: { chatService.startReplyTo(message) },
+            onReplySwipeActiveChange: { active in
+                isReplySwipeActive = active
+                if active {
+                    revealOffset = 0
+                }
+            },
             avatarURLString: senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
             avatarDisplayName: replyDisplayName(for: senderAddress ?? contact.address),
             revealOffset: revealOffset,

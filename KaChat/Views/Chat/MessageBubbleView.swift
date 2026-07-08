@@ -19,6 +19,7 @@ struct MessageBubbleView: View {
     let replyQuote: MessageReplyContent?
     let replySenderDisplayName: String?
     let onReply: (() -> Void)?
+    let onReplySwipeActiveChange: ((Bool) -> Void)?
     /// Sender's KNS avatar (or nil for plain initials), matching broadcast rooms'
     /// `BroadcastMessageRow.avatarButton`.
     let avatarURLString: String?
@@ -27,6 +28,9 @@ struct MessageBubbleView: View {
     /// gesture (see `ChatDetailView`'s drag gesture) - 0 at rest, negative while revealed.
     var revealOffset: CGFloat = 0
     var maxRevealOffset: CGFloat = 64
+    @State private var replySwipeOffset: CGFloat = 0
+    @State private var isReplySwipeActive = false
+    @State private var hasArmedReplySwipe = false
     @State private var showImagePreview = false
     @State private var shimmerPhase: CGFloat = -1
 
@@ -39,6 +43,7 @@ struct MessageBubbleView: View {
         replyQuote: MessageReplyContent? = nil,
         replySenderDisplayName: String? = nil,
         onReply: (() -> Void)? = nil,
+        onReplySwipeActiveChange: ((Bool) -> Void)? = nil,
         avatarURLString: String? = nil,
         avatarDisplayName: String = "",
         revealOffset: CGFloat = 0,
@@ -52,6 +57,7 @@ struct MessageBubbleView: View {
         self.replyQuote = replyQuote
         self.replySenderDisplayName = replySenderDisplayName
         self.onReply = onReply
+        self.onReplySwipeActiveChange = onReplySwipeActiveChange
         self.avatarURLString = avatarURLString
         self.avatarDisplayName = avatarDisplayName
         self.revealOffset = revealOffset
@@ -73,6 +79,10 @@ struct MessageBubbleView: View {
         min(max(-revealOffset / maxRevealOffset, 0), 1)
     }
 
+    private var replySwipeProgress: CGFloat {
+        min(max(-replySwipeOffset / MessageReplySwipePolicy.triggerDistance, 0), 1)
+    }
+
     var body: some View {
         let media = mediaFile
         let image = media?.image(cacheKey: message.txId)
@@ -83,11 +93,76 @@ struct MessageBubbleView: View {
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .padding(.trailing, 12)
-                .opacity(revealProgress)
+                .opacity(revealProgress * (1 - replySwipeProgress))
+
+            replySwipeIndicator
+                .opacity(replySwipeProgress)
+                .scaleEffect(0.85 + (0.15 * replySwipeProgress))
 
             messageContent(media: media, image: image, isSingleEmojiOnly: isSingleEmojiOnly)
-                .offset(x: revealOffset)
+                .offset(x: revealOffset + replySwipeOffset)
+                .simultaneousGesture(replySwipeGesture)
         }
+    }
+
+    private var replySwipeIndicator: some View {
+        Image(systemName: "arrowshape.turn.up.left.fill")
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundColor(.accentColor)
+            .frame(width: 28, height: 28)
+            .background(Circle().fill(Color.accentColor.opacity(0.14)))
+            .padding(.trailing, 16)
+            .accessibilityHidden(true)
+    }
+
+    private var replySwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard onReply != nil else { return }
+                let offset = MessageReplySwipePolicy.visualOffset(
+                    for: value.translation,
+                    maxOffset: maxRevealOffset
+                )
+                guard offset < 0 || isReplySwipeActive else { return }
+
+                if offset < 0 && !isReplySwipeActive {
+                    isReplySwipeActive = true
+                    onReplySwipeActiveChange?(true)
+                }
+                replySwipeOffset = offset
+
+                let shouldArm = MessageReplySwipePolicy.shouldTriggerReply(
+                    translation: value.translation,
+                    predictedEndTranslation: value.predictedEndTranslation
+                )
+                if shouldArm && !hasArmedReplySwipe {
+                    hasArmedReplySwipe = true
+                    Haptics.selection()
+                } else if !shouldArm && hasArmedReplySwipe {
+                    hasArmedReplySwipe = false
+                }
+            }
+            .onEnded { value in
+                guard onReply != nil else { return }
+                let shouldReply = MessageReplySwipePolicy.shouldTriggerReply(
+                    translation: value.translation,
+                    predictedEndTranslation: value.predictedEndTranslation
+                )
+
+                if shouldReply {
+                    Haptics.impact(.light)
+                    onReply?()
+                }
+
+                hasArmedReplySwipe = false
+                if isReplySwipeActive {
+                    isReplySwipeActive = false
+                    onReplySwipeActiveChange?(false)
+                }
+                withAnimation(.interactiveSpring(response: 0.22, dampingFraction: 0.86)) {
+                    replySwipeOffset = 0
+                }
+            }
     }
 
     private var avatarView: some View {
