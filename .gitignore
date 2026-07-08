@@ -29,8 +29,10 @@ Pods/
 *.swo
 *~
 
-# External references (large repos)
-external/
+# External references (large repos) - except external/opus, which is a real
+# linked build dependency (Opus.xcframework), not just reference material.
+external/*
+!external/opus/
 
 # Claude Code
 .claude/
