@@ -1804,13 +1804,11 @@ struct ChatDetailView: View {
         }
     }
 
-    private func pendingPhotoRow(_ image: UIImage) -> some View {
+    private func pendingPhotoRow(_: UIImage) -> some View {
         HStack(spacing: 10) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 32, height: 32)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+            Image(systemName: "photo")
+                .foregroundColor(.secondary)
+
             if isCompressingPhoto {
                 ProgressView()
                 Text("Sending…")
@@ -1819,7 +1817,9 @@ struct ChatDetailView: View {
                 Text("Photo")
                     .foregroundColor(.primary)
             }
+
             Spacer()
+
             Button {
                 cancelPendingPhoto()
             } label: {
@@ -2234,7 +2234,11 @@ struct ChatDetailView: View {
             isEstimatingFee = false
             return
         }
-        let dummyPayload = Data(count: ImagePrep.estimatedWirePayloadSize())
+        let dummyPayload = Data(
+            count: ImagePrep.estimatedWirePayloadSize(
+                targetBytes: settingsViewModel.settings.chatPhotoQualityPreset.targetBytes
+            )
+        )
         feeEstimateSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
             payload: dummyPayload,
             inputCount: 1,
@@ -2466,7 +2470,10 @@ struct ChatDetailView: View {
             isSending = false
         }
         do {
-            let preparedImage = try ImagePrep.prepareForChatMessage(image)
+            let preparedImage = try ImagePrep.prepareForChatMessage(
+                image,
+                targetBytes: settingsViewModel.settings.chatPhotoQualityPreset.targetBytes
+            )
             try await chatService.sendImage(
                 to: contact,
                 imageData: preparedImage.data,

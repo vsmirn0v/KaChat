@@ -25,23 +25,30 @@ enum ImagePrep {
     private static let shrinkFactor: CGFloat = 0.7
 
     /// Downsamples, then AVIF-compresses where supported, falling back to JPEG for older runtimes.
-    /// Both paths binary-search quality to fit `defaultChatTargetBytes`, shrinking dimensions further
+    /// Both paths binary-search quality to fit `targetBytes`, shrinking dimensions further
     /// and retrying if quality reduction alone isn't enough.
-    static func prepareForChatMessage(_ image: UIImage) throws -> PreparedChatImage {
-        if let data = try? prepareEncodedDataForChatMessage(image, encoder: avifData) {
+    static func prepareForChatMessage(
+        _ image: UIImage,
+        targetBytes: Int = defaultChatTargetBytes
+    ) throws -> PreparedChatImage {
+        if let data = try? prepareEncodedDataForChatMessage(image, targetBytes: targetBytes, encoder: avifData) {
             return PreparedChatImage(data: data, fileName: "photo.avif", mimeType: "image/avif")
         }
 
-        let data = try prepareJPEGForChatMessage(image)
+        let data = try prepareJPEGForChatMessage(image, targetBytes: targetBytes)
         return PreparedChatImage(data: data, fileName: "photo.jpg", mimeType: "image/jpeg")
     }
 
-    static func prepareJPEGForChatMessage(_ image: UIImage) throws -> Data {
-        try prepareEncodedDataForChatMessage(image, encoder: jpegData)
+    static func prepareJPEGForChatMessage(
+        _ image: UIImage,
+        targetBytes: Int = defaultChatTargetBytes
+    ) throws -> Data {
+        try prepareEncodedDataForChatMessage(image, targetBytes: targetBytes, encoder: jpegData)
     }
 
     private static func prepareEncodedDataForChatMessage(
         _ image: UIImage,
+        targetBytes: Int,
         encoder: (UIImage, CGFloat) -> Data?
     ) throws -> Data {
         var currentImage = downscaledIfNeeded(image, maxDimension: chatMaxDimension)
@@ -49,7 +56,7 @@ enum ImagePrep {
         for _ in 0..<maxShrinkAttempts {
             if let data = compressToQualityBudget(
                 currentImage,
-                targetBytes: defaultChatTargetBytes,
+                targetBytes: targetBytes,
                 encoder: encoder
             ) {
                 return data
@@ -71,10 +78,10 @@ enum ImagePrep {
 
     /// Rough estimate of the final wire payload size for a picked-but-not-yet-compressed photo,
     /// used only for a live "fee so far" preview - the real send always measures actual bytes.
-    static func estimatedWirePayloadSize() -> Int {
+    static func estimatedWirePayloadSize(targetBytes: Int = defaultChatTargetBytes) -> Int {
         // Base64 (inner, embedding raw bytes) then the whole JSON gets base64'd again for the
         // encrypted comm payload - roughly 1.33x expansion twice.
-        Int(Double(defaultChatTargetBytes) * 1.33 * 1.33) + 150
+        Int(Double(targetBytes) * 1.33 * 1.33) + 150
     }
 
     private static func downscaledIfNeeded(_ image: UIImage, maxDimension: CGFloat) -> UIImage {

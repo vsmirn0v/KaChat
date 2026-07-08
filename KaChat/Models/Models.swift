@@ -770,6 +770,51 @@ enum NotificationMode: String, Codable, CaseIterable {
 
 // MARK: - Settings Models
 
+enum ChatPhotoQualityPreset: String, Codable, CaseIterable {
+    case dataSaver
+    case balanced
+    case high
+    case best
+
+    static let `default`: ChatPhotoQualityPreset = .balanced
+
+    var displayName: String {
+        switch self {
+        case .dataSaver: return String(localized: "Data Saver")
+        case .balanced: return String(localized: "Balanced")
+        case .high: return String(localized: "High")
+        case .best: return String(localized: "Best")
+        }
+    }
+
+    var targetBytes: Int {
+        switch self {
+        case .dataSaver: return 10_000
+        case .balanced: return 15_000
+        case .high: return 31_000
+        case .best: return 50_000
+        }
+    }
+
+    var targetSizeText: String {
+        "~\(targetBytes / 1_000) KB"
+    }
+
+    var summaryText: String {
+        "\(displayName) · \(targetSizeText)"
+    }
+
+    var sliderValue: Double {
+        Double(Self.allCases.firstIndex(of: self) ?? 0)
+    }
+
+    init(sliderValue: Double) {
+        let index = Int(sliderValue.rounded())
+        let clamped = min(max(index, 0), Self.allCases.count - 1)
+        self = Self.allCases[clamped]
+    }
+}
+
 struct AppSettings: Codable {
     var storeMessagesInICloud: Bool
     var messageRetention: MessageRetention
@@ -786,6 +831,7 @@ struct AppSettings: Codable {
     var feeEstimationEnabled: Bool
     var hideAutoCreatedPaymentChats: Bool
     var showContactBalance: Bool
+    var chatPhotoQualityPreset: ChatPhotoQualityPreset
 
     // Connection settings
     var indexerURL: String
@@ -832,6 +878,7 @@ struct AppSettings: Codable {
             feeEstimationEnabled: false,
             hideAutoCreatedPaymentChats: false,
             showContactBalance: true,
+            chatPhotoQualityPreset: .default,
             indexerURL: defaultIndexerURL,
             pushIndexerURL: defaultPushIndexerURL,
             knsBaseURL: defaultKNSMainnetURL,
@@ -859,6 +906,7 @@ struct AppSettings: Codable {
         case feeEstimationEnabled
         case hideAutoCreatedPaymentChats
         case showContactBalance
+        case chatPhotoQualityPreset
         case indexerURL
         case pushIndexerURL
         case knsBaseURL
@@ -894,6 +942,7 @@ struct AppSettings: Codable {
         feeEstimationEnabled: Bool = false,
         hideAutoCreatedPaymentChats: Bool = false,
         showContactBalance: Bool = true,
+        chatPhotoQualityPreset: ChatPhotoQualityPreset = .default,
         indexerURL: String,
         pushIndexerURL: String,
         knsBaseURL: String,
@@ -919,6 +968,7 @@ struct AppSettings: Codable {
         self.feeEstimationEnabled = feeEstimationEnabled
         self.hideAutoCreatedPaymentChats = hideAutoCreatedPaymentChats
         self.showContactBalance = showContactBalance
+        self.chatPhotoQualityPreset = chatPhotoQualityPreset
         self.indexerURL = indexerURL
         self.pushIndexerURL = pushIndexerURL
         self.knsBaseURL = knsBaseURL
@@ -968,6 +1018,10 @@ struct AppSettings: Codable {
         feeEstimationEnabled = try container.decodeIfPresent(Bool.self, forKey: .feeEstimationEnabled) ?? false
         hideAutoCreatedPaymentChats = try container.decodeIfPresent(Bool.self, forKey: .hideAutoCreatedPaymentChats) ?? false
         showContactBalance = try container.decodeIfPresent(Bool.self, forKey: .showContactBalance) ?? true
+        chatPhotoQualityPreset = try container.decodeIfPresent(
+            ChatPhotoQualityPreset.self,
+            forKey: .chatPhotoQualityPreset
+        ) ?? .default
 
         // Handle migration from old settings
         if let customIndexer = try container.decodeIfPresent(String.self, forKey: .customIndexerURL), !customIndexer.isEmpty {
@@ -1019,6 +1073,7 @@ struct AppSettings: Codable {
         try container.encode(feeEstimationEnabled, forKey: .feeEstimationEnabled)
         try container.encode(hideAutoCreatedPaymentChats, forKey: .hideAutoCreatedPaymentChats)
         try container.encode(showContactBalance, forKey: .showContactBalance)
+        try container.encode(chatPhotoQualityPreset, forKey: .chatPhotoQualityPreset)
         try container.encode(indexerURL, forKey: .indexerURL)
         try container.encode(pushIndexerURL, forKey: .pushIndexerURL)
         try container.encode(knsBaseURL, forKey: .knsBaseURL)

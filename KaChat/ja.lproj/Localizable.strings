@@ -450,3 +450,11 @@
 "Message" = "メッセージ";
 
 "Bio" = "バイオ";
+
+"Photo quality" = "写真の画質";
+"Data Saver" = "データ節約";
+"Balanced" = "バランス";
+"High" = "高";
+"Best" = "最高";
+"Photo" = "写真";
+"Sending…" = "送信中…";

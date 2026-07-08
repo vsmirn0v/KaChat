@@ -51,6 +51,16 @@ struct SettingsView: View {
                             settingsViewModel.saveSettings()
                         }
 
+                    ChatPhotoQualitySlider(
+                        preset: Binding(
+                            get: { settingsViewModel.settings.chatPhotoQualityPreset },
+                            set: { newValue in
+                                settingsViewModel.settings.chatPhotoQualityPreset = newValue
+                                settingsViewModel.saveSettings()
+                            }
+                        )
+                    )
+
                     NavigationLink {
                         NotificationsSettingsView()
                     } label: {

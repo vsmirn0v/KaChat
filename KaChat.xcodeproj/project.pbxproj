@@ -29,6 +29,7 @@
 		BCST00010001000100000001 /* BroadcastStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCST00010001000000000001 /* BroadcastStore.swift */; };
 		BGTM00012E0100000002 /* BackgroundTaskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BGTM00012E0100000001 /* BackgroundTaskManager.swift */; };
 		BSVC00010001000100000001 /* BroadcastService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BSVC00010001000000000001 /* BroadcastService.swift */; };
+		CPQS00010001000100000001 /* ChatPhotoQualitySlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPQS00010001000000000001 /* ChatPhotoQualitySlider.swift */; };
 		CPTV00010001000100000001 /* ComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPTV00010001000000000001 /* ComposerTextView.swift */; };
 		CSEX00010001000100000001 /* ChatService+PushAndSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000001 /* ChatService+PushAndSync.swift */; };
 		CSEX00010001000100000002 /* ChatService+UtxoProcessing.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000002 /* ChatService+UtxoProcessing.swift */; };
@@ -163,6 +164,7 @@
 		BCST00010001000000000001 /* BroadcastStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastStore.swift; sourceTree = "<group>"; };
 		BGTM00012E0100000001 /* BackgroundTaskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskManager.swift; sourceTree = "<group>"; };
 		BSVC00010001000000000001 /* BroadcastService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastService.swift; sourceTree = "<group>"; };
+		CPQS00010001000000000001 /* ChatPhotoQualitySlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPhotoQualitySlider.swift; sourceTree = "<group>"; };
 		CPTV00010001000000000001 /* ComposerTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerTextView.swift; sourceTree = "<group>"; };
 		CSEX00010001000000000001 /* ChatService+PushAndSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+PushAndSync.swift"; sourceTree = "<group>"; };
 		CSEX00010001000000000002 /* ChatService+UtxoProcessing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+UtxoProcessing.swift"; sourceTree = "<group>"; };
@@ -520,6 +522,7 @@
 			isa = PBXGroup;
 			children = (
 				E8F100142D4C0001000001FF /* QRScannerView.swift */,
+				CPQS00010001000000000001 /* ChatPhotoQualitySlider.swift */,
 				E8F100112D4C0001000000FF /* Toast.swift */,
 				KNAV000100010000000001 /* KNSAvatarView.swift */,
 				FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */,
@@ -824,6 +827,7 @@
 				E810001D2D4C00010000000F /* SettingsView.swift in Sources */,
 				E8F100122D4C0001000000FF /* Toast.swift in Sources */,
 				E8F100152D4C0001000001FF /* QRScannerView.swift in Sources */,
+				CPQS00010001000100000001 /* ChatPhotoQualitySlider.swift in Sources */,
 				KNAV00010001000100000001 /* KNSAvatarView.swift in Sources */,
 				E81000212D4C000100000011 /* Models.swift in Sources */,
 				E81000232D4C000100000012 /* MainTabView.swift in Sources */,
