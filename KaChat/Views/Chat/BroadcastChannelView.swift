@@ -18,6 +18,8 @@ struct BroadcastChannelView: View {
 
     @State private var messageText = ""
     @State private var isMessageFocused = false
+    @State private var showDesktopEmojiPicker = false
+    @State private var emojiInsertionRequest: ComposerTextView.TextInsertionRequest?
     @State private var isSending = false
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
@@ -377,11 +379,21 @@ struct BroadcastChannelView: View {
                                 scheduleFeeEstimate(for: newValue)
                             },
                             onSubmit: { send() },
-                            placeholder: "Message #\(channelName)"
+                            placeholder: "Message #\(channelName)",
+                            insertionRequest: emojiInsertionRequest,
+                            onInsertionHandled: { requestID in
+                                if emojiInsertionRequest?.id == requestID {
+                                    emojiInsertionRequest = nil
+                                }
+                            }
                         )
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(glassBackground(cornerRadius: 20))
+
+                        if EmojiInputSupport.shouldShowDesktopEmojiButton {
+                            desktopEmojiButton
+                        }
 
                         // Only a mic/voice-message icon here, matching 1:1 chat's look but
                         // deliberately without its photo picker - broadcasts don't support
@@ -408,6 +420,31 @@ struct BroadcastChannelView: View {
             guard elapsed >= BroadcastAudioRecorder.maxDuration, recorder.state == .recording else { return }
             stopAndSendRecording()
         }
+    }
+
+    private var desktopEmojiButton: some View {
+        Button {
+            showDesktopEmojiPicker.toggle()
+            isMessageFocused = true
+        } label: {
+            Image(systemName: "face.smiling")
+                .font(.title3)
+                .foregroundColor(.primary)
+                .frame(width: 36, height: 36)
+                .background(glassBackground(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Emoji picker"))
+        .popover(isPresented: $showDesktopEmojiPicker, arrowEdge: .bottom) {
+            DesktopEmojiPickerView { emoji in
+                insertDesktopEmoji(emoji)
+            }
+        }
+    }
+
+    private func insertDesktopEmoji(_ emoji: String) {
+        isMessageFocused = true
+        emojiInsertionRequest = ComposerTextView.TextInsertionRequest(id: UUID(), text: emoji)
     }
 
     private var sendOrRecordButton: some View {

@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import UserNotifications
+import UIKit
 
 @main
 struct KaChatApp: App {
@@ -181,7 +182,7 @@ struct KaChatApp: App {
         }
 
         let cleanedText = share.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanedText.isEmpty else {
+        guard share.hasSendableContent else {
             SharedDataManager.removeOutboundShare(id: share.id)
             pendingOutboundShareId = nil
             return
@@ -199,19 +200,47 @@ struct KaChatApp: App {
 
         if share.autoSend {
             do {
-                try await chatService.sendMessage(to: contact, content: cleanedText)
+                if !cleanedText.isEmpty {
+                    try await chatService.sendMessage(to: contact, content: cleanedText)
+                }
+                if let image = share.image {
+                    try await sendSharedImage(image, to: contact)
+                }
             } catch {
-                NSLog("[Share] Auto-send failed for %@, saved as draft: %@",
+                NSLog("[Share] Auto-send failed for %@: %@",
                       String(share.contactAddress.suffix(10)),
                       error.localizedDescription)
-                chatService.setDraft(cleanedText, for: share.contactAddress)
+                if !cleanedText.isEmpty {
+                    chatService.setDraft(cleanedText, for: share.contactAddress)
+                }
             }
         } else {
-            chatService.setDraft(cleanedText, for: share.contactAddress)
+            if !cleanedText.isEmpty {
+                chatService.setDraft(cleanedText, for: share.contactAddress)
+            }
         }
 
         SharedDataManager.removeOutboundShare(id: share.id)
         pendingOutboundShareId = nil
+    }
+
+    private func sendSharedImage(_ image: SharedOutboundShare.ImageAttachment, to contact: Contact) async throws {
+        guard let fileURL = SharedDataManager.outboundShareImageFileURL(for: image) else {
+            throw KasiaError.networkError("Could not locate shared image")
+        }
+
+        let imageData = try Data(contentsOf: fileURL)
+        guard let uiImage = UIImage(data: imageData) else {
+            throw KasiaError.networkError("Shared image could not be decoded")
+        }
+
+        let preparedImage = try ImagePrep.prepareForChatMessage(uiImage)
+        try await chatService.sendImage(
+            to: contact,
+            imageData: preparedImage.data,
+            fileName: preparedImage.fileName,
+            mimeType: preparedImage.mimeType
+        )
     }
 
     /// Pre-initialize heavy components to avoid lag on first user interaction

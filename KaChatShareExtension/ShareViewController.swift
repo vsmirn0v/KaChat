@@ -21,28 +21,22 @@ private struct ShareContact: Identifiable, Hashable {
     }
 }
 
-private struct SharedOutboundShare: Codable {
-    let id: String
-    let contactAddress: String
-    let text: String
-    let createdAtMs: Int64
-    let autoSend: Bool
+private struct ShareImageAttachment {
+    let data: Data
+    let fileName: String
+    let mimeType: String
 
-    init(id: String, contactAddress: String, text: String, createdAtMs: Int64, autoSend: Bool = true) {
-        self.id = id
-        self.contactAddress = contactAddress
-        self.text = text
-        self.createdAtMs = createdAtMs
-        self.autoSend = autoSend
+    var previewImage: UIImage? {
+        UIImage(data: data)
     }
+}
 
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        contactAddress = try container.decode(String.self, forKey: .contactAddress)
-        text = try container.decode(String.self, forKey: .text)
-        createdAtMs = try container.decode(Int64.self, forKey: .createdAtMs)
-        autoSend = try container.decodeIfPresent(Bool.self, forKey: .autoSend) ?? true
+private struct SharePayload {
+    let text: String
+    let image: ShareImageAttachment?
+
+    var hasContent: Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || image != nil
     }
 }
 
@@ -55,6 +49,10 @@ private enum ShareStore {
 
     static var sharedDefaults: UserDefaults? {
         UserDefaults(suiteName: appGroupIdentifier)
+    }
+
+    static var sharedContainerURL: URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
     }
 
     static func loadContacts() -> [ShareContact] {
@@ -73,16 +71,26 @@ private enum ShareStore {
             }
     }
 
-    static func enqueueOutboundShare(contactAddress: String, text: String) -> String? {
+    static func enqueueOutboundShare(contactAddress: String, text: String, image: ShareImageAttachment?) -> String? {
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else { return nil }
+        guard !cleaned.isEmpty || image != nil else { return nil }
 
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
-        var shares = loadOutboundShares().filter { nowMs - $0.createdAtMs <= maxShareAgeMs }
+        let existingShares = loadOutboundShares()
+        existingShares
+            .filter { nowMs - $0.createdAtMs > maxShareAgeMs }
+            .forEach(removeStoredImageFiles)
+        var shares = existingShares.filter { nowMs - $0.createdAtMs <= maxShareAgeMs }
+        let shareId = UUID().uuidString
+        let storedImage = storeImage(image, shareId: shareId)
+        if image != nil, storedImage == nil {
+            return nil
+        }
         let share = SharedOutboundShare(
-            id: UUID().uuidString,
+            id: shareId,
             contactAddress: contactAddress,
             text: cleaned,
+            image: storedImage,
             createdAtMs: nowMs,
             autoSend: true
         )
@@ -92,7 +100,10 @@ private enum ShareStore {
             shares = Array(shares.suffix(maxQueuedShares))
         }
 
-        guard let data = try? JSONEncoder().encode(shares) else { return nil }
+        guard let data = try? JSONEncoder().encode(shares) else {
+            removeStoredImageFiles(for: share)
+            return nil
+        }
         sharedDefaults?.set(data, forKey: outboundSharesKey)
         return share.id
     }
@@ -104,28 +115,82 @@ private enum ShareStore {
         }
         return decoded
     }
+
+    private static func storeImage(
+        _ image: ShareImageAttachment?,
+        shareId: String
+    ) -> SharedOutboundShare.ImageAttachment? {
+        guard let image else { return nil }
+        guard let sharedContainerURL else { return nil }
+
+        let fileName = SharedOutboundShare.ImageAttachment.normalizedFileName(image.fileName)
+        let relativePath = SharedOutboundShare.ImageAttachment.relativePath(shareID: shareId, fileName: fileName)
+        let fileURL = sharedContainerURL.appendingPathComponent(relativePath, isDirectory: false)
+
+        do {
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try image.data.write(to: fileURL, options: .atomic)
+            return SharedOutboundShare.ImageAttachment(
+                relativePath: relativePath,
+                fileName: fileName,
+                mimeType: image.mimeType
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+            return nil
+        }
+    }
+
+    private static func removeStoredImageFiles(for share: SharedOutboundShare) {
+        guard share.image != nil,
+              let sharedContainerURL else { return }
+        let directory = sharedContainerURL
+            .appendingPathComponent(SharedOutboundShare.ImageAttachment.rootDirectoryName, isDirectory: true)
+            .appendingPathComponent(share.id, isDirectory: true)
+        try? FileManager.default.removeItem(at: directory)
+    }
 }
 
 private enum SharePayloadExtractor {
-    static func extractText(from inputItems: [Any]) async -> String {
+    private static let supportedImageTypeIdentifiers = [
+        UTType.png.identifier,
+        UTType.jpeg.identifier,
+        "public.heic",
+        "public.heif",
+        UTType.image.identifier
+    ]
+
+    static func extractPayload(from inputItems: [Any]) async -> SharePayload {
         var textParts: [String] = []
         var firstURLString: String?
+        var firstImage: ShareImageAttachment?
 
         for case let item as NSExtensionItem in inputItems {
             for provider in item.attachments ?? [] {
-                if firstURLString == nil,
+                let providerImage = firstImage == nil ? await loadImage(from: provider) : nil
+                if firstImage == nil {
+                    firstImage = providerImage
+                }
+
+                if providerImage == nil,
+                   firstURLString == nil,
                    provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
                    let url = await loadURLString(from: provider) {
                     firstURLString = url
                 }
 
-                if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier),
+                if providerImage == nil,
+                   provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier),
                    let text = await loadText(from: provider, typeIdentifier: UTType.plainText.identifier) {
                     textParts.append(text)
                     continue
                 }
 
-                if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier),
+                if providerImage == nil,
+                   provider.hasItemConformingToTypeIdentifier(UTType.text.identifier),
                    let text = await loadText(from: provider, typeIdentifier: UTType.text.identifier) {
                     textParts.append(text)
                 }
@@ -136,19 +201,154 @@ private enum SharePayloadExtractor {
             .joined(separator: "\n\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard let firstURLString else {
-            return mergedText
+        let text: String
+        if let firstURLString {
+            if mergedText.isEmpty {
+                text = firstURLString
+            } else if mergedText.contains(firstURLString) {
+                text = mergedText
+            } else {
+                text = "\(mergedText)\n\n\(firstURLString)"
+            }
+        } else {
+            text = mergedText
         }
 
-        if mergedText.isEmpty {
-            return firstURLString
+        return SharePayload(text: text, image: firstImage)
+    }
+
+    private static func loadImage(from provider: NSItemProvider) async -> ShareImageAttachment? {
+        for typeIdentifier in supportedImageTypeIdentifiers where provider.hasItemConformingToTypeIdentifier(typeIdentifier) {
+            if let attachment = await loadImageDataRepresentation(from: provider, typeIdentifier: typeIdentifier) {
+                return attachment
+            }
+            if let attachment = await loadImageItem(from: provider, typeIdentifier: typeIdentifier) {
+                return attachment
+            }
         }
 
-        if mergedText.contains(firstURLString) {
-            return mergedText
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            return await loadImageItem(from: provider, typeIdentifier: UTType.fileURL.identifier)
         }
 
-        return "\(mergedText)\n\n\(firstURLString)"
+        return nil
+    }
+
+    private static func loadImageDataRepresentation(
+        from provider: NSItemProvider,
+        typeIdentifier: String
+    ) async -> ShareImageAttachment? {
+        guard let data = try? await loadDataRepresentation(from: provider, typeIdentifier: typeIdentifier),
+              UIImage(data: data) != nil else {
+            return nil
+        }
+
+        let mimeType = imageMimeType(for: data, typeIdentifier: typeIdentifier)
+        return ShareImageAttachment(
+            data: data,
+            fileName: imageFileName(from: provider, typeIdentifier: typeIdentifier, mimeType: mimeType),
+            mimeType: mimeType
+        )
+    }
+
+    private static func loadImageItem(from provider: NSItemProvider, typeIdentifier: String) async -> ShareImageAttachment? {
+        guard let item = try? await loadItem(from: provider, typeIdentifier: typeIdentifier) else {
+            return nil
+        }
+
+        if let data = item as? Data, UIImage(data: data) != nil {
+            let mimeType = imageMimeType(for: data, typeIdentifier: typeIdentifier)
+            return ShareImageAttachment(
+                data: data,
+                fileName: imageFileName(from: provider, typeIdentifier: typeIdentifier, mimeType: mimeType),
+                mimeType: mimeType
+            )
+        }
+
+        if let url = item as? URL {
+            return loadImageFile(from: url, provider: provider, typeIdentifier: typeIdentifier)
+        }
+
+        if let url = item as? NSURL {
+            return loadImageFile(from: url as URL, provider: provider, typeIdentifier: typeIdentifier)
+        }
+
+        if let image = item as? UIImage,
+           let data = image.pngData() ?? image.jpegData(compressionQuality: 0.95) {
+            return ShareImageAttachment(
+                data: data,
+                fileName: imageFileName(from: provider, typeIdentifier: UTType.png.identifier, mimeType: "image/png"),
+                mimeType: "image/png"
+            )
+        }
+
+        return nil
+    }
+
+    private static func loadImageFile(
+        from url: URL,
+        provider: NSItemProvider,
+        typeIdentifier: String
+    ) -> ShareImageAttachment? {
+        let didStartAccessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        guard let data = try? Data(contentsOf: url),
+              UIImage(data: data) != nil else {
+            return nil
+        }
+
+        let mimeType = imageMimeType(for: data, typeIdentifier: typeIdentifier)
+        let fileName = url.lastPathComponent.isEmpty
+            ? imageFileName(from: provider, typeIdentifier: typeIdentifier, mimeType: mimeType)
+            : url.lastPathComponent
+        return ShareImageAttachment(data: data, fileName: fileName, mimeType: mimeType)
+    }
+
+    private static func imageFileName(
+        from provider: NSItemProvider,
+        typeIdentifier: String,
+        mimeType: String
+    ) -> String {
+        let suggestedName = provider.suggestedName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let baseName = suggestedName.isEmpty ? "photo" : suggestedName
+        let currentExtension = (baseName as NSString).pathExtension
+        guard currentExtension.isEmpty else {
+            return SharedOutboundShare.ImageAttachment.normalizedFileName(baseName)
+        }
+        let preferredExtension = preferredExtension(mimeType: mimeType, typeIdentifier: typeIdentifier)
+        return SharedOutboundShare.ImageAttachment.normalizedFileName("\(baseName).\(preferredExtension)")
+    }
+
+    private static func preferredExtension(mimeType: String, typeIdentifier: String) -> String {
+        switch mimeType {
+        case "image/png": return "png"
+        case "image/jpeg": return "jpg"
+        case "image/heic": return "heic"
+        case "image/heif": return "heif"
+        default:
+            return UTType(typeIdentifier)?.preferredFilenameExtension ?? "jpg"
+        }
+    }
+
+    private static func imageMimeType(for data: Data, typeIdentifier: String) -> String {
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) {
+            return "image/png"
+        }
+        if data.starts(with: [0xFF, 0xD8]) {
+            return "image/jpeg"
+        }
+        if typeIdentifier == "public.heic" {
+            return "image/heic"
+        }
+        if typeIdentifier == "public.heif" {
+            return "image/heif"
+        }
+        return UTType(typeIdentifier)?.preferredMIMEType ?? "image/jpeg"
     }
 
     private static func loadText(from provider: NSItemProvider, typeIdentifier: String) async -> String? {
@@ -214,6 +414,25 @@ private enum SharePayloadExtractor {
             }
         }
     }
+
+    private static func loadDataRepresentation(
+        from provider: NSItemProvider,
+        typeIdentifier: String
+    ) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let data else {
+                    continuation.resume(throwing: CocoaError(.fileReadNoSuchFile))
+                    return
+                }
+                continuation.resume(returning: data)
+            }
+        }
+    }
 }
 
 @MainActor
@@ -222,6 +441,7 @@ private final class ShareViewModel: ObservableObject {
     @Published var selectedContactAddress: String?
     @Published var searchText = ""
     @Published var payloadText = ""
+    @Published var imageAttachment: ShareImageAttachment?
     @Published var isLoading = true
     @Published var isSending = false
     @Published var errorMessage: String?
@@ -240,7 +460,10 @@ private final class ShareViewModel: ObservableObject {
     }
 
     var canSend: Bool {
-        !isLoading && !isSending && selectedContactAddress != nil && !payloadText.isEmpty
+        !isLoading
+            && !isSending
+            && selectedContactAddress != nil
+            && (!payloadText.isEmpty || imageAttachment != nil)
     }
 
     func load(inputItems: [Any]) async {
@@ -252,24 +475,25 @@ private final class ShareViewModel: ObservableObject {
             selectedContactAddress = contacts.first?.address
         }
 
-        let extracted = await SharePayloadExtractor.extractText(from: inputItems)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let extracted = await SharePayloadExtractor.extractPayload(from: inputItems)
+        let extractedText = extracted.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        imageAttachment = extracted.image
 
-        if extracted.count > maxPayloadLength {
-            payloadText = String(extracted.prefix(maxPayloadLength))
+        if extractedText.count > maxPayloadLength {
+            payloadText = String(extractedText.prefix(maxPayloadLength))
         } else {
-            payloadText = extracted
+            payloadText = extractedText
         }
 
-        if payloadText.isEmpty {
-            errorMessage = "No text or link found in this share."
+        if !extracted.hasContent {
+            errorMessage = "No text, link, or image found in this share."
         }
     }
 
     func prepareShare() -> String? {
         let cleaned = payloadText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else {
-            errorMessage = "No text or link to send."
+        guard !cleaned.isEmpty || imageAttachment != nil else {
+            errorMessage = "No text, link, or image to send."
             return nil
         }
 
@@ -279,7 +503,11 @@ private final class ShareViewModel: ObservableObject {
         }
 
         errorMessage = nil
-        guard let shareId = ShareStore.enqueueOutboundShare(contactAddress: selectedContactAddress, text: cleaned) else {
+        guard let shareId = ShareStore.enqueueOutboundShare(
+            contactAddress: selectedContactAddress,
+            text: cleaned,
+            image: imageAttachment
+        ) else {
             errorMessage = "Could not queue this share item."
             return nil
         }
@@ -302,13 +530,30 @@ private struct ShareRootView: View {
                             Text("Preparing share...")
                                 .foregroundStyle(.secondary)
                         }
-                    } else if viewModel.payloadText.isEmpty {
-                        Text("No text or link found in this share item.")
+                    } else if viewModel.payloadText.isEmpty && viewModel.imageAttachment == nil {
+                        Text("No text, link, or image found in this share item.")
                             .foregroundStyle(.secondary)
                     } else {
-                        Text(viewModel.payloadText)
-                            .font(.body)
-                            .textSelection(.enabled)
+                        if let image = viewModel.imageAttachment,
+                           let previewImage = image.previewImage {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Image(uiImage: previewImage)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(maxHeight: 220)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                Text(image.fileName)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+
+                        if !viewModel.payloadText.isEmpty {
+                            Text(viewModel.payloadText)
+                                .font(.body)
+                                .textSelection(.enabled)
+                        }
                     }
                 }
 

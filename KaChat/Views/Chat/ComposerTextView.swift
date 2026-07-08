@@ -5,31 +5,30 @@ import UIKit
 
 final class ComposerUITextView: UITextView {
     var onReturn: (() -> Void)?
+    var onPasteImageData: ((Data) -> Bool)?
+
+    override func paste(_ sender: Any?) {
+        if let data = ChatImageAttachmentLoader.imageData(from: .general),
+           onPasteImageData?(data) == true {
+            return
+        }
+
+        super.paste(sender)
+    }
 
     #if targetEnvironment(macCatalyst)
     override var keyCommands: [UIKeyCommand]? {
-        let plainReturn = UIKeyCommand(
-            input: "\r",
-            modifierFlags: [],
-            action: #selector(handleReturn)
-        )
-        plainReturn.wantsPriorityOverSystemBehavior = true
-
-        let controlReturn = UIKeyCommand(
-            input: "\r",
-            modifierFlags: [.control],
-            action: #selector(handleNewline)
-        )
-        controlReturn.wantsPriorityOverSystemBehavior = true
-
-        let optionReturn = UIKeyCommand(
-            input: "\r",
-            modifierFlags: [.alternate],
-            action: #selector(handleNewline)
-        )
-        optionReturn.wantsPriorityOverSystemBehavior = true
-
-        return [plainReturn, controlReturn, optionReturn]
+        let customCommands = ComposerKeyCommandPolicy.desktopShortcutSpecs.map { spec in
+            let command = UIKeyCommand(
+                input: spec.input,
+                modifierFlags: spec.uiModifierFlags,
+                action: action(for: spec.intent)
+            )
+            command.wantsPriorityOverSystemBehavior = spec.wantsPriorityOverSystemBehavior
+            return command
+        }
+        let inheritedCommands = ComposerKeyCommandPolicy.includesSystemTextCommands ? (super.keyCommands ?? []) : []
+        return customCommands + inheritedCommands
     }
 
     @objc private func handleReturn() {
@@ -39,8 +38,46 @@ final class ComposerUITextView: UITextView {
     @objc private func handleNewline() {
         insertText("\n")
     }
+
+    @objc private func handlePasteShortcut() {
+        paste(nil)
+    }
+
+    private func action(for intent: ComposerKeyCommandSpec.Intent) -> Selector {
+        switch intent {
+        case .newline:
+            return #selector(handleNewline)
+        case .paste:
+            return #selector(handlePasteShortcut)
+        case .submit:
+            return #selector(handleReturn)
+        }
+    }
     #endif
 }
+
+#if targetEnvironment(macCatalyst)
+private extension ComposerKeyCommandSpec {
+    var uiModifierFlags: UIKeyModifierFlags {
+        modifiers.reduce(into: UIKeyModifierFlags()) { flags, modifier in
+            flags.formUnion(modifier.uiModifierFlag)
+        }
+    }
+}
+
+private extension ComposerKeyCommandSpec.Modifier {
+    var uiModifierFlag: UIKeyModifierFlags {
+        switch self {
+        case .alternate:
+            return .alternate
+        case .command:
+            return .command
+        case .control:
+            return .control
+        }
+    }
+}
+#endif
 
 // MARK: - UIViewRepresentable
 
@@ -58,6 +95,7 @@ struct ComposerTextView: UIViewRepresentable {
     var maxLines: Int = 5
     var insertionRequest: TextInsertionRequest? = nil
     var onInsertionHandled: ((UUID) -> Void)? = nil
+    var onPasteImageData: ((Data) -> Bool)? = nil
 
     private static let placeholderTag = 999
 
@@ -105,12 +143,18 @@ struct ComposerTextView: UIViewRepresentable {
             coordinator?.handleSubmit()
         }
         #endif
+        textView.onPasteImageData = { [weak coordinator = context.coordinator] data in
+            coordinator?.handlePasteImageData(data) ?? false
+        }
 
         return textView
     }
 
     func updateUIView(_ uiView: ComposerUITextView, context: Context) {
         context.coordinator.parent = self
+        uiView.onPasteImageData = { [weak coordinator = context.coordinator] data in
+            coordinator?.handlePasteImageData(data) ?? false
+        }
 
         if uiView.text != text {
             context.coordinator.isProgrammaticChange = true
@@ -220,6 +264,10 @@ struct ComposerTextView: UIViewRepresentable {
 
         func handleSubmit() {
             parent.onSubmit()
+        }
+
+        func handlePasteImageData(_ data: Data) -> Bool {
+            parent.onPasteImageData?(data) ?? false
         }
     }
 }

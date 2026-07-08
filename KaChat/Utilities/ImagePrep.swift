@@ -1,4 +1,11 @@
+import ImageIO
 import UIKit
+
+struct PreparedChatImage {
+    let data: Data
+    let fileName: String
+    let mimeType: String
+}
 
 /// Prepares a picked photo for sending as a chat message, matching Android's
 /// `ImagePrep.prepareForChatMessage` byte budget/dimension approach so a photo sent from either
@@ -11,19 +18,40 @@ enum ImagePrep {
 
     /// Longest edge cap in pixels before compression.
     static let chatMaxDimension: CGFloat = 1280
-    /// Target raw JPEG byte size - calibrated to land the final on-chain payload in the same
+    /// Target raw encoded image byte size - calibrated to land the final on-chain payload in the same
     /// ballpark as a voice message's ~28.7KB final wire size.
     static let defaultChatTargetBytes = 15_000
     private static let maxShrinkAttempts = 4
     private static let shrinkFactor: CGFloat = 0.7
 
-    /// Downsamples, then JPEG-compresses (binary-searching quality) to fit `defaultChatTargetBytes`,
-    /// shrinking dimensions further and retrying if quality reduction alone isn't enough.
-    static func prepareForChatMessage(_ image: UIImage) throws -> Data {
+    /// Downsamples, then AVIF-compresses where supported, falling back to JPEG for older runtimes.
+    /// Both paths binary-search quality to fit `defaultChatTargetBytes`, shrinking dimensions further
+    /// and retrying if quality reduction alone isn't enough.
+    static func prepareForChatMessage(_ image: UIImage) throws -> PreparedChatImage {
+        if let data = try? prepareEncodedDataForChatMessage(image, encoder: avifData) {
+            return PreparedChatImage(data: data, fileName: "photo.avif", mimeType: "image/avif")
+        }
+
+        let data = try prepareJPEGForChatMessage(image)
+        return PreparedChatImage(data: data, fileName: "photo.jpg", mimeType: "image/jpeg")
+    }
+
+    static func prepareJPEGForChatMessage(_ image: UIImage) throws -> Data {
+        try prepareEncodedDataForChatMessage(image, encoder: jpegData)
+    }
+
+    private static func prepareEncodedDataForChatMessage(
+        _ image: UIImage,
+        encoder: (UIImage, CGFloat) -> Data?
+    ) throws -> Data {
         var currentImage = downscaledIfNeeded(image, maxDimension: chatMaxDimension)
 
         for _ in 0..<maxShrinkAttempts {
-            if let data = compressToQualityBudget(currentImage, targetBytes: defaultChatTargetBytes) {
+            if let data = compressToQualityBudget(
+                currentImage,
+                targetBytes: defaultChatTargetBytes,
+                encoder: encoder
+            ) {
                 return data
             }
             let newSize = CGSize(
@@ -35,7 +63,7 @@ enum ImagePrep {
 
         // Last resort: send whatever the lowest quality produces even if still over budget,
         // rather than rejecting the photo outright.
-        guard let data = currentImage.jpegData(compressionQuality: 0.05) else {
+        guard let data = encoder(currentImage, 0.05) else {
             throw PrepError.compressionFailed
         }
         return data
@@ -65,14 +93,18 @@ enum ImagePrep {
         }
     }
 
-    /// Binary-searches JPEG quality for the highest quality that still fits `targetBytes`.
+    /// Binary-searches encoder quality for the highest quality that still fits `targetBytes`.
     /// Returns nil if even the lowest quality tried doesn't fit - the caller should shrink the
     /// image's dimensions and try again rather than degrade quality further.
-    private static func compressToQualityBudget(_ image: UIImage, targetBytes: Int) -> Data? {
+    private static func compressToQualityBudget(
+        _ image: UIImage,
+        targetBytes: Int,
+        encoder: (UIImage, CGFloat) -> Data?
+    ) -> Data? {
         var low: CGFloat = 0.05
         var high: CGFloat = 0.95
 
-        guard let lowestQualityData = image.jpegData(compressionQuality: low),
+        guard let lowestQualityData = encoder(image, low),
               lowestQualityData.count <= targetBytes else {
             return nil
         }
@@ -80,7 +112,7 @@ enum ImagePrep {
         var best = lowestQualityData
         for _ in 0..<8 {
             let mid = (low + high) / 2
-            guard let data = image.jpegData(compressionQuality: mid) else { break }
+            guard let data = encoder(image, mid) else { break }
             if data.count <= targetBytes {
                 best = data
                 low = mid
@@ -89,5 +121,37 @@ enum ImagePrep {
             }
         }
         return best
+    }
+
+    private static func jpegData(from image: UIImage, quality: CGFloat) -> Data? {
+        image.jpegData(compressionQuality: quality)
+    }
+
+    private static func avifData(from image: UIImage, quality: CGFloat) -> Data? {
+        guard let cgImage = cgImageForEncoding(image) else { return nil }
+
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data,
+            "public.avif" as CFString,
+            1,
+            nil
+        ) else {
+            return nil
+        }
+
+        let options: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: quality
+        ]
+        CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
+    }
+
+    private static func cgImageForEncoding(_ image: UIImage) -> CGImage? {
+        if image.imageOrientation == .up, let cgImage = image.cgImage {
+            return cgImage
+        }
+        return resize(image, to: image.size).cgImage
     }
 }

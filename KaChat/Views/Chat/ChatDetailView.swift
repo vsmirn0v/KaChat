@@ -109,7 +109,10 @@ struct ChatDetailView: View {
     @State private var menuAnchorFrame: CGRect = .zero
     @State private var longPressTimer: Timer? = nil
     @State private var isDraggingMenu = false
+    @State private var isImageDropTarget = false
     @State private var isMessageFocused = false
+    @State private var showDesktopEmojiPicker = false
+    @State private var emojiInsertionRequest: ComposerTextView.TextInsertionRequest?
     @State private var viewportResetTrigger = UUID()
     @State private var showDustWarning = false
     @State private var pendingDustAmountSompi: UInt64 = 0
@@ -537,6 +540,11 @@ struct ChatDetailView: View {
             }
         }
         .coordinateSpace(name: chatCoordinateSpace)
+        .onDrop(
+            of: ChatImageAttachmentLoader.supportedDropTypeIdentifiers,
+            isTargeted: $isImageDropTarget,
+            perform: handleImageDrop
+        )
         .toast(message: toastMessage, style: toastStyle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -1186,6 +1194,10 @@ struct ChatDetailView: View {
                 HStack(spacing: 12) {
                     inputFieldWithState
 
+                    if shouldShowDesktopEmojiButton {
+                        desktopEmojiButton
+                    }
+
                     if !isDeclined && inputMode == .message && pendingPhotoImage == nil
                         && messageText.isEmpty {
                         photoPickerButton
@@ -1211,6 +1223,14 @@ struct ChatDetailView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+        .overlay {
+            if isImageDropTarget && canAcceptImageAttachment {
+                RoundedRectangle(cornerRadius: 24)
+                    .strokeBorder(Color.accentColor.opacity(0.65), lineWidth: 1.5)
+                    .padding(.horizontal, 8)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 
     private var bottomFade: some View {
@@ -1283,17 +1303,42 @@ struct ChatDetailView: View {
             guard let newItem else { return }
             Task {
                 defer { photoPickerItem = nil }
-                guard let data = try? await newItem.loadTransferable(type: Data.self),
-                      let image = UIImage(data: data) else {
+                guard let data = try? await newItem.loadTransferable(type: Data.self) else {
                     await MainActor.run {
                         self.error = "Couldn't load that photo. Please try another."
                     }
                     return
                 }
                 await MainActor.run {
-                    pendingPhotoImage = image
-                    schedulePhotoFeeEstimate()
+                    _ = attachImageData(data)
                 }
+            }
+        }
+    }
+
+    private var shouldShowDesktopEmojiButton: Bool {
+        !isDeclined
+            && inputMode == .message
+            && pendingPhotoImage == nil
+            && EmojiInputSupport.shouldShowDesktopEmojiButton
+    }
+
+    private var desktopEmojiButton: some View {
+        Button {
+            showDesktopEmojiPicker.toggle()
+            isMessageFocused = true
+        } label: {
+            Image(systemName: "face.smiling")
+                .font(.title3)
+                .foregroundColor(.primary)
+                .frame(width: 44, height: 44)
+                .background(glassBackground(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Emoji picker"))
+        .popover(isPresented: $showDesktopEmojiPicker, arrowEdge: .bottom) {
+            DesktopEmojiPickerView { emoji in
+                insertDesktopEmoji(emoji)
             }
         }
     }
@@ -1549,6 +1594,14 @@ struct ChatDetailView: View {
         }
     }
 
+    private var canAcceptImageAttachment: Bool {
+        !isDeclined
+            && inputMode == .message
+            && pendingPhotoImage == nil
+            && !isCompressingPhoto
+            && !isSending
+    }
+
     // MARK: - Handshake Actions
 
     private func sendHandshake() {
@@ -1661,7 +1714,14 @@ struct ChatDetailView: View {
                                 chatService.setDraft(newValue, for: contact.address)
                             }
                         },
-                        onSubmit: { handleSend() }
+                        onSubmit: { handleSend() },
+                        insertionRequest: emojiInsertionRequest,
+                        onInsertionHandled: { requestID in
+                            if emojiInsertionRequest?.id == requestID {
+                                emojiInsertionRequest = nil
+                            }
+                        },
+                        onPasteImageData: handlePastedImageData
                     )
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -2324,6 +2384,50 @@ struct ChatDetailView: View {
         isEstimatingFee = false
     }
 
+    @discardableResult
+    private func attachImageData(_ data: Data) -> Bool {
+        guard canAcceptImageAttachment else { return false }
+        guard let image = ChatImageAttachmentLoader.image(from: data) else {
+            self.error = "Couldn't load that photo. Please try a PNG, JPEG, or HEIF image."
+            return false
+        }
+
+        pendingPhotoImage = image
+        isMessageFocused = false
+        schedulePhotoFeeEstimate()
+        return true
+    }
+
+    private func handlePastedImageData(_ data: Data) -> Bool {
+        attachImageData(data)
+    }
+
+    private func insertDesktopEmoji(_ emoji: String) {
+        isMessageFocused = true
+        emojiInsertionRequest = ComposerTextView.TextInsertionRequest(id: UUID(), text: emoji)
+    }
+
+    private func handleImageDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard canAcceptImageAttachment,
+              let provider = providers.first(where: ChatImageAttachmentLoader.canLoadImage(from:)) else {
+            return false
+        }
+
+        Task {
+            do {
+                let data = try await ChatImageAttachmentLoader.loadImageData(from: provider)
+                await MainActor.run {
+                    _ = attachImageData(data)
+                }
+            } catch {
+                await MainActor.run {
+                    self.error = "Couldn't load that photo. Please try a PNG, JPEG, or HEIF image."
+                }
+            }
+        }
+        return true
+    }
+
     private func sendPendingPhoto() {
         Task { await sendPendingPhotoAsync() }
     }
@@ -2337,8 +2441,13 @@ struct ChatDetailView: View {
             isSending = false
         }
         do {
-            let imageData = try ImagePrep.prepareForChatMessage(image)
-            try await chatService.sendImage(to: contact, imageData: imageData, fileName: "photo.jpg", mimeType: "image/jpeg")
+            let preparedImage = try ImagePrep.prepareForChatMessage(image)
+            try await chatService.sendImage(
+                to: contact,
+                imageData: preparedImage.data,
+                fileName: preparedImage.fileName,
+                mimeType: preparedImage.mimeType
+            )
             await MainActor.run {
                 pendingPhotoImage = nil
                 photoPickerItem = nil

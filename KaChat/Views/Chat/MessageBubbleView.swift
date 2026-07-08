@@ -192,7 +192,10 @@ struct MessageBubbleView: View {
                         replyQuoteView(replyQuote)
                     }
 
-                    if let media, media.isImage, let image {
+                    if let media,
+                       media.isImage,
+                       let image,
+                       let sharePayload = media.imageSharePayload(cacheKey: message.txId) {
                         Button {
                             showImagePreview = true
                         } label: {
@@ -236,7 +239,8 @@ struct MessageBubbleView: View {
                         .fullScreenCover(isPresented: $showImagePreview) {
                             ImagePreviewView(
                                 image: image,
-                                title: media.name
+                                title: media.name,
+                                sharePayload: sharePayload
                             )
                         }
                     } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
@@ -913,6 +917,11 @@ private struct MediaFile: Codable {
             Self.imageCache.setObject(image, forKey: key, cost: data.count)
         }
         return image
+    }
+
+    func imageSharePayload(cacheKey: String?) -> MessageImageSharePayload? {
+        guard isImage, let data = fileData(cacheKey: cacheKey) else { return nil }
+        return MessageImageSharePayload(data: data, fileName: name, mimeType: mimeType)
     }
 
     static func from(_ text: String, cacheKey cacheToken: String? = nil) -> MediaFile? {
@@ -1940,6 +1949,7 @@ private struct OggOpusDecoder {
 private struct ImagePreviewView: View {
     let image: UIImage
     let title: String
+    let sharePayload: MessageImageSharePayload
     @Environment(\.dismiss) private var dismiss
     @State private var isZoomed = false
     @State private var dragOffset: CGFloat = 0
@@ -1961,7 +1971,7 @@ private struct ImagePreviewView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     ShareLink(
-                        item: ShareableImage(image: image),
+                        item: ShareableImage(payload: sharePayload),
                         preview: SharePreview(title, image: Image(uiImage: image))
                     ) {
                         Image(systemName: "square.and.arrow.up")
@@ -2055,17 +2065,12 @@ private struct ZoomableImageView: UIViewRepresentable {
 }
 
 private struct ShareableImage: Transferable {
-    let image: UIImage
+    let payload: MessageImageSharePayload
 
     static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(exportedContentType: .png) { item in
-            guard let data = item.image.pngData() else { throw TransferError.couldNotEncode }
-            return data
+        FileRepresentation(exportedContentType: .image) { item in
+            SentTransferredFile(try item.payload.writeTemporaryFile())
         }
-    }
-
-    enum TransferError: Error {
-        case couldNotEncode
     }
 }
 
