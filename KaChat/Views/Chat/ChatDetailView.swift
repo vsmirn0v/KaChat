@@ -1804,10 +1804,14 @@ struct ChatDetailView: View {
         }
     }
 
-    private func pendingPhotoRow(_: UIImage) -> some View {
+    private func pendingPhotoRow(_ image: UIImage) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "photo")
-                .foregroundColor(.secondary)
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .accessibilityHidden(true)
 
             if isCompressingPhoto {
                 ProgressView()

@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import AVFoundation
+import ImageIO
 import UniformTypeIdentifiers
 #if canImport(YbridOpus)
 import YbridOpus
@@ -31,7 +32,6 @@ struct MessageBubbleView: View {
     @State private var replySwipeOffset: CGFloat = 0
     @State private var isReplySwipeActive = false
     @State private var hasArmedReplySwipe = false
-    @State private var showImagePreview = false
     @State private var shimmerPhase: CGFloat = -1
 
     init(
@@ -85,7 +85,6 @@ struct MessageBubbleView: View {
 
     var body: some View {
         let media = mediaFile
-        let image = media?.image(cacheKey: message.txId)
         let isSingleEmojiOnly = isSingleEmojiOnlyMessage(displayText)
 
         ZStack(alignment: .trailing) {
@@ -99,7 +98,7 @@ struct MessageBubbleView: View {
                 .opacity(replySwipeProgress)
                 .scaleEffect(0.85 + (0.15 * replySwipeProgress))
 
-            messageContent(media: media, image: image, isSingleEmojiOnly: isSingleEmojiOnly)
+            messageContent(media: media, isSingleEmojiOnly: isSingleEmojiOnly)
                 .offset(x: revealOffset + replySwipeOffset)
                 .simultaneousGesture(replySwipeGesture)
         }
@@ -170,7 +169,7 @@ struct MessageBubbleView: View {
     }
 
     @ViewBuilder
-    private func messageContent(media: MediaFile?, image: UIImage?, isSingleEmojiOnly: Bool) -> some View {
+    private func messageContent(media: MediaFile?, isSingleEmojiOnly: Bool) -> some View {
         HStack(alignment: .bottom, spacing: 8) {
             if !message.isOutgoing {
                 avatarView
@@ -192,57 +191,16 @@ struct MessageBubbleView: View {
                         replyQuoteView(replyQuote)
                     }
 
-                    if let media,
-                       media.isImage,
-                       let image,
-                       let sharePayload = media.imageSharePayload(cacheKey: message.txId) {
-                        Button {
-                            showImagePreview = true
-                        } label: {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxWidth: 220)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button {
-                                handleCopy(media.name, toast: "File name copied.")
-                            } label: {
-                                Label("Copy File Name", systemImage: "doc.on.doc")
-                            }
-
-                            Button {
-                                handleCopy(message.txId, toast: "Transaction ID copied.")
-                            } label: {
-                                Label("Copy Transaction ID", systemImage: "number")
-                            }
-
-                            if let onReply {
-                                Button {
-                                    onReply()
-                                } label: {
-                                    Label("Reply", systemImage: "arrowshape.turn.up.left")
-                                }
-                            }
-
-                            if shouldShowRetry {
-                                Button {
-                                    onRetry?(message)
-                                } label: {
-                                    Label("Retry Send", systemImage: "arrow.clockwise")
-                                }
-                            }
-                        }
+                    if let media, media.isImage {
+                        LazyImageBubble(
+                            media: media,
+                            txId: message.txId,
+                            shouldShowRetry: shouldShowRetry,
+                            onCopy: onCopy,
+                            onRetry: { onRetry?(message) },
+                            onReply: onReply
+                        )
                         .simultaneousGesture(TapGesture(count: 2).onEnded { onReply?() })
-                        .fullScreenCover(isPresented: $showImagePreview) {
-                            ImagePreviewView(
-                                image: image,
-                                title: media.name,
-                                sharePayload: sharePayload
-                            )
-                        }
                     } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
                         LazyAudioBubble(
                             data: data,
@@ -850,6 +808,134 @@ private struct ShimmerOverlay: View {
     }
 }
 
+private struct LazyImageBubble: View {
+    private static let thumbnailDisplaySize = CGSize(width: 220, height: 160)
+
+    let media: MediaFile
+    let txId: String
+    let shouldShowRetry: Bool
+    let onCopy: ((String, ToastStyle) -> Void)?
+    let onRetry: (() -> Void)?
+    let onReply: (() -> Void)?
+
+    @State private var thumbnailState: (txId: String, image: UIImage)?
+    @State private var previewImage: UIImage?
+    @State private var sharePayload: MessageImageSharePayload?
+    @State private var isLoadingPreview = false
+    @State private var showImagePreview = false
+
+    var body: some View {
+        Button {
+            openPreview()
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.secondarySystemBackground))
+
+                if let thumbnailState, thumbnailState.txId == txId {
+                    Image(uiImage: thumbnailState.image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+                } else {
+                    placeholder
+                }
+
+                if isLoadingPreview {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(8)
+                        .background(.regularMaterial)
+                        .clipShape(Circle())
+                }
+            }
+            .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                handleCopy(media.name, toast: "File name copied.")
+            } label: {
+                Label("Copy File Name", systemImage: "doc.on.doc")
+            }
+
+            Button {
+                handleCopy(txId, toast: "Transaction ID copied.")
+            } label: {
+                Label("Copy Transaction ID", systemImage: "number")
+            }
+
+            if let onReply {
+                Button {
+                    onReply()
+                } label: {
+                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                }
+            }
+
+            if shouldShowRetry {
+                Button {
+                    onRetry?()
+                } label: {
+                    Label("Retry Send", systemImage: "arrow.clockwise")
+                }
+            }
+        }
+        .task(id: txId) {
+            guard thumbnailState?.txId != txId else { return }
+            guard let loadedThumbnail = await media.thumbnailImage(cacheKey: txId),
+                  !Task.isCancelled else {
+                return
+            }
+            thumbnailState = (txId, loadedThumbnail)
+        }
+        .fullScreenCover(isPresented: $showImagePreview) {
+            if let previewImage, let sharePayload {
+                ImagePreviewView(
+                    image: previewImage,
+                    title: media.name,
+                    sharePayload: sharePayload
+                )
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black.ignoresSafeArea())
+            }
+        }
+    }
+
+    private var placeholder: some View {
+        Image(systemName: "photo")
+            .font(.system(size: 28, weight: .regular))
+            .foregroundColor(.secondary)
+            .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+    }
+
+    private func openPreview() {
+        if previewImage != nil, sharePayload != nil {
+            showImagePreview = true
+            return
+        }
+
+        isLoadingPreview = true
+        Task {
+            let loaded = await media.previewImagePayload(cacheKey: txId)
+            isLoadingPreview = false
+            guard let loaded else { return }
+            previewImage = loaded.image
+            sharePayload = loaded.sharePayload
+            showImagePreview = true
+        }
+    }
+
+    private func handleCopy(_ value: String, toast: String) {
+        UIPasteboard.general.string = value
+        Haptics.success()
+        onCopy?(toast, .success)
+    }
+}
+
 private struct MediaFile: Codable {
     let type: String
     let name: String
@@ -876,6 +962,11 @@ private struct MediaFile: Codable {
     private static let imageCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.totalCostLimit = 50 * 1024 * 1024
+        return cache
+    }()
+    private static let thumbnailCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 24 * 1024 * 1024
         return cache
     }()
 
@@ -914,7 +1005,7 @@ private struct MediaFile: Codable {
             return nil
         }
         if let key = Self.cacheKey(from: cacheKey) {
-            Self.imageCache.setObject(image, forKey: key, cost: data.count)
+            Self.imageCache.setObject(image, forKey: key, cost: Self.cacheCost(for: image))
         }
         return image
     }
@@ -922,6 +1013,40 @@ private struct MediaFile: Codable {
     func imageSharePayload(cacheKey: String?) -> MessageImageSharePayload? {
         guard isImage, let data = fileData(cacheKey: cacheKey) else { return nil }
         return MessageImageSharePayload(data: data, fileName: name, mimeType: mimeType)
+    }
+
+    func thumbnailImage(cacheKey: String?, maxPixelSize: CGFloat = 440) async -> UIImage? {
+        guard isImage else { return nil }
+        if let key = Self.thumbnailCacheKey(from: cacheKey, maxPixelSize: maxPixelSize),
+           let cached = Self.thumbnailCache.object(forKey: key) {
+            return cached
+        }
+
+        return await Task.detached(priority: .userInitiated) {
+            guard let data = fileData(cacheKey: cacheKey),
+                  let image = Self.downsampledImage(data: data, maxPixelSize: maxPixelSize) ?? UIImage(data: data) else {
+                return nil
+            }
+
+            if let key = Self.thumbnailCacheKey(from: cacheKey, maxPixelSize: maxPixelSize) {
+                Self.thumbnailCache.setObject(image, forKey: key, cost: Self.cacheCost(for: image))
+            }
+            return image
+        }.value
+    }
+
+    func previewImagePayload(cacheKey: String?) async -> (image: UIImage, sharePayload: MessageImageSharePayload)? {
+        guard isImage else { return nil }
+        return await Task.detached(priority: .userInitiated) {
+            guard let data = fileData(cacheKey: cacheKey),
+                  let image = image(cacheKey: cacheKey) else {
+                return nil
+            }
+            return (
+                image,
+                MessageImageSharePayload(data: data, fileName: name, mimeType: mimeType)
+            )
+        }.value
     }
 
     static func from(_ text: String, cacheKey cacheToken: String? = nil) -> MediaFile? {
@@ -958,10 +1083,44 @@ private struct MediaFile: Codable {
         return trimmed as NSString
     }
 
+    private static func thumbnailCacheKey(from value: String?, maxPixelSize: CGFloat) -> NSString? {
+        guard let base = cacheKey(from: value) else { return nil }
+        return "\(base)|thumb|\(Int(maxPixelSize.rounded()))" as NSString
+    }
+
     private static func dataFromDataURL(_ text: String) -> Data? {
         guard let prefixRange = text.range(of: "base64,") else { return nil }
         let base64 = text[prefixRange.upperBound...]
         return Data(base64Encoded: String(base64))
+    }
+
+    private static func downsampledImage(data: Data, maxPixelSize: CGFloat) -> UIImage? {
+        let sourceOptions = [
+            kCGImageSourceShouldCache: false
+        ] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
+            return nil
+        }
+
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(maxPixelSize.rounded(.up)))
+        ] as CFDictionary
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private static func cacheCost(for image: UIImage) -> Int {
+        if let cgImage = image.cgImage {
+            return cgImage.bytesPerRow * cgImage.height
+        }
+        let width = max(1, Int((image.size.width * image.scale).rounded(.up)))
+        let height = max(1, Int((image.size.height * image.scale).rounded(.up)))
+        return width * height * 4
     }
 }
 

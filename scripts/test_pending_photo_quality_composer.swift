@@ -33,5 +33,11 @@ struct PendingPhotoQualityComposerTest {
             settings.contains("ChatPhotoQualitySlider("),
             "Settings should retain the global photo quality control"
         )
+        expect(
+            chatDetail.contains("private func pendingPhotoRow(_ image: UIImage)")
+                && chatDetail.contains("Image(uiImage: image)")
+                && chatDetail.contains(".clipShape(RoundedRectangle(cornerRadius: 8"),
+            "pending photo composer row should show a small preview of the selected image"
+        )
     }
 }
