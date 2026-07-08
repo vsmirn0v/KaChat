@@ -65,6 +65,44 @@ struct BroadcastListView: View {
     }
 
     var body: some View {
+        Group {
+            switch BroadcastNavigationPolicy.currentChannelPresentationMode {
+            case .inlineReplacement:
+                if let selectedChannel {
+                    inlineChannelView(selectedChannel)
+                } else {
+                    broadcastListContent
+                }
+            case .navigationDestination:
+                broadcastListContent
+                    .modifier(BroadcastChannelDestination(selectedChannel: $selectedChannel))
+            }
+        }
+        .onAppear {
+            broadcastService.refreshChannels()
+            if !broadcastService.popularTabEnabled { selectedTab = .channels }
+            if !hasAppliedInitialChannel, let initialChannel {
+                hasAppliedInitialChannel = true
+                selectedChannel = initialChannel
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { notification in
+            // Already viewing the broadcast list (or a room within it) when another broadcast
+            // notification is tapped - swap straight to the new room instead of no-oping, since
+            // `ChatListView`'s own handling only covers opening the list from scratch.
+            guard let channel = notification.userInfo?["channel"] as? String else { return }
+            selectedChannel = channel
+        }
+        .onChange(of: broadcastService.pendingBroadcastNavigation) { newValue in
+            guard let channel = newValue else { return }
+            selectedChannel = channel
+        }
+        .onChange(of: broadcastService.popularTabEnabled) { enabled in
+            if !enabled { selectedTab = .channels }
+        }
+    }
+
+    private var broadcastListContent: some View {
         VStack(spacing: 0) {
             if broadcastService.popularTabEnabled {
                 Picker("", selection: $selectedTab) {
@@ -102,29 +140,6 @@ struct BroadcastListView: View {
                     Image(systemName: "plus")
                 }
             }
-        }
-        .modifier(BroadcastChannelDestination(selectedChannel: $selectedChannel))
-        .onAppear {
-            broadcastService.refreshChannels()
-            if !broadcastService.popularTabEnabled { selectedTab = .channels }
-            if !hasAppliedInitialChannel, let initialChannel {
-                hasAppliedInitialChannel = true
-                selectedChannel = initialChannel
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { notification in
-            // Already viewing the broadcast list (or a room within it) when another broadcast
-            // notification is tapped - swap straight to the new room instead of no-oping, since
-            // `ChatListView`'s own handling only covers opening the list from scratch.
-            guard let channel = notification.userInfo?["channel"] as? String else { return }
-            selectedChannel = channel
-        }
-        .onChange(of: broadcastService.pendingBroadcastNavigation) { newValue in
-            guard let channel = newValue else { return }
-            selectedChannel = channel
-        }
-        .onChange(of: broadcastService.popularTabEnabled) { enabled in
-            if !enabled { selectedTab = .channels }
         }
         .toast(message: toastMessage, style: .success)
         .alert("Join or Create a Channel", isPresented: $showJoinAlert) {
@@ -173,6 +188,20 @@ struct BroadcastListView: View {
             }
             .presentationDetents([.large])
         }
+    }
+
+    private func inlineChannelView(_ channel: String) -> some View {
+        BroadcastChannelView(channelName: channel)
+            .id(channel)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        selectedChannel = nil
+                    } label: {
+                        Label("Channels", systemImage: "chevron.left")
+                    }
+                }
+            }
     }
 
     private var emptyState: some View {

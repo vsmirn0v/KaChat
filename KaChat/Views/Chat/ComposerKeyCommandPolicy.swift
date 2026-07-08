@@ -46,6 +46,23 @@ enum ComposerKeyCommandPolicy {
             modifiers: [.control],
             intent: .paste,
             wantsPriorityOverSystemBehavior: true
+        ),
+        ComposerKeyCommandSpec(
+            input: "v",
+            modifiers: [.command],
+            intent: .paste,
+            wantsPriorityOverSystemBehavior: true
         )
     ]
+}
+
+enum ChatSendKeyboardShortcutPolicy {
+    static func shouldInstallReturnShortcut(
+        hasPendingPhoto: Bool,
+        isSending: Bool,
+        isCompressingPhoto: Bool,
+        isDeclined: Bool
+    ) -> Bool {
+        hasPendingPhoto && !isSending && !isCompressingPhoto && !isDeclined
+    }
 }

@@ -1231,6 +1231,31 @@ struct ChatDetailView: View {
                     .allowsHitTesting(false)
             }
         }
+        .background(pendingPhotoReturnShortcutButton)
+    }
+
+    @ViewBuilder
+    private var pendingPhotoReturnShortcutButton: some View {
+        if shouldInstallPendingPhotoReturnShortcut {
+            Button {
+                handleSend()
+            } label: {
+                Color.clear
+                    .frame(width: 1, height: 1)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.return, modifiers: [])
+            .accessibilityHidden(true)
+        }
+    }
+
+    private var shouldInstallPendingPhotoReturnShortcut: Bool {
+        ChatSendKeyboardShortcutPolicy.shouldInstallReturnShortcut(
+            hasPendingPhoto: pendingPhotoImage != nil,
+            isSending: isSending,
+            isCompressingPhoto: isCompressingPhoto,
+            isDeclined: isDeclined
+        )
     }
 
     private var bottomFade: some View {

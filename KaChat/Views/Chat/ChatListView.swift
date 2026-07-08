@@ -100,6 +100,8 @@ struct ChatListView: View {
                 AddContactView { contact in
                     _ = chatService.getOrCreateConversation(for: contact)
                     selectedContactStartInPaymentMode = false
+                    pendingBroadcastChannel = nil
+                    showBroadcastList = false
                     selectedContact = contact
                     showAddContact = false
                 }
@@ -123,22 +125,19 @@ struct ChatListView: View {
             } message: {
                 Text("This permanently deletes every message with them, including from iCloud, so it's removed from your other devices too. This cannot be undone.")
             }
-            .navigationDestination(isPresented: Binding(
-                get: { showBroadcastList },
-                set: { isPresented in
-                    showBroadcastList = isPresented
-                    if !isPresented {
-                        pendingBroadcastChannel = nil
-                    }
-                }
-            )) {
-                BroadcastListView(initialChannel: pendingBroadcastChannel)
-            }
+            .modifier(BroadcastListNavigationDestination(
+                mode: BroadcastNavigationPolicy.listPresentationMode(usesSplitLayout: shouldUseSplitLayout),
+                showBroadcastList: $showBroadcastList,
+                pendingBroadcastChannel: $pendingBroadcastChannel
+            ))
     }
 
     @ViewBuilder
     private var splitDetailPane: some View {
-        if let contact = selectedContact {
+        if showBroadcastList {
+            BroadcastListView(initialChannel: pendingBroadcastChannel)
+                .id(pendingBroadcastChannel ?? "__broadcasts")
+        } else if let contact = selectedContact {
             ChatDetailView(contact: contact, startInPaymentMode: selectedContactStartInPaymentMode)
                 .id(contact.id)
         } else {
@@ -228,6 +227,7 @@ struct ChatListView: View {
     /// `navigateToChat`'s cold-start/already-running handling for 1:1 chats.
     private func navigateToBroadcast(channel: String) {
         pendingBroadcastChannel = channel
+        selectedContact = nil
         showBroadcastList = true
     }
 
@@ -245,6 +245,8 @@ struct ChatListView: View {
 
         if shouldUseSplitLayout {
             selectedContactStartInPaymentMode = startInPaymentMode
+            pendingBroadcastChannel = nil
+            showBroadcastList = false
             selectedContact = target
             return
         }
@@ -253,6 +255,8 @@ struct ChatListView: View {
         // in-place via its own .onReceive(.openChat) handler.
         if selectedContact == nil {
             selectedContactStartInPaymentMode = startInPaymentMode
+            pendingBroadcastChannel = nil
+            showBroadcastList = false
             selectedContact = target
         }
     }
@@ -321,10 +325,17 @@ struct ChatListView: View {
         return List {
             if searchText.isEmpty {
                 Button {
+                    pendingBroadcastChannel = nil
+                    selectedContact = nil
                     showBroadcastList = true
                 } label: {
                     BroadcastEntryRow()
                 }
+                .listRowBackground(
+                    shouldUseSplitLayout && showBroadcastList
+                        ? Color.accentColor.opacity(0.14)
+                        : Color.clear
+                )
             }
 
             if displayed.isEmpty {
@@ -337,6 +348,8 @@ struct ChatListView: View {
                 ForEach(Array(displayed.enumerated()), id: \.element.id) { index, conversation in
                     Button {
                         selectedContactStartInPaymentMode = false
+                        pendingBroadcastChannel = nil
+                        showBroadcastList = false
                         selectedContact = conversation.contact
                     } label: {
                         ConversationRow(conversation: conversation)
@@ -543,6 +556,32 @@ struct ChatListView: View {
                 } else {
                     NSLog("[ChatListView] Notification permission granted")
                 }
+            }
+        }
+    }
+}
+
+private struct BroadcastListNavigationDestination: ViewModifier {
+    let mode: BroadcastListPresentationMode
+    @Binding var showBroadcastList: Bool
+    @Binding var pendingBroadcastChannel: String?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch mode {
+        case .splitDetail:
+            content
+        case .navigationDestination:
+            content.navigationDestination(isPresented: Binding(
+                get: { showBroadcastList },
+                set: { isPresented in
+                    showBroadcastList = isPresented
+                    if !isPresented {
+                        pendingBroadcastChannel = nil
+                    }
+                }
+            )) {
+                BroadcastListView(initialChannel: pendingBroadcastChannel)
             }
         }
     }
