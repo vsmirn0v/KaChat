@@ -5,12 +5,15 @@ DerivedData/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
-*.xcodeproj/project.xcworkspace/xcshareddata/
+*.xcodeproj/project.xcworkspace/xcshareddata/*
+!*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/
+# Keep Package.resolved checked in - Xcode Cloud (and any clean clone) needs it
+# to resolve grpc-swift/swift-protobuf/swift-secp256k1 without live network
+# resolution; everything else in xcshareddata/ stays ignored above.
 Frameworks/
 # Swift Package Manager
 .swiftpm/
 Packages/
-Package.resolved
 
 # CocoaPods
 Pods/
