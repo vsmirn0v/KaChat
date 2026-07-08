@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import AVFAudio
+import PhotosUI
 #if canImport(YbridOpus)
 import YbridOpus
 #endif
@@ -25,10 +26,16 @@ struct ChatDetailView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @ObservedObject private var knsService = KNSService.shared
     @Environment(\.colorScheme) private var colorScheme
 
-    init(contact: Contact) {
+    private var myAddress: String? {
+        walletManager.currentWallet?.publicAddress
+    }
+
+    init(contact: Contact, startInPaymentMode: Bool = false) {
         _contact = State(initialValue: contact)
+        _inputMode = State(initialValue: startInPaymentMode ? .payment : .message)
     }
 
     @State private var messageText = ""
@@ -70,6 +77,8 @@ struct ChatDetailView: View {
     @State private var feeEstimateSompi: UInt64?
     @State private var isEstimatingFee = false
     @State private var feeEstimateTask: Task<Void, Never>?
+    @State private var revealOffset: CGFloat = 0
+    private let maxRevealOffset: CGFloat = 64
     @State private var inputMode: InputMode = .message
     @State private var amountText = ""
     @State private var recordedAudioURL: URL?
@@ -87,6 +96,9 @@ struct ChatDetailView: View {
     @State private var previewLabel = "--:--"
     @State private var isEncodingAudio = false
     @State private var recorderDelegate = AudioRecorderDelegate()
+    @State private var photoPickerItem: PhotosPickerItem?
+    @State private var pendingPhotoImage: UIImage?
+    @State private var isCompressingPhoto = false
     @State private var hasPerformedInitialSetup = false
     @State private var showModeMenu = false
     @State private var dragLocation: CGPoint = .zero
@@ -95,11 +107,7 @@ struct ChatDetailView: View {
     @State private var longPressTimer: Timer? = nil
     @State private var isDraggingMenu = false
     @State private var isMessageFocused = false
-    @State private var showEmojiPicker = false
-    @State private var selectedEmojiCategory: EmojiCategory = .recent
-    @State private var emojiSearchText = ""
     @State private var keyboardOverlapHeight: CGFloat = 0
-    @State private var recentEmojis: [String] = ["👍", "❤️", "😂", "🔥", "🙏", "🎉", "✅", "🙂"]
     @State private var viewportResetTrigger = UUID()
     @State private var showDustWarning = false
     @State private var pendingDustAmountSompi: UInt64 = 0
@@ -311,6 +319,9 @@ struct ChatDetailView: View {
                                     hasLoadedCurrentTopPage = false
                                 }
                             ForEach(Array(displayedMessages.enumerated()), id: \.element.id) { index, message in
+                                if shouldShowDateDivider(at: index, in: displayedMessages) {
+                                    dateDividerView(for: message.timestamp)
+                                }
                                 messageRow(message)
                                     .id(message.id)
                                     .onAppear {
@@ -452,6 +463,22 @@ struct ChatDetailView: View {
                             }
                             .onEnded { _ in
                                 markUserScrollInteractionEndedSoon()
+                            }
+                    )
+                    .simultaneousGesture(
+                        // Swipe-left-to-reveal-timestamps (iMessage-style, matches broadcast
+                        // rooms): dragging left shifts every message row left together,
+                        // uncovering each message's time; releasing snaps back. Only engages for
+                        // mostly-horizontal drags so vertical scrolling is unaffected.
+                        DragGesture(minimumDistance: 8)
+                            .onChanged { value in
+                                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                                revealOffset = min(max(value.translation.width, -maxRevealOffset), 0)
+                            }
+                            .onEnded { _ in
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    revealOffset = 0
+                                }
                             }
                     )
                 }
@@ -623,10 +650,9 @@ struct ChatDetailView: View {
         }
         .onDisappear {
             chatService.leaveConversation()
+            chatService.cancelReply()
             cancelRecording()
             keyboardOverlapHeight = 0
-            showEmojiPicker = false
-            emojiSearchText = ""
             snapshotRebuildTask?.cancel()
             storedCountTask?.cancel()
             scrollInteractionResetWorkItem?.cancel()
@@ -634,6 +660,19 @@ struct ChatDetailView: View {
             // Do NOT reset viewport/scroll state here — @State is destroyed
             // automatically on navigation pop, and on tab switches we want
             // to preserve the scroll position and loaded message count.
+        }
+        .onChange(of: chatService.replyingTo) { _ in
+            scheduleFeeEstimate(for: messageText)
+        }
+        .task(id: myAddress) {
+            // Matches broadcast rooms' room-level own-avatar fetch - resolves regardless of who's
+            // messaged, since it's always needed for our own outgoing bubbles.
+            guard let myAddress, knsService.profileCache[myAddress] == nil else { return }
+            _ = await knsService.fetchProfile(for: myAddress)
+        }
+        .task(id: contact.address) {
+            guard knsService.profileCache[contact.address] == nil else { return }
+            _ = await knsService.fetchProfile(for: contact.address)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
             guard let targetAddress = notification.userInfo?["contactAddress"] as? String,
@@ -669,8 +708,6 @@ struct ChatDetailView: View {
             messageText = ""
             inputMode = .message
             amountText = ""
-            showEmojiPicker = false
-            emojiSearchText = ""
             initialViewportPositioned = false
             didInitialScroll = false
             topVisibleMessageId = nil
@@ -1064,141 +1101,6 @@ struct ChatDetailView: View {
         }
     }
 
-    private enum EmojiCategory: String, CaseIterable, Identifiable {
-        case recent
-        case smileys
-        case gestures
-        case hearts
-        case symbols
-
-        var id: String { rawValue }
-
-        var icon: String {
-            switch self {
-            case .recent: return "clock"
-            case .smileys: return "face.smiling"
-            case .gestures: return "hand.raised"
-            case .hearts: return "heart"
-            case .symbols: return "star"
-            }
-        }
-
-        var emojis: [String] {
-            switch self {
-            case .recent:
-                return []
-            case .smileys:
-                return ["😀", "😄", "😁", "😎", "🥳", "🙂", "😉", "😊", "😇", "🤩", "😍", "😘", "🤗", "😌", "😋", "🤔", "😴", "🤯", "🥲", "😭", "😤", "🤝", "🫡", "😅"]
-            case .gestures:
-                return ["👍", "👎", "👌", "✌️", "🤞", "🤟", "🤘", "🤙", "👏", "🙌", "🙏", "💪", "🫶", "👋", "🖐️", "🤚", "☝️", "👇", "👉", "👈", "✍️", "🤝", "🫂", "🧠"]
-            case .hearts:
-                return ["❤️", "🧡", "💛", "💚", "🩵", "💙", "💜", "🩷", "🤍", "🖤", "🤎", "💔", "❤️‍🔥", "❤️‍🩹", "💖", "💗", "💓", "💕", "💞", "💘", "💝", "🥰", "😍", "😘"]
-            case .symbols:
-                return ["🔥", "✨", "⭐️", "🎉", "✅", "❌", "⚠️", "💯", "💸", "💎", "🔒", "🔑", "📌", "📈", "🚀", "🎯", "🏆", "🛡️", "💬", "📣", "🎵", "📷", "🎁", "🧩"]
-            }
-        }
-    }
-
-    private static let emojiKeywordIndex: [String: String] = [
-        "😀": "grinning face smile happy",
-        "😄": "grinning face with smiling eyes happy laugh",
-        "😁": "beaming face grin smile",
-        "😂": "face with tears of joy laugh crying laughing",
-        "😎": "smiling face with sunglasses cool",
-        "🥳": "partying face party celebration",
-        "🙂": "slightly smiling face smile",
-        "😉": "winking face wink",
-        "😊": "smiling face blush",
-        "😇": "smiling face halo angel",
-        "🤩": "star struck face wow",
-        "😍": "smiling face with heart eyes love",
-        "😘": "face blowing kiss kiss love",
-        "🤗": "hugging face hug",
-        "😌": "relieved face calm",
-        "😋": "face savoring food yummy tongue",
-        "🤔": "thinking face think",
-        "😴": "sleeping face tired sleep",
-        "🤯": "exploding head mind blown shock",
-        "🥲": "smiling face with tear emotional",
-        "😭": "loudly crying face cry sad tears",
-        "😤": "face with steam from nose frustrated",
-        "😅": "grinning face with sweat nervous laugh",
-        "🫡": "saluting face salute respect",
-
-        "👍": "thumbs up like approve",
-        "👎": "thumbs down dislike",
-        "👌": "ok hand",
-        "✌️": "victory hand peace",
-        "🤞": "crossed fingers luck",
-        "🤟": "love you gesture hand sign",
-        "🤘": "sign of the horns rock",
-        "🤙": "call me hand shaka",
-        "👏": "clapping hands clap",
-        "🙌": "raising hands celebrate",
-        "🙏": "folded hands pray thanks",
-        "💪": "flexed biceps strong muscle",
-        "🫶": "heart hands love",
-        "👋": "waving hand hello",
-        "🖐️": "hand with fingers splayed",
-        "🤚": "raised back of hand stop",
-        "☝️": "index pointing up point up",
-        "👇": "index pointing down point down",
-        "👉": "index pointing right point right",
-        "👈": "index pointing left point left",
-        "✍️": "writing hand write",
-        "🤝": "handshake deal agree",
-        "🫂": "people hugging hug",
-        "🧠": "brain mind",
-
-        "❤️": "red heart love",
-        "🧡": "orange heart",
-        "💛": "yellow heart",
-        "💚": "green heart",
-        "🩵": "light blue heart",
-        "💙": "blue heart",
-        "💜": "purple heart",
-        "🩷": "pink heart",
-        "🤍": "white heart",
-        "🖤": "black heart",
-        "🤎": "brown heart",
-        "💔": "broken heart breakup",
-        "❤️‍🔥": "heart on fire passion",
-        "❤️‍🩹": "mending heart heal",
-        "💖": "sparkling heart",
-        "💗": "growing heart",
-        "💓": "beating heart",
-        "💕": "two hearts",
-        "💞": "revolving hearts",
-        "💘": "heart with arrow cupid",
-        "💝": "heart with ribbon gift",
-        "🥰": "smiling face with hearts in love",
-
-        "🔥": "fire lit hot",
-        "✨": "sparkles sparkle shine",
-        "⭐️": "star",
-        "🎉": "party popper celebration confetti",
-        "✅": "check mark done success",
-        "❌": "cross mark x cancel",
-        "⚠️": "warning caution alert",
-        "💯": "hundred points 100",
-        "💸": "money with wings spend cash",
-        "💎": "gem stone diamond",
-        "🔒": "lock secure private",
-        "🔑": "key unlock access",
-        "📌": "pushpin pin",
-        "📈": "chart increasing growth",
-        "🚀": "rocket launch",
-        "🎯": "direct hit target",
-        "🏆": "trophy winner",
-        "🛡️": "shield protection",
-        "💬": "speech balloon message chat",
-        "📣": "megaphone announce",
-        "🎵": "musical note music",
-        "📷": "camera photo",
-        "🎁": "wrapped gift present",
-        "🧩": "puzzle piece"
-    ]
-
     private struct ModeMenuItem: Identifiable {
         let id = UUID()
         let title: LocalizedStringKey
@@ -1253,16 +1155,16 @@ struct ChatDetailView: View {
 
     private var inputBar: some View {
         VStack(spacing: 8) {
-            if showEmojiPicker && !isDeclined && inputMode == .message {
-                emojiPicker
+            if let reply = chatService.replyingTo {
+                replyBanner(for: reply)
             }
-
             ZStack(alignment: .topLeading) {
                 HStack(spacing: 12) {
                     inputFieldWithState
 
-                    if !isDeclined && inputMode == .message && !isVirtualKeyboardVisible {
-                        emojiToggleButton
+                    if !isDeclined && inputMode == .message && pendingPhotoImage == nil
+                        && messageText.isEmpty && !isVirtualKeyboardVisible {
+                        photoPickerButton
                     }
 
                     sendButtonWithMenu
@@ -1285,7 +1187,6 @@ struct ChatDetailView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
-        .animation(.easeInOut(duration: 0.16), value: showEmojiPicker)
     }
 
     private var bottomFade: some View {
@@ -1345,32 +1246,38 @@ struct ChatDetailView: View {
         }
     }
 
-    private var emojiToggleButton: some View {
-        Button {
-            if showEmojiPicker {
-                showEmojiPicker = false
-                emojiSearchText = ""
-            } else {
-                selectedEmojiCategory = recentEmojis.isEmpty ? .smileys : .recent
-                emojiSearchText = ""
-                showEmojiPicker = true
-                isMessageFocused = true
-            }
-        } label: {
-            Image(systemName: "face.smiling")
+    private var photoPickerButton: some View {
+        PhotosPicker(selection: $photoPickerItem, matching: .images) {
+            Image(systemName: "photo")
                 .font(.title3)
-                .foregroundColor(showEmojiPicker ? .accentColor : .primary)
+                .foregroundColor(.primary)
                 .frame(width: 44, height: 44)
                 .background(glassBackground(cornerRadius: 14))
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text("Emoji picker"))
+        .accessibilityLabel(Text("Attach photo"))
+        .onChange(of: photoPickerItem) { newItem in
+            guard let newItem else { return }
+            Task {
+                defer { photoPickerItem = nil }
+                guard let data = try? await newItem.loadTransferable(type: Data.self),
+                      let image = UIImage(data: data) else {
+                    await MainActor.run {
+                        self.error = "Couldn't load that photo. Please try another."
+                    }
+                    return
+                }
+                await MainActor.run {
+                    pendingPhotoImage = image
+                    schedulePhotoFeeEstimate()
+                }
+            }
+        }
     }
 
     private var shouldShowComposerQuickActions: Bool {
         switch inputMode {
         case .message:
-            return messageText.isEmpty
+            return pendingPhotoImage == nil && messageText.isEmpty
         case .payment:
             return amountText.isEmpty
         case .audio:
@@ -1468,143 +1375,6 @@ struct ChatDetailView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(title))
-    }
-
-    private var emojiPicker: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                ForEach(EmojiCategory.allCases) { category in
-                    Button {
-                        selectedEmojiCategory = category
-                    } label: {
-                        Image(systemName: category.icon)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(selectedEmojiCategory == category ? .accentColor : .secondary)
-                            .frame(width: 28, height: 28)
-                            .background(
-                                Circle()
-                                    .fill(selectedEmojiCategory == category ? Color.accentColor.opacity(0.16) : Color.clear)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Spacer(minLength: 0)
-
-                Button {
-                    showEmojiPicker = false
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
-
-                TextField("Search emoji", text: $emojiSearchText)
-                    .textInputAutocapitalization(.never)
-                    .disableAutocorrection(true)
-
-                if !emojiSearchText.isEmpty {
-                    Button {
-                        emojiSearchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.primary.opacity(0.08))
-            )
-
-            if emojisForPicker.isEmpty {
-                Text("No emoji found")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 6)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(emojisForPicker, id: \.self) { emoji in
-                            Button {
-                                insertEmoji(emoji)
-                            } label: {
-                                Text(emoji)
-                                    .font(.system(size: 28))
-                                    .frame(width: 38, height: 38)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 2)
-                }
-            }
-        }
-        .padding(10)
-        .background(glassBackground(cornerRadius: 16))
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
-    }
-
-    private var emojisForSelectedCategory: [String] {
-        if selectedEmojiCategory == .recent {
-            if recentEmojis.isEmpty {
-                return EmojiCategory.smileys.emojis
-            }
-            return recentEmojis
-        }
-        return selectedEmojiCategory.emojis
-    }
-
-    private var allAvailableEmojisInOrder: [String] {
-        var seen = Set<String>()
-        var ordered: [String] = []
-        let source = recentEmojis + EmojiCategory.allCases.filter { $0 != .recent }.flatMap { $0.emojis }
-        for emoji in source where seen.insert(emoji).inserted {
-            ordered.append(emoji)
-        }
-        return ordered
-    }
-
-    private var emojiSearchTokens: [String] {
-        emojiSearchText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
-    }
-
-    private var emojisForPicker: [String] {
-        guard !emojiSearchTokens.isEmpty else {
-            return emojisForSelectedCategory
-        }
-        return allAvailableEmojisInOrder.filter { emojiMatchesSearch($0) }
-    }
-
-    private func emojiMatchesSearch(_ emoji: String) -> Bool {
-        guard !emojiSearchTokens.isEmpty else { return true }
-        let keywords = Self.emojiKeywordIndex[emoji] ?? ""
-        let searchableText = "\(emoji) \(keywords)".lowercased()
-        return emojiSearchTokens.allSatisfy { searchableText.contains($0) }
-    }
-
-    private func insertEmoji(_ emoji: String) {
-        recentEmojis.removeAll { $0 == emoji }
-        recentEmojis.insert(emoji, at: 0)
-        if recentEmojis.count > 24 {
-            recentEmojis = Array(recentEmojis.prefix(24))
-        }
-        messageText += emoji
-        scheduleFeeEstimate(for: messageText)
-        chatService.setDraft(messageText, for: contact.address)
-        isMessageFocused = true
     }
 
     private func sendButtonWithGesture(tapAction: @escaping () -> Void, isDisabled: Bool) -> some View {
@@ -1779,7 +1549,6 @@ struct ChatDetailView: View {
             isRespondingHandshake = true
             defer { isRespondingHandshake = false }
             try? await chatService.respondToHandshake(for: contact, accept: false)
-            contactsManager.setContactArchived(address: contact.address, isArchived: true)
         }
     }
 
@@ -1849,20 +1618,24 @@ struct ChatDetailView: View {
         Group {
             switch inputMode {
             case .message:
-                ComposerTextView(
-                    text: $messageText,
-                    isFocused: $isMessageFocused,
-                    onTextChange: { newValue in
-                        scheduleFeeEstimate(for: newValue)
-                        if inputMode == .message {
-                            chatService.setDraft(newValue, for: contact.address)
-                        }
-                    },
-                    onSubmit: { handleSend() }
-                )
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(glassBackground(cornerRadius: 20))
+                if let pendingPhotoImage {
+                    pendingPhotoRow(pendingPhotoImage)
+                } else {
+                    ComposerTextView(
+                        text: $messageText,
+                        isFocused: $isMessageFocused,
+                        onTextChange: { newValue in
+                            scheduleFeeEstimate(for: newValue)
+                            if inputMode == .message {
+                                chatService.setDraft(newValue, for: contact.address)
+                            }
+                        },
+                        onSubmit: { handleSend() }
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(glassBackground(cornerRadius: 20))
+                }
             case .payment:
                 paymentField
             case .audio:
@@ -1915,14 +1688,43 @@ struct ChatDetailView: View {
         }
     }
 
+    private func pendingPhotoRow(_ image: UIImage) -> some View {
+        HStack(spacing: 10) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 32, height: 32)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            if isCompressingPhoto {
+                ProgressView()
+                Text("Sending…")
+                    .foregroundColor(.secondary)
+            } else {
+                Text("Photo")
+                    .foregroundColor(.primary)
+            }
+            Spacer()
+            Button {
+                cancelPendingPhoto()
+            } label: {
+                Image(systemName: "trash")
+                    .foregroundColor(.red)
+            }
+            .disabled(isCompressingPhoto)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(glassBackground(cornerRadius: 20))
+    }
+
     private var feeBubble: some View {
         HStack(spacing: 6) {
             if isEstimatingFee {
-                Text("fee: ---- sompi")
+                Text("fee: -------- KAS")
             } else if let fee = feeEstimateSompi ?? recordingFeeSompi {
                 Text(localizedFeeText(fee))
             } else {
-                Text("fee: -- sompi")
+                Text("fee: -- KAS")
             }
         }
         .font(.caption2)
@@ -2031,10 +1833,6 @@ struct ChatDetailView: View {
         let wasKeyboardOpen = isMessageFocused || isPaymentFocused
 
         inputMode = mode
-        if mode != .message {
-            showEmojiPicker = false
-            emojiSearchText = ""
-        }
         feeEstimateSompi = nil
         isEstimatingFee = false
         if mode != .payment { amountText = "" }
@@ -2091,7 +1889,11 @@ struct ChatDetailView: View {
     private func handleSend() {
         switch inputMode {
         case .message:
-            sendMessage()
+            if pendingPhotoImage != nil {
+                sendPendingPhoto()
+            } else {
+                sendMessage()
+            }
         case .payment:
             let normalized = amountText.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !normalized.isEmpty else { return }
@@ -2175,13 +1977,90 @@ struct ChatDetailView: View {
             && !message.isOutgoing
             && !hasOutgoingHandshakeMessage
             && !isDeclined
+        let replyQuote = MessageReplyCodec.parse(message.content)
+        let senderAddress = message.isOutgoing ? myAddress : contact.address
         MessageBubbleView(
             message: message,
             onCopy: showToast,
             onRetry: retryOutgoingMessage,
             onAcceptHandshake: needsHandshakeResponse ? { acceptHandshake() } : nil,
-            onDeclineHandshake: needsHandshakeResponse ? { declineHandshake() } : nil
+            onDeclineHandshake: needsHandshakeResponse ? { declineHandshake() } : nil,
+            replyQuote: replyQuote,
+            replySenderDisplayName: replyQuote.map { replyDisplayName(for: $0.replyToSender) },
+            onReply: { chatService.startReplyTo(message) },
+            avatarURLString: senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
+            avatarDisplayName: replyDisplayName(for: senderAddress ?? contact.address),
+            revealOffset: revealOffset,
+            maxRevealOffset: maxRevealOffset
         )
+    }
+
+    /// "You" for our own address, else the contact's alias - matches broadcast rooms'
+    /// `displayName(for:)`, simplified since a 1:1 chat only ever has two possible senders.
+    private func replyDisplayName(for address: String) -> String {
+        if address == walletManager.currentWallet?.publicAddress {
+            return "You"
+        }
+        return contact.alias.isEmpty ? String(address.suffix(10)) : contact.alias
+    }
+
+    private func replyBanner(for reply: ChatMessage) -> some View {
+        let replyQuote = MessageReplyCodec.parse(reply.content)
+        let previewText = replyQuote?.text ?? reply.content
+        return HStack(spacing: 8) {
+            Image(systemName: "arrowshape.turn.up.left.fill")
+                .font(.caption)
+                .foregroundColor(.accentColor)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Replying to \(replyDisplayName(for: reply.senderAddress))")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.accentColor)
+                Text(VoiceMessageSniff.isVoiceMessage(previewText) ? "🎤 Audio message" : previewText)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button {
+                chatService.cancelReply()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(UIColor.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func shouldShowDateDivider(at index: Int, in messages: [ChatMessage]) -> Bool {
+        guard index > 0 else { return true }
+        return !Calendar.current.isDate(messages[index - 1].timestamp, inSameDayAs: messages[index].timestamp)
+    }
+
+    private func dateDividerView(for date: Date) -> some View {
+        HStack {
+            Spacer()
+            Text(formatDateDivider(date))
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
+                .background(Color(UIColor.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            Spacer()
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func formatDateDivider(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) { return "Today" }
+        if calendar.isDateInYesterday(date) { return "Yesterday" }
+        return SharedFormatting.chatDay.string(from: date)
     }
 
     private func retryOutgoingMessage(_ message: ChatMessage) {
@@ -2201,7 +2080,7 @@ struct ChatDetailView: View {
         guard isFeeEstimationEnabled else { return false }
         switch inputMode {
         case .message:
-            return !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return pendingPhotoImage != nil || !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .payment:
             return !amountText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .audio:
@@ -2253,6 +2132,30 @@ struct ChatDetailView: View {
                 }
             }
         }
+    }
+
+    /// Rough live estimate for a picked-but-not-yet-compressed photo, matching Android's
+    /// formula - the real send always measures the actual compressed bytes.
+    private func schedulePhotoFeeEstimate() {
+        feeEstimateTask?.cancel()
+        guard isFeeEstimationEnabled else {
+            feeEstimateSompi = nil
+            isEstimatingFee = false
+            return
+        }
+        guard let wallet = walletManager.currentWallet,
+              let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) else {
+            feeEstimateSompi = nil
+            isEstimatingFee = false
+            return
+        }
+        let dummyPayload = Data(count: ImagePrep.estimatedWirePayloadSize())
+        feeEstimateSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
+            payload: dummyPayload,
+            inputCount: 1,
+            senderScriptPubKey: senderScriptPubKey
+        )
+        isEstimatingFee = false
     }
 
     private func schedulePaymentFee(for text: String) {
@@ -2412,6 +2315,46 @@ struct ChatDetailView: View {
         feeEstimateSompi = nil
         stopPreview()
         previewLabel = "--:--"
+    }
+
+    private func cancelPendingPhoto() {
+        pendingPhotoImage = nil
+        photoPickerItem = nil
+        feeEstimateSompi = nil
+        isEstimatingFee = false
+    }
+
+    private func sendPendingPhoto() {
+        Task { await sendPendingPhotoAsync() }
+    }
+
+    private func sendPendingPhotoAsync() async {
+        guard let image = pendingPhotoImage else { return }
+        isCompressingPhoto = true
+        isSending = true
+        defer {
+            isCompressingPhoto = false
+            isSending = false
+        }
+        do {
+            let imageData = try ImagePrep.prepareForChatMessage(image)
+            try await chatService.sendImage(to: contact, imageData: imageData, fileName: "photo.jpg", mimeType: "image/jpeg")
+            await MainActor.run {
+                pendingPhotoImage = nil
+                photoPickerItem = nil
+                feeEstimateSompi = nil
+                isEstimatingFee = false
+            }
+        } catch {
+            if shouldPromptGiftClaim(for: error) {
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .showGiftClaim, object: nil)
+                }
+            }
+            await MainActor.run {
+                self.error = displayErrorMessage(error)
+            }
+        }
     }
 
     private func sendAudio() {
@@ -2700,10 +2643,10 @@ struct ChatDetailView: View {
 
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
         let template = NSLocalizedString(
-            "fee: %@ sompi",
-            comment: "Fee label with resolved fee amount in sompi"
+            "fee: %@ KAS",
+            comment: "Fee label with resolved fee amount in KAS"
         )
-        return String(format: template, locale: Locale.current, String(feeSompi))
+        return String(format: template, locale: Locale.current, formatKaspaExact(feeSompi))
     }
 
     private func localizedAvailableBalanceText(_ balanceSompi: UInt64?) -> String {
@@ -2967,7 +2910,7 @@ private enum WebMOpusEncodingError: LocalizedError {
     }
 }
 
-private struct WebMOpusEncoder {
+struct WebMOpusEncoder {
     static func encode(pcmURL: URL, outputURL: URL, bitrate: Int32, sampleRate: Double, maxBytes: Int? = nil) async throws {
         let pcmSamples = try await readFloatSamples(from: pcmURL, sampleRate: sampleRate)
 
@@ -3370,7 +3313,7 @@ private enum WebMOpusEncodingError: LocalizedError {
     }
 }
 
-private struct WebMOpusEncoder {
+struct WebMOpusEncoder {
     static func encode(pcmURL: URL, outputURL: URL, bitrate: Int32, sampleRate: Double, maxBytes: Int? = nil) async throws {
         throw WebMOpusEncodingError.unsupportedPlatform
     }

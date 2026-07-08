@@ -164,19 +164,6 @@ extension ChatService {
                 unreadCount = convMeta?.unreadCount ?? 0
             }
 
-            // Sync archived state between CloudKit (Core Data) and local Contact (UserDefaults)
-            if let convMeta = convMeta {
-                if convMeta.isArchived != contact.isArchived {
-                    // CloudKit state differs from local — adopt CloudKit value
-                    // setContactArchived write-through to Core Data is idempotent (no-op if already matching)
-                    contactsManager.setContactArchived(address: contactAddress, isArchived: convMeta.isArchived)
-                }
-            } else if contact.isArchived {
-                // One-time migration: Contact archived in UserDefaults but no CDConversation yet
-                // Write local state to Core Data so CloudKit picks it up
-                messageStore.setConversationArchived(contactAddress: contactAddress, isArchived: true)
-            }
-
             loaded.append(Conversation(id: conversationId, contact: contact, messages: dedupedWindow, unreadCount: unreadCount))
         }
 

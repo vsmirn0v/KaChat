@@ -24,8 +24,6 @@ struct ConversationMeta {
     let lastReadTxId: String?
     let lastReadBlockTime: Int64
     let lastReadAt: Date?
-    // Archived state (synced via CloudKit)
-    let isArchived: Bool
 }
 
 final class MessageStore {
@@ -395,8 +393,7 @@ final class MessageStore {
                         lastMessageAt: conversation.lastMessageAt,
                         lastReadTxId: conversation.lastReadTxId,
                         lastReadBlockTime: conversation.lastReadBlockTime,
-                        lastReadAt: conversation.lastReadAt,
-                        isArchived: conversation.isArchived
+                        lastReadAt: conversation.lastReadAt
                     )
                     if let existing = result[conversation.contactAddress] {
                         // Merge duplicate rows deterministically:
@@ -1078,43 +1075,54 @@ final class MessageStore {
         }
     }
 
-    func setConversationArchived(contactAddress: String, isArchived: Bool) {
+    /// Permanently deletes every message and the conversation row for a single contact - the
+    /// per-contact counterpart to `clearAll()`, used by `ContactsManager.deleteContact` so a
+    /// deleted chat's history doesn't linger even though its `Contact` is gone.
+    ///
+    /// Deletes via plain `context.delete(...)` + `save()` rather than `NSBatchDeleteRequest`:
+    /// a batch delete executes directly against the SQLite store and bypasses the managed object
+    /// context's save cycle, so `NSPersistentCloudKitContainer` never captures it in persistent
+    /// history and never mirrors it to CloudKit - the "deleted" chat would silently reappear via
+    /// iCloud sync on this or other devices. A normal delete+save is what lets deletions propagate
+    /// to iCloud (same pattern already used by `dedupeMessagesIfNeeded`).
+    func deleteConversation(contactAddress: String) {
         guard ensureStoreLoaded() else { return }
         let walletAddr = currentWalletAddress
         let context = container.newBackgroundContext()
-        context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
-        context.perform {
-            let request = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
+        context.performAndWait {
+            guard !self.container.persistentStoreCoordinator.persistentStores.isEmpty else { return }
+
+            let messageFetch = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+            let conversationFetch = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
             if let walletAddr = walletAddr {
-                request.predicate = NSPredicate(
+                messageFetch.predicate = NSPredicate(
                     format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)",
-                    contactAddress,
-                    walletAddr
+                    contactAddress, walletAddr
+                )
+                conversationFetch.predicate = NSPredicate(
+                    format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)",
+                    contactAddress, walletAddr
                 )
             } else {
-                request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+                messageFetch.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+                conversationFetch.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
             }
-            do {
-                var conversations = try context.fetch(request)
-                if conversations.isEmpty {
-                    conversations = [self.fetchOrCreateConversation(contactAddress: contactAddress, walletAddress: walletAddr, in: context)]
-                }
 
-                var didChange = false
-                for conv in conversations {
-                    if conv.isArchived != isArchived {
-                        conv.isArchived = isArchived
-                        conv.updatedAt = Date()
-                        if let walletAddr = walletAddr {
-                            conv.walletAddress = walletAddr
-                        }
-                        didChange = true
-                    }
+            do {
+                let messages = try context.fetch(messageFetch)
+                for message in messages {
+                    context.delete(message)
                 }
-                guard didChange else { return }
-                try context.save()
+                let conversations = try context.fetch(conversationFetch)
+                for conversation in conversations {
+                    context.delete(conversation)
+                }
+                if context.hasChanges {
+                    try context.save()
+                }
+                self.logInfo("[MessageStore] Deleted conversation for %@: %d messages", contactAddress, messages.count)
             } catch {
-                self.logInfo("[MessageStore] Failed to update conversation archived: \(error)")
+                self.logInfo("[MessageStore] Failed to delete conversation for \(contactAddress): \(error)")
             }
         }
     }

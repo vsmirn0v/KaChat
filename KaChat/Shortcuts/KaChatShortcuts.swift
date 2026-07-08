@@ -5,7 +5,6 @@ import Foundation
 private struct ShortcutContactPayload: Codable {
     let alias: String
     let address: String
-    let isArchived: Bool
     let isAutoAdded: Bool
     let lastMessageAtMs: Int64?
 }
@@ -105,9 +104,6 @@ struct GetKaChatContactsIntent: AppIntent {
     @Parameter(title: "Search")
     var searchText: String?
 
-    @Parameter(title: "Include Archived", default: false)
-    var includeArchived: Bool
-
     @Parameter(title: "Limit", default: 50)
     var limit: Int
 
@@ -116,9 +112,7 @@ struct GetKaChatContactsIntent: AppIntent {
         let normalizedLimit = KaChatShortcutHelpers.normalizedLimit(limit)
         let query = searchText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-        let source: [Contact] = includeArchived
-            ? ContactsManager.shared.contacts
-            : ContactsManager.shared.activeContacts
+        let source: [Contact] = ContactsManager.shared.contacts
 
         let filtered: [Contact]
         if query.isEmpty {
@@ -138,7 +132,6 @@ struct GetKaChatContactsIntent: AppIntent {
                     for: ShortcutContactPayload(
                         alias: contact.alias,
                         address: contact.address,
-                        isArchived: contact.isArchived,
                         isAutoAdded: contact.isAutoAdded,
                         lastMessageAtMs: contact.lastMessageAt.map { Int64($0.timeIntervalSince1970 * 1000) }
                     )

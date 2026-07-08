@@ -306,4 +306,34 @@ struct KaspaAddress {
 
         return script
     }
+
+    /// Inverse of `scriptPublicKey(from:)` - recovers the address that a script pays to.
+    /// Used to derive a broadcast message's sender directly from a self-stash tx's own
+    /// output, without needing the sender's public key ahead of time.
+    static func address(fromScriptPublicKey script: Data, hrp: String = "kaspa") -> String? {
+        guard script.count >= 2 else { return nil }
+        let opcode = script[script.index(before: script.endIndex)]
+        let lengthByte = Int(script[script.startIndex])
+
+        switch opcode {
+        case 0xAC, 0xAB: // OP_CHECKSIG (Schnorr) / OP_CHECKSIGECDSA
+            guard script.count == 2 + lengthByte,
+                  lengthByte == 32 || lengthByte == 33 else { return nil }
+            let pubKey = script.subdata(in: script.index(script.startIndex, offsetBy: 1)..<script.index(script.startIndex, offsetBy: 1 + lengthByte))
+            let type: KaspaAddressType = opcode == 0xAC ? .pubKey : .pubKeyECDSA
+            return KaspaAddress(hrp: hrp, type: type, payload: pubKey).address
+
+        case 0x87: // OP_EQUAL - P2SH shape: OP_BLAKE2B <len> <hash> OP_EQUAL
+            guard script.count >= 3, script[script.startIndex] == 0xAA else { return nil }
+            let hashLength = Int(script[script.index(after: script.startIndex)])
+            let hashStart = script.index(script.startIndex, offsetBy: 2)
+            guard script.count == 3 + hashLength,
+                  let hashEnd = script.index(hashStart, offsetBy: hashLength, limitedBy: script.endIndex) else { return nil }
+            let scriptHash = script.subdata(in: hashStart..<hashEnd)
+            return KaspaAddress(hrp: hrp, type: .scriptHash, payload: scriptHash).address
+
+        default:
+            return nil
+        }
+    }
 }

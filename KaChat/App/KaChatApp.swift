@@ -11,6 +11,7 @@ struct KaChatApp: App {
     @StateObject private var settingsViewModel = SettingsViewModel()
     @StateObject private var pushManager = PushNotificationManager.shared
     @StateObject private var giftService = GiftService.shared
+    @StateObject private var broadcastService = BroadcastService.shared
     @State private var pendingOutboundShareId: String?
     @State private var isProcessingOutboundShare = false
     @Environment(\.scenePhase) private var scenePhase
@@ -31,6 +32,7 @@ struct KaChatApp: App {
                 .environmentObject(settingsViewModel)
                 .environmentObject(pushManager)
                 .environmentObject(giftService)
+                .environmentObject(broadcastService)
                 .onAppear {
                     ChatService.shared.settingsViewModel = settingsViewModel
                     if #available(iOS 16.0, macCatalyst 16.0, *) {
@@ -387,9 +389,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 response.notification.request.content.userInfo
             )
         }
-        // The threadIdentifier contains the contact address
-        let contactAddress = response.notification.request.content.threadIdentifier
-        if !contactAddress.isEmpty {
+        // The threadIdentifier contains the contact address, or "broadcast:<channel>" for a
+        // broadcast room notification (see `BroadcastService.notifyIfEnabled`).
+        let threadIdentifier = response.notification.request.content.threadIdentifier
+        if threadIdentifier.hasPrefix("broadcast:") {
+            let channel = String(threadIdentifier.dropFirst("broadcast:".count))
+            if !channel.isEmpty {
+                // Store pending navigation for cold start scenario
+                Task { @MainActor in
+                    BroadcastService.shared.pendingBroadcastNavigation = channel
+                }
+
+                // Also post notification for already-running views
+                NotificationCenter.default.post(
+                    name: .openBroadcast,
+                    object: nil,
+                    userInfo: ["channel": channel]
+                )
+            }
+        } else if !threadIdentifier.isEmpty {
+            let contactAddress = threadIdentifier
             // Store pending navigation for cold start scenario
             Task { @MainActor in
                 ChatService.shared.pendingChatNavigation = contactAddress
@@ -419,5 +438,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
 extension Notification.Name {
     static let openChat = Notification.Name("openChat")
+    static let openBroadcast = Notification.Name("openBroadcast")
     static let showGiftClaim = Notification.Name("showGiftClaim")
 }

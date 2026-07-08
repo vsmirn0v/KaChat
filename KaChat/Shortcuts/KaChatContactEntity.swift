@@ -46,7 +46,7 @@ struct KaChatContactEntityQuery: EntityStringQuery {
         }
 
         return await MainActor.run {
-            ContactsManager.shared.searchContacts(query, includeArchived: true)
+            ContactsManager.shared.searchContacts(query)
                 .sorted { $0.alias.localizedCaseInsensitiveCompare($1.alias) == .orderedAscending }
                 .map { KaChatContactEntity(id: $0.address, alias: $0.alias) }
         }

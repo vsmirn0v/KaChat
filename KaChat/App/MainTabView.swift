@@ -55,6 +55,10 @@ struct MainTabView: View {
             // Switch to Chats tab when notification is tapped
             selectedTab = 1
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { _ in
+            // Switch to Chats tab when a broadcast-room notification is tapped
+            selectedTab = 1
+        }
         .onReceive(NotificationCenter.default.publisher(for: .showGiftClaim)) { _ in
             presentGiftSheetIfEligibleForZeroBalance()
         }
@@ -150,4 +154,5 @@ struct MainTabView: View {
         .environmentObject(ChatService.shared)
         .environmentObject(SettingsViewModel())
         .environmentObject(GiftService.shared)
+        .environmentObject(BroadcastService.shared)
 }

@@ -7,11 +7,14 @@ struct ChatListView: View {
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @EnvironmentObject var broadcastService: BroadcastService
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var searchText = ""
     @State private var selectedContact: Contact?
     @State private var showAddContact = false
+    @State private var showBroadcastList = false
+    @State private var pendingBroadcastChannel: String?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -21,6 +24,7 @@ struct ChatListView: View {
     @State private var searchFilterTask: Task<Void, Never>?
     @State private var avatarPrefetchTask: Task<Void, Never>?
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .all
+    @State private var contactPendingDelete: Contact?
 
     private let conversationPageSize = 80
     private let conversationPrefetchThreshold = 12
@@ -98,6 +102,36 @@ struct ChatListView: View {
                     showAddContact = false
                 }
             }
+            .alert(
+                "Delete Chat with \(contactPendingDelete?.alias ?? "")",
+                isPresented: Binding(
+                    get: { contactPendingDelete != nil },
+                    set: { if !$0 { contactPendingDelete = nil } }
+                )
+            ) {
+                Button("Delete", role: .destructive) {
+                    if let contact = contactPendingDelete {
+                        deleteConversation(contact)
+                    }
+                    contactPendingDelete = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    contactPendingDelete = nil
+                }
+            } message: {
+                Text("This permanently deletes every message with them, including from iCloud, so it's removed from your other devices too. This cannot be undone.")
+            }
+            .navigationDestination(isPresented: Binding(
+                get: { showBroadcastList },
+                set: { isPresented in
+                    showBroadcastList = isPresented
+                    if !isPresented {
+                        pendingBroadcastChannel = nil
+                    }
+                }
+            )) {
+                BroadcastListView(initialChannel: pendingBroadcastChannel)
+            }
     }
 
     @ViewBuilder
@@ -112,18 +146,16 @@ struct ChatListView: View {
 
     @ViewBuilder
     private var chatListContent: some View {
-        Group {
-            if chatService.conversations.isEmpty {
-                emptyStateView
-            } else {
-                conversationsList
-            }
-        }
+        conversationsList
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
             handleOpenChatNotification(notification)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { notification in
+            handleOpenBroadcastNotification(notification)
+        }
         .onAppear {
             checkPendingNavigation()
+            checkPendingBroadcastNavigation()
             requestNotificationPermissionIfNeeded()
             loadedConversationCount = conversationPageSize
             refreshFilteredConversations()
@@ -160,6 +192,11 @@ struct ChatListView: View {
                 checkPendingNavigation()
             }
         }
+        .onChange(of: broadcastService.pendingBroadcastNavigation) { newValue in
+            if newValue != nil {
+                checkPendingBroadcastNavigation()
+            }
+        }
     }
 
     private func handleOpenChatNotification(_ notification: Notification) {
@@ -171,6 +208,24 @@ struct ChatListView: View {
         guard let contactAddress = chatService.pendingChatNavigation else { return }
         chatService.pendingChatNavigation = nil
         navigateToChat(address: contactAddress)
+    }
+
+    private func handleOpenBroadcastNotification(_ notification: Notification) {
+        guard let channel = notification.userInfo?["channel"] as? String else { return }
+        navigateToBroadcast(channel: channel)
+    }
+
+    private func checkPendingBroadcastNavigation() {
+        guard let channel = broadcastService.pendingBroadcastNavigation else { return }
+        broadcastService.pendingBroadcastNavigation = nil
+        navigateToBroadcast(channel: channel)
+    }
+
+    /// Opens the broadcast list already pushed one level deeper into the tapped room, matching
+    /// `navigateToChat`'s cold-start/already-running handling for 1:1 chats.
+    private func navigateToBroadcast(channel: String) {
+        pendingBroadcastChannel = channel
+        showBroadcastList = true
     }
 
     private func navigateToChat(address: String) {
@@ -259,32 +314,47 @@ struct ChatListView: View {
         }
 
         return List {
-            ForEach(Array(displayed.enumerated()), id: \.element.id) { index, conversation in
+            if searchText.isEmpty {
                 Button {
-                    selectedContact = conversation.contact
+                    showBroadcastList = true
                 } label: {
-                    ConversationRow(conversation: conversation)
+                    BroadcastEntryRow()
                 }
-                .buttonStyle(ChatRowPressStyle())
-                .listRowBackground(
-                    shouldUseSplitLayout && selectedContact?.address == conversation.contact.address
-                        ? Color.accentColor.opacity(0.14)
-                        : Color.clear
-                )
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            }
+
+            if displayed.isEmpty {
+                if searchText.isEmpty {
+                    emptyStateView
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
+            } else {
+                ForEach(Array(displayed.enumerated()), id: \.element.id) { index, conversation in
                     Button {
-                        archiveConversation(conversation.contact.address)
+                        selectedContact = conversation.contact
                     } label: {
-                        Label("Archive", systemImage: "archivebox")
+                        ConversationRow(conversation: conversation)
                     }
-                    .tint(.gray)
-                }
-                .onAppear {
-                    maybeLoadMoreConversations(
-                        currentIndex: index,
-                        displayedCount: displayed.count,
-                        totalCount: totalCount
+                    .buttonStyle(ChatRowPressStyle())
+                    .listRowBackground(
+                        shouldUseSplitLayout && selectedContact?.address == conversation.contact.address
+                            ? Color.accentColor.opacity(0.14)
+                            : Color.clear
                     )
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            contactPendingDelete = conversation.contact
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                    .onAppear {
+                        maybeLoadMoreConversations(
+                            currentIndex: index,
+                            displayedCount: displayed.count,
+                            totalCount: totalCount
+                        )
+                    }
                 }
             }
         }
@@ -426,10 +496,11 @@ struct ChatListView: View {
         }
     }
 
-    private func archiveConversation(_ address: String) {
-        contactsManager.setContactArchived(address: address, isArchived: true)
+    private func deleteConversation(_ contact: Contact) {
+        chatService.removeConversation(for: contact.address)
+        contactsManager.deleteContact(contact)
         chatService.checkAndResubscribeIfNeeded()
-        showToast("Chat archived.")
+        showToast("Chat deleted.")
     }
 
     private func maybeLoadMoreConversations(currentIndex: Int, displayedCount: Int, totalCount: Int) {
@@ -605,19 +676,23 @@ struct ConversationRow: View {
         }
 
         let result: String
+        // Unwrap a reply envelope first, so a reply's own text (or its attachment, below) is
+        // what's previewed rather than the raw `{"type":"reply",...}` JSON.
+        let unwrapped = MessageReplyCodec.unwrappedText(content)
+
         // Check if content is a file JSON payload
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = unwrapped.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else {
-            result = content
+            result = unwrapped
             Self.previewCache.setObject(result as NSString, forKey: key)
             return result
         }
 
-        guard let data = content.data(using: .utf8),
+        guard let data = unwrapped.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               json["type"] as? String == "file",
               let mimeType = json["mimeType"] as? String else {
-            result = content
+            result = unwrapped
             Self.previewCache.setObject(result as NSString, forKey: key)
             return result
         }
@@ -724,6 +799,28 @@ private struct ShimmerOverlay: View {
     }
 }
 
+struct BroadcastEntryRow: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(Color.accentColor.opacity(0.2))
+                .frame(width: 50, height: 50)
+                .overlay(
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                        .font(.system(size: 20))
+                        .foregroundColor(.accentColor)
+                )
+
+            Text("Broadcasts")
+                .font(.headline)
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+}
+
 struct ContactRow: View {
     let contact: Contact
     @EnvironmentObject var contactsManager: ContactsManager
@@ -773,4 +870,5 @@ struct ContactRow: View {
         .environmentObject(ChatService.shared)
         .environmentObject(ContactsManager.shared)
         .environmentObject(WalletManager.shared)
+        .environmentObject(BroadcastService.shared)
 }

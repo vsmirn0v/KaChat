@@ -4,6 +4,10 @@ import UIKit
 
 struct ChatInfoView: View {
     @Binding var contact: Contact
+    var title: String = "Chat Info"
+    /// Per-contact notification overrides only make sense for a 1:1 chat thread - hidden when
+    /// viewing a broadcast sender's profile (there's no per-sender notification setting there).
+    var showsNotificationSettings: Bool = true
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
@@ -188,17 +192,19 @@ struct ChatInfoView: View {
                     }
                 }
 
-                Section {
-                    Picker("Incoming Notifications", selection: $notificationModeOverride) {
-                        Text("Default (\(settingsViewModel.settings.defaultIncomingNotificationMode.displayName))")
-                            .tag(ContactNotificationMode?.none)
-                        Text("Off").tag(ContactNotificationMode?.some(.off))
-                        Text("No Sound").tag(ContactNotificationMode?.some(.noSound))
-                        Text("Sound").tag(ContactNotificationMode?.some(.sound))
+                if showsNotificationSettings {
+                    Section {
+                        Picker("Incoming Notifications", selection: $notificationModeOverride) {
+                            Text("Default (\(settingsViewModel.settings.defaultIncomingNotificationMode.displayName))")
+                                .tag(ContactNotificationMode?.none)
+                            Text("Off").tag(ContactNotificationMode?.some(.off))
+                            Text("No Sound").tag(ContactNotificationMode?.some(.noSound))
+                            Text("Sound").tag(ContactNotificationMode?.some(.sound))
+                        }
+                        .pickerStyle(.menu)
+                    } footer: {
+                        Text("Default follows Settings > Notifications. Off disables notifications for this contact.")
                     }
-                    .pickerStyle(.menu)
-                } footer: {
-                    Text("Default follows Settings > Notifications. Off disables notifications for this contact.")
                 }
 
                 // TODO: Fix realtimeUpdatesDisabled feature - currently broken, hidden until fixed
@@ -355,7 +361,7 @@ struct ChatInfoView: View {
                 }
             }
             .toast(message: toastMessage, style: toastStyle)
-            .navigationTitle("Chat Info")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showQR) {
                 NavigationStack {
@@ -444,7 +450,6 @@ struct ChatInfoView: View {
                         saveChanges()
                         dismiss()
                     }
-                    .disabled(editedAlias.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             .onAppear {
@@ -513,9 +518,9 @@ struct ChatInfoView: View {
     private func saveChanges() {
         var updatedContact = contact
         let trimmedAlias = editedAlias.trimmingCharacters(in: .whitespaces)
-        if !trimmedAlias.isEmpty {
-            updatedContact.alias = trimmedAlias
-        }
+        updatedContact.alias = trimmedAlias.isEmpty
+            ? Contact.generateDefaultAlias(from: contact.address)
+            : trimmedAlias
         updatedContact.notificationModeOverride = notificationModeOverride
         updatedContact.systemContactId = linkedSystemContactId
         updatedContact.systemDisplayNameSnapshot = linkedSystemContactName

@@ -36,6 +36,22 @@ final class UtxoSubscriptionManager: ObservableObject {
     private var standbyConnection: GRPCStreamConnection?
     private var primaryHandlerId: UUID?
 
+    /// Whether a consumer (e.g. broadcast channel scanning) currently wants block-added
+    /// notifications. Piggybacks on the primary UTXO subscription connection rather than
+    /// opening a second stream; re-registered automatically on every (re)connect of that
+    /// connection, including failover and epoch-change resubscribes.
+    private var wantsBlockAdded = false
+
+    /// Last time an actual block-added push notification arrived (regardless of its content).
+    /// Kaspa produces blocks roughly once a second, so if `wantsBlockAdded` is true and nothing
+    /// has arrived in a while, the node's subscription for it has likely silently expired/dropped
+    /// server-side even though the connection itself still answers pings fine (getInfo has
+    /// nothing to do with whether push notifications are still flowing) - this is used to detect
+    /// that and proactively re-send the subscription request rather than requiring the user to
+    /// force-quit the app to recover.
+    private var lastBlockAddedNotificationAt: Date?
+    private let blockAddedStaleThreshold: TimeInterval = 20
+
     /// Health check timer
     private var healthCheckTask: Task<Void, Never>?
 
@@ -208,6 +224,34 @@ final class UtxoSubscriptionManager: ObservableObject {
         notificationHandlers.removeValue(forKey: id)
     }
 
+    /// Enable or disable block-added notifications on the primary connection.
+    /// There is no protocol-level "stop notifying" for block-added, so disabling only
+    /// stops us re-registering on future reconnects - the current connection may keep
+    /// pushing block notifications, which are simply ignored client-side.
+    func setBlockAddedWanted(_ wanted: Bool) async {
+        wantsBlockAdded = wanted
+        guard wanted, state == .subscribed, let conn = primaryConnection else { return }
+        await sendNotifyBlockAdded(on: conn)
+    }
+
+    private func sendNotifyBlockAdded(on conn: GRPCStreamConnection) async {
+        var msg = Protowire_KaspadMessage()
+        msg.notifyBlockAddedRequest = Protowire_NotifyBlockAddedRequestMessage()
+        do {
+            _ = try await conn.sendRequest(
+                msg,
+                type: .notifyBlockAdded,
+                timeout: OperationClass.subscribeUtxosChanged.timeout
+            )
+            // Baseline the staleness clock from here, not from the next actual notification -
+            // otherwise a node that's simply slow for the first block after subscribing would
+            // look "stale" and trigger an immediate, unnecessary re-send.
+            lastBlockAddedNotificationAt = Date()
+        } catch {
+            NSLog("[UtxoSub] Failed to register block-added notifications: %@", error.localizedDescription)
+        }
+    }
+
     /// Reconnect to lowest latency node if not already connected to it
     func reconnectToBestNodeIfNeeded() async {
         // Only reconnect if currently subscribed
@@ -324,6 +368,9 @@ final class UtxoSubscriptionManager: ObservableObject {
         if isPrimary {
             primaryConnection = conn
             primaryHandlerId = handlerId
+            if wantsBlockAdded {
+                await sendNotifyBlockAdded(on: conn)
+            }
         } else {
             standbyConnection = conn
         }
@@ -333,6 +380,9 @@ final class UtxoSubscriptionManager: ObservableObject {
 
     private func handleNotification(_ type: KaspaRPCNotification, data: Data) {
         lastNotificationAt = Date()
+        if type == .blockAdded {
+            lastBlockAddedNotificationAt = Date()
+        }
 
         // Forward to all handlers
         for handler in notificationHandlers.values {
@@ -387,6 +437,19 @@ final class UtxoSubscriptionManager: ObservableObject {
         } catch {
             NSLog("[UtxoSub] Ping failed on %@ - triggering immediate failover: %@", endpoint.key, error.localizedDescription)
             await handlePrimaryFailure()
+            return
+        }
+
+        // The ping above only proves the connection still answers requests - it says nothing
+        // about whether the node is still actually pushing block-added notifications on it. Kaspa
+        // produces a block roughly every second, so total silence for this long while we still
+        // want them means that specific subscription silently died server-side; re-register it.
+        if wantsBlockAdded {
+            let staleness = lastBlockAddedNotificationAt.map { Date().timeIntervalSince($0) } ?? .infinity
+            if staleness > blockAddedStaleThreshold {
+                NSLog("[UtxoSub] Block-added notifications stale (%.0fs) - re-registering", staleness)
+                await sendNotifyBlockAdded(on: conn)
+            }
         }
     }
 

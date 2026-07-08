@@ -113,7 +113,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
     var isAutoAdded: Bool
     var notificationModeOverride: ContactNotificationMode?
     var realtimeUpdatesDisabled: Bool
-    var isArchived: Bool
     // Local-only enrichment from iOS/macOS system contacts.
     var systemContactId: String?
     var systemDisplayNameSnapshot: String?
@@ -130,7 +129,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         isAutoAdded: Bool = false,
         notificationModeOverride: ContactNotificationMode? = nil,
         realtimeUpdatesDisabled: Bool = false,
-        isArchived: Bool = false,
         systemContactId: String? = nil,
         systemDisplayNameSnapshot: String? = nil,
         systemContactLinkSource: SystemContactLinkSource? = nil,
@@ -145,7 +143,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         self.isAutoAdded = isAutoAdded
         self.notificationModeOverride = notificationModeOverride
         self.realtimeUpdatesDisabled = realtimeUpdatesDisabled
-        self.isArchived = isArchived
         self.systemContactId = systemContactId
         self.systemDisplayNameSnapshot = systemDisplayNameSnapshot
         self.systemContactLinkSource = systemContactLinkSource
@@ -163,7 +160,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         case notificationModeOverride
         case notificationsMuted // Legacy key migrated into notificationModeOverride
         case realtimeUpdatesDisabled
-        case isArchived
         case systemContactId
         case systemDisplayNameSnapshot
         case systemContactLinkSource
@@ -187,7 +183,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
             notificationModeOverride = legacyMuted ? .off : nil
         }
         realtimeUpdatesDisabled = try container.decodeIfPresent(Bool.self, forKey: .realtimeUpdatesDisabled) ?? false
-        isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
         systemContactId = try container.decodeIfPresent(String.self, forKey: .systemContactId)
         systemDisplayNameSnapshot = try container.decodeIfPresent(String.self, forKey: .systemDisplayNameSnapshot)
         systemContactLinkSource = try container.decodeIfPresent(SystemContactLinkSource.self, forKey: .systemContactLinkSource)
@@ -205,7 +200,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         try container.encode(isAutoAdded, forKey: .isAutoAdded)
         try container.encodeIfPresent(notificationModeOverride, forKey: .notificationModeOverride)
         try container.encode(realtimeUpdatesDisabled, forKey: .realtimeUpdatesDisabled)
-        try container.encode(isArchived, forKey: .isArchived)
         try container.encodeIfPresent(systemContactId, forKey: .systemContactId)
         try container.encodeIfPresent(systemDisplayNameSnapshot, forKey: .systemDisplayNameSnapshot)
         try container.encodeIfPresent(systemContactLinkSource, forKey: .systemContactLinkSource)
@@ -636,6 +630,88 @@ struct PaymentPayload: Codable {
     let amount: UInt64
     let timestamp: UInt64
     let version: Int
+}
+
+/// A message that replies to an earlier one - embedded as JSON directly in the same plaintext
+/// content used for plain text (no separate wire type), matching the Android client's
+/// `MessageReplyContent` field-for-field so a reply started on one platform renders correctly on
+/// the other. `replyToSender` is the original poster's address and `replyToPreview` is captured
+/// at reply-creation time (a short snippet, or "🎤 Audio message" for a voice note) so the quote
+/// still renders even if the original message has since been pruned or its sender hidden.
+struct MessageReplyContent: Codable, Equatable {
+    var type: String = "reply"
+    let replyToId: String
+    let replyToSender: String
+    let replyToPreview: String
+    let text: String
+}
+
+enum MessageReplyCodec {
+    static let previewMaxLength = 80
+
+    static func encode(replyToId: String, replyToSender: String, replyToPreview: String, text: String) -> String {
+        let content = MessageReplyContent(
+            replyToId: replyToId,
+            replyToSender: replyToSender,
+            replyToPreview: String(replyToPreview.prefix(previewMaxLength)),
+            text: text
+        )
+        guard let data = try? JSONEncoder().encode(content),
+              let json = String(data: data, encoding: .utf8) else {
+            return text
+        }
+        return json
+    }
+
+    /// Parses `text` as a reply if it looks like one, else returns nil - a plain text message
+    /// never accidentally renders as a reply just because it happens to start with `{`, since this
+    /// also requires the explicit "reply" type marker.
+    static func parse(_ text: String?) -> MessageReplyContent? {
+        guard let text else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
+        guard let parsed = try? JSONDecoder().decode(MessageReplyContent.self, from: data),
+              parsed.type == "reply" else { return nil }
+        return parsed
+    }
+
+    /// The actual message text for `content` - unwraps one level of reply envelope if present, so
+    /// replying to a message that is itself a reply quotes the original reply's own text instead
+    /// of embedding its raw JSON envelope as the preview.
+    static func unwrappedText(_ content: String) -> String {
+        parse(content)?.text ?? content
+    }
+}
+
+/// Lightweight sniff for the same inline voice-message JSON shape `MediaFile` parses in 1:1 chats
+/// (`ChatService.sendAudio`/`MessageBubbleView.MediaFile`) - used where only a yes/no check and a
+/// placeholder label are needed (e.g. a broadcast bubble or a reply quote preview), without
+/// pulling in the full image/audio-player decoding path.
+enum VoiceMessageSniff {
+    struct Payload {
+        let mimeType: String
+        let data: Data
+    }
+
+    static func isVoiceMessage(_ text: String) -> Bool {
+        decode(text) != nil
+    }
+
+    /// Decodes the inline voice-message JSON into its mimeType and raw audio bytes, or nil if
+    /// `text` isn't a voice message.
+    static func decode(_ text: String) -> Payload? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let jsonData = trimmed.data(using: .utf8) else { return nil }
+        guard let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let mimeType = json["mimeType"] as? String,
+              let content = json["content"] as? String,
+              mimeType.lowercased().hasPrefix("audio/"),
+              content.hasPrefix("data:"),
+              let commaIndex = content.firstIndex(of: ",") else { return nil }
+        let base64 = String(content[content.index(after: commaIndex)...])
+        guard let data = Data(base64Encoded: base64) else { return nil }
+        return Payload(mimeType: mimeType, data: data)
+    }
 }
 
 // MARK: - Diagnostics Models

@@ -556,6 +556,17 @@ final class NodePoolService: ObservableObject {
         subscriptionManager?.unsubscribe()
     }
 
+    /// Subscribe to block-added notifications (piggybacks on the primary UTXO connection).
+    /// Used by broadcast channel scanning; reference-counted by the caller.
+    func subscribeBlockAdded() async {
+        await subscriptionManager?.setBlockAddedWanted(true)
+    }
+
+    /// Stop wanting block-added notifications (see UtxoSubscriptionManager for caveats).
+    func unsubscribeBlockAdded() async {
+        await subscriptionManager?.setBlockAddedWanted(false)
+    }
+
     /// Add notification handler
     func addNotificationHandler(_ handler: @escaping (KaspaRPCNotification, Data) -> Void) -> UUID {
         subscriptionManager?.addNotificationHandler(handler) ?? UUID()

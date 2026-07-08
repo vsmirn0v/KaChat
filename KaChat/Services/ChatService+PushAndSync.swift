@@ -598,9 +598,7 @@ extension ChatService {
         for address in contactAddresses {
             addressesToSubscribe.insert(address)
         }
-        if !(contactsManager.getContact(byAddress: contactAddress)?.isArchived ?? false) {
-            addressesToSubscribe.insert(contactAddress)
-        }
+        addressesToSubscribe.insert(contactAddress)
 
         let addressList = Array(addressesToSubscribe)
         lastSubscribedAddressCount = addressList.count

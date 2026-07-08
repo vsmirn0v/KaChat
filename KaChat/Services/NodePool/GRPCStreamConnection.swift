@@ -11,6 +11,7 @@ enum KaspaRequestType: Hashable {
     case getUtxosByAddresses
     case submitTransaction
     case notifyUtxosChanged
+    case notifyBlockAdded
     case getPeerAddresses
     case getConnectedPeerInfo
     case getBlockDagInfo
@@ -24,6 +25,7 @@ enum KaspaRequestType: Hashable {
         case .getUtxosByAddresses: return "getUtxosByAddressesResponse"
         case .submitTransaction: return "submitTransactionResponse"
         case .notifyUtxosChanged: return "notifyUtxosChangedResponse"
+        case .notifyBlockAdded: return "notifyBlockAddedResponse"
         case .getPeerAddresses: return "getPeerAddressesResponse"
         case .getConnectedPeerInfo: return "getConnectedPeerInfoResponse"
         case .getBlockDagInfo: return "getBlockDagInfoResponse"
@@ -412,9 +414,12 @@ actor GRPCStreamConnection {
                 handleNotification(.utxosChanged, notification)
                 return
 
+            case .blockAddedNotification(let notification):
+                handleNotification(.blockAdded, notification)
+                return
+
             // All other notification types
-            case .blockAddedNotification,
-                 .virtualSelectedParentChainChangedNotification,
+            case .virtualSelectedParentChainChangedNotification,
                  .finalityConflictNotification,
                  .finalityConflictResolvedNotification,
                  .virtualSelectedParentBlueScoreChangedNotification,
@@ -588,6 +593,8 @@ actor GRPCStreamConnection {
             return .submitTransaction
         case .notifyUtxosChangedResponse:
             return .notifyUtxosChanged
+        case .notifyBlockAddedResponse:
+            return .notifyBlockAdded
         case .getPeerAddressesResponse:
             return .getPeerAddresses
         case .getConnectedPeerInfoResponse:

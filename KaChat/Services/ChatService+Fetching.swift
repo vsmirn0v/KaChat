@@ -474,6 +474,12 @@ extension ChatService {
                 print("[ChatService] Skipping handshake \(handshake.txId) - missing sender")
                 continue
             }
+            // A deleted contact's address is tombstoned - an incoming handshake from them (e.g.
+            // a re-sync of their full history) must not silently recreate the conversation.
+            if !isOutgoing, contactsManager.isAddressDeleted(contactAddress) {
+                continue
+            }
+
             if !isOutgoing {
                 clearDeclined(contactAddress)
             }
@@ -1460,14 +1466,13 @@ extension ChatService {
         fallbackSince: UInt64,
         nowMs: UInt64
     ) async -> Bool {
-        let archivedAddresses = Set(contactsManager.archivedContacts.map { $0.address })
         // Build contact set from routing states (preferred) + legacy aliases (fallback)
         let allContactAddresses = Set(routingStates.keys).union(conversationAliases.keys)
         print("[ChatService] Fetching contextual messages for \(allContactAddresses.count) contacts")
 
         // Fetch INCOMING messages (from contacts to us)
         for contactAddress in allContactAddresses {
-            guard !archivedAddresses.contains(contactAddress) else { continue }
+            guard !contactsManager.isAddressDeleted(contactAddress) else { continue }
             let aliases = incomingAliases(for: contactAddress)
             guard !aliases.isEmpty else { continue }
             beginChatFetch(contactAddress)
@@ -1563,7 +1568,7 @@ extension ChatService {
         // Fetch OUTGOING messages (from us to contacts)
         let allOutgoingAddresses = Set(routingStates.keys).union(ourAliases.keys)
         for contactAddress in allOutgoingAddresses {
-            guard !archivedAddresses.contains(contactAddress) else { continue }
+            guard !contactsManager.isAddressDeleted(contactAddress) else { continue }
             let aliasSet = outgoingFetchAliases(for: contactAddress)
             guard !aliasSet.isEmpty else { continue }
             beginChatFetch(contactAddress)
@@ -1664,7 +1669,7 @@ extension ChatService {
         nowMs: UInt64,
         forceExactBlockTime: Bool = false
     ) async -> Bool {
-        if contactsManager.getContact(byAddress: contactAddress)?.isArchived == true {
+        if contactsManager.isAddressDeleted(contactAddress) {
             return true
         }
         beginChatFetch(contactAddress)
@@ -2481,7 +2486,9 @@ extension ChatService {
     }
 
     func addMessageToConversation(_ message: ChatMessage, contactAddress: String) {
-        if let existing = contactsManager.getContact(byAddress: contactAddress), existing.isArchived {
+        // A deleted contact's address is tombstoned - this check must run before
+        // `getOrCreateContact`, which would otherwise silently resurrect it.
+        if contactsManager.isAddressDeleted(contactAddress) {
             return
         }
         let contact = contactsManager.getOrCreateContact(address: contactAddress)
@@ -2650,17 +2657,21 @@ extension ChatService {
     }
 
     func formatNotificationBody(_ content: String) -> String {
+        // Unwrap a reply envelope first, so a reply's own text (or its attachment, below) is
+        // what's notified rather than the raw `{"type":"reply",...}` JSON.
+        let unwrapped = MessageReplyCodec.unwrappedText(content)
+
         // Check if content is a file JSON payload
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = unwrapped.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else {
-            return content
+            return unwrapped
         }
 
-        guard let data = content.data(using: .utf8),
+        guard let data = unwrapped.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               json["type"] as? String == "file",
               let mimeType = json["mimeType"] as? String else {
-            return content
+            return unwrapped
         }
 
         let mime = mimeType.lowercased()

@@ -42,6 +42,7 @@
 		E81000232D4C000100000012 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000222D4C000100000012 /* MainTabView.swift */; };
 		E81000292D4C000100000015 /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000282D4C000100000015 /* SettingsViewModel.swift */; };
 		E810002F2D4C000100000018 /* CryptoUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810002E2D4C000100000018 /* CryptoUtils.swift */; };
+		IMGP00010001000100000001 /* ImagePrep.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGP00010001000000000001 /* ImagePrep.swift */; };
 		E81000332D4C00010000001A /* AddContactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000322D4C00010000001A /* AddContactView.swift */; };
 		E81000352D4C00010000001B /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000342D4C00010000001B /* MessageBubbleView.swift */; };
 		E81000372D4C00010000001C /* Bech32.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000362D4C00010000001C /* Bech32.swift */; };
@@ -57,6 +58,12 @@
 		GEOIP00012F90000100000002 /* geoip-lite.json in Resources */ = {isa = PBXBuildFile; fileRef = GEOIP00012F90000100000001 /* geoip-lite.json */; };
 		GIFT00010001000100000001 /* GiftService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GIFT00010001000000000001 /* GiftService.swift */; };
 		GIFT00010001000100000002 /* GiftClaimView.swift in Sources */ = {isa = PBXBuildFile; fileRef = GIFT00010001000000000002 /* GiftClaimView.swift */; };
+		BCST00010001000100000001 /* BroadcastStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCST00010001000000000001 /* BroadcastStore.swift */; };
+		BSVC00010001000100000001 /* BroadcastService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BSVC00010001000000000001 /* BroadcastService.swift */; };
+		BCLV00010001000100000001 /* BroadcastListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCLV00010001000000000001 /* BroadcastListView.swift */; };
+		BCCV00010001000100000001 /* BroadcastChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCV00010001000000000001 /* BroadcastChannelView.swift */; };
+		BCHS00010001000100000001 /* HiddenBroadcastSendersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */; };
+		BCAR00010001000100000001 /* BroadcastAudioRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAR00010001000000000001 /* BroadcastAudioRecording.swift */; };
 		GRPC00010001000100000015 /* messages.grpc.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000005 /* messages.grpc.swift */; };
 		GRPC00010001000100000016 /* messages.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000006 /* messages.pb.swift */; };
 		GRPC00010001000100000017 /* rpc.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000007 /* rpc.pb.swift */; };
@@ -159,6 +166,7 @@
 		E81000222D4C000100000012 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		E81000282D4C000100000015 /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModel.swift; sourceTree = "<group>"; };
 		E810002E2D4C000100000018 /* CryptoUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoUtils.swift; sourceTree = "<group>"; };
+		IMGP00010001000000000001 /* ImagePrep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePrep.swift; sourceTree = "<group>"; };
 		E81000322D4C00010000001A /* AddContactView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddContactView.swift; sourceTree = "<group>"; };
 		E81000342D4C00010000001B /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
 		E81000362D4C00010000001C /* Bech32.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bech32.swift; sourceTree = "<group>"; };
@@ -176,6 +184,12 @@
 		GEOIP00012F90000100000001 /* geoip-lite.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "geoip-lite.json"; sourceTree = "<group>"; };
 		GIFT00010001000000000001 /* GiftService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftService.swift; sourceTree = "<group>"; };
 		GIFT00010001000000000002 /* GiftClaimView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftClaimView.swift; sourceTree = "<group>"; };
+		BCST00010001000000000001 /* BroadcastStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastStore.swift; sourceTree = "<group>"; };
+		BSVC00010001000000000001 /* BroadcastService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastService.swift; sourceTree = "<group>"; };
+		BCLV00010001000000000001 /* BroadcastListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastListView.swift; sourceTree = "<group>"; };
+		BCCV00010001000000000001 /* BroadcastChannelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastChannelView.swift; sourceTree = "<group>"; };
+		BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenBroadcastSendersView.swift; sourceTree = "<group>"; };
+		BCAR00010001000000000001 /* BroadcastAudioRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastAudioRecording.swift; sourceTree = "<group>"; };
 		GRPC00010001000100000005 /* messages.grpc.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = messages.grpc.swift; sourceTree = "<group>"; };
 		GRPC00010001000100000006 /* messages.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = messages.pb.swift; sourceTree = "<group>"; };
 		GRPC00010001000100000007 /* rpc.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = rpc.pb.swift; sourceTree = "<group>"; };
@@ -366,6 +380,8 @@
 				PUSH00010001000000000002 /* SharedDataManager.swift */,
 				RDSS00010001000000000001 /* ReadStatusSyncManager.swift */,
 				GIFT00010001000000000001 /* GiftService.swift */,
+				BCST00010001000000000001 /* BroadcastStore.swift */,
+				BSVC00010001000000000001 /* BroadcastService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -395,6 +411,7 @@
 			isa = PBXGroup;
 			children = (
 				E810002E2D4C000100000018 /* CryptoUtils.swift */,
+				IMGP00010001000000000001 /* ImagePrep.swift */,
 				DTAL00010001000000000001 /* DeterministicAlias.swift */,
 				E8F1A0042F4B000100000004 /* Haptics.swift */,
 				E81000362D4C00010000001C /* Bech32.swift */,
@@ -437,6 +454,10 @@
 				CPTV00010001000000000001 /* ComposerTextView.swift */,
 				E81000342D4C00010000001B /* MessageBubbleView.swift */,
 				4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */,
+				BCLV00010001000000000001 /* BroadcastListView.swift */,
+				BCCV00010001000000000001 /* BroadcastChannelView.swift */,
+				BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */,
+				BCAR00010001000000000001 /* BroadcastAudioRecording.swift */,
 			);
 			path = Chat;
 			sourceTree = "<group>";
@@ -771,6 +792,7 @@
 				E81000292D4C000100000015 /* SettingsViewModel.swift in Sources */,
 				DTAL00010001000100000001 /* DeterministicAlias.swift in Sources */,
 				E810002F2D4C000100000018 /* CryptoUtils.swift in Sources */,
+				IMGP00010001000100000001 /* ImagePrep.swift in Sources */,
 				E81000332D4C00010000001A /* AddContactView.swift in Sources */,
 				E81000352D4C00010000001B /* MessageBubbleView.swift in Sources */,
 				E81000372D4C00010000001C /* Bech32.swift in Sources */,
@@ -805,6 +827,12 @@
 				SHRT00010001000100000002 /* KaChatShortcuts.swift in Sources */,
 				GIFT00010001000100000001 /* GiftService.swift in Sources */,
 				GIFT00010001000100000002 /* GiftClaimView.swift in Sources */,
+				BCST00010001000100000001 /* BroadcastStore.swift in Sources */,
+				BSVC00010001000100000001 /* BroadcastService.swift in Sources */,
+				BCLV00010001000100000001 /* BroadcastListView.swift in Sources */,
+				BCCV00010001000100000001 /* BroadcastChannelView.swift in Sources */,
+				BCHS00010001000100000001 /* HiddenBroadcastSendersView.swift in Sources */,
+				BCAR00010001000100000001 /* BroadcastAudioRecording.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -878,7 +906,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.4;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -914,7 +942,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.4;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1091,7 +1119,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.1.4;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1145,7 +1173,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.1.4;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1180,7 +1208,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.4;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1215,7 +1243,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.1.4;
+				MARKETING_VERSION = 1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

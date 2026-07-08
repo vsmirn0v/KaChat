@@ -47,6 +47,7 @@ final class ChatService: ObservableObject {
     @Published var isLoading = false
     @Published var error: KasiaError?
     @Published var declinedContacts: Set<String> = []
+    @Published var replyingTo: ChatMessage?
     var settingsViewModel: SettingsViewModel?
     var cachedSettings = SettingsViewModel.loadSettings()
     @Published var activeConversationAddress: String?
@@ -378,6 +379,14 @@ final class ChatService: ObservableObject {
                 self?.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
             }
         }
+    }
+
+    func startReplyTo(_ message: ChatMessage) {
+        replyingTo = message
+    }
+
+    func cancelReply() {
+        replyingTo = nil
     }
 
     /// Observe conversation count changes to trigger resubscription when new chats are added

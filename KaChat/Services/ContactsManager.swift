@@ -16,6 +16,11 @@ final class ContactsManager: ObservableObject {
     private let userDefaults = UserDefaults.standard
     private let legacyContactsKey = "kachat_contacts"
     private let contactsKeyPrefix = "kachat_contacts_wallet_"
+    private let deletedAddressesKeyPrefix = "kachat_deleted_contacts_wallet_"
+    /// Addresses of permanently-deleted contacts for the active wallet, kept even after the
+    /// `Contact` itself is gone - matches Android's `DeletedContactEntity` tombstone, so an
+    /// incoming message or handshake from a deleted address never silently recreates the contact.
+    private var deletedAddresses: Set<String> = []
     private var activeWalletAddress: String?
     private var lastMessageSaveWorkItem: DispatchWorkItem?
     private let lastMessageSaveDelay: TimeInterval = 0.6
@@ -70,11 +75,11 @@ final class ContactsManager: ObservableObject {
     }
 
     var activeContacts: [Contact] {
-        contacts.filter { !$0.isArchived }
+        contacts
     }
 
-    var archivedContacts: [Contact] {
-        contacts.filter { $0.isArchived }
+    func isAddressDeleted(_ address: String) -> Bool {
+        deletedAddresses.contains(address)
     }
 
     // MARK: - KNS Integration
@@ -214,6 +219,7 @@ final class ContactsManager: ObservableObject {
         balanceLastFetch = [:]
         balanceFetchInFlight = []
         loadContacts()
+        loadDeletedAddresses()
 
         if normalizedAddress == nil {
             systemContactCandidates = []
@@ -247,9 +253,11 @@ final class ContactsManager: ObservableObject {
         guard let normalizedAddress = normalizeWalletAddress(walletAddress) else { return }
         let key = contactsKey(forNormalizedWalletAddress: normalizedAddress)
         userDefaults.removeObject(forKey: key)
+        userDefaults.removeObject(forKey: deletedAddressesKey(forNormalizedWalletAddress: normalizedAddress))
 
         if activeWalletAddress == normalizedAddress {
             clearInMemoryContacts(syncShared: true, updatePush: false)
+            deletedAddresses = []
         }
     }
 
@@ -283,6 +291,13 @@ final class ContactsManager: ObservableObject {
         // Validate address format
         guard isValidKaspaAddress(address) else {
             throw KasiaError.invalidAddress
+        }
+
+        // A deliberate (non-auto) add explicitly un-does a prior permanent delete's tombstone -
+        // the block on auto-recreation is only meant to stop silent resurrection from incoming
+        // activity, not to stop the user from choosing to message this address again.
+        if !isAutoAdded, deletedAddresses.remove(address) != nil {
+            saveDeletedAddresses()
         }
 
         // Check for duplicates
@@ -343,13 +358,14 @@ final class ContactsManager: ObservableObject {
         }
     }
 
+    /// Permanently deletes a contact: purges every local message with them and tombstones their
+    /// address so a future incoming message or handshake can't silently recreate the conversation.
+    /// Matches Android's `ChatRepository.deleteChat` - not reversible, unlike the old archive.
     func deleteContact(_ contact: Contact) {
+        deletedAddresses.insert(contact.address)
+        saveDeletedAddresses()
+        MessageStore.shared.deleteConversation(contactAddress: contact.address)
         contacts.removeAll { $0.id == contact.id }
-        saveContacts()
-    }
-
-    func deleteContact(at offsets: IndexSet) {
-        contacts.remove(atOffsets: offsets)
         saveContacts()
     }
 
@@ -405,24 +421,14 @@ final class ContactsManager: ObservableObject {
         return contact
     }
 
-    func searchContacts(_ query: String, includeArchived: Bool = false) -> [Contact] {
-        let source = includeArchived ? contacts : activeContacts
-        guard !query.isEmpty else { return source }
+    func searchContacts(_ query: String) -> [Contact] {
+        guard !query.isEmpty else { return contacts }
 
         let lowercasedQuery = query.lowercased()
-        return source.filter {
+        return contacts.filter {
             $0.alias.lowercased().contains(lowercasedQuery) ||
             $0.address.lowercased().contains(lowercasedQuery)
         }
-    }
-
-    func setContactArchived(address: String, isArchived: Bool) {
-        guard let index = contacts.firstIndex(where: { $0.address == address }) else { return }
-        guard contacts[index].isArchived != isArchived else { return }
-        contacts[index].isArchived = isArchived
-        saveContacts(publishContacts: true)
-        // Sync to Core Data / CloudKit for multi-device
-        MessageStore.shared.setConversationArchived(contactAddress: address, isArchived: isArchived)
     }
 
     // MARK: - System Contacts Integration
@@ -947,6 +953,30 @@ final class ContactsManager: ObservableObject {
     private func contactsKey(forNormalizedWalletAddress walletAddress: String) -> String {
         let sanitized = walletAddress.replacingOccurrences(of: ":", with: "_")
         return "\(contactsKeyPrefix)\(sanitized)"
+    }
+
+    private func deletedAddressesKey(forNormalizedWalletAddress walletAddress: String) -> String {
+        let sanitized = walletAddress.replacingOccurrences(of: ":", with: "_")
+        return "\(deletedAddressesKeyPrefix)\(sanitized)"
+    }
+
+    private func loadDeletedAddresses() {
+        guard let activeWalletAddress else {
+            deletedAddresses = []
+            return
+        }
+        let key = deletedAddressesKey(forNormalizedWalletAddress: activeWalletAddress)
+        if let stored = userDefaults.stringArray(forKey: key) {
+            deletedAddresses = Set(stored)
+        } else {
+            deletedAddresses = []
+        }
+    }
+
+    private func saveDeletedAddresses() {
+        guard let activeWalletAddress else { return }
+        let key = deletedAddressesKey(forNormalizedWalletAddress: activeWalletAddress)
+        userDefaults.set(Array(deletedAddresses), forKey: key)
     }
 
     private func sortContacts(_ list: [Contact]) -> [Contact] {

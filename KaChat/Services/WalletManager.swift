@@ -82,6 +82,7 @@ final class WalletManager: ObservableObject {
                     isLoggedOut = true
                     ContactsManager.shared.setActiveWalletAddress(nil)
                     await MessageStore.shared.setCurrentWallet(nil)
+                    BroadcastService.shared.setCurrentWallet(nil)
                     SharedDataManager.syncWalletAddressForExtension()
                     SharedDataManager.setPrivateKeyAvailable(false)
                     return
@@ -105,6 +106,7 @@ final class WalletManager: ObservableObject {
                 isLoading = false
                 // Switch MessageStore to this wallet's store and CloudKit zone
                 await MessageStore.shared.setCurrentWallet(canonicalWallet.publicAddress)
+                BroadcastService.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                 Task { _ = try? await refreshBalance() }
                 return
@@ -118,6 +120,7 @@ final class WalletManager: ObservableObject {
             UserDefaults.standard.removeObject(forKey: logoutFlagKey)
             ContactsManager.shared.setActiveWalletAddress(nil)
             await MessageStore.shared.setCurrentWallet(nil)
+            BroadcastService.shared.setCurrentWallet(nil)
             SharedDataManager.syncWalletAddressForExtension()
             SharedDataManager.setPrivateKeyAvailable(false)
         } catch {
@@ -176,6 +179,7 @@ final class WalletManager: ObservableObject {
         // Switch MessageStore to this wallet's store and CloudKit zone FIRST
         // This must happen before resetForNewWallet() to avoid clearing the wrong store
         await MessageStore.shared.setCurrentWallet(wallet.publicAddress)
+        BroadcastService.shared.setCurrentWallet(wallet.publicAddress)
         SharedDataManager.syncWalletAddressForExtension()
         SharedDataManager.setPrivateKeyAvailable(true)
 
@@ -240,6 +244,7 @@ final class WalletManager: ObservableObject {
 
         // Switch MessageStore back to default store (no wallet)
         await MessageStore.shared.setCurrentWallet(nil)
+        BroadcastService.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
         SharedDataManager.setPrivateKeyAvailable(false)
     }
@@ -260,6 +265,7 @@ final class WalletManager: ObservableObject {
         ContactsManager.shared.setActiveWalletAddress(nil)
 
         await MessageStore.shared.setCurrentWallet(nil)
+        BroadcastService.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
         SharedDataManager.setPrivateKeyAvailable(false)
     }
@@ -346,6 +352,8 @@ final class WalletManager: ObservableObject {
         await MessageStore.shared.setCurrentWallet(account.publicAddress)
         MessageStore.shared.clearAll()
         await MessageStore.shared.destroyLocalStoreFiles()
+        BroadcastService.shared.setCurrentWallet(account.publicAddress)
+        BroadcastStore.shared.clearAll()
 
         do {
             try keychainService.deleteAccountSnapshot(publicAddress: account.publicAddress)
@@ -363,6 +371,7 @@ final class WalletManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: logoutFlagKey)
 
         await MessageStore.shared.setCurrentWallet(nil)
+        BroadcastService.shared.setCurrentWallet(nil)
         ChatService.shared.resetForNewWallet(skipStoreClear: true)
         ContactsManager.shared.deleteAllContacts()
         ContactsManager.shared.setActiveWalletAddress(nil)

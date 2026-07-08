@@ -890,13 +890,29 @@ extension ChatService {
             throw KasiaError.keychainError("Could not get private key")
         }
 
+        // If replying, wrap the content in the shared reply envelope (matches broadcasts'
+        // sendBroadcast) so the quote survives even if the original message is later pruned.
+        let payload: String
+        if let reply = replyingTo {
+            let replyText = MessageReplyCodec.unwrappedText(reply.content)
+            let preview = VoiceMessageSniff.isVoiceMessage(replyText) ? "🎤 Audio message" : replyText
+            payload = MessageReplyCodec.encode(
+                replyToId: reply.txId,
+                replyToSender: reply.senderAddress,
+                replyToPreview: preview,
+                text: trimmed
+            )
+        } else {
+            payload = trimmed
+        }
+
         let pendingTxId = "pending_\(UUID().uuidString)"
         let pendingTimestamp = Date()
         let pendingMessage = ChatMessage(
             txId: pendingTxId,
             senderAddress: wallet.publicAddress,
             receiverAddress: contact.address,
-            content: trimmed,
+            content: payload,
             timestamp: pendingTimestamp,
             blockTime: UInt64(pendingTimestamp.timeIntervalSince1970 * 1000),
             isOutgoing: true,
@@ -910,7 +926,7 @@ extension ChatService {
         do {
             try await ensureSufficientBalanceForMessageSend(
                 to: contact,
-                content: trimmed,
+                content: payload,
                 walletAddress: wallet.publicAddress,
                 privateKey: privateKey
             )
@@ -931,12 +947,13 @@ extension ChatService {
         try await enqueueOutgoingTxOperation {
             try await self.sendMessageInternal(
                 to: contact,
-                content: trimmed,
+                content: payload,
                 messageType: messageType,
                 pendingTxId: pendingTxId,
                 pendingMessageId: pendingMessage.id
             )
         }
+        replyingTo = nil
     }
 
     func sendAudio(
@@ -966,6 +983,41 @@ extension ChatService {
         let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
         guard let jsonString = String(data: jsonData, encoding: .utf8) else {
             throw KasiaError.networkError("Failed to prepare audio payload")
+        }
+
+        try await sendMessage(to: contact, content: jsonString, messageType: .audio)
+    }
+
+    /// Sends a photo - same inline JSON envelope as `sendAudio`, just an image mimeType, matching
+    /// Android's `ImageMessage` (which itself reuses its `VoiceMessageContent` shape). Reuses the
+    /// `.audio` message type since rendering already keys off the JSON's `mimeType`, not this.
+    func sendImage(
+        to contact: Contact,
+        imageData: Data,
+        fileName: String = "photo.jpg",
+        mimeType: String = "image/jpeg"
+    ) async throws {
+        guard !imageData.isEmpty else {
+            throw KasiaError.networkError("Image is empty")
+        }
+
+        let resolvedFileName = fileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "photo.jpg"
+            : fileName
+        let resolvedMimeType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "image/jpeg"
+            : mimeType
+        let base64 = imageData.base64EncodedString()
+        let payload: [String: Any] = [
+            "type": "file",
+            "name": resolvedFileName,
+            "size": imageData.count,
+            "mimeType": resolvedMimeType,
+            "content": "data:\(resolvedMimeType);base64,\(base64)"
+        ]
+        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
+        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+            throw KasiaError.networkError("Failed to prepare image payload")
         }
 
         try await sendMessage(to: contact, content: jsonString, messageType: .audio)
@@ -1949,9 +2001,23 @@ extension ChatService {
             ensureRoutingState(for: contact.address, privateKey: privateKey)
         }
         let alias = outgoingAlias(for: contact.address)
+        // Account for the reply envelope's extra bytes, matching the wrapping `sendMessage` does.
+        let estimatedContent: String
+        if let reply = replyingTo {
+            let replyText = MessageReplyCodec.unwrappedText(reply.content)
+            let preview = VoiceMessageSniff.isVoiceMessage(replyText) ? "🎤 Audio message" : replyText
+            estimatedContent = MessageReplyCodec.encode(
+                replyToId: reply.txId,
+                replyToSender: reply.senderAddress,
+                replyToPreview: preview,
+                text: trimmed
+            )
+        } else {
+            estimatedContent = trimmed
+        }
         let payload = try KasiaTransactionBuilder.buildContextualMessagePayload(
             alias: alias,
-            message: trimmed,
+            message: estimatedContent,
             recipientPublicKey: recipientPublicKey
         )
 
@@ -2354,13 +2420,25 @@ extension ChatService {
         declinedContacts.contains(address)
     }
 
+    /// Drops the in-memory conversation and its routing bookkeeping for a permanently-deleted
+    /// contact - pairs with `ContactsManager.deleteContact`, which handles the persisted
+    /// contact/message/tombstone side of the same delete.
+    func removeConversation(for address: String) {
+        conversations.removeAll { $0.contact.address == address }
+        routingStates.removeValue(forKey: address)
+        conversationAliases.removeValue(forKey: address)
+        declinedContacts.remove(address)
+        chatFetchStates.removeValue(forKey: address)
+        chatFetchCounts.removeValue(forKey: address)
+        chatFetchFailed.remove(address)
+    }
+
     func isConversationVisibleInChatList(_ conversation: Conversation, settings: AppSettings? = nil) -> Bool {
         let settings = settings ?? currentSettings
         let address = conversation.contact.address
         guard !isConversationDeclined(address) else { return false }
 
         let effectiveContact = contactsManager.getContact(byAddress: address) ?? conversation.contact
-        guard !effectiveContact.isArchived else { return false }
 
         if settings.hideAutoCreatedPaymentChats &&
             effectiveContact.isAutoAdded &&

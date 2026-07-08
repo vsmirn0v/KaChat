@@ -86,6 +86,10 @@ do_build() {
     -derivedDataPath "$dd" \
     ARCHS="$arch" \
     ONLY_ACTIVE_ARCH=YES \
+    CODE_SIGNING_ALLOWED=NO \
+    CODE_SIGNING_REQUIRED=NO \
+    CODE_SIGN_IDENTITY="" \
+    AD_HOC_CODE_SIGNING_ALLOWED=YES \
     -quiet 2>&1 || true
 
   local elapsed=$(( SECONDS - start ))

@@ -62,17 +62,6 @@ struct SettingsView: View {
                         }
                     }
 
-                    NavigationLink {
-                        ArchivedChatsView()
-                    } label: {
-                        HStack {
-                            Label("Archived Chats", systemImage: "archivebox")
-                            Spacer()
-                            Text("\(contactsManager.archivedContacts.count)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
                 }
 
                 Section("Contacts") {
@@ -181,7 +170,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Website")
                             Spacer()
-                            Text("kachat.app")
+                            Text("linktr.ee/Kachat_")
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -190,7 +179,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Support Email")
                             Spacer()
-                            Text("support@kachat.app")
+                            Text("kaspasilver@gmail.com")
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -202,13 +191,24 @@ struct SettingsView: View {
                             await exportDiagnosticsArchive()
                         }
                     } label: {
-                        HStack {
-                            Label("Export Diagnostics Archive", systemImage: "square.and.arrow.up")
-                            Spacer()
-                            if isPreparingDiagnostics {
-                                ProgressView()
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "ladybug.fill")
+                                    .font(.title3)
+                                    .foregroundColor(.accentColor)
+                                Text("Export Diagnostics Archive")
+                                    .font(.body.weight(.medium))
+                                    .foregroundColor(.accentColor)
+                                Spacer()
+                                if isPreparingDiagnostics {
+                                    ProgressView()
+                                }
                             }
+                            Text("Exports app/device info, connection settings, local message counts, and recent app logs as a zip — for troubleshooting with support. No private keys, seed phrases, or decrypted message content are included.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
                         }
+                        .padding(.vertical, 4)
                     }
                     .disabled(isPreparingDiagnostics)
                 }
@@ -703,11 +703,11 @@ struct SettingsView: View {
     }
 
     private var websiteURL: URL {
-        URL(string: "https://kachat.app")!
+        URL(string: "https://linktr.ee/Kachat_")!
     }
 
     private var supportEmailURL: URL {
-        URL(string: "mailto:support@kachat.app")!
+        URL(string: "mailto:kaspasilver@gmail.com")!
     }
 
 }
@@ -886,49 +886,6 @@ struct NotificationsSettingsView: View {
             withAnimation {
                 toastMessage = nil
             }
-        }
-    }
-}
-
-struct ArchivedChatsView: View {
-    @EnvironmentObject var contactsManager: ContactsManager
-    @EnvironmentObject var chatService: ChatService
-
-    var body: some View {
-        List {
-            if archivedContacts.isEmpty {
-                Text("No archived chats")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-            } else {
-                ForEach(archivedContacts) { contact in
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(contact.alias)
-                            Text(contact.address)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        Button("Unarchive") {
-                            contactsManager.setContactArchived(address: contact.address, isArchived: false)
-                            chatService.checkAndResubscribeIfNeeded()
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                }
-            }
-        }
-        .navigationTitle("Archived Chats")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var archivedContacts: [Contact] {
-        contactsManager.archivedContacts.sorted {
-            let lhs = $0.lastMessageAt ?? $0.addedAt
-            let rhs = $1.lastMessageAt ?? $1.addedAt
-            return lhs > rhs
         }
     }
 }
