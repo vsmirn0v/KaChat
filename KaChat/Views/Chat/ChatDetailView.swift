@@ -59,6 +59,8 @@ struct ChatDetailView: View {
     @State private var topVisibleMessageId: UUID?
     @State private var isBottomAnchorVisible = false
     @State private var isTopAnchorVisible = false
+    @State private var bottomAnchorVisibilityWorkItem: DispatchWorkItem?
+    @State private var topAnchorVisibilityWorkItem: DispatchWorkItem?
     @State private var isUserInteractingWithScroll = false
     @State private var scrollInteractionResetWorkItem: DispatchWorkItem?
     @State private var lastAutoBottomScrollAt: Date = .distantPast
@@ -107,7 +109,6 @@ struct ChatDetailView: View {
     @State private var longPressTimer: Timer? = nil
     @State private var isDraggingMenu = false
     @State private var isMessageFocused = false
-    @State private var keyboardOverlapHeight: CGFloat = 0
     @State private var viewportResetTrigger = UUID()
     @State private var showDustWarning = false
     @State private var pendingDustAmountSompi: UInt64 = 0
@@ -307,16 +308,33 @@ struct ChatDetailView: View {
                         .allowsHitTesting(false)
 
                         LazyVStack(spacing: 8) {
+                            // Debounced rather than setting `isTopAnchorVisible` directly: this
+                            // 1pt marker can appear/disappear many times per second during a fast
+                            // scroll/fling as it crosses the lazy-loaded viewport edge, and each
+                            // flip was cascading into pagination retries and (for the bottom
+                            // anchor below) a full animated transition - rapid-fire enough to pin
+                            // the main thread and freeze the app. Coalescing to the settled state
+                            // keeps pagination/animation responsive without the storm.
                             Color.clear
                                 .frame(height: 1)
                                 .id("top_anchor")
                                 .onAppear {
-                                    isTopAnchorVisible = true
-                                    triggerTopPaginationIfNeeded(using: proxy)
+                                    topAnchorVisibilityWorkItem?.cancel()
+                                    let workItem = DispatchWorkItem {
+                                        isTopAnchorVisible = true
+                                        triggerTopPaginationIfNeeded(using: proxy)
+                                    }
+                                    topAnchorVisibilityWorkItem = workItem
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
                                 }
                                 .onDisappear {
-                                    isTopAnchorVisible = false
-                                    hasLoadedCurrentTopPage = false
+                                    topAnchorVisibilityWorkItem?.cancel()
+                                    let workItem = DispatchWorkItem {
+                                        isTopAnchorVisible = false
+                                        hasLoadedCurrentTopPage = false
+                                    }
+                                    topAnchorVisibilityWorkItem = workItem
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
                                 }
                             ForEach(Array(displayedMessages.enumerated()), id: \.element.id) { index, message in
                                 if shouldShowDateDivider(at: index, in: displayedMessages) {
@@ -347,11 +365,21 @@ struct ChatDetailView: View {
                                 .frame(height: 1)
                                 .id("bottom_anchor")
                                 .onAppear {
-                                    isBottomAnchorVisible = true
+                                    bottomAnchorVisibilityWorkItem?.cancel()
+                                    let workItem = DispatchWorkItem {
+                                        isBottomAnchorVisible = true
+                                    }
+                                    bottomAnchorVisibilityWorkItem = workItem
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
                                 }
                                 .onDisappear {
-                                    isBottomAnchorVisible = false
-                            }
+                                    bottomAnchorVisibilityWorkItem?.cancel()
+                                    let workItem = DispatchWorkItem {
+                                        isBottomAnchorVisible = false
+                                    }
+                                    bottomAnchorVisibilityWorkItem = workItem
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
+                                }
                         }
                         .padding(.horizontal)
                         .padding(.top)
@@ -582,12 +610,6 @@ struct ChatDetailView: View {
         .onChange(of: amountText) { newValue in
             schedulePaymentFee(for: newValue)
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
-            updateKeyboardOverlap(from: notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardOverlapHeight = 0
-        }
         .onChange(of: settingsViewModel.settings.feeEstimationEnabled) { enabled in
             if enabled {
                 switch inputMode {
@@ -652,7 +674,6 @@ struct ChatDetailView: View {
             chatService.leaveConversation()
             chatService.cancelReply()
             cancelRecording()
-            keyboardOverlapHeight = 0
             snapshotRebuildTask?.cancel()
             storedCountTask?.cancel()
             scrollInteractionResetWorkItem?.cancel()
@@ -677,6 +698,7 @@ struct ChatDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
             guard let targetAddress = notification.userInfo?["contactAddress"] as? String,
                   targetAddress != contact.address else { return }
+            let startInPaymentMode = notification.userInfo?["paymentMode"] as? Bool ?? false
             // Find the target contact
             let target: Contact?
             if let c = contactsManager.contacts.first(where: { $0.address == targetAddress }) {
@@ -706,7 +728,7 @@ struct ChatDetailView: View {
             // to call positionInitialViewport with the proxy.
             contact = newContact
             messageText = ""
-            inputMode = .message
+            inputMode = startInPaymentMode ? .payment : .message
             amountText = ""
             initialViewportPositioned = false
             didInitialScroll = false
@@ -1118,7 +1140,7 @@ struct ChatDetailView: View {
             ModeMenuItem(title: "Send KAS", icon: "k.circle", isDestructive: false) { switchMode(.payment) },
             ModeMenuItem(title: "Send audio", icon: "mic", isDestructive: false) { switchMode(.audio) }
         ]
-        if !hasOutgoingHandshakeMessage && !hasIncomingHandshakeMessage {
+        if canSendRequestToCommunicate {
             items.append(ModeMenuItem(title: "Request to communicate", icon: "hand.wave", isDestructive: false) {
                 sendHandshake()
             })
@@ -1163,7 +1185,7 @@ struct ChatDetailView: View {
                     inputFieldWithState
 
                     if !isDeclined && inputMode == .message && pendingPhotoImage == nil
-                        && messageText.isEmpty && !isVirtualKeyboardVisible {
+                        && messageText.isEmpty {
                         photoPickerButton
                     }
 
@@ -1294,7 +1316,14 @@ struct ChatDetailView: View {
     }
 
     private var canSendRequestToCommunicate: Bool {
-        !hasOutgoingHandshakeMessage && !hasIncomingHandshakeMessage && !isRespondingHandshake
+        guard !hasOutgoingHandshakeMessage && !hasIncomingHandshakeMessage && !isRespondingHandshake else {
+            return false
+        }
+        // Already communicating successfully without ever using a formal handshake (e.g. an
+        // auto-added contact from a payment) - offering to send one at this point would be
+        // redundant, since both sides can clearly already reach each other.
+        let hasOutgoingMessage = normalizedMessages.contains { $0.isOutgoing && $0.deliveryStatus != .failed }
+        return !(hasAnyIncomingMessage && hasOutgoingMessage)
     }
 
     private var composerQuickActions: some View {
@@ -1783,49 +1812,12 @@ struct ChatDetailView: View {
         }
     }
 
-    private var isVirtualKeyboardVisible: Bool {
-        // A small threshold avoids treating accessory bars as a full software keyboard.
-        keyboardOverlapHeight > 80
-    }
-
-    private func updateKeyboardOverlap(from notification: Notification) {
-        guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
-            return
-        }
-        let overlap = UIScreen.main.bounds.intersection(endFrame).height
-        keyboardOverlapHeight = max(0, overlap)
-    }
-
     private func clearFeeEstimationState() {
         feeEstimateTask?.cancel()
         recordingFeeTask?.cancel()
         feeEstimateSompi = nil
         recordingFeeSompi = nil
         isEstimatingFee = false
-    }
-
-    private struct FeeShimmerOverlay: View {
-        let phase: CGFloat
-
-        var body: some View {
-            GeometryReader { geo in
-                let width = geo.size.width
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color.white.opacity(0.0),
-                                Color.white.opacity(0.22),
-                                Color.white.opacity(0.0)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .rotationEffect(.degrees(20))
-                    .offset(x: phase * width * 1.5)
-            }
-        }
     }
 
     private func switchMode(_ mode: InputMode) {

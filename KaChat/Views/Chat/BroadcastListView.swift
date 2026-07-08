@@ -103,22 +103,7 @@ struct BroadcastListView: View {
                 }
             }
         }
-        .navigationDestination(isPresented: Binding(
-            get: { selectedChannel != nil },
-            set: { if !$0 { selectedChannel = nil } }
-        )) {
-            if let selectedChannel {
-                // `.id` forces a fresh `BroadcastChannelView` (not just a `channelName` update to
-                // the existing one) when switching rooms in place, so `onAppear`/`onDisappear`
-                // re-fire to correctly swap the live-view acquire/release tracking, and per-room
-                // state (draft text, reply-in-progress, etc.) resets instead of leaking across
-                // channels.
-                BroadcastChannelView(channelName: selectedChannel)
-                    .id(selectedChannel)
-            } else {
-                EmptyView()
-            }
-        }
+        .modifier(BroadcastChannelDestination(selectedChannel: $selectedChannel))
         .onAppear {
             broadcastService.refreshChannels()
             if !broadcastService.popularTabEnabled { selectedTab = .channels }
@@ -385,6 +370,43 @@ struct BroadcastListView: View {
         joinFieldText = ""
         Haptics.success()
         return true
+    }
+}
+
+/// `.navigationDestination(item:)` (iOS 17+) rather than `isPresented:` + a synthetic get/set
+/// boolean: popping back (native back button/swipe) and immediately pushing a different channel
+/// both drive the same destination, and toggling a hand-rolled boolean true→false→true in quick
+/// succession can race with UIKit's own pop animation/cleanup, leaving the next push silently
+/// inert until the list view is torn down and recreated. Binding directly to the optional item is
+/// the API SwiftUI provides specifically for this swap; iOS 16 falls back to the older, slightly
+/// more race-prone pattern since `item:` isn't available there.
+private struct BroadcastChannelDestination: ViewModifier {
+    @Binding var selectedChannel: String?
+
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.navigationDestination(item: $selectedChannel) { channel in
+                // `.id` forces a fresh `BroadcastChannelView` (not just a `channelName` update to
+                // the existing one) when switching rooms in place, so `onAppear`/`onDisappear`
+                // re-fire to correctly swap the live-view acquire/release tracking, and per-room
+                // state (draft text, reply-in-progress, etc.) resets instead of leaking across
+                // channels.
+                BroadcastChannelView(channelName: channel)
+                    .id(channel)
+            }
+        } else {
+            content.navigationDestination(isPresented: Binding(
+                get: { selectedChannel != nil },
+                set: { if !$0 { selectedChannel = nil } }
+            )) {
+                if let selectedChannel {
+                    BroadcastChannelView(channelName: selectedChannel)
+                        .id(selectedChannel)
+                } else {
+                    EmptyView()
+                }
+            }
+        }
     }
 }
 

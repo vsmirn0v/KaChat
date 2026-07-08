@@ -14,7 +14,13 @@
 		43BBF34D2F15A52900B42BDA /* KaChatNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		4D3D20012F72000200000002 /* MessageTextRenderPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */; };
 		B2B2B2B20001000100000001 /* Blake2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B20001000000000001 /* Blake2b.swift */; };
+		BCAR00010001000100000001 /* BroadcastAudioRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAR00010001000000000001 /* BroadcastAudioRecording.swift */; };
+		BCCV00010001000100000001 /* BroadcastChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCV00010001000000000001 /* BroadcastChannelView.swift */; };
+		BCHS00010001000100000001 /* HiddenBroadcastSendersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */; };
+		BCLV00010001000100000001 /* BroadcastListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCLV00010001000000000001 /* BroadcastListView.swift */; };
+		BCST00010001000100000001 /* BroadcastStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCST00010001000000000001 /* BroadcastStore.swift */; };
 		BGTM00012E0100000002 /* BackgroundTaskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BGTM00012E0100000001 /* BackgroundTaskManager.swift */; };
+		BSVC00010001000100000001 /* BroadcastService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BSVC00010001000000000001 /* BroadcastService.swift */; };
 		CPTV00010001000100000001 /* ComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPTV00010001000000000001 /* ComposerTextView.swift */; };
 		CSEX00010001000100000001 /* ChatService+PushAndSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000001 /* ChatService+PushAndSync.swift */; };
 		CSEX00010001000100000002 /* ChatService+UtxoProcessing.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000002 /* ChatService+UtxoProcessing.swift */; };
@@ -42,7 +48,6 @@
 		E81000232D4C000100000012 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000222D4C000100000012 /* MainTabView.swift */; };
 		E81000292D4C000100000015 /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000282D4C000100000015 /* SettingsViewModel.swift */; };
 		E810002F2D4C000100000018 /* CryptoUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810002E2D4C000100000018 /* CryptoUtils.swift */; };
-		IMGP00010001000100000001 /* ImagePrep.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGP00010001000000000001 /* ImagePrep.swift */; };
 		E81000332D4C00010000001A /* AddContactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000322D4C00010000001A /* AddContactView.swift */; };
 		E81000352D4C00010000001B /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000342D4C00010000001B /* MessageBubbleView.swift */; };
 		E81000372D4C00010000001C /* Bech32.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000362D4C00010000001C /* Bech32.swift */; };
@@ -58,16 +63,12 @@
 		GEOIP00012F90000100000002 /* geoip-lite.json in Resources */ = {isa = PBXBuildFile; fileRef = GEOIP00012F90000100000001 /* geoip-lite.json */; };
 		GIFT00010001000100000001 /* GiftService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GIFT00010001000000000001 /* GiftService.swift */; };
 		GIFT00010001000100000002 /* GiftClaimView.swift in Sources */ = {isa = PBXBuildFile; fileRef = GIFT00010001000000000002 /* GiftClaimView.swift */; };
-		BCST00010001000100000001 /* BroadcastStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCST00010001000000000001 /* BroadcastStore.swift */; };
-		BSVC00010001000100000001 /* BroadcastService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BSVC00010001000000000001 /* BroadcastService.swift */; };
-		BCLV00010001000100000001 /* BroadcastListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCLV00010001000000000001 /* BroadcastListView.swift */; };
-		BCCV00010001000100000001 /* BroadcastChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCV00010001000000000001 /* BroadcastChannelView.swift */; };
-		BCHS00010001000100000001 /* HiddenBroadcastSendersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */; };
-		BCAR00010001000100000001 /* BroadcastAudioRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAR00010001000000000001 /* BroadcastAudioRecording.swift */; };
 		GRPC00010001000100000015 /* messages.grpc.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000005 /* messages.grpc.swift */; };
 		GRPC00010001000100000016 /* messages.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000006 /* messages.pb.swift */; };
 		GRPC00010001000100000017 /* rpc.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000007 /* rpc.pb.swift */; };
 		GRPC00010001000100000018 /* p2p.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRPC00010001000100000008 /* p2p.pb.swift */; };
+		FEESHIM0001000100000002 /* FeeShimmerOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */; };
+		IMGP00010001000100000001 /* ImagePrep.swift in Sources */ = {isa = PBXBuildFile; fileRef = IMGP00010001000000000001 /* ImagePrep.swift */; };
 		KASPATYPES001 /* KaspaTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = KASPATYPES002 /* KaspaTypes.swift */; };
 		KFPOLICY000100010001 /* KaspaFeePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = KFPOLICY000100010002 /* KaspaFeePolicy.swift */; };
 		KNAV00010001000100000001 /* KNSAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KNAV000100010000000001 /* KNSAvatarView.swift */; };
@@ -137,7 +138,13 @@
 		4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTextRenderPlan.swift; sourceTree = "<group>"; };
 		6A61ACF41FEA483D9EF0924F /* KNSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSService.swift; sourceTree = "<group>"; };
 		B2B2B2B20001000000000001 /* Blake2b.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Blake2b.swift; sourceTree = "<group>"; };
+		BCAR00010001000000000001 /* BroadcastAudioRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastAudioRecording.swift; sourceTree = "<group>"; };
+		BCCV00010001000000000001 /* BroadcastChannelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastChannelView.swift; sourceTree = "<group>"; };
+		BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenBroadcastSendersView.swift; sourceTree = "<group>"; };
+		BCLV00010001000000000001 /* BroadcastListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastListView.swift; sourceTree = "<group>"; };
+		BCST00010001000000000001 /* BroadcastStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastStore.swift; sourceTree = "<group>"; };
 		BGTM00012E0100000001 /* BackgroundTaskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskManager.swift; sourceTree = "<group>"; };
+		BSVC00010001000000000001 /* BroadcastService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastService.swift; sourceTree = "<group>"; };
 		CPTV00010001000000000001 /* ComposerTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerTextView.swift; sourceTree = "<group>"; };
 		CSEX00010001000000000001 /* ChatService+PushAndSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+PushAndSync.swift"; sourceTree = "<group>"; };
 		CSEX00010001000000000002 /* ChatService+UtxoProcessing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+UtxoProcessing.swift"; sourceTree = "<group>"; };
@@ -166,7 +173,6 @@
 		E81000222D4C000100000012 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		E81000282D4C000100000015 /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModel.swift; sourceTree = "<group>"; };
 		E810002E2D4C000100000018 /* CryptoUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoUtils.swift; sourceTree = "<group>"; };
-		IMGP00010001000000000001 /* ImagePrep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePrep.swift; sourceTree = "<group>"; };
 		E81000322D4C00010000001A /* AddContactView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddContactView.swift; sourceTree = "<group>"; };
 		E81000342D4C00010000001B /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
 		E81000362D4C00010000001C /* Bech32.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bech32.swift; sourceTree = "<group>"; };
@@ -184,16 +190,12 @@
 		GEOIP00012F90000100000001 /* geoip-lite.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "geoip-lite.json"; sourceTree = "<group>"; };
 		GIFT00010001000000000001 /* GiftService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftService.swift; sourceTree = "<group>"; };
 		GIFT00010001000000000002 /* GiftClaimView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftClaimView.swift; sourceTree = "<group>"; };
-		BCST00010001000000000001 /* BroadcastStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastStore.swift; sourceTree = "<group>"; };
-		BSVC00010001000000000001 /* BroadcastService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastService.swift; sourceTree = "<group>"; };
-		BCLV00010001000000000001 /* BroadcastListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastListView.swift; sourceTree = "<group>"; };
-		BCCV00010001000000000001 /* BroadcastChannelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastChannelView.swift; sourceTree = "<group>"; };
-		BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenBroadcastSendersView.swift; sourceTree = "<group>"; };
-		BCAR00010001000000000001 /* BroadcastAudioRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastAudioRecording.swift; sourceTree = "<group>"; };
 		GRPC00010001000100000005 /* messages.grpc.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = messages.grpc.swift; sourceTree = "<group>"; };
 		GRPC00010001000100000006 /* messages.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = messages.pb.swift; sourceTree = "<group>"; };
 		GRPC00010001000100000007 /* rpc.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = rpc.pb.swift; sourceTree = "<group>"; };
 		GRPC00010001000100000008 /* p2p.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = p2p.pb.swift; sourceTree = "<group>"; };
+		FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeeShimmerOverlay.swift; sourceTree = "<group>"; };
+		IMGP00010001000000000001 /* ImagePrep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePrep.swift; sourceTree = "<group>"; };
 		KASPATYPES002 /* KaspaTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaTypes.swift; sourceTree = "<group>"; };
 		KFPOLICY000100010002 /* KaspaFeePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaFeePolicy.swift; sourceTree = "<group>"; };
 		KNAV000100010000000001 /* KNSAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSAvatarView.swift; sourceTree = "<group>"; };
@@ -492,6 +494,7 @@
 				E8F100142D4C0001000001FF /* QRScannerView.swift */,
 				E8F100112D4C0001000000FF /* Toast.swift */,
 				KNAV000100010000000001 /* KNSAvatarView.swift */,
+				FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -793,6 +796,7 @@
 				DTAL00010001000100000001 /* DeterministicAlias.swift in Sources */,
 				E810002F2D4C000100000018 /* CryptoUtils.swift in Sources */,
 				IMGP00010001000100000001 /* ImagePrep.swift in Sources */,
+				FEESHIM0001000100000002 /* FeeShimmerOverlay.swift in Sources */,
 				E81000332D4C00010000001A /* AddContactView.swift in Sources */,
 				E81000352D4C00010000001B /* MessageBubbleView.swift in Sources */,
 				E81000372D4C00010000001C /* Bech32.swift in Sources */,

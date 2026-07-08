@@ -497,17 +497,35 @@ struct MessageBubbleView: View {
             }
 
         case .audio:
-            HStack(spacing: 4) {
-                Image(systemName: "waveform.circle.fill")
-                    .font(.caption2)
-                Text("Audio")
-                    .font(.caption2)
+            // `sendImage` deliberately reuses `.audio` as the message type (the JSON envelope's
+            // own `mimeType` is what actually distinguishes a photo from a voice message), so this
+            // badge needs to check `mediaFile` itself rather than assuming every `.audio` message
+            // is a voice message.
+            if mediaFile?.isImage == true {
+                HStack(spacing: 4) {
+                    Image(systemName: "photo.circle.fill")
+                        .font(.caption2)
+                    Text("Photo")
+                        .font(.caption2)
+                }
+                .foregroundColor(.blue)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(Color.blue.opacity(0.1))
+                .clipShape(Capsule())
+            } else {
+                HStack(spacing: 4) {
+                    Image(systemName: "waveform.circle.fill")
+                        .font(.caption2)
+                    Text("Audio")
+                        .font(.caption2)
+                }
+                .foregroundColor(.blue)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(Color.blue.opacity(0.1))
+                .clipShape(Capsule())
             }
-            .foregroundColor(.blue)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            .background(Color.blue.opacity(0.1))
-            .clipShape(Capsule())
         }
     }
 
@@ -1848,10 +1866,16 @@ private struct ImagePreviewView: View {
     let image: UIImage
     let title: String
     @Environment(\.dismiss) private var dismiss
+    @State private var isZoomed = false
+    @State private var dragOffset: CGFloat = 0
+
+    /// Past this translation (or a fast-enough flick, see `onEnded`), the swipe commits to
+    /// dismissing instead of springing back.
+    private let dismissThreshold: CGFloat = 120
 
     var body: some View {
         NavigationStack {
-            ZoomableImageView(image: image)
+            ZoomableImageView(image: image, isZoomed: $isZoomed)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1870,12 +1894,36 @@ private struct ImagePreviewView: View {
                 }
             }
         }
+        .offset(y: dragOffset)
+        .opacity(1 - min(abs(dragOffset) / 500, 0.4))
+        // `simultaneousGesture` rather than `gesture` so this never steals the scroll view's own
+        // pinch-zoom/pan recognizers; the `!isZoomed` guards below additionally make sure a swipe
+        // only dismisses when the image is at its default scale, matching how Photos/Messages
+        // handle swipe-to-dismiss on a zoomable image.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12)
+                .onChanged { value in
+                    guard !isZoomed, abs(value.translation.height) > abs(value.translation.width) else { return }
+                    dragOffset = value.translation.height
+                }
+                .onEnded { value in
+                    guard !isZoomed else { return }
+                    if abs(dragOffset) > dismissThreshold || abs(value.predictedEndTranslation.height) > dismissThreshold * 2 {
+                        dismiss()
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            dragOffset = 0
+                        }
+                    }
+                }
+        )
     }
 
 }
 
 private struct ZoomableImageView: UIViewRepresentable {
     let image: UIImage
+    @Binding var isZoomed: Bool
 
     func makeUIView(context: Context) -> UIScrollView {
         let scrollView = UIScrollView()
@@ -1907,14 +1955,26 @@ private struct ZoomableImageView: UIViewRepresentable {
     func updateUIView(_ uiView: UIScrollView, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(isZoomed: $isZoomed)
     }
 
     final class Coordinator: NSObject, UIScrollViewDelegate {
         weak var imageView: UIImageView?
+        @Binding var isZoomed: Bool
+
+        init(isZoomed: Binding<Bool>) {
+            _isZoomed = isZoomed
+        }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? {
             return imageView
+        }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            let zoomed = scrollView.zoomScale > scrollView.minimumZoomScale + 0.01
+            if isZoomed != zoomed {
+                isZoomed = zoomed
+            }
         }
     }
 }

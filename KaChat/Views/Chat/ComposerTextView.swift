@@ -145,6 +145,15 @@ struct ComposerTextView: UIViewRepresentable {
         let width = proposal.width ?? UIScreen.main.bounds.width
         let lineHeight = uiView.font?.lineHeight ?? 20
         let maxHeight = lineHeight * CGFloat(maxLines)
+
+        // `UITextView.sizeThatFits` only reports the text's true natural height while
+        // `isScrollEnabled` is false - once scrolling is on, it just echoes back the view's
+        // current bounds instead of measuring content. Toggling `isScrollEnabled` based on a
+        // measurement that itself depends on the *current* `isScrollEnabled` value creates a
+        // feedback loop where every layout pass flips the value and SwiftUI never converges,
+        // pinning the main thread indefinitely. Forcing scrolling off before measuring keeps
+        // the result stable regardless of the view's current state.
+        uiView.isScrollEnabled = false
         let fittingSize = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         let clampedHeight = min(fittingSize.height, maxHeight)
         uiView.isScrollEnabled = fittingSize.height > maxHeight

@@ -14,8 +14,10 @@ struct BroadcastChannelView: View {
     @EnvironmentObject var walletManager: WalletManager
     @ObservedObject private var knsService = KNSService.shared
     @StateObject private var recorder = BroadcastAudioRecorder()
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var messageText = ""
+    @State private var isMessageFocused = false
     @State private var isSending = false
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
@@ -23,9 +25,11 @@ struct BroadcastChannelView: View {
     @State private var openContactInPaymentMode = false
     @State private var profileContact: Contact?
     @State private var isBottomAnchorVisible = true
+    @State private var bottomAnchorVisibilityWorkItem: DispatchWorkItem?
     @State private var feeEstimateSompi: UInt64?
     @State private var isEstimatingFee = false
     @State private var feeEstimateTask: Task<Void, Never>?
+    @State private var feeShimmerPhase: CGFloat = -1
     @State private var revealOffset: CGFloat = 0
     private let maxRevealOffset: CGFloat = 64
 
@@ -34,10 +38,16 @@ struct BroadcastChannelView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             messageList
-            Divider()
+
+            bottomFade
+                .offset(y: 115)
+
+            // Floats over the message list rather than docking in its own row below a divider,
+            // matching 1:1 chat's compose bar.
             composeBar
+                .padding(.bottom, 2)
         }
         .navigationTitle("#\(channelName)")
         .navigationBarTitleDisplayMode(.inline)
@@ -108,6 +118,21 @@ struct BroadcastChannelView: View {
         }
     }
 
+    private var bottomFade: some View {
+        let fadeColor = colorScheme == .dark ? Color.black : Color.white
+        return Rectangle()
+            .fill(
+                LinearGradient(
+                    colors: [Color.clear, fadeColor.opacity(1)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .frame(height: 160)
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
+    }
+
     private var messageList: some View {
         let messages = broadcastService.messages(forChannel: channelName)
         return Group {
@@ -164,14 +189,35 @@ struct BroadcastChannelView: View {
                                         _ = await knsService.fetchProfile(for: message.senderAddress)
                                     }
                                 }
+                                // Debounced rather than setting `isBottomAnchorVisible` directly:
+                                // this 1pt marker can appear/disappear many times per second
+                                // during a fast scroll/fling as it crosses the lazy-loaded
+                                // viewport edge, and since it drives an `.animation(value:)` below,
+                                // each flip was re-triggering a full transition rapid-fire enough
+                                // to pin the main thread and freeze the app.
                                 Color.clear
                                     .frame(height: 1)
                                     .id("bottom_anchor")
-                                    .onAppear { isBottomAnchorVisible = true }
-                                    .onDisappear { isBottomAnchorVisible = false }
+                                    .onAppear {
+                                        bottomAnchorVisibilityWorkItem?.cancel()
+                                        let workItem = DispatchWorkItem { isBottomAnchorVisible = true }
+                                        bottomAnchorVisibilityWorkItem = workItem
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
+                                    }
+                                    .onDisappear {
+                                        bottomAnchorVisibilityWorkItem?.cancel()
+                                        let workItem = DispatchWorkItem { isBottomAnchorVisible = false }
+                                        bottomAnchorVisibilityWorkItem = workItem
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
+                                    }
                             }
                             .padding(.horizontal)
                             .padding(.vertical, 8)
+                        }
+                        .safeAreaInset(edge: .bottom) {
+                            // Keeps the last message clear of the now-floating compose bar,
+                            // matching 1:1 chat's ScrollView inset.
+                            Color.clear.frame(height: 44)
                         }
                         .onChange(of: messages.count) { _ in
                             scrollToBottom(using: proxy, animated: true)
@@ -307,45 +353,45 @@ struct BroadcastChannelView: View {
     }
 
     private var composeBar: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 8) {
             if let reply = broadcastService.replyingTo {
                 replyBanner(for: reply)
             }
-            if shouldShowFeeBubble {
-                feeBubble
-            }
-            if recorder.state == .recording || recorder.state == .encoding {
-                recordingBar
-            } else {
-                HStack(spacing: 8) {
-                    TextField("Message #\(channelName)", text: $messageText, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(1...4)
+            ZStack(alignment: .topLeading) {
+                if recorder.state == .recording || recorder.state == .encoding {
+                    recordingBar
+                } else {
+                    HStack(spacing: 12) {
+                        ComposerTextView(
+                            text: $messageText,
+                            isFocused: $isMessageFocused,
+                            onTextChange: { newValue in
+                                scheduleFeeEstimate(for: newValue)
+                            },
+                            onSubmit: { send() },
+                            placeholder: "Message #\(channelName)"
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(glassBackground(cornerRadius: 20))
 
-                    if messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Button {
-                            recorder.start()
-                        } label: {
-                            Image(systemName: "mic.circle.fill")
-                                .font(.system(size: 30))
-                        }
-                    } else {
-                        Button {
-                            send()
-                        } label: {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 30))
-                        }
-                        .disabled(isSending)
+                        // Only a mic/voice-message icon here, matching 1:1 chat's look but
+                        // deliberately without its photo picker - broadcasts don't support
+                        // photo attachments (only text and voice messages).
+                        sendOrRecordButton
                     }
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
+
+                if shouldShowFeeBubble {
+                    feeBubble
+                        .offset(x: 32, y: -26)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
+                }
             }
         }
-        .onChange(of: messageText) { newValue in
-            scheduleFeeEstimate(for: newValue)
-        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
         .onChange(of: broadcastService.replyingTo) { _ in
             scheduleFeeEstimate(for: messageText)
         }
@@ -354,6 +400,47 @@ struct BroadcastChannelView: View {
             guard elapsed >= BroadcastAudioRecorder.maxDuration, recorder.state == .recording else { return }
             stopAndSendRecording()
         }
+    }
+
+    private var sendOrRecordButton: some View {
+        Group {
+            if messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button {
+                    recorder.start()
+                } label: {
+                    Image(systemName: "mic.fill")
+                        .font(.title3)
+                        .foregroundColor(.accentColor)
+                        .frame(width: 36, height: 36)
+                        .background(glassBackground(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Record voice message"))
+            } else {
+                Button {
+                    send()
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(isSending ? .secondary : .accentColor)
+                        .frame(width: 36, height: 36)
+                        .background(glassBackground(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+                .disabled(isSending)
+                .accessibilityLabel(Text("Send"))
+            }
+        }
+    }
+
+    private func glassBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.regularMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
     }
 
     private var shouldShowFeeBubble: Bool {
@@ -366,16 +453,48 @@ struct BroadcastChannelView: View {
             if isEstimatingFee {
                 Text("fee: -------- KAS")
             } else if let feeEstimateSompi {
-                Text("fee: \(formatKaspaExact(feeEstimateSompi)) KAS")
+                Text(localizedFeeText(feeEstimateSompi))
             } else {
                 Text("fee: -- KAS")
             }
         }
         .font(.caption2)
         .foregroundColor(.secondary)
-        .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(glassBackground(cornerRadius: 14))
+        .overlay {
+            if isEstimatingFee {
+                FeeShimmerOverlay(phase: feeShimmerPhase)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .allowsHitTesting(false)
+            }
+        }
+        .onAppear {
+            updateFeeShimmer()
+        }
+        .onChange(of: isEstimatingFee) { _ in
+            updateFeeShimmer()
+        }
+    }
+
+    private func localizedFeeText(_ feeSompi: UInt64) -> String {
+        let template = NSLocalizedString(
+            "fee: %@ KAS",
+            comment: "Fee label with resolved fee amount in KAS"
+        )
+        return String(format: template, locale: Locale.current, formatKaspaExact(feeSompi))
+    }
+
+    private func updateFeeShimmer() {
+        if isEstimatingFee {
+            feeShimmerPhase = -1
+            withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
+                feeShimmerPhase = 1
+            }
+        } else {
+            feeShimmerPhase = -1
+        }
     }
 
     private func scheduleFeeEstimate(for text: String) {
@@ -414,30 +533,42 @@ struct BroadcastChannelView: View {
     }
 
     private var recordingBar: some View {
-        HStack(spacing: 8) {
-            Button {
-                recorder.cancel()
-                feeEstimateSompi = nil
-            } label: {
-                Image(systemName: "trash.fill")
+        HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Button {
+                    recorder.cancel()
+                    feeEstimateSompi = nil
+                } label: {
+                    Image(systemName: "trash.fill")
+                        .foregroundColor(.red)
+                }
+                .buttonStyle(.plain)
+
+                Image(systemName: "mic.fill")
+                    .font(.caption)
                     .foregroundColor(.red)
+
+                Text(recorder.state == .encoding ? "Encoding…" : "Recording... \(Int(recorder.elapsedSeconds))s")
+                    .foregroundColor(.secondary)
+
+                Spacer()
             }
-            Image(systemName: "mic.fill")
-                .font(.caption)
-                .foregroundColor(.red)
-            Text(recorder.state == .encoding ? "Encoding…" : "Recording... \(Int(recorder.elapsedSeconds))s")
-                .foregroundColor(.secondary)
-            Spacer()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(glassBackground(cornerRadius: 20))
+
             Button {
                 stopAndSendRecording()
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 30))
+                    .font(.title3)
+                    .foregroundColor(recorder.state == .encoding ? .secondary : .accentColor)
+                    .frame(width: 36, height: 36)
+                    .background(glassBackground(cornerRadius: 12))
             }
+            .buttonStyle(.plain)
             .disabled(recorder.state == .encoding)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
     }
 
     private func stopAndSendRecording() {

@@ -75,11 +75,17 @@ struct KaChatApp: App {
                 ChatService.shared.pauseUtxoSubscriptionForRemotePush()
             }
             // Flush any pending read status updates to CloudKit before backgrounding
+            appDelegate.beginBackgroundFlushIfNeeded()
             ReadStatusSyncManager.shared.flushPendingUpdates()
             // Force immediate CloudKit export before backgrounding
             MessageStore.shared.flushCloudKitExport()
             // Checkpoint WAL when going to background to reduce file size
             MessageStore.shared.checkpointWAL()
+            // Give the async saves above a moment to actually land before releasing the
+            // background task, since iOS can suspend the process as soon as it ends.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                appDelegate.endBackgroundFlushIfNeeded()
+            }
         case .active:
             // Cancel background fetch when app becomes active (we'll poll normally)
             BackgroundTaskManager.shared.cancelBackgroundFetch()
@@ -222,6 +228,27 @@ struct KaChatApp: App {
 
 // MARK: - App Delegate for Notification and Background Task Handling
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    private var backgroundFlushTaskId: UIBackgroundTaskIdentifier = .invalid
+
+    /// Requests a few extra seconds of background execution time so the debounced read-marker
+    /// and CloudKit export writes triggered on backgrounding (both `context.perform`, not
+    /// `performAndWait`, so they return before the save actually lands) get a chance to complete
+    /// before iOS can suspend the process. Without this, backgrounding right after reading a chat
+    /// can lose that write, resurrecting a stale "unread" position and wrong scroll anchor the
+    /// next time the chat is opened.
+    func beginBackgroundFlushIfNeeded() {
+        endBackgroundFlushIfNeeded()
+        backgroundFlushTaskId = UIApplication.shared.beginBackgroundTask(withName: "ReadStatusFlush") { [weak self] in
+            self?.endBackgroundFlushIfNeeded()
+        }
+    }
+
+    func endBackgroundFlushIfNeeded() {
+        guard backgroundFlushTaskId != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundFlushTaskId)
+        backgroundFlushTaskId = .invalid
+    }
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Set notification delegate to handle foreground notifications
         UNUserNotificationCenter.current().delegate = self

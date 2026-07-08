@@ -12,6 +12,7 @@ struct ChatListView: View {
 
     @State private var searchText = ""
     @State private var selectedContact: Contact?
+    @State private var selectedContactStartInPaymentMode = false
     @State private var showAddContact = false
     @State private var showBroadcastList = false
     @State private var pendingBroadcastChannel: String?
@@ -61,7 +62,7 @@ struct ChatListView: View {
                             }
                         )) {
                             if let contact = selectedContact {
-                                ChatDetailView(contact: contact)
+                                ChatDetailView(contact: contact, startInPaymentMode: selectedContactStartInPaymentMode)
                             } else {
                                 EmptyView()
                             }
@@ -98,6 +99,7 @@ struct ChatListView: View {
             .sheet(isPresented: $showAddContact) {
                 AddContactView { contact in
                     _ = chatService.getOrCreateConversation(for: contact)
+                    selectedContactStartInPaymentMode = false
                     selectedContact = contact
                     showAddContact = false
                 }
@@ -137,7 +139,7 @@ struct ChatListView: View {
     @ViewBuilder
     private var splitDetailPane: some View {
         if let contact = selectedContact {
-            ChatDetailView(contact: contact)
+            ChatDetailView(contact: contact, startInPaymentMode: selectedContactStartInPaymentMode)
                 .id(contact.id)
         } else {
             splitEmptyDetailView
@@ -201,7 +203,8 @@ struct ChatListView: View {
 
     private func handleOpenChatNotification(_ notification: Notification) {
         guard let contactAddress = notification.userInfo?["contactAddress"] as? String else { return }
-        navigateToChat(address: contactAddress)
+        let startInPaymentMode = notification.userInfo?["paymentMode"] as? Bool ?? false
+        navigateToChat(address: contactAddress, startInPaymentMode: startInPaymentMode)
     }
 
     private func checkPendingNavigation() {
@@ -228,7 +231,7 @@ struct ChatListView: View {
         showBroadcastList = true
     }
 
-    private func navigateToChat(address: String) {
+    private func navigateToChat(address: String, startInPaymentMode: Bool = false) {
         // Find contact by address
         let contact: Contact?
         if let c = contactsManager.contacts.first(where: { $0.address == address }) {
@@ -241,6 +244,7 @@ struct ChatListView: View {
         guard let target = contact else { return }
 
         if shouldUseSplitLayout {
+            selectedContactStartInPaymentMode = startInPaymentMode
             selectedContact = target
             return
         }
@@ -248,6 +252,7 @@ struct ChatListView: View {
         // When a chat is already open, ChatDetailView handles the switch
         // in-place via its own .onReceive(.openChat) handler.
         if selectedContact == nil {
+            selectedContactStartInPaymentMode = startInPaymentMode
             selectedContact = target
         }
     }
@@ -331,6 +336,7 @@ struct ChatListView: View {
             } else {
                 ForEach(Array(displayed.enumerated()), id: \.element.id) { index, conversation in
                     Button {
+                        selectedContactStartInPaymentMode = false
                         selectedContact = conversation.contact
                     } label: {
                         ConversationRow(conversation: conversation)

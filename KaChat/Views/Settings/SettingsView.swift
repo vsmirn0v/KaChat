@@ -27,6 +27,7 @@ struct SettingsView: View {
     @State private var isPreparingDiagnostics = false
     @State private var isPreparingChatHistoryExport = false
     @State private var isImportingChatHistory = false
+    @State private var isResolvingDonateAddress = false
     @AppStorage(MessageStore.dpiCorruptionWarningKey) private var dpiWarningActive = false
     @AppStorage(MessageStore.dpiCorruptionWarningEndpointKey) private var dpiWarningEndpoint = ""
     @AppStorage(MessageStore.dpiCorruptionWarningDateKey) private var dpiWarningDate: Double = 0
@@ -183,6 +184,24 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+
+                    Button {
+                        Task {
+                            await donate()
+                        }
+                    } label: {
+                        HStack {
+                            Text("Donate")
+                            Spacer()
+                            if isResolvingDonateAddress {
+                                ProgressView()
+                            } else {
+                                Text("kachat.kas")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .disabled(isResolvingDonateAddress)
                 }
 
                 Section("Diagnostics") {
@@ -496,6 +515,27 @@ struct SettingsView: View {
                 showToast("Import failed: \(error.localizedDescription)", style: .error)
             }
         }
+    }
+
+    /// Resolves the KNS domain "kachat.kas" to its owner address and jumps straight to that
+    /// chat in payment mode, ready to send - matches the Android client's About screen Donate row.
+    private func donate() async {
+        if isResolvingDonateAddress { return }
+        isResolvingDonateAddress = true
+        defer { isResolvingDonateAddress = false }
+
+        guard let resolution = await KNSService.shared.resolveDomain("kachat.kas") else {
+            showToast("Couldn't resolve kachat.kas. Please try again later.", style: .error)
+            return
+        }
+
+        let contact = contactsManager.getOrCreateContact(address: resolution.ownerAddress, alias: resolution.domain)
+        _ = chatService.getOrCreateConversation(for: contact)
+        NotificationCenter.default.post(
+            name: .openChat,
+            object: nil,
+            userInfo: ["contactAddress": contact.address, "paymentMode": true]
+        )
     }
 
     private func exportDiagnosticsArchive() async {
