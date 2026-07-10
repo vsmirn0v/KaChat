@@ -1922,7 +1922,15 @@ final class MessageStore {
 
     private func loadPersistentStores(primaryDescription: NSPersistentStoreDescription, completion: (() -> Void)? = nil) {
         container.loadPersistentStores { [weak self] _, error in
-            guard let self else { return }
+            // `completion` backs `setCurrentWallet(_:) async`'s `withCheckedContinuation` - every
+            // exit path below MUST call it, even on failure, or that continuation hangs forever
+            // with no timeout and no way to recover (previously the two failure branches here
+            // returned without calling it, permanently wedging wallet load on any store-load
+            // error, e.g. a WAL/SHM issue from a cold launch after the process was jetsammed).
+            guard let self else {
+                completion?()
+                return
+            }
             if let error {
                 if primaryDescription.cloudKitContainerOptions != nil {
                     self.logInfo("[MessageStore] CloudKit store load failed: \(error). Falling back to local store.")
@@ -1936,6 +1944,7 @@ final class MessageStore {
                     self.container.loadPersistentStores { _, fallbackError in
                         if let fallbackError {
                             self.logInfo("[MessageStore] Failed to load local store: \(fallbackError)")
+                            completion?()
                             return
                         }
                         self.finishStoreLoad()
@@ -1943,6 +1952,7 @@ final class MessageStore {
                     }
                 } else {
                     self.logInfo("[MessageStore] Failed to load store: \(error)")
+                    completion?()
                 }
                 return
             }
