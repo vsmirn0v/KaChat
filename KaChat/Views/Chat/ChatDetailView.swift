@@ -27,7 +27,6 @@ struct ChatDetailView: View {
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @ObservedObject private var knsService = KNSService.shared
-    @Environment(\.colorScheme) private var colorScheme
 
     private var myAddress: String? {
         walletManager.currentWallet?.publicAddress
@@ -80,7 +79,6 @@ struct ChatDetailView: View {
     @State private var isEstimatingFee = false
     @State private var feeEstimateTask: Task<Void, Never>?
     @State private var revealOffset: CGFloat = 0
-    @State private var isReplySwipeActive = false
     private let maxRevealOffset: CGFloat = 64
     @State private var inputMode: InputMode = .message
     @State private var amountText = ""
@@ -100,9 +98,6 @@ struct ChatDetailView: View {
     @State private var isEncodingAudio = false
     @State private var recorderDelegate = AudioRecorderDelegate()
     @State private var photoPickerItem: PhotosPickerItem?
-    @State private var showPhotoOptions = false
-    @State private var showPhotoQualitySheet = false
-    @State private var photoOptionsAnchorFrame: CGRect = .zero
     @State private var pendingPhotoImage: UIImage?
     @State private var isCompressingPhoto = false
     @State private var hasPerformedInitialSetup = false
@@ -302,10 +297,9 @@ struct ChatDetailView: View {
 
     var body: some View {
         ZStack {
-            ZStack(alignment: .bottom) {
-                // Messages
-                ScrollViewReader { proxy in
-                    ScrollView {
+            // Messages
+            ScrollViewReader { proxy in
+                ScrollView {
                         ScrollViewIntrospector { scrollView in
                             if scrollViewReference.scrollView !== scrollView {
                                 scrollViewReference.scrollView = scrollView
@@ -393,8 +387,14 @@ struct ChatDetailView: View {
                     }
                     .defaultScrollAnchorCompat(initialScrollAnchorMessageId == nil ? .bottom : .top)
                     .opacity(initialViewportPositioned ? 1 : 0)
-                    .safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: 44)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        // Hosting the compose bar as a real `safeAreaInset` (rather than a
+                        // floating ZStack overlay with a manually-tracked keyboard offset) is
+                        // what guarantees it always sits flush above the keyboard on every
+                        // device - this is the mechanism SwiftUI itself uses for keyboard
+                        // avoidance, so there's no custom math to get wrong.
+                        inputBar
+                            .padding(.bottom, 2)
                     }
                     .overlay(alignment: .top) {
                         if shouldShowTopPaginationSpinner {
@@ -507,7 +507,6 @@ struct ChatDetailView: View {
                         // mostly-horizontal drags so vertical scrolling is unaffected.
                         DragGesture(minimumDistance: 8)
                             .onChanged { value in
-                                guard !isReplySwipeActive else { return }
                                 guard abs(value.translation.width) > abs(value.translation.height) else { return }
                                 revealOffset = min(max(value.translation.width, -maxRevealOffset), 0)
                             }
@@ -517,14 +516,6 @@ struct ChatDetailView: View {
                                 }
                             }
                     )
-                }
-
-                bottomFade
-                    .offset(y: 115)
-
-                // Unified Input Bar (floats over content)
-                inputBar
-                    .padding(.bottom, 2)
             }
 
             // Drag-selectable mode menu overlay
@@ -541,8 +532,6 @@ struct ChatDetailView: View {
 
                 dragSelectableMenu
             }
-
-            photoOptionsOverlay
         }
         .coordinateSpace(name: chatCoordinateSpace)
         .onDrop(
@@ -1263,21 +1252,6 @@ struct ChatDetailView: View {
         )
     }
 
-    private var bottomFade: some View {
-        let fadeColor = colorScheme == .dark ? Color.black : Color.white
-        return Rectangle()
-            .fill(
-                LinearGradient(
-                    colors: [Color.clear, fadeColor.opacity(1)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .frame(height: 160)
-            .ignoresSafeArea(edges: .bottom)
-            .allowsHitTesting(false)
-    }
-
     private var inputFieldWithState: some View {
         Group {
             if isDeclined {
@@ -1320,33 +1294,18 @@ struct ChatDetailView: View {
         }
     }
 
-    /// Just the trigger button - the actual +/gear options render in `photoOptionsOverlay`, a
-    /// sibling at the top of `body` (like `dragSelectableMenu`), positioned from this button's
-    /// captured frame in `chatCoordinateSpace`. Rendering them locally with a plain `.offset()`
-    /// doesn't work reliably here: this button sits several ZStacks/HStacks deep (row → inputBar's
-    /// ZStack → the floating-overlay ZStack), and each level of nesting/alignment compounds the
-    /// offset unpredictably, landing the popup far from the button instead of just above it.
     private var photoPickerButton: some View {
-        GeometryReader { geometry in
-            Button {
-                photoOptionsAnchorFrame = geometry.frame(in: .named(chatCoordinateSpace))
-                withAnimation(.easeOut(duration: 0.15)) {
-                    showPhotoOptions.toggle()
-                }
-            } label: {
-                Image(systemName: "photo")
-                    .font(.title3)
-                    .foregroundColor(.primary)
-                    .frame(width: 44, height: 44)
-                    .background(glassBackground(cornerRadius: 14))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("Photo options"))
+        PhotosPicker(selection: $photoPickerItem, matching: .images) {
+            Image(systemName: "photo")
+                .font(.title3)
+                .foregroundColor(.primary)
+                .frame(width: 44, height: 44)
+                .background(glassBackground(cornerRadius: 14))
         }
-        .frame(width: 44, height: 44)
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Attach photo"))
         .onChange(of: photoPickerItem) { newItem in
             guard let newItem else { return }
-            showPhotoOptions = false
             Task {
                 defer { photoPickerItem = nil }
                 guard let data = try? await newItem.loadTransferable(type: Data.self) else {
@@ -1360,66 +1319,6 @@ struct ChatDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $showPhotoQualitySheet) {
-            PhotoQualitySettingsSheet(currentPreset: settingsViewModel.settings.chatPhotoQualityPreset)
-        }
-    }
-
-    /// Blurred backdrop + the +/gear options, floating just above `photoPickerButton`'s captured
-    /// frame - mirrors `dragSelectableMenu`'s anchoring approach.
-    @ViewBuilder
-    private var photoOptionsOverlay: some View {
-        if showPhotoOptions {
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        showPhotoOptions = false
-                    }
-                }
-                .transition(.opacity)
-
-            photoOptionsMenu
-                .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottom)))
-        }
-    }
-
-    private var photoOptionsMenu: some View {
-        let itemSize: CGFloat = 44
-        let spacing: CGFloat = 10
-        let totalHeight = itemSize * 2 + spacing
-        let centerX = photoOptionsAnchorFrame.midX
-        let bottomEdge = photoOptionsAnchorFrame.minY - 12
-        let centerY = bottomEdge - totalHeight / 2
-
-        return VStack(spacing: spacing) {
-            Button {
-                withAnimation(.easeOut(duration: 0.15)) {
-                    showPhotoOptions = false
-                }
-                showPhotoQualitySheet = true
-            } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.title3)
-                    .foregroundColor(.primary)
-                    .frame(width: itemSize, height: itemSize)
-                    .background(glassBackground(cornerRadius: 14))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("Photo quality settings"))
-
-            PhotosPicker(selection: $photoPickerItem, matching: .images) {
-                Image(systemName: "plus")
-                    .font(.title3)
-                    .foregroundColor(.primary)
-                    .frame(width: itemSize, height: itemSize)
-                    .background(glassBackground(cornerRadius: 14))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("Attach photo"))
-        }
-        .position(x: centerX, y: centerY)
     }
 
     private var shouldShowDesktopEmojiButton: Bool {
@@ -2159,12 +2058,6 @@ struct ChatDetailView: View {
             replyQuote: replyQuote,
             replySenderDisplayName: replyQuote.map { replyDisplayName(for: $0.replyToSender) },
             onReply: { chatService.startReplyTo(message) },
-            onReplySwipeActiveChange: { active in
-                isReplySwipeActive = active
-                if active {
-                    revealOffset = 0
-                }
-            },
             avatarURLString: senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
             avatarDisplayName: replyDisplayName(for: senderAddress ?? contact.address),
             revealOffset: revealOffset,

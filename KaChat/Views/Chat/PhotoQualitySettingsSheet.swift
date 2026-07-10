@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Explains and lets the user adjust `chatPhotoQualityPreset` - reached from the photo picker's
-/// options (gear icon) rather than the main Settings screen, since it's specifically about how
-/// photos sent in chat are compressed, not a general app setting.
+/// Explains and lets the user adjust `chatPhotoQualityPreset` - reachable from Settings > Chats >
+/// Photo Quality.
 struct PhotoQualitySettingsSheet: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @Environment(\.dismiss) private var dismiss

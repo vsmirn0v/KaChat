@@ -39,6 +39,9 @@ final class BroadcastService: ObservableObject {
     private var liveViewRefCounts: [String: Int] = [:]
     private var blockNotificationHandlerId: UUID?
     private var isScanningActive = false
+    /// pendingId of broadcasts with an auto-retry already scheduled - prevents scheduling a
+    /// duplicate retry if `sendBroadcastInternal` fails again before the first retry fires.
+    private var scheduledSendRetries: Set<String> = []
 
     /// Fast pre-filter for the broadcast payload prefix, applied to the still-hex-encoded
     /// `Protowire_RpcTransaction.payload` before paying the cost of hex-decoding it - avoids
@@ -242,9 +245,14 @@ final class BroadcastService: ObservableObject {
                     )
                 }
             } catch {
-                store.markMessageFailed(pendingId: pendingId)
-                loadMessages(for: channel)
-                lastSendError = error as? KasiaError ?? .networkError(error.localizedDescription)
+                try? await self.handleSendFailure(
+                    error,
+                    channel: channel,
+                    content: content,
+                    walletAddress: wallet.publicAddress,
+                    privateKey: privateKey,
+                    pendingId: pendingId
+                )
             }
         }
     }
@@ -389,10 +397,89 @@ final class BroadcastService: ObservableObject {
             }
             replyingTo = nil
         } catch {
-            store.markMessageFailed(pendingId: pendingId)
-            loadMessages(for: channel)
-            lastSendError = error as? KasiaError ?? .networkError(error.localizedDescription)
-            throw error
+            try await handleSendFailure(
+                error,
+                channel: channel,
+                content: payload,
+                walletAddress: wallet.publicAddress,
+                privateKey: privateKey,
+                pendingId: pendingId
+            )
+        }
+    }
+
+    /// If sending too quickly back-to-back races the previous broadcast's not-yet-confirmed
+    /// UTXOs, `sendBroadcastInternal` surfaces that as a "no confirmed inputs" error - automatic-
+    /// ally retry those with backoff (matches 1:1 chat's `scheduleOutgoingRetry`) instead of
+    /// leaving the user to notice and manually tap retry. Any other error still fails immediately.
+    private func handleSendFailure(
+        _ error: Error,
+        channel: String,
+        content: String,
+        walletAddress: String,
+        privateKey: Data,
+        pendingId: String
+    ) async throws {
+        if ChatService.shared.isNoConfirmedInputsError(error) {
+            let delay = ChatService.shared.nextNoInputRetryDelay(for: pendingId)
+            NSLog("[BroadcastService] Deferred retry (no confirmed inputs) for %@ in %.0fs",
+                  String(pendingId.prefix(12)), delay)
+            scheduleBroadcastRetry(
+                channel: channel,
+                content: content,
+                walletAddress: walletAddress,
+                privateKey: privateKey,
+                pendingId: pendingId,
+                delaySeconds: delay
+            )
+            return
+        }
+        ChatService.shared.clearNoInputRetryState(for: pendingId)
+        store.markMessageFailed(pendingId: pendingId)
+        loadMessages(for: channel)
+        lastSendError = error as? KasiaError ?? .networkError(error.localizedDescription)
+        throw error
+    }
+
+    private func scheduleBroadcastRetry(
+        channel: String,
+        content: String,
+        walletAddress: String,
+        privateKey: Data,
+        pendingId: String,
+        delaySeconds: TimeInterval
+    ) {
+        guard !scheduledSendRetries.contains(pendingId) else { return }
+        scheduledSendRetries.insert(pendingId)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+            guard let self else { return }
+            self.scheduledSendRetries.remove(pendingId)
+            let currentStatus = self.store.messages(forChannel: channel).first { $0.id == pendingId }?.deliveryStatus
+            guard currentStatus == .pending else {
+                ChatService.shared.clearNoInputRetryState(for: pendingId)
+                return
+            }
+            do {
+                try await ChatService.shared.enqueueOutgoingTxOperation {
+                    try await self.sendBroadcastInternal(
+                        channel: channel,
+                        content: content,
+                        walletAddress: walletAddress,
+                        privateKey: privateKey,
+                        pendingId: pendingId
+                    )
+                }
+            } catch {
+                try? await self.handleSendFailure(
+                    error,
+                    channel: channel,
+                    content: content,
+                    walletAddress: walletAddress,
+                    privateKey: privateKey,
+                    pendingId: pendingId
+                )
+            }
         }
     }
 
@@ -403,18 +490,43 @@ final class BroadcastService: ObservableObject {
         privateKey: Data,
         pendingId: String
     ) async throws {
-        let utxos = try await ChatService.shared.fetchCachedUtxos(for: walletAddress)
+        let chatService = ChatService.shared
+
+        // Fetch UTXOs fresh (not the 20s-stale `fetchCachedUtxos`) and merge in any pending
+        // change output from a just-submitted broadcast, excluding whatever it just spent - the
+        // same in-flight UTXO chaining 1:1 messages use, so sending several broadcasts back-to-
+        // back doesn't try to double-spend the same not-yet-confirmed UTXO.
+        let freshUtxos = try await NodePoolService.shared.getUtxosByAddresses([walletAddress])
+        let candidateUtxos = chatService.prepareMessageUtxos(confirmed: freshUtxos)
+        guard !candidateUtxos.isEmpty else {
+            throw KasiaError.networkError(chatService.noSpendableFundsYetMessage())
+        }
+
         let tx = try KasiaTransactionBuilder.buildBroadcastTx(
             from: walletAddress,
             channel: channel,
             content: content,
             senderPrivateKey: privateKey,
-            utxos: utxos
+            utxos: candidateUtxos
         )
-        let (txId, _) = try await NodePoolService.shared.submitTransaction(tx)
-        let blockTime = Int64(Date().timeIntervalSince1970 * 1000)
-        store.resolvePendingMessage(pendingId: pendingId, realId: txId, blockTime: blockTime)
-        loadMessages(for: channel)
+        let spentUtxos = chatService.spentMessageUtxos(from: tx, candidates: candidateUtxos)
+        let usesUnconfirmedInputs = spentUtxos.contains { $0.blockDaaScore == 0 }
+
+        do {
+            let (txId, _) = try await NodePoolService.shared.submitTransaction(tx, allowOrphan: usesUnconfirmedInputs)
+            chatService.reserveMessageOutpoints(spentUtxos)
+            chatService.consumePendingUtxos(spentUtxos)
+            if let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: walletAddress) {
+                chatService.addPendingOutputs(from: tx, txId: txId, senderScriptPubKey: senderScriptPubKey)
+            }
+            chatService.clearNoInputRetryState(for: pendingId)
+            let blockTime = Int64(Date().timeIntervalSince1970 * 1000)
+            store.resolvePendingMessage(pendingId: pendingId, realId: txId, blockTime: blockTime)
+            loadMessages(for: channel)
+        } catch {
+            chatService.releaseMessageOutpoints()
+            throw error
+        }
     }
 
     // MARK: - Block scanning lifecycle

@@ -13,7 +13,6 @@
 		3F4C10022F72000100000002 /* ChatListSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F4C10022F72000100000001 /* ChatListSnapshotStore.swift */; };
 		43BBF34D2F15A52900B42BDA /* KaChatNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		4D3D20012F72000200000002 /* MessageTextRenderPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */; };
-		4D3D20022F72000200000002 /* MessageReplySwipePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20022F72000200000001 /* MessageReplySwipePolicy.swift */; };
 		4D3D20032F72000300000002 /* MessageImageSharePayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20032F72000300000001 /* MessageImageSharePayload.swift */; };
 		PQSS00010001000000000002 /* PhotoQualitySettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */; };
 		4D3D20042F72000400000002 /* ChatImageAttachmentLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20042F72000400000001 /* ChatImageAttachmentLoader.swift */; };
@@ -148,7 +147,6 @@
 		4348A8842F2EC4AD00A5518E /* KaChatRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KaChatRelease.entitlements; sourceTree = "<group>"; };
 		43BBF3462F15A52900B42BDA /* KaChatNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = KaChatNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageTextRenderPlan.swift; sourceTree = "<group>"; };
-		4D3D20022F72000200000001 /* MessageReplySwipePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageReplySwipePolicy.swift; sourceTree = "<group>"; };
 		PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoQualitySettingsSheet.swift; sourceTree = "<group>"; };
 		4D3D20032F72000300000001 /* MessageImageSharePayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageImageSharePayload.swift; sourceTree = "<group>"; };
 		4D3D20042F72000400000001 /* ChatImageAttachmentLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatImageAttachmentLoader.swift; sourceTree = "<group>"; };
@@ -484,7 +482,6 @@
 				4D3D20072F72000700000001 /* DesktopEmojiPickerView.swift */,
 				E81000342D4C00010000001B /* MessageBubbleView.swift */,
 				4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */,
-				4D3D20022F72000200000001 /* MessageReplySwipePolicy.swift */,
 				PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */,
 				4D3D20032F72000300000001 /* MessageImageSharePayload.swift */,
 				4D3D20042F72000400000001 /* ChatImageAttachmentLoader.swift */,
@@ -823,7 +820,6 @@
 				4D3D20072F72000700000002 /* DesktopEmojiPickerView.swift in Sources */,
 				3068057B0F9F4906B2600F39 /* ChatInfoView.swift in Sources */,
 				4D3D20012F72000200000002 /* MessageTextRenderPlan.swift in Sources */,
-				4D3D20022F72000200000002 /* MessageReplySwipePolicy.swift in Sources */,
 				PQSS00010001000000000002 /* PhotoQualitySettingsSheet.swift in Sources */,
 				4D3D20032F72000300000002 /* MessageImageSharePayload.swift in Sources */,
 				4D3D20042F72000400000002 /* ChatImageAttachmentLoader.swift in Sources */,

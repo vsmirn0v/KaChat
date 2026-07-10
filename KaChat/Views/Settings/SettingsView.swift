@@ -28,6 +28,7 @@ struct SettingsView: View {
     @State private var isPreparingChatHistoryExport = false
     @State private var isImportingChatHistory = false
     @State private var isResolvingDonateAddress = false
+    @State private var showPhotoQualitySheet = false
     @AppStorage(MessageStore.dpiCorruptionWarningKey) private var dpiWarningActive = false
     @AppStorage(MessageStore.dpiCorruptionWarningEndpointKey) private var dpiWarningEndpoint = ""
     @AppStorage(MessageStore.dpiCorruptionWarningDateKey) private var dpiWarningDate: Double = 0
@@ -63,6 +64,17 @@ struct SettingsView: View {
                         }
                     }
 
+                    Button {
+                        showPhotoQualitySheet = true
+                    } label: {
+                        HStack {
+                            Label("Photo Quality", systemImage: "photo")
+                            Spacer()
+                            Text(settingsViewModel.settings.chatPhotoQualityPreset.displayName)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
 
                 Section("Contacts") {
@@ -333,6 +345,9 @@ struct SettingsView: View {
                 if let diagnosticsArchiveURL {
                     DiagnosticsShareSheet(fileURL: diagnosticsArchiveURL)
                 }
+            }
+            .sheet(isPresented: $showPhotoQualitySheet) {
+                PhotoQualitySettingsSheet(currentPreset: settingsViewModel.settings.chatPhotoQualityPreset)
             }
             .sheet(isPresented: $showChatHistoryShareSheet) {
                 if let chatHistoryArchiveURL {
