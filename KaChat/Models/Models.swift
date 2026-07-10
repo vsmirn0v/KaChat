@@ -681,6 +681,36 @@ enum MessageReplyCodec {
     static func unwrappedText(_ content: String) -> String {
         parse(content)?.text ?? content
     }
+
+    /// Human-readable one-line preview for `content` - unwraps a reply envelope first, then
+    /// recognizes the inline voice/image JSON envelopes `MediaFile`/`ChatService.sendAudio`/
+    /// `sendImage` use and substitutes a placeholder label for those (matching how a photo/voice
+    /// message itself renders), instead of showing their raw JSON. Used everywhere a reply's own
+    /// preview needs computing: embedding a new reply's quote, the "replying to" composer banner,
+    /// and notification bodies.
+    static func previewText(for content: String) -> String {
+        let unwrapped = unwrappedText(content)
+        if VoiceMessageSniff.isVoiceMessage(unwrapped) {
+            return "🎤 Audio message"
+        }
+        if InlineFileSniff.isImage(unwrapped) {
+            return "📷 Photo"
+        }
+        return unwrapped
+    }
+}
+
+/// Lightweight sniff for the same inline file-attachment JSON shape `MediaFile` parses in 1:1
+/// chats (`ChatService.sendImage`) - mirrors `VoiceMessageSniff`, just checking for an image
+/// `mimeType` instead of audio.
+enum InlineFileSniff {
+    static func isImage(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return false }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let mimeType = json["mimeType"] as? String else { return false }
+        return mimeType.lowercased().hasPrefix("image/")
+    }
 }
 
 /// Lightweight sniff for the same inline voice-message JSON shape `MediaFile` parses in 1:1 chats

@@ -25,16 +25,30 @@ extension ChatService {
         }.value
     }
 
-    /// Read cursor for a conversation, preferring effective CloudKit marker status.
-    /// Falls back to local conversation read status if no markers are available.
+    /// Read cursor for a conversation - the freshest of the effective per-device CloudKit marker
+    /// status, the legacy single-cursor status, and any not-yet-flushed in-memory read
+    /// (`ReadStatusSyncManager` debounces its actual `CDReadMarker` write up to 15s, so a read
+    /// recorded moments ago can otherwise still look "unread" here until that write lands,
+    /// wrongly anchoring the chat's initial scroll position deep in already-read history).
     func readCursor(for contactAddress: String) -> (txId: String?, blockTime: Int64)? {
+        var best: (txId: String?, blockTime: Int64)?
+
+        func consider(_ candidate: (txId: String?, blockTime: Int64)?) {
+            guard let candidate else { return }
+            if best == nil || candidate.blockTime > best!.blockTime {
+                best = candidate
+            }
+        }
+
         if let effective = messageStore.recomputeEffectiveReadStatus(conversationId: contactAddress) {
-            return (effective.lastReadTxId, effective.lastReadBlockTime)
+            consider((effective.lastReadTxId, effective.lastReadBlockTime))
         }
         if let status = messageStore.fetchReadStatus(contactAddress: contactAddress) {
-            return (status.lastReadTxId, status.lastReadBlockTime)
+            consider((status.lastReadTxId, status.lastReadBlockTime))
         }
-        return nil
+        consider(ReadStatusSyncManager.shared.pendingReadCursor(for: contactAddress))
+
+        return best
     }
 
     /// Loads the next older page of messages for a conversation from persistent store.
@@ -894,8 +908,7 @@ extension ChatService {
         // sendBroadcast) so the quote survives even if the original message is later pruned.
         let payload: String
         if let reply = replyingTo {
-            let replyText = MessageReplyCodec.unwrappedText(reply.content)
-            let preview = VoiceMessageSniff.isVoiceMessage(replyText) ? "🎤 Audio message" : replyText
+            let preview = MessageReplyCodec.previewText(for: reply.content)
             payload = MessageReplyCodec.encode(
                 replyToId: reply.txId,
                 replyToSender: reply.senderAddress,
@@ -2004,8 +2017,7 @@ extension ChatService {
         // Account for the reply envelope's extra bytes, matching the wrapping `sendMessage` does.
         let estimatedContent: String
         if let reply = replyingTo {
-            let replyText = MessageReplyCodec.unwrappedText(reply.content)
-            let preview = VoiceMessageSniff.isVoiceMessage(replyText) ? "🎤 Audio message" : replyText
+            let preview = MessageReplyCodec.previewText(for: reply.content)
             estimatedContent = MessageReplyCodec.encode(
                 replyToId: reply.txId,
                 replyToSender: reply.senderAddress,

@@ -115,7 +115,14 @@ struct MessageBubbleView: View {
     }
 
     private var replySwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 12)
+        // A larger minimumDistance than usual (was 12): this DragGesture is `simultaneousGesture`
+        // on every message row nested inside the ScrollView's content, and even though its own
+        // logic already bails out for vertical-dominant drags (`MessageReplySwipePolicy`), the
+        // mere presence of a competing recognizer that low meant the ScrollView's own pan
+        // recognizer had to contend with it for the first ~12pt of *every* touch starting on a
+        // bubble, delaying/blocking scroll until you dragged from a gap between bubbles instead.
+        // Raising the threshold gives the ScrollView first claim on near-vertical drags.
+        DragGesture(minimumDistance: 24)
             .onChanged { value in
                 guard onReply != nil else { return }
                 let offset = MessageReplySwipePolicy.visualOffset(
@@ -192,6 +199,9 @@ struct MessageBubbleView: View {
                     }
 
                     if let media, media.isImage {
+                        // Double-tap-to-reply is handled inside LazyImageBubble itself (co-located
+                        // with its single-tap-to-preview gesture so SwiftUI can disambiguate the
+                        // two correctly) rather than here, unlike the audio/text cases below.
                         LazyImageBubble(
                             media: media,
                             txId: message.txId,
@@ -200,7 +210,6 @@ struct MessageBubbleView: View {
                             onRetry: { onRetry?(message) },
                             onReply: onReply
                         )
-                        .simultaneousGesture(TapGesture(count: 2).onEnded { onReply?() })
                     } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
                         LazyAudioBubble(
                             data: data,
@@ -825,34 +834,42 @@ private struct LazyImageBubble: View {
     @State private var showImagePreview = false
 
     var body: some View {
-        Button {
-            openPreview()
-        } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.secondarySystemBackground))
+        // Plain tappable view rather than `Button`: a Button's tap action fires immediately on
+        // the first touch-up, which always won the race against a double-tap-to-reply gesture
+        // attached to an ancestor view (opening the preview before "is this a double tap?" could
+        // even be decided) and aggressively claimed touches that were meant to start a
+        // swipe-to-reply drag. Attaching both tap counts directly to this same view lets SwiftUI
+        // properly wait to see whether a second tap follows before firing the single-tap action.
+        ZStack {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.secondarySystemBackground))
 
-                if let thumbnailState, thumbnailState.txId == txId {
-                    Image(uiImage: thumbnailState.image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
-                } else {
-                    placeholder
-                }
-
-                if isLoadingPreview {
-                    ProgressView()
-                        .controlSize(.small)
-                        .padding(8)
-                        .background(.regularMaterial)
-                        .clipShape(Circle())
-                }
+            if let thumbnailState, thumbnailState.txId == txId {
+                Image(uiImage: thumbnailState.image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+            } else {
+                placeholder
             }
-            .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            if isLoadingPreview {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(8)
+                    .background(.regularMaterial)
+                    .clipShape(Circle())
+            }
         }
-        .buttonStyle(.plain)
+        .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            onReply?()
+        }
+        .onTapGesture(count: 1) {
+            openPreview()
+        }
         .contextMenu {
             Button {
                 handleCopy(media.name, toast: "File name copied.")

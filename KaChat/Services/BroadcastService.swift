@@ -269,8 +269,7 @@ final class BroadcastService: ObservableObject {
 
         let payloadText: String
         if let reply = replyingTo {
-            let replyText = MessageReplyCodec.unwrappedText(reply.content)
-            let preview = VoiceMessageSniff.isVoiceMessage(replyText) ? "🎤 Audio message" : replyText
+            let preview = MessageReplyCodec.previewText(for: reply.content)
             payloadText = MessageReplyCodec.encode(
                 replyToId: reply.id,
                 replyToSender: reply.senderAddress,
@@ -355,8 +354,7 @@ final class BroadcastService: ObservableObject {
         // later pruned or its sender hidden.
         let payload: String
         if let reply = replyingTo {
-            let replyText = MessageReplyCodec.unwrappedText(reply.content)
-            let preview = VoiceMessageSniff.isVoiceMessage(replyText) ? "🎤 Audio message" : replyText
+            let preview = MessageReplyCodec.previewText(for: reply.content)
             payload = MessageReplyCodec.encode(
                 replyToId: reply.id,
                 replyToSender: reply.senderAddress,
@@ -511,12 +509,7 @@ final class BroadcastService: ObservableObject {
         guard channels.first(where: { $0.channelName == channel })?.notifyEnabled == true else { return }
         guard AppSettings.load().notificationsEnabled else { return }
 
-        let notificationBody: String
-        if let reply = MessageReplyCodec.parse(content) {
-            notificationBody = VoiceMessageSniff.isVoiceMessage(reply.text) ? "🎤 Audio message" : reply.text
-        } else {
-            notificationBody = VoiceMessageSniff.isVoiceMessage(content) ? "🎤 Audio message" : content
-        }
+        let notificationBody = MessageReplyCodec.previewText(for: content)
 
         let notificationContent = UNMutableNotificationContent()
         notificationContent.title = "#\(channel)"

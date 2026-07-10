@@ -295,7 +295,23 @@ class NotificationService: UNNotificationServiceExtension {
         guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return content }
         guard let parsed = try? JSONDecoder().decode(PushReplyEnvelope.self, from: data),
               parsed.type == "reply" else { return content }
-        return parsed.text
+        return inlineAttachmentPreview(for: parsed.text)
+    }
+
+    /// Mirrors the main app's `MessageReplyCodec.previewText`'s voice/image detection - the
+    /// reply's own text can itself be the inline file-attachment JSON `MediaFile`/`sendAudio`/
+    /// `sendImage` use (e.g. replying to a photo), which without this shows as raw JSON in the
+    /// notification instead of a placeholder label.
+    private func inlineAttachmentPreview(for text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let mimeType = (json["mimeType"] as? String)?.lowercased() else {
+            return text
+        }
+        if mimeType.hasPrefix("audio/") { return "🎤 Audio message" }
+        if mimeType.hasPrefix("image/") { return "📷 Photo" }
+        return text
     }
 
     private func storeDecryptedMessage(txId: String, sender: String, content: String, timestamp: Int64) {

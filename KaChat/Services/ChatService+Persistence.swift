@@ -152,7 +152,12 @@ extension ChatService {
             // Compute unread count from lastReadBlockTime if available (CloudKit-synced)
             // This ensures read status from other devices is honored
             let convMeta = meta[contactAddress]
-            let lastReadBlockTime = convMeta?.lastReadBlockTime ?? 0
+            // Also consider a just-recorded read still sitting in ReadStatusSyncManager's
+            // in-memory pending marker (cheap dictionary lookup, no Core Data query) - its actual
+            // CDReadMarker write is debounced up to 15s, so without this a read from moments ago
+            // can still look unread here and wrongly resurrect messages as "new".
+            let pendingReadBlockTime = ReadStatusSyncManager.shared.pendingReadCursor(for: contactAddress)?.blockTime ?? 0
+            let lastReadBlockTime = max(convMeta?.lastReadBlockTime ?? 0, pendingReadBlockTime)
             let unreadCount: Int
             if lastReadBlockTime > 0 {
                 // Compute unread as messages with blockTime > lastReadBlockTime (incoming only)
@@ -198,7 +203,10 @@ extension ChatService {
                     // - If CloudKit has a read status (lastReadBlockTime > 0), use computed count from loaded
                     // - Otherwise prefer in-memory value to prevent race conditions
                     let convMeta = meta[address]
-                    let cloudKitLastReadBlockTime = convMeta?.lastReadBlockTime ?? 0
+                    // See the equivalent comment above (first-load branch) - also fold in any
+                    // just-recorded read still sitting in ReadStatusSyncManager's debounced queue.
+                    let pendingReadBlockTime = ReadStatusSyncManager.shared.pendingReadCursor(for: address)?.blockTime ?? 0
+                    let cloudKitLastReadBlockTime = max(convMeta?.lastReadBlockTime ?? 0, pendingReadBlockTime)
                     let unreadCount: Int
                     if cloudKitLastReadBlockTime > 0 {
                         // CloudKit has read status - recompute unread from combined messages

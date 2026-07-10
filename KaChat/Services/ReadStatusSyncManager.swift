@@ -122,6 +122,16 @@ final class ReadStatusSyncManager: ObservableObject {
               String(contactAddress.suffix(8)), blockTime, idleInterval)
     }
 
+    /// The freshest read position recorded for a conversation but not yet flushed to Core Data,
+    /// if any. `recordRead` only writes here immediately - the actual `CDReadMarker` write is
+    /// debounced up to `idleInterval` (15s) - so callers deciding "is this chat fully read"
+    /// (e.g. the initial scroll-anchor check) need to consult this in-memory value too, or they
+    /// can see a stale pre-read cursor for that whole debounce window.
+    func pendingReadCursor(for contactAddress: String) -> (txId: String?, blockTime: Int64)? {
+        guard let marker = pendingMarkers[contactAddress] else { return nil }
+        return (marker.lastReadTxId, marker.lastReadBlockTime)
+    }
+
     /// Called when user leaves a conversation. Immediately flushes pending read marker.
     /// - Parameter contactAddress: Contact address of the conversation being exited
     func userLeftConversation(_ contactAddress: String) {

@@ -100,6 +100,9 @@ struct ChatDetailView: View {
     @State private var isEncodingAudio = false
     @State private var recorderDelegate = AudioRecorderDelegate()
     @State private var photoPickerItem: PhotosPickerItem?
+    @State private var showPhotoOptions = false
+    @State private var showPhotoQualitySheet = false
+    @State private var photoOptionsAnchorFrame: CGRect = .zero
     @State private var pendingPhotoImage: UIImage?
     @State private var isCompressingPhoto = false
     @State private var hasPerformedInitialSetup = false
@@ -538,6 +541,8 @@ struct ChatDetailView: View {
 
                 dragSelectableMenu
             }
+
+            photoOptionsOverlay
         }
         .coordinateSpace(name: chatCoordinateSpace)
         .onDrop(
@@ -1315,17 +1320,33 @@ struct ChatDetailView: View {
         }
     }
 
+    /// Just the trigger button - the actual +/gear options render in `photoOptionsOverlay`, a
+    /// sibling at the top of `body` (like `dragSelectableMenu`), positioned from this button's
+    /// captured frame in `chatCoordinateSpace`. Rendering them locally with a plain `.offset()`
+    /// doesn't work reliably here: this button sits several ZStacks/HStacks deep (row → inputBar's
+    /// ZStack → the floating-overlay ZStack), and each level of nesting/alignment compounds the
+    /// offset unpredictably, landing the popup far from the button instead of just above it.
     private var photoPickerButton: some View {
-        PhotosPicker(selection: $photoPickerItem, matching: .images) {
-            Image(systemName: "photo")
-                .font(.title3)
-                .foregroundColor(.primary)
-                .frame(width: 44, height: 44)
-                .background(glassBackground(cornerRadius: 14))
+        GeometryReader { geometry in
+            Button {
+                photoOptionsAnchorFrame = geometry.frame(in: .named(chatCoordinateSpace))
+                withAnimation(.easeOut(duration: 0.15)) {
+                    showPhotoOptions.toggle()
+                }
+            } label: {
+                Image(systemName: "photo")
+                    .font(.title3)
+                    .foregroundColor(.primary)
+                    .frame(width: 44, height: 44)
+                    .background(glassBackground(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Photo options"))
         }
-        .accessibilityLabel(Text("Attach photo"))
+        .frame(width: 44, height: 44)
         .onChange(of: photoPickerItem) { newItem in
             guard let newItem else { return }
+            showPhotoOptions = false
             Task {
                 defer { photoPickerItem = nil }
                 guard let data = try? await newItem.loadTransferable(type: Data.self) else {
@@ -1339,6 +1360,66 @@ struct ChatDetailView: View {
                 }
             }
         }
+        .sheet(isPresented: $showPhotoQualitySheet) {
+            PhotoQualitySettingsSheet(currentPreset: settingsViewModel.settings.chatPhotoQualityPreset)
+        }
+    }
+
+    /// Blurred backdrop + the +/gear options, floating just above `photoPickerButton`'s captured
+    /// frame - mirrors `dragSelectableMenu`'s anchoring approach.
+    @ViewBuilder
+    private var photoOptionsOverlay: some View {
+        if showPhotoOptions {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        showPhotoOptions = false
+                    }
+                }
+                .transition(.opacity)
+
+            photoOptionsMenu
+                .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottom)))
+        }
+    }
+
+    private var photoOptionsMenu: some View {
+        let itemSize: CGFloat = 44
+        let spacing: CGFloat = 10
+        let totalHeight = itemSize * 2 + spacing
+        let centerX = photoOptionsAnchorFrame.midX
+        let bottomEdge = photoOptionsAnchorFrame.minY - 12
+        let centerY = bottomEdge - totalHeight / 2
+
+        return VStack(spacing: spacing) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    showPhotoOptions = false
+                }
+                showPhotoQualitySheet = true
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.title3)
+                    .foregroundColor(.primary)
+                    .frame(width: itemSize, height: itemSize)
+                    .background(glassBackground(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Photo quality settings"))
+
+            PhotosPicker(selection: $photoPickerItem, matching: .images) {
+                Image(systemName: "plus")
+                    .font(.title3)
+                    .foregroundColor(.primary)
+                    .frame(width: itemSize, height: itemSize)
+                    .background(glassBackground(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Attach photo"))
+        }
+        .position(x: centerX, y: centerY)
     }
 
     private var shouldShowDesktopEmojiButton: Bool {
@@ -1611,6 +1692,13 @@ struct ChatDetailView: View {
     private var canSend: Bool {
         switch inputMode {
         case .message:
+            // A pending photo isn't cleared from state until its send actually finishes (unlike
+            // text, which clears `messageText` immediately), so without this the button stays
+            // tappable for the whole compress+upload window and a second tap starts a fully
+            // concurrent duplicate send of the same photo.
+            if pendingPhotoImage != nil {
+                return !isSending && !isCompressingPhoto
+            }
             return true
         case .payment:
             return canSendPayment
@@ -2105,7 +2193,7 @@ struct ChatDetailView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundColor(.accentColor)
-                Text(VoiceMessageSniff.isVoiceMessage(previewText) ? "🎤 Audio message" : previewText)
+                Text(MessageReplyCodec.previewText(for: previewText))
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
@@ -2466,7 +2554,11 @@ struct ChatDetailView: View {
     }
 
     private func sendPendingPhotoAsync() async {
-        guard let image = pendingPhotoImage else { return }
+        // Guards against double-send: the button stays tappable during the compress+upload
+        // window (see `canSend`), and `pendingPhotoImage` itself isn't cleared until the send
+        // actually finishes, so without this a second tap mid-send would start a second,
+        // fully concurrent send of the same photo.
+        guard let image = pendingPhotoImage, !isSending, !isCompressingPhoto else { return }
         isCompressingPhoto = true
         isSending = true
         defer {

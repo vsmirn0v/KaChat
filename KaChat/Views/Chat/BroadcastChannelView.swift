@@ -643,7 +643,7 @@ struct BroadcastChannelView: View {
                     .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundColor(.accentColor)
-                Text(VoiceMessageSniff.isVoiceMessage(content.text) ? "🎤 Audio message" : content.text)
+                Text(MessageReplyCodec.previewText(for: content.text))
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
@@ -813,7 +813,8 @@ private struct BroadcastMessageRow: View {
     }
 
     private var replySwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 12)
+        // See MessageBubbleView.replySwipeGesture - same fix, same reason (was 12).
+        DragGesture(minimumDistance: 24)
             .onChanged { value in
                 let offset = MessageReplySwipePolicy.visualOffset(
                     for: value.translation,
