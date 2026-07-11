@@ -101,12 +101,6 @@ struct ChatDetailView: View {
     @State private var pendingPhotoImage: UIImage?
     @State private var isCompressingPhoto = false
     @State private var hasPerformedInitialSetup = false
-    @State private var showModeMenu = false
-    @State private var dragLocation: CGPoint = .zero
-    @State private var hoveredModeIndex: Int? = nil
-    @State private var menuAnchorFrame: CGRect = .zero
-    @State private var longPressTimer: Timer? = nil
-    @State private var isDraggingMenu = false
     @State private var isImageDropTarget = false
     @State private var isMessageFocused = false
     @State private var showDesktopEmojiPicker = false
@@ -292,8 +286,6 @@ struct ChatDetailView: View {
             && !hasAnyPaymentMessage
             && !hasAnyIncomingMessage
     }
-
-    private let chatCoordinateSpace = "chatCoordinateSpace"
 
     var body: some View {
         ZStack {
@@ -517,23 +509,7 @@ struct ChatDetailView: View {
                             }
                     )
             }
-
-            // Drag-selectable mode menu overlay
-            if showModeMenu {
-                // Tap-to-dismiss background (only active when not dragging)
-                if !isDraggingMenu {
-                    Color.black.opacity(0.01)
-                        .ignoresSafeArea()
-                        .onTapGesture {
-                            showModeMenu = false
-                            hoveredModeIndex = nil
-                        }
-                }
-
-                dragSelectableMenu
-            }
         }
-        .coordinateSpace(name: chatCoordinateSpace)
         .onDrop(
             of: ChatImageAttachmentLoader.supportedDropTypeIdentifiers,
             isTargeted: $isImageDropTarget,
@@ -813,35 +789,29 @@ struct ChatDetailView: View {
         // instead of honoring possibly stale read cursors.
         guard initialUnreadCount > 0 else { return nil }
 
-        if initialReadBlockTime > 0 {
-            let hasVisibleReadBoundary = messages.contains {
-                !$0.isOutgoing && Int64($0.blockTime) <= initialReadBlockTime
-            }
-            guard hasVisibleReadBoundary else { return nil }
+        // Only anchor on the actual read-blockTime cursor (now sourced from the max of the
+        // per-device CloudKit marker, legacy status, and any not-yet-flushed in-memory read - see
+        // `ChatService.readCursor(for:)`). There used to also be a fallback here that estimated
+        // the anchor by counting `initialUnreadCount` messages back from the end when no cursor
+        // was available - but `unreadCount` is a plain incrementing counter with no reconciliation
+        // against the real read position, so it can drift arbitrarily far from the truth (e.g.
+        // after a message arrives while the count was already stale), silently opening the chat
+        // deep in old history instead of at the most recent messages. Safer to just open at the
+        // bottom whenever there's no trustworthy blockTime cursor to anchor to.
+        guard initialReadBlockTime > 0 else { return nil }
 
-            if let firstUnreadIncomingIndex = messages.firstIndex(where: {
-                !$0.isOutgoing && Int64($0.blockTime) > initialReadBlockTime
-            }) {
-                return max(0, firstUnreadIncomingIndex - 1)
-            }
-            // Cursor exists but unread boundary not found in this window; do not
-            // fall back to txId because it may be stale and place us mid-history.
-            return nil
+        let hasVisibleReadBoundary = messages.contains {
+            !$0.isOutgoing && Int64($0.blockTime) <= initialReadBlockTime
         }
+        guard hasVisibleReadBoundary else { return nil }
 
-        // Use unreadCount fallback only when read blockTime is unavailable.
-        guard initialReadBlockTime <= 0 else { return nil }
-
-        let incomingIndices = messages.enumerated().compactMap { offset, message in
-            message.isOutgoing ? nil : offset
+        if let firstUnreadIncomingIndex = messages.firstIndex(where: {
+            !$0.isOutgoing && Int64($0.blockTime) > initialReadBlockTime
+        }) {
+            return max(0, firstUnreadIncomingIndex - 1)
         }
-        // Use unread count only when it can be mapped into currently loaded incoming messages.
-        // If unread count is larger than available incoming messages, it is likely stale for this
-        // in-memory window and we should fall back to recent-window open instead of oldest.
-        if !incomingIndices.isEmpty, initialUnreadCount < incomingIndices.count {
-            let firstUnreadIncomingPosition = incomingIndices[incomingIndices.count - initialUnreadCount]
-            return max(0, firstUnreadIncomingPosition - 1)
-        }
+        // Cursor exists but unread boundary not found in this window; do not
+        // fall back to txId because it may be stale and place us mid-history.
         return nil
     }
 
@@ -1077,42 +1047,6 @@ struct ChatDetailView: View {
         }
     }
 
-    private var dragSelectableMenu: some View {
-        let items = availableModeMenuItems
-        let itemHeight: CGFloat = 44
-        let menuWidth: CGFloat = 200
-        let menuHeight = CGFloat(items.count) * itemHeight + 16 // padding
-
-        // Position menu above the button, aligned to the right edge of the button
-        let menuCenterX = menuAnchorFrame.maxX - menuWidth / 2
-        let menuCenterY = menuAnchorFrame.minY - menuHeight / 2 - 8
-
-        return VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                HStack {
-                    Image(systemName: item.icon)
-                        .frame(width: 24)
-                    Text(item.title)
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .frame(height: itemHeight)
-                .background(hoveredModeIndex == index ? Color.accentColor.opacity(0.3) : Color.clear)
-                .foregroundColor(item.isDestructive ? .red : .primary)
-                .contentShape(Rectangle())
-            }
-        }
-        .padding(.vertical, 8)
-        .frame(width: menuWidth)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
-        )
-        .position(x: menuCenterX, y: menuCenterY)
-        .allowsHitTesting(false) // Gesture is handled by the send button
-    }
-
     private enum InputMode {
         case message
         case payment
@@ -1127,31 +1061,6 @@ struct ChatDetailView: View {
         }
     }
 
-    private struct ModeMenuItem: Identifiable {
-        let id = UUID()
-        let title: LocalizedStringKey
-        let icon: String
-        let isDestructive: Bool
-        let action: () -> Void
-    }
-
-    private var availableModeMenuItems: [ModeMenuItem] {
-        if isDeclined {
-            return []
-        }
-        var items: [ModeMenuItem] = [
-            ModeMenuItem(title: "Send message", icon: "text.bubble", isDestructive: false) { switchMode(.message) },
-            ModeMenuItem(title: "Send KAS", icon: "k.circle", isDestructive: false) { switchMode(.payment) },
-            ModeMenuItem(title: "Send audio", icon: "mic", isDestructive: false) { switchMode(.audio) }
-        ]
-        if canSendRequestToCommunicate {
-            items.append(ModeMenuItem(title: "Request to communicate", icon: "hand.wave", isDestructive: false) {
-                sendHandshake()
-            })
-        }
-        return items
-    }
-
     // MARK: - Unnotified Message Warning
 
     private var unnotifiedMessageBanner: some View {
@@ -1160,7 +1069,7 @@ struct ChatDetailView: View {
                 .foregroundStyle(.orange)
                 .font(.subheadline)
                 .padding(.top, 1)
-            Text("When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, hold the send button and slide up to request to communicate. This will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)")
+            Text("When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, click the hand icon to send a request to communicate which will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1197,7 +1106,7 @@ struct ChatDetailView: View {
                         photoPickerButton
                     }
 
-                    sendButtonWithMenu
+                    sendButtonArea
                 }
 
                 if shouldShowComposerHelperRow && !isDeclined {
@@ -1271,7 +1180,7 @@ struct ChatDetailView: View {
             .background(glassBackground(cornerRadius: 20).opacity(0.7))
     }
 
-    private var sendButtonWithMenu: some View {
+    private var sendButtonArea: some View {
         Group {
             if isDeclined {
                 EmptyView()
@@ -1280,13 +1189,13 @@ struct ChatDetailView: View {
             } else if shouldShowAudioModeSwitchActions {
                 HStack(spacing: 8) {
                     audioModeSwitchActions
-                    sendButtonWithGesture(
+                    sendButton(
                         tapAction: { handleSend() },
                         isDisabled: !canSend
                     )
                 }
             } else {
-                sendButtonWithGesture(
+                sendButton(
                     tapAction: { handleSend() },
                     isDisabled: !canSend
                 )
@@ -1458,96 +1367,15 @@ struct ChatDetailView: View {
         .accessibilityLabel(Text(title))
     }
 
-    private func sendButtonWithGesture(tapAction: @escaping () -> Void, isDisabled: Bool) -> some View {
-        GeometryReader { geometry in
+    private func sendButton(tapAction: @escaping () -> Void, isDisabled: Bool) -> some View {
+        Button(action: tapAction) {
             sendButtonLabel
-                .frame(width: geometry.size.width, height: geometry.size.height)
+                .frame(width: 44, height: 44)
                 .background(glassBackground(cornerRadius: 14))
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture(minimumDistance: 0, coordinateSpace: .named(chatCoordinateSpace))
-                        .onChanged { value in
-                            dragLocation = value.location
-
-                            // Start long press timer on first touch (always allowed, even when disabled)
-                            if longPressTimer == nil && !showModeMenu {
-                                let buttonFrame = geometry.frame(in: .named(chatCoordinateSpace))
-                                longPressTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { _ in
-                                    DispatchQueue.main.async {
-                                        Haptics.impact(.medium)
-                                        menuAnchorFrame = buttonFrame
-                                        showModeMenu = true
-                                        isDraggingMenu = true
-                                    }
-                                }
-                            }
-
-                            // Update hovered item if menu is showing
-                            if showModeMenu {
-                                updateHoveredItem(at: value.location)
-                            }
-                        }
-                        .onEnded { value in
-                            let wasMenuShowing = showModeMenu
-                            let hadTimer = longPressTimer != nil
-
-                            // Cancel timer
-                            longPressTimer?.invalidate()
-                            longPressTimer = nil
-
-                            if wasMenuShowing && isDraggingMenu {
-                                // Menu was shown - execute selected item or dismiss
-                                if let index = hoveredModeIndex {
-                                    let items = availableModeMenuItems
-                                    if index < items.count {
-                                        Haptics.impact(.light)
-                                        items[index].action()
-                                    }
-                                }
-                                showModeMenu = false
-                                hoveredModeIndex = nil
-                                isDraggingMenu = false
-                            } else if !wasMenuShowing && hadTimer && !isDisabled {
-                                // Was a short tap - execute tap action (only if not disabled)
-                                tapAction()
-                            }
-                        }
-                )
-                .opacity(isDisabled ? 0.5 : 1.0)
         }
-        .frame(width: 44, height: 44)
-    }
-
-    private func updateHoveredItem(at location: CGPoint) {
-        let items = availableModeMenuItems
-        let itemHeight: CGFloat = 44
-        let menuWidth: CGFloat = 200
-        let menuHeight = CGFloat(items.count) * itemHeight + 16
-
-        // Same positioning as dragSelectableMenu
-        let menuCenterX = menuAnchorFrame.maxX - menuWidth / 2
-        let menuCenterY = menuAnchorFrame.minY - menuHeight / 2 - 8
-
-        let menuLeft = menuCenterX - menuWidth / 2
-        let menuRightEdge = menuCenterX + menuWidth / 2
-        let menuTop = menuCenterY - menuHeight / 2
-
-        // Check if within horizontal bounds
-        if location.x >= menuLeft && location.x <= menuRightEdge {
-            let relativeY = location.y - menuTop - 8 // account for padding
-            let index = Int(relativeY / itemHeight)
-
-            if index >= 0 && index < items.count {
-                if hoveredModeIndex != index {
-                    Haptics.selection()
-                    hoveredModeIndex = index
-                }
-            } else {
-                hoveredModeIndex = nil
-            }
-        } else {
-            hoveredModeIndex = nil
-        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.5 : 1.0)
     }
 
     private var sendButtonLabel: some View {
