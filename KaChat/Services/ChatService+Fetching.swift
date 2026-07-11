@@ -1460,6 +1460,11 @@ extension ChatService {
         }
     }
 
+    /// Caps how many contacts' incoming/outgoing contextual fetches run at once. Bounded rather
+    /// than unlimited so a large contact list doesn't fire dozens of simultaneous indexer
+    /// requests at once - just enough overlap to hide per-request network latency.
+    private static let contextualFetchConcurrencyLimit = 6
+
     func fetchContextualMessages(
         myAddress: String,
         privateKey: Data?,
@@ -1467,197 +1472,274 @@ extension ChatService {
         nowMs: UInt64
     ) async -> Bool {
         // Build contact set from routing states (preferred) + legacy aliases (fallback)
-        let allContactAddresses = Set(routingStates.keys).union(conversationAliases.keys)
+        let allContactAddresses = Array(Set(routingStates.keys).union(conversationAliases.keys))
         print("[ChatService] Fetching contextual messages for \(allContactAddresses.count) contacts")
 
-        // Fetch INCOMING messages (from contacts to us)
-        for contactAddress in allContactAddresses {
-            guard !contactsManager.isAddressDeleted(contactAddress) else { continue }
-            let aliases = incomingAliases(for: contactAddress)
-            guard !aliases.isEmpty else { continue }
-            beginChatFetch(contactAddress)
-            var contactSuccess = true
-            defer { endChatFetch(contactAddress, success: contactSuccess) }
-            for alias in aliases {
-                let syncObjectKey = contextualSyncObjectKey(
-                    direction: "in",
-                    queryAddress: contactAddress,
-                    alias: alias,
-                    contactAddress: contactAddress
-                )
-                let startBlockTime = syncStartBlockTime(
-                    for: syncObjectKey,
-                    fallbackBlockTime: fallbackSince,
-                    nowMs: nowMs
-                )
-                let effectiveSince = applyMessageRetention(to: startBlockTime)
-                let fetchKey = contextualFetchKey(address: contactAddress, alias: alias, limit: 50, since: effectiveSince)
-                guard beginContextualFetch(fetchKey) else {
-                    NSLog("[ChatService] Contextual fetch in-flight, skipping incoming %@",
-                          String(contactAddress.suffix(10)))
-                    continue
-                }
-                defer { endContextualFetch(fetchKey) }
-                guard let messages = await retryUntilSuccess(
-                    label: "fetch incoming contextual messages from \(contactAddress.suffix(10))",
-                    operation: { [apiClient] in
-                        do {
-                            return try await apiClient.getContextualMessagesBySender(
-                                address: contactAddress,
-                                alias: alias,
-                                limit: 50,
-                                blockTime: effectiveSince
-                            )
-                        } catch {
-                            if ChatService.handleDpiPaginationFailure(error, context: "incoming contextual messages") {
-                                return []
-                            }
-                            throw error
-                        }
-                    }
-                ) else {
-                    contactSuccess = false
-                    return false
-                }
-                advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
-
-                if !messages.isEmpty {
-                    markChatFetchLoading(contactAddress)
-                }
-                print("[ChatService] Got \(messages.count) incoming contextual messages from \(contactAddress)")
-
-                for contextMsg in messages {
-                    var content = "[Encrypted message]"
-                    if let privKey = privateKey {
-                        // Decrypt on background thread to avoid blocking UI
-                        if let decrypted = await decryptContextualMessage(contextMsg.messagePayload, privateKey: privKey) {
-                            content = decrypted
-                        }
-                    }
-                    let msgType = messageType(for: content)
-
-                    let message = ChatMessage(
-                        txId: contextMsg.txId,
-                        senderAddress: contextMsg.sender,
-                        receiverAddress: myAddress,
-                        content: content,
-                        timestamp: Date(timeIntervalSince1970: TimeInterval((contextMsg.blockTime ?? 0) / 1000)),
-                        blockTime: contextMsg.blockTime ?? 0,
-                        acceptingBlock: contextMsg.acceptingBlock,
-                        isOutgoing: false,
-                        messageType: msgType
-                    )
-
-                    addMessageToConversation(message, contactAddress: contactAddress)
-
-                    // Capability detection: if message arrived on deterministic alias, mark peer
-                    if let state = routingStates[contactAddress], alias == state.deterministicMyAlias {
-                        if !state.peerSupportsDeterministic {
-                            routingStates[contactAddress]?.peerSupportsDeterministic = true
-                        }
-                        routingStates[contactAddress]?.lastDeterministicIncomingAtMs = contextMsg.blockTime
-                    }
-
-                    if let blockTime = contextMsg.blockTime, blockTime > lastPollTime {
-                        updateLastPollTime(blockTime)
-                    }
-                }
-            }
+        // Fetch INCOMING messages (from contacts to us). Previously this was one contact at a
+        // time - with N contacts that's N sequential network round-trips, which is why
+        // pull-to-refresh could sit spinning for a long time on accounts with many chats.
+        // Fetching several contacts concurrently overlaps that network latency instead.
+        let incomingSucceeded = await fetchContactsConcurrently(
+            allContactAddresses,
+            limit: Self.contextualFetchConcurrencyLimit
+        ) { [self] contactAddress in
+            await fetchIncomingContextualMessages(
+                contactAddress: contactAddress,
+                myAddress: myAddress,
+                privateKey: privateKey,
+                fallbackSince: fallbackSince,
+                nowMs: nowMs
+            )
         }
+        guard incomingSucceeded else { return false }
 
         // Fetch OUTGOING messages (from us to contacts)
-        let allOutgoingAddresses = Set(routingStates.keys).union(ourAliases.keys)
-        for contactAddress in allOutgoingAddresses {
-            guard !contactsManager.isAddressDeleted(contactAddress) else { continue }
-            let aliasSet = outgoingFetchAliases(for: contactAddress)
-            guard !aliasSet.isEmpty else { continue }
-            beginChatFetch(contactAddress)
-            var contactSuccess = true
-            defer { endChatFetch(contactAddress, success: contactSuccess) }
-            for ourAlias in aliasSet {
-                let syncObjectKey = contextualSyncObjectKey(
-                    direction: "out",
-                    queryAddress: myAddress,
-                    alias: ourAlias,
-                    contactAddress: contactAddress
-                )
-                let startBlockTime = syncStartBlockTime(
-                    for: syncObjectKey,
-                    fallbackBlockTime: fallbackSince,
-                    nowMs: nowMs
-                )
-                let effectiveSince = applyMessageRetention(to: startBlockTime)
-                let fetchKey = contextualFetchKey(address: myAddress, alias: ourAlias, limit: 50, since: effectiveSince)
-                guard beginContextualFetch(fetchKey) else {
-                    NSLog("[ChatService] Contextual fetch in-flight, skipping outgoing %@",
-                          String(contactAddress.suffix(10)))
-                    continue
-                }
-                defer { endContextualFetch(fetchKey) }
-                guard let messages = await retryUntilSuccess(
-                    label: "fetch outgoing contextual messages to \(contactAddress.suffix(10))",
-                    operation: { [apiClient] in
-                        do {
-                            return try await apiClient.getContextualMessagesBySender(
-                                address: myAddress,
-                                alias: ourAlias,
-                                limit: 50,
-                                blockTime: effectiveSince
-                            )
-                        } catch {
-                            if ChatService.handleDpiPaginationFailure(error, context: "outgoing contextual messages") {
-                                return []
-                            }
-                            throw error
+        let allOutgoingAddresses = Array(Set(routingStates.keys).union(ourAliases.keys))
+        return await fetchContactsConcurrently(
+            allOutgoingAddresses,
+            limit: Self.contextualFetchConcurrencyLimit
+        ) { [self] contactAddress in
+            await fetchOutgoingContextualMessages(
+                contactAddress: contactAddress,
+                myAddress: myAddress,
+                privateKey: privateKey,
+                fallbackSince: fallbackSince,
+                nowMs: nowMs
+            )
+        }
+    }
+
+    /// Runs `operation` over `addresses` with at most `limit` running concurrently, starting the
+    /// next one as soon as a slot frees up. Returns `false` if any operation returned `false`
+    /// (matches `retryUntilSuccess`'s cancellation signal - it otherwise retries indefinitely
+    /// rather than truly failing).
+    private func fetchContactsConcurrently(
+        _ addresses: [String],
+        limit: Int,
+        operation: @escaping (String) async -> Bool
+    ) async -> Bool {
+        guard !addresses.isEmpty else { return true }
+        var allSucceeded = true
+        await withTaskGroup(of: Bool.self) { group in
+            var iterator = addresses.makeIterator()
+
+            func startNext() {
+                guard let address = iterator.next() else { return }
+                group.addTask { await operation(address) }
+            }
+
+            for _ in 0..<min(limit, addresses.count) {
+                startNext()
+            }
+
+            while let result = await group.next() {
+                if !result { allSucceeded = false }
+                startNext()
+            }
+        }
+        return allSucceeded
+    }
+
+    /// Fetches incoming contextual messages for a single contact across all its known incoming
+    /// aliases. Returns `false` only when the fetch was cancelled (see `retryUntilSuccess`).
+    private func fetchIncomingContextualMessages(
+        contactAddress: String,
+        myAddress: String,
+        privateKey: Data?,
+        fallbackSince: UInt64,
+        nowMs: UInt64
+    ) async -> Bool {
+        guard !contactsManager.isAddressDeleted(contactAddress) else { return true }
+        let aliases = incomingAliases(for: contactAddress)
+        guard !aliases.isEmpty else { return true }
+        beginChatFetch(contactAddress)
+        var contactSuccess = true
+        defer { endChatFetch(contactAddress, success: contactSuccess) }
+        for alias in aliases {
+            let syncObjectKey = contextualSyncObjectKey(
+                direction: "in",
+                queryAddress: contactAddress,
+                alias: alias,
+                contactAddress: contactAddress
+            )
+            let startBlockTime = syncStartBlockTime(
+                for: syncObjectKey,
+                fallbackBlockTime: fallbackSince,
+                nowMs: nowMs
+            )
+            let effectiveSince = applyMessageRetention(to: startBlockTime)
+            let fetchKey = contextualFetchKey(address: contactAddress, alias: alias, limit: 50, since: effectiveSince)
+            guard beginContextualFetch(fetchKey) else {
+                NSLog("[ChatService] Contextual fetch in-flight, skipping incoming %@",
+                      String(contactAddress.suffix(10)))
+                continue
+            }
+            defer { endContextualFetch(fetchKey) }
+            guard let messages = await retryUntilSuccess(
+                label: "fetch incoming contextual messages from \(contactAddress.suffix(10))",
+                operation: { [apiClient] in
+                    do {
+                        return try await apiClient.getContextualMessagesBySender(
+                            address: contactAddress,
+                            alias: alias,
+                            limit: 50,
+                            blockTime: effectiveSince
+                        )
+                    } catch {
+                        if ChatService.handleDpiPaginationFailure(error, context: "incoming contextual messages") {
+                            return []
                         }
+                        throw error
                     }
+                }
             ) else {
                 contactSuccess = false
                 return false
             }
-                advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
+            advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
 
-                if !messages.isEmpty {
-                    markChatFetchLoading(contactAddress)
-                }
-                let sortedMessages = messages.sorted {
-                    let lhsTime = $0.blockTime ?? 0
-                    let rhsTime = $1.blockTime ?? 0
-                    if lhsTime == rhsTime {
-                        return $0.txId < $1.txId
+            if !messages.isEmpty {
+                markChatFetchLoading(contactAddress)
+            }
+            print("[ChatService] Got \(messages.count) incoming contextual messages from \(contactAddress)")
+
+            for contextMsg in messages {
+                var content = "[Encrypted message]"
+                if let privKey = privateKey {
+                    // Decrypt on background thread to avoid blocking UI
+                    if let decrypted = await decryptContextualMessage(contextMsg.messagePayload, privateKey: privKey) {
+                        content = decrypted
                     }
-                    return lhsTime < rhsTime
+                }
+                let msgType = messageType(for: content)
+
+                let message = ChatMessage(
+                    txId: contextMsg.txId,
+                    senderAddress: contextMsg.sender,
+                    receiverAddress: myAddress,
+                    content: content,
+                    timestamp: Date(timeIntervalSince1970: TimeInterval((contextMsg.blockTime ?? 0) / 1000)),
+                    blockTime: contextMsg.blockTime ?? 0,
+                    acceptingBlock: contextMsg.acceptingBlock,
+                    isOutgoing: false,
+                    messageType: msgType
+                )
+
+                addMessageToConversation(message, contactAddress: contactAddress)
+
+                // Capability detection: if message arrived on deterministic alias, mark peer
+                if let state = routingStates[contactAddress], alias == state.deterministicMyAlias {
+                    if !state.peerSupportsDeterministic {
+                        routingStates[contactAddress]?.peerSupportsDeterministic = true
+                    }
+                    routingStates[contactAddress]?.lastDeterministicIncomingAtMs = contextMsg.blockTime
                 }
 
-                print("[ChatService] Got \(sortedMessages.count) outgoing contextual messages to \(contactAddress)")
-
-                for contextMsg in sortedMessages {
-                    // Outgoing messages are encrypted for the recipient, we can't decrypt them
-                    // Check if we have this message stored locally with content
-                    let existingMessage = findLocalMessage(txId: contextMsg.txId)
-                    let content = existingMessage?.content ?? "📤 Sent via another device"
-                    let msgType = existingMessage?.messageType ?? messageType(for: content)
-
-                    let message = ChatMessage(
-                        txId: contextMsg.txId,
-                        senderAddress: myAddress,
-                        receiverAddress: contactAddress,
-                        content: content,
-                        timestamp: Date(timeIntervalSince1970: TimeInterval((contextMsg.blockTime ?? 0) / 1000)),
-                        blockTime: contextMsg.blockTime ?? 0,
-                        acceptingBlock: contextMsg.acceptingBlock,
-                        isOutgoing: true,
-                        messageType: msgType
-                    )
-
-                    addMessageToConversation(message, contactAddress: contactAddress)
-                    if let blockTime = contextMsg.blockTime, blockTime > lastPollTime {
-                        updateLastPollTime(blockTime)
-                    }
+                if let blockTime = contextMsg.blockTime, blockTime > lastPollTime {
+                    updateLastPollTime(blockTime)
                 }
             }
         }
+        return true
+    }
 
+    /// Fetches outgoing contextual messages for a single contact across all its known outgoing
+    /// aliases. Returns `false` only when the fetch was cancelled (see `retryUntilSuccess`).
+    private func fetchOutgoingContextualMessages(
+        contactAddress: String,
+        myAddress: String,
+        privateKey: Data?,
+        fallbackSince: UInt64,
+        nowMs: UInt64
+    ) async -> Bool {
+        guard !contactsManager.isAddressDeleted(contactAddress) else { return true }
+        let aliasSet = outgoingFetchAliases(for: contactAddress)
+        guard !aliasSet.isEmpty else { return true }
+        beginChatFetch(contactAddress)
+        var contactSuccess = true
+        defer { endChatFetch(contactAddress, success: contactSuccess) }
+        for ourAlias in aliasSet {
+            let syncObjectKey = contextualSyncObjectKey(
+                direction: "out",
+                queryAddress: myAddress,
+                alias: ourAlias,
+                contactAddress: contactAddress
+            )
+            let startBlockTime = syncStartBlockTime(
+                for: syncObjectKey,
+                fallbackBlockTime: fallbackSince,
+                nowMs: nowMs
+            )
+            let effectiveSince = applyMessageRetention(to: startBlockTime)
+            let fetchKey = contextualFetchKey(address: myAddress, alias: ourAlias, limit: 50, since: effectiveSince)
+            guard beginContextualFetch(fetchKey) else {
+                NSLog("[ChatService] Contextual fetch in-flight, skipping outgoing %@",
+                      String(contactAddress.suffix(10)))
+                continue
+            }
+            defer { endContextualFetch(fetchKey) }
+            guard let messages = await retryUntilSuccess(
+                label: "fetch outgoing contextual messages to \(contactAddress.suffix(10))",
+                operation: { [apiClient] in
+                    do {
+                        return try await apiClient.getContextualMessagesBySender(
+                            address: myAddress,
+                            alias: ourAlias,
+                            limit: 50,
+                            blockTime: effectiveSince
+                        )
+                    } catch {
+                        if ChatService.handleDpiPaginationFailure(error, context: "outgoing contextual messages") {
+                            return []
+                        }
+                        throw error
+                    }
+                }
+            ) else {
+                contactSuccess = false
+                return false
+            }
+            advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
+
+            if !messages.isEmpty {
+                markChatFetchLoading(contactAddress)
+            }
+            let sortedMessages = messages.sorted {
+                let lhsTime = $0.blockTime ?? 0
+                let rhsTime = $1.blockTime ?? 0
+                if lhsTime == rhsTime {
+                    return $0.txId < $1.txId
+                }
+                return lhsTime < rhsTime
+            }
+
+            print("[ChatService] Got \(sortedMessages.count) outgoing contextual messages to \(contactAddress)")
+
+            for contextMsg in sortedMessages {
+                // Outgoing messages are encrypted for the recipient, we can't decrypt them
+                // Check if we have this message stored locally with content
+                let existingMessage = findLocalMessage(txId: contextMsg.txId)
+                let content = existingMessage?.content ?? "📤 Sent via another device"
+                let msgType = existingMessage?.messageType ?? messageType(for: content)
+
+                let message = ChatMessage(
+                    txId: contextMsg.txId,
+                    senderAddress: myAddress,
+                    receiverAddress: contactAddress,
+                    content: content,
+                    timestamp: Date(timeIntervalSince1970: TimeInterval((contextMsg.blockTime ?? 0) / 1000)),
+                    blockTime: contextMsg.blockTime ?? 0,
+                    acceptingBlock: contextMsg.acceptingBlock,
+                    isOutgoing: true,
+                    messageType: msgType
+                )
+
+                addMessageToConversation(message, contactAddress: contactAddress)
+                if let blockTime = contextMsg.blockTime, blockTime > lastPollTime {
+                    updateLastPollTime(blockTime)
+                }
+            }
+        }
         return true
     }
 
