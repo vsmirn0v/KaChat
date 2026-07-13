@@ -104,6 +104,20 @@ enum ContactNotificationMode: String, Codable, CaseIterable {
     }
 }
 
+enum PhotoAutoDisplayMode: String, Codable, CaseIterable {
+    case automatic
+    case alwaysShow
+    case alwaysHide
+
+    var displayName: String {
+        switch self {
+        case .automatic: return String(localized: "Automatic")
+        case .alwaysShow: return String(localized: "Always Show")
+        case .alwaysHide: return String(localized: "Always Hide")
+        }
+    }
+}
+
 struct Contact: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     var address: String
@@ -113,6 +127,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
     var isAutoAdded: Bool
     var notificationModeOverride: ContactNotificationMode?
     var realtimeUpdatesDisabled: Bool
+    var hasSentOutgoingMessage: Bool
+    var photoAutoDisplayOverride: PhotoAutoDisplayMode?
     // Local-only enrichment from iOS/macOS system contacts.
     var systemContactId: String?
     var systemDisplayNameSnapshot: String?
@@ -129,6 +145,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         isAutoAdded: Bool = false,
         notificationModeOverride: ContactNotificationMode? = nil,
         realtimeUpdatesDisabled: Bool = false,
+        hasSentOutgoingMessage: Bool = false,
+        photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil,
         systemContactId: String? = nil,
         systemDisplayNameSnapshot: String? = nil,
         systemContactLinkSource: SystemContactLinkSource? = nil,
@@ -143,6 +161,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         self.isAutoAdded = isAutoAdded
         self.notificationModeOverride = notificationModeOverride
         self.realtimeUpdatesDisabled = realtimeUpdatesDisabled
+        self.hasSentOutgoingMessage = hasSentOutgoingMessage
+        self.photoAutoDisplayOverride = photoAutoDisplayOverride
         self.systemContactId = systemContactId
         self.systemDisplayNameSnapshot = systemDisplayNameSnapshot
         self.systemContactLinkSource = systemContactLinkSource
@@ -160,6 +180,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         case notificationModeOverride
         case notificationsMuted // Legacy key migrated into notificationModeOverride
         case realtimeUpdatesDisabled
+        case hasSentOutgoingMessage
+        case photoAutoDisplayOverride
         case systemContactId
         case systemDisplayNameSnapshot
         case systemContactLinkSource
@@ -183,6 +205,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
             notificationModeOverride = legacyMuted ? .off : nil
         }
         realtimeUpdatesDisabled = try container.decodeIfPresent(Bool.self, forKey: .realtimeUpdatesDisabled) ?? false
+        hasSentOutgoingMessage = try container.decodeIfPresent(Bool.self, forKey: .hasSentOutgoingMessage) ?? false
+        photoAutoDisplayOverride = try container.decodeIfPresent(PhotoAutoDisplayMode.self, forKey: .photoAutoDisplayOverride)
         systemContactId = try container.decodeIfPresent(String.self, forKey: .systemContactId)
         systemDisplayNameSnapshot = try container.decodeIfPresent(String.self, forKey: .systemDisplayNameSnapshot)
         systemContactLinkSource = try container.decodeIfPresent(SystemContactLinkSource.self, forKey: .systemContactLinkSource)
@@ -200,6 +224,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         try container.encode(isAutoAdded, forKey: .isAutoAdded)
         try container.encodeIfPresent(notificationModeOverride, forKey: .notificationModeOverride)
         try container.encode(realtimeUpdatesDisabled, forKey: .realtimeUpdatesDisabled)
+        try container.encode(hasSentOutgoingMessage, forKey: .hasSentOutgoingMessage)
+        try container.encodeIfPresent(photoAutoDisplayOverride, forKey: .photoAutoDisplayOverride)
         try container.encodeIfPresent(systemContactId, forKey: .systemContactId)
         try container.encodeIfPresent(systemDisplayNameSnapshot, forKey: .systemDisplayNameSnapshot)
         try container.encodeIfPresent(systemContactLinkSource, forKey: .systemContactLinkSource)
@@ -862,6 +888,7 @@ struct AppSettings: Codable {
     var hideAutoCreatedPaymentChats: Bool
     var showContactBalance: Bool
     var chatPhotoQualityPreset: ChatPhotoQualityPreset
+    var requirePhotoApprovalForNewContacts: Bool
 
     // Connection settings
     var indexerURL: String
@@ -909,6 +936,7 @@ struct AppSettings: Codable {
             hideAutoCreatedPaymentChats: false,
             showContactBalance: true,
             chatPhotoQualityPreset: .default,
+            requirePhotoApprovalForNewContacts: true,
             indexerURL: defaultIndexerURL,
             pushIndexerURL: defaultPushIndexerURL,
             knsBaseURL: defaultKNSMainnetURL,
@@ -937,6 +965,7 @@ struct AppSettings: Codable {
         case hideAutoCreatedPaymentChats
         case showContactBalance
         case chatPhotoQualityPreset
+        case requirePhotoApprovalForNewContacts
         case indexerURL
         case pushIndexerURL
         case knsBaseURL
@@ -973,6 +1002,7 @@ struct AppSettings: Codable {
         hideAutoCreatedPaymentChats: Bool = false,
         showContactBalance: Bool = true,
         chatPhotoQualityPreset: ChatPhotoQualityPreset = .default,
+        requirePhotoApprovalForNewContacts: Bool = true,
         indexerURL: String,
         pushIndexerURL: String,
         knsBaseURL: String,
@@ -999,6 +1029,7 @@ struct AppSettings: Codable {
         self.hideAutoCreatedPaymentChats = hideAutoCreatedPaymentChats
         self.showContactBalance = showContactBalance
         self.chatPhotoQualityPreset = chatPhotoQualityPreset
+        self.requirePhotoApprovalForNewContacts = requirePhotoApprovalForNewContacts
         self.indexerURL = indexerURL
         self.pushIndexerURL = pushIndexerURL
         self.knsBaseURL = knsBaseURL
@@ -1052,6 +1083,7 @@ struct AppSettings: Codable {
             ChatPhotoQualityPreset.self,
             forKey: .chatPhotoQualityPreset
         ) ?? .default
+        requirePhotoApprovalForNewContacts = try container.decodeIfPresent(Bool.self, forKey: .requirePhotoApprovalForNewContacts) ?? true
 
         // Handle migration from old settings
         if let customIndexer = try container.decodeIfPresent(String.self, forKey: .customIndexerURL), !customIndexer.isEmpty {
@@ -1104,6 +1136,7 @@ struct AppSettings: Codable {
         try container.encode(hideAutoCreatedPaymentChats, forKey: .hideAutoCreatedPaymentChats)
         try container.encode(showContactBalance, forKey: .showContactBalance)
         try container.encode(chatPhotoQualityPreset, forKey: .chatPhotoQualityPreset)
+        try container.encode(requirePhotoApprovalForNewContacts, forKey: .requirePhotoApprovalForNewContacts)
         try container.encode(indexerURL, forKey: .indexerURL)
         try container.encode(pushIndexerURL, forKey: .pushIndexerURL)
         try container.encode(knsBaseURL, forKey: .knsBaseURL)

@@ -26,6 +26,8 @@ struct ChatListView: View {
     @State private var avatarPrefetchTask: Task<Void, Never>?
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var contactPendingDelete: Contact?
+    @State private var editMode: EditMode = .inactive
+    @State private var selectedContactIDs: Set<UUID> = []
 
     private let conversationPageSize = 80
     private let conversationPrefetchThreshold = 12
@@ -84,10 +86,29 @@ struct ChatListView: View {
                     balanceToolbarView
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
+                    if editMode == .active {
+                        Button(selectedContactIDs.count == filteredConversationsCache.count ? "Deselect All" : "Select All") {
+                            if selectedContactIDs.count == filteredConversationsCache.count {
+                                selectedContactIDs = []
+                            } else {
+                                selectedContactIDs = Set(filteredConversationsCache.map { $0.contact.id })
+                            }
+                        }
+                    } else {
+                        Button {
+                            showAddContact = true
+                        } label: {
+                            Image(systemName: "person.badge.plus")
+                        }
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        showAddContact = true
+                        withAnimation {
+                            editMode = editMode == .active ? .inactive : .active
+                        }
                     } label: {
-                        Image(systemName: "person.badge.plus")
+                        Image(systemName: editMode == .active ? "xmark" : "pencil")
                     }
                 }
             }
@@ -130,6 +151,7 @@ struct ChatListView: View {
                 showBroadcastList: $showBroadcastList,
                 pendingBroadcastChannel: $pendingBroadcastChannel
             ))
+            .environment(\.editMode, $editMode)
     }
 
     @ViewBuilder
@@ -148,6 +170,16 @@ struct ChatListView: View {
     @ViewBuilder
     private var chatListContent: some View {
         conversationsList
+        .safeAreaInset(edge: .bottom) {
+            if editMode == .active {
+                selectionActionBar
+            }
+        }
+        .onChange(of: editMode) { newValue in
+            if newValue == .inactive {
+                selectedContactIDs = []
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
             handleOpenChatNotification(notification)
         }
@@ -322,7 +354,7 @@ struct ChatListView: View {
             displayed = filtered
         }
 
-        return List {
+        return List(selection: $selectedContactIDs) {
             if searchText.isEmpty {
                 Button {
                     pendingBroadcastChannel = nil
@@ -347,19 +379,47 @@ struct ChatListView: View {
             } else {
                 ForEach(Array(displayed.enumerated()), id: \.element.id) { index, conversation in
                     Button {
-                        selectedContactStartInPaymentMode = false
-                        pendingBroadcastChannel = nil
-                        showBroadcastList = false
-                        selectedContact = conversation.contact
+                        // List(selection:)'s native edit-mode row-selection UI never gets a
+                        // chance to see this tap - our own Button label already consumes it - so
+                        // toggle selection here explicitly instead of relying on that.
+                        if editMode == .active {
+                            if selectedContactIDs.contains(conversation.contact.id) {
+                                selectedContactIDs.remove(conversation.contact.id)
+                            } else {
+                                selectedContactIDs.insert(conversation.contact.id)
+                            }
+                        } else {
+                            selectedContactStartInPaymentMode = false
+                            pendingBroadcastChannel = nil
+                            showBroadcastList = false
+                            selectedContact = conversation.contact
+                        }
                     } label: {
                         ConversationRow(conversation: conversation)
                     }
                     .buttonStyle(ChatRowPressStyle())
+                    .tag(conversation.contact.id)
                     .listRowBackground(
                         shouldUseSplitLayout && selectedContact?.address == conversation.contact.address
                             ? Color.accentColor.opacity(0.14)
                             : Color.clear
                     )
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        Button {
+                            if conversation.unreadCount > 0 {
+                                chatService.markConversationAsRead(conversation)
+                            } else {
+                                chatService.markConversationAsUnread(conversation)
+                            }
+                        } label: {
+                            if conversation.unreadCount > 0 {
+                                Label("Read", systemImage: "envelope.open")
+                            } else {
+                                Label("Unread", systemImage: "envelope.badge")
+                            }
+                        }
+                        .tint(.accentColor)
+                    }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             contactPendingDelete = conversation.contact
@@ -378,6 +438,37 @@ struct ChatListView: View {
             }
         }
         .listStyle(.plain)
+    }
+
+    private var selectionActionBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+            HStack(spacing: 12) {
+                Button {
+                    let targets = filteredConversationsCache.filter { selectedContactIDs.contains($0.contact.id) }
+                    chatService.markConversationsAsRead(targets)
+                    editMode = .inactive
+                } label: {
+                    Label("Mark as Read", systemImage: "envelope.open")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(selectedContactIDs.isEmpty)
+
+                Button {
+                    let targets = filteredConversationsCache.filter { selectedContactIDs.contains($0.contact.id) }
+                    chatService.markConversationsAsUnread(targets)
+                    editMode = .inactive
+                } label: {
+                    Label("Mark as Unread", systemImage: "envelope.badge")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(selectedContactIDs.isEmpty)
+            }
+            .buttonStyle(.bordered)
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+        }
+        .background(.bar)
     }
 
     private var balanceToolbarView: some View {

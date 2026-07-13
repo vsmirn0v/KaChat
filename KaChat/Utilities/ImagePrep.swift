@@ -1,4 +1,3 @@
-import ImageIO
 import UIKit
 
 struct PreparedChatImage {
@@ -24,17 +23,19 @@ enum ImagePrep {
     private static let maxShrinkAttempts = 4
     private static let shrinkFactor: CGFloat = 0.7
 
-    /// Downsamples, then AVIF-compresses where supported, falling back to JPEG for older runtimes.
-    /// Both paths binary-search quality to fit `targetBytes`, shrinking dimensions further
-    /// and retrying if quality reduction alone isn't enough.
+    /// Downsamples and JPEG-compresses, binary-searching quality to fit `targetBytes` and
+    /// shrinking dimensions further if quality reduction alone isn't enough.
+    ///
+    /// AVIF was tried here previously (matching Android's approach for smaller on-chain payloads)
+    /// but was removed: while iOS's own AVIF encode/decode is reliable (guaranteed by ImageIO
+    /// since iOS 16), AVIF *decode* support on Android is inconsistent across devices/OS builds -
+    /// an iPhone-sent AVIF photo could permanently fail to render for an Android recipient with no
+    /// way to detect or recover from that in advance. JPEG decodes everywhere, on every device on
+    /// both platforms, so it's the only format guaranteed to actually reach the other person.
     static func prepareForChatMessage(
         _ image: UIImage,
         targetBytes: Int = defaultChatTargetBytes
     ) throws -> PreparedChatImage {
-        if let data = try? prepareEncodedDataForChatMessage(image, targetBytes: targetBytes, encoder: avifData) {
-            return PreparedChatImage(data: data, fileName: "photo.avif", mimeType: "image/avif")
-        }
-
         let data = try prepareJPEGForChatMessage(image, targetBytes: targetBytes)
         return PreparedChatImage(data: data, fileName: "photo.jpg", mimeType: "image/jpeg")
     }
@@ -132,33 +133,5 @@ enum ImagePrep {
 
     private static func jpegData(from image: UIImage, quality: CGFloat) -> Data? {
         image.jpegData(compressionQuality: quality)
-    }
-
-    private static func avifData(from image: UIImage, quality: CGFloat) -> Data? {
-        guard let cgImage = cgImageForEncoding(image) else { return nil }
-
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(
-            data,
-            "public.avif" as CFString,
-            1,
-            nil
-        ) else {
-            return nil
-        }
-
-        let options: [CFString: Any] = [
-            kCGImageDestinationLossyCompressionQuality: quality
-        ]
-        CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else { return nil }
-        return data as Data
-    }
-
-    private static func cgImageForEncoding(_ image: UIImage) -> CGImage? {
-        if image.imageOrientation == .up, let cgImage = image.cgImage {
-            return cgImage
-        }
-        return resize(image, to: image.size).cgImage
     }
 }

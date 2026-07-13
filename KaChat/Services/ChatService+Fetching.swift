@@ -2574,6 +2574,9 @@ extension ChatService {
             return
         }
         let contact = contactsManager.getOrCreateContact(address: contactAddress)
+        if message.isOutgoing {
+            contactsManager.markHasSentOutgoingMessage(address: contactAddress)
+        }
         var isNewMessage = false
         var isNewConversation = false
 

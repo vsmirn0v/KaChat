@@ -16,6 +16,7 @@ struct ChatInfoView: View {
     @State private var editedAlias: String = ""
     @State private var notificationModeOverride: ContactNotificationMode? = nil
     @State private var realtimeUpdatesDisabled: Bool = false
+    @State private var photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil
     @State private var isLoadingKNS = false
     @State private var isLoadingBalance = false
     @State private var showQR = false
@@ -36,6 +37,15 @@ struct ChatInfoView: View {
     private var hasUserVisibleLink: Bool {
         guard linkedSystemContactId != nil else { return false }
         return linkedSystemContactSource == .manual || linkedSystemContactSource == .matched
+    }
+
+    /// Describes what "Automatic" currently resolves to for this contact, so the picker
+    /// label reflects the smart default (trusted contacts show, untrusted ones hide).
+    private var automaticPhotoDisplayDescription: String {
+        guard settingsViewModel.settings.requirePhotoApprovalForNewContacts else {
+            return "Show"
+        }
+        return (!contact.isAutoAdded || contact.hasSentOutgoingMessage) ? "Show" : "Hidden"
     }
 
     private var knsInfo: KNSAddressInfo? {
@@ -205,6 +215,18 @@ struct ChatInfoView: View {
                     } footer: {
                         Text("Default follows Settings > Notifications. Off disables notifications for this contact.")
                     }
+                }
+
+                Section {
+                    Picker("Photos", selection: $photoAutoDisplayOverride) {
+                        Text("Automatic (\(automaticPhotoDisplayDescription))")
+                            .tag(PhotoAutoDisplayMode?.none)
+                        Text("Always Show").tag(PhotoAutoDisplayMode?.some(.alwaysShow))
+                        Text("Always Hide").tag(PhotoAutoDisplayMode?.some(.alwaysHide))
+                    }
+                    .pickerStyle(.menu)
+                } footer: {
+                    Text("Automatic hides photos from contacts you haven't added or messaged yet, until you tap to reveal them.")
                 }
 
                 // TODO: Fix realtimeUpdatesDisabled feature - currently broken, hidden until fixed
@@ -456,6 +478,7 @@ struct ChatInfoView: View {
                 editedAlias = contact.alias
                 notificationModeOverride = contact.notificationModeOverride
                 realtimeUpdatesDisabled = contact.realtimeUpdatesDisabled
+                photoAutoDisplayOverride = contact.photoAutoDisplayOverride
                 linkedSystemContactId = contact.systemContactId
                 linkedSystemContactName = contact.systemDisplayNameSnapshot
                 linkedSystemContactSource = contact.systemContactLinkSource
@@ -522,6 +545,7 @@ struct ChatInfoView: View {
             ? Contact.generateDefaultAlias(from: contact.address)
             : trimmedAlias
         updatedContact.notificationModeOverride = notificationModeOverride
+        updatedContact.photoAutoDisplayOverride = photoAutoDisplayOverride
         updatedContact.systemContactId = linkedSystemContactId
         updatedContact.systemDisplayNameSnapshot = linkedSystemContactName
         updatedContact.systemContactLinkSource = linkedSystemContactSource

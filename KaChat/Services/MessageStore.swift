@@ -2414,6 +2414,99 @@ final class MessageStore {
         }
     }
 
+    struct CloudKitStorageEstimate {
+        let recordCount: Int
+        let estimatedBytes: Int64
+    }
+
+    /// Best-effort estimate of how much the current wallet's CloudKit zone is using - CloudKit
+    /// has no public "bytes used" API (the number shown in iOS's own iCloud storage settings is
+    /// computed server-side and never exposed to apps), so this fetches every record actually
+    /// present in the zone right now and sums each one's approximate archived size. This is
+    /// deliberately a live server round-trip, not derived from the local store, so it reflects
+    /// reality even after data was deleted from iCloud outside the app (e.g. via system Settings)
+    /// while the local `.sqlite` cache (see `currentStoreSizeBytes()`) was left untouched.
+    func estimateCurrentWalletCloudKitStorage() async -> Result<CloudKitStorageEstimate, Error> {
+        guard let walletAddress = currentWalletAddress else {
+            return .failure(NSError(domain: "Kasia", code: 2, userInfo: [NSLocalizedDescriptionKey: "No wallet set"]))
+        }
+        let zoneName = zoneNameForWallet(walletAddress)
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
+        let database = CKContainer(identifier: containerId).privateCloudDatabase
+
+        var recordCount = 0
+        var totalBytes: Int64 = 0
+        var changeToken: CKServerChangeToken?
+        var moreComing = true
+
+        while moreComing {
+            let result = await fetchZoneChangesPage(zoneID: zoneID, database: database, changeToken: changeToken)
+            switch result {
+            case .failure(let error):
+                return .failure(error)
+            case .success(let page):
+                recordCount += page.recordCount
+                totalBytes += page.bytes
+                changeToken = page.token
+                moreComing = page.moreComing
+            }
+        }
+        return .success(CloudKitStorageEstimate(recordCount: recordCount, estimatedBytes: totalBytes))
+    }
+
+    private struct ZoneChangesPage {
+        let recordCount: Int
+        let bytes: Int64
+        let token: CKServerChangeToken?
+        let moreComing: Bool
+    }
+
+    private func fetchZoneChangesPage(
+        zoneID: CKRecordZone.ID,
+        database: CKDatabase,
+        changeToken: CKServerChangeToken?
+    ) async -> Result<ZoneChangesPage, Error> {
+        await withCheckedContinuation { continuation in
+            let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
+                previousServerChangeToken: changeToken,
+                resultsLimit: nil,
+                desiredKeys: nil
+            )
+            let op = CKFetchRecordZoneChangesOperation(recordZoneIDs: [zoneID], configurationsByRecordZoneID: [zoneID: config])
+            var recordCount = 0
+            var totalBytes: Int64 = 0
+
+            op.recordWasChangedBlock = { _, result in
+                if case .success(let record) = result {
+                    recordCount += 1
+                    totalBytes += Int64(Self.estimatedRecordSize(record))
+                }
+            }
+
+            op.recordZoneFetchResultBlock = { _, result in
+                switch result {
+                case .success(let (token, _, moreComing)):
+                    continuation.resume(returning: .success(
+                        ZoneChangesPage(recordCount: recordCount, bytes: totalBytes, token: token, moreComing: moreComing)
+                    ))
+                case .failure(let error):
+                    if (error as? CKError)?.code == .zoneNotFound {
+                        continuation.resume(returning: .success(ZoneChangesPage(recordCount: 0, bytes: 0, token: nil, moreComing: false)))
+                    } else {
+                        continuation.resume(returning: .failure(error))
+                    }
+                }
+            }
+            database.add(op)
+        }
+    }
+
+    /// CloudKit doesn't expose a "size of this record" API - archiving it is a reasonable
+    /// approximation of what's actually stored/transferred, close enough for a rough UI estimate.
+    private static func estimatedRecordSize(_ record: CKRecord) -> Int {
+        (try? NSKeyedArchiver.archivedData(withRootObject: record, requiringSecureCoding: true))?.count ?? 0
+    }
+
     private func ensureStoreLoaded() -> Bool {
         guard isLoaded else {
             if !didLogMissingStore {

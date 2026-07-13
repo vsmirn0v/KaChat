@@ -383,6 +383,31 @@ final class ContactsManager: ObservableObject {
         return contacts.first { $0.address == address }
     }
 
+    /// Whether photo bubbles from this contact should auto-decode and render, vs. staying
+    /// hidden behind a "Show Photo" tap. Defaults to trusting contacts you added yourself or
+    /// have ever messaged; untrusted (auto-added, never-replied-to) contacts are hidden by
+    /// default until the user overrides it in Chat Info or disables the setting globally.
+    func shouldAutoDisplayPhotos(for contact: Contact, settings: AppSettings) -> Bool {
+        switch contact.photoAutoDisplayOverride {
+        case .alwaysShow:
+            return true
+        case .alwaysHide:
+            return false
+        case .automatic, nil:
+            guard settings.requirePhotoApprovalForNewContacts else { return true }
+            return !contact.isAutoAdded || contact.hasSentOutgoingMessage
+        }
+    }
+
+    /// Marks that the user has sent at least one outgoing message to this contact, which
+    /// establishes trust for features like photo auto-display even if they were auto-added.
+    func markHasSentOutgoingMessage(address: String) {
+        guard let index = contacts.firstIndex(where: { $0.address == address }),
+              !contacts[index].hasSentOutgoingMessage else { return }
+        contacts[index].hasSentOutgoingMessage = true
+        saveContacts()
+    }
+
     func getOrCreateContact(address: String, alias: String = "") -> Contact {
         if let existing = getContact(byAddress: address) {
             return existing

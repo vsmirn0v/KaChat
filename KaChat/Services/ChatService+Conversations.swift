@@ -25,32 +25,6 @@ extension ChatService {
         }.value
     }
 
-    /// Read cursor for a conversation - the freshest of the effective per-device CloudKit marker
-    /// status, the legacy single-cursor status, and any not-yet-flushed in-memory read
-    /// (`ReadStatusSyncManager` debounces its actual `CDReadMarker` write up to 15s, so a read
-    /// recorded moments ago can otherwise still look "unread" here until that write lands,
-    /// wrongly anchoring the chat's initial scroll position deep in already-read history).
-    func readCursor(for contactAddress: String) -> (txId: String?, blockTime: Int64)? {
-        var best: (txId: String?, blockTime: Int64)?
-
-        func consider(_ candidate: (txId: String?, blockTime: Int64)?) {
-            guard let candidate else { return }
-            if best == nil || candidate.blockTime > best!.blockTime {
-                best = candidate
-            }
-        }
-
-        if let effective = messageStore.recomputeEffectiveReadStatus(conversationId: contactAddress) {
-            consider((effective.lastReadTxId, effective.lastReadBlockTime))
-        }
-        if let status = messageStore.fetchReadStatus(contactAddress: contactAddress) {
-            consider((status.lastReadTxId, status.lastReadBlockTime))
-        }
-        consider(ReadStatusSyncManager.shared.pendingReadCursor(for: contactAddress))
-
-        return best
-    }
-
     /// Loads the next older page of messages for a conversation from persistent store.
     /// This avoids holding full history in memory while still allowing on-demand scrolling.
     /// - Returns: number of messages loaded into the in-memory conversation.
@@ -3078,6 +3052,35 @@ extension ChatService {
                     lastReadBlockTime: UInt64(targetBlockTime)
                 )
             }
+        }
+    }
+
+    /// Manually flags a whole conversation as unread again (chat list swipe/bulk action) - the
+    /// counterpart to `markConversationAsRead`. Sets a nominal unread count of 1 rather than
+    /// recomputing an exact unseen-message tally, matching how "mark as unread" works in other
+    /// mail/chat apps: a manual triage flag for the badge, not a literal count. Doesn't touch the
+    /// `lastReadTxId`/`lastReadBlockTime` read cursor - that cursor drives push-reliability/backfill
+    /// bookkeeping, a separate concern from this local, user-initiated triage flag.
+    func markConversationAsUnread(_ conversation: Conversation) {
+        guard let index = conversations.firstIndex(where: { $0.id == conversation.id }),
+              conversation.unreadCount == 0 else { return }
+        updateConversation(at: index, persist: false) { updated in
+            updated.unreadCount = 1
+        }
+        messageStore.updateConversationUnread(contactAddress: conversation.contact.address, unreadCount: 1)
+    }
+
+    /// Bulk "Mark as Read" for multi-selected conversations in the chat list.
+    func markConversationsAsRead(_ conversations: [Conversation]) {
+        for conversation in conversations where conversation.unreadCount > 0 {
+            markConversationAsRead(conversation)
+        }
+    }
+
+    /// Bulk "Mark as Unread" for multi-selected conversations in the chat list.
+    func markConversationsAsUnread(_ conversations: [Conversation]) {
+        for conversation in conversations where conversation.unreadCount == 0 {
+            markConversationAsUnread(conversation)
         }
     }
 

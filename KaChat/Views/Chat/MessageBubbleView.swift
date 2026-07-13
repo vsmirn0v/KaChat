@@ -28,6 +28,9 @@ struct MessageBubbleView: View {
     /// gesture (see `ChatDetailView`'s drag gesture) - 0 at rest, negative while revealed.
     var revealOffset: CGFloat = 0
     var maxRevealOffset: CGFloat = 64
+    /// When true, an incoming photo from this contact stays hidden behind a "Show Photo" tap
+    /// instead of auto-decoding - driven by `ContactsManager.shouldAutoDisplayPhotos(for:settings:)`.
+    var photosBlocked: Bool = false
     @State private var shimmerPhase: CGFloat = -1
 
     init(
@@ -42,7 +45,8 @@ struct MessageBubbleView: View {
         avatarURLString: String? = nil,
         avatarDisplayName: String = "",
         revealOffset: CGFloat = 0,
-        maxRevealOffset: CGFloat = 64
+        maxRevealOffset: CGFloat = 64,
+        photosBlocked: Bool = false
     ) {
         self.message = message
         self.onCopy = onCopy
@@ -56,6 +60,7 @@ struct MessageBubbleView: View {
         self.avatarDisplayName = avatarDisplayName
         self.revealOffset = revealOffset
         self.maxRevealOffset = maxRevealOffset
+        self.photosBlocked = photosBlocked
     }
 
     /// The reply's own text, or the raw content when this isn't a reply - matches broadcast
@@ -125,6 +130,8 @@ struct MessageBubbleView: View {
                             media: media,
                             txId: message.txId,
                             shouldShowRetry: shouldShowRetry,
+                            photosBlocked: photosBlocked && !message.isOutgoing,
+                            senderDisplayName: avatarDisplayName,
                             onCopy: onCopy,
                             onRetry: { onRetry?(message) },
                             onReply: onReply
@@ -736,12 +743,37 @@ private struct ShimmerOverlay: View {
     }
 }
 
+/// Persists which photo messages the user has explicitly chosen to reveal, keyed by txId, so a
+/// once-revealed photo (from a contact whose photos are otherwise hidden by default) doesn't
+/// re-hide itself on the next launch. TxIds are unique chain-wide, so no per-wallet namespacing
+/// is needed.
+private enum PhotoRevealStore {
+    private static let key = "kachat.revealedPhotoTxIds"
+
+    static func isRevealed(_ txId: String) -> Bool {
+        revealedSet.contains(txId)
+    }
+
+    static func markRevealed(_ txId: String) {
+        var set = revealedSet
+        guard !set.contains(txId) else { return }
+        set.insert(txId)
+        UserDefaults.standard.set(Array(set), forKey: key)
+    }
+
+    private static var revealedSet: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+    }
+}
+
 private struct LazyImageBubble: View {
     private static let thumbnailDisplaySize = CGSize(width: 220, height: 160)
 
     let media: MediaFile
     let txId: String
     let shouldShowRetry: Bool
+    let photosBlocked: Bool
+    let senderDisplayName: String
     let onCopy: ((String, ToastStyle) -> Void)?
     let onRetry: (() -> Void)?
     let onReply: (() -> Void)?
@@ -751,8 +783,73 @@ private struct LazyImageBubble: View {
     @State private var sharePayload: MessageImageSharePayload?
     @State private var isLoadingPreview = false
     @State private var showImagePreview = false
+    @State private var isRevealed: Bool
+
+    init(
+        media: MediaFile,
+        txId: String,
+        shouldShowRetry: Bool,
+        photosBlocked: Bool,
+        senderDisplayName: String,
+        onCopy: ((String, ToastStyle) -> Void)?,
+        onRetry: (() -> Void)?,
+        onReply: (() -> Void)?
+    ) {
+        self.media = media
+        self.txId = txId
+        self.shouldShowRetry = shouldShowRetry
+        self.photosBlocked = photosBlocked
+        self.senderDisplayName = senderDisplayName
+        self.onCopy = onCopy
+        self.onRetry = onRetry
+        self.onReply = onReply
+        _isRevealed = State(initialValue: PhotoRevealStore.isRevealed(txId))
+    }
+
+    /// Still hidden behind a manual reveal - photos blocked for this contact that the user
+    /// hasn't tapped "Show Photo" on yet.
+    private var isHidden: Bool {
+        photosBlocked && !isRevealed
+    }
+
+    private func reveal() {
+        PhotoRevealStore.markRevealed(txId)
+        isRevealed = true
+    }
 
     var body: some View {
+        if isHidden {
+            hiddenBubble
+        } else {
+            unlockedBubble
+        }
+    }
+
+    private var hiddenBubble: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "eye.slash")
+                .font(.system(size: 24, weight: .regular))
+                .foregroundColor(.secondary)
+            Text("\(senderDisplayName) sent a photo")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+            Button {
+                reveal()
+            } label: {
+                Text("Show Photo")
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(12)
+        .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var unlockedBubble: some View {
         // Plain tappable view rather than `Button`: a Button's tap action fires immediately on
         // the first touch-up, which always won the race against a double-tap-to-reply gesture
         // attached to an ancestor view (opening the preview before "is this a double tap?" could

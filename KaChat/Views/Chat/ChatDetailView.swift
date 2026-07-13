@@ -72,8 +72,6 @@ struct ChatDetailView: View {
     @State private var scrollViewReference = ScrollViewReference()
     @State private var pendingPrependViewportSnapshot: PrependViewportSnapshot?
     @State private var storedCountTask: Task<Void, Never>?
-    @State private var initialUnreadCount = 0
-    @State private var initialReadBlockTime: Int64 = 0
     @State private var isRespondingHandshake = false
     @State private var feeEstimateSompi: UInt64?
     @State private var isEstimatingFee = false
@@ -524,7 +522,9 @@ struct ChatDetailView: View {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
                     Button {
-                        showChatInfo = true
+                        UIPasteboard.general.string = contact.address
+                        Haptics.success()
+                        showToast("Address copied to clipboard.")
                     } label: {
                         Text(contact.alias)
                             .font(.headline)
@@ -551,11 +551,9 @@ struct ChatDetailView: View {
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    UIPasteboard.general.string = contact.address
-                    Haptics.success()
-                    showToast("Address copied to clipboard.")
+                    showChatInfo = true
                 } label: {
-                    Image(systemName: "doc.on.doc")
+                    Image(systemName: "info.circle")
                 }
             }
         }
@@ -622,9 +620,6 @@ struct ChatDetailView: View {
                 initialScrollAnchorMessageId = nil
                 pendingPrependViewportSnapshot = nil
                 rebuildMessageSnapshotIfNeeded(force: true)
-                initialUnreadCount = max(0, conversation?.unreadCount ?? 0)
-                let readCursor = chatService.readCursor(for: contact.address)
-                initialReadBlockTime = readCursor?.blockTime ?? 0
                 configureInitialMessageWindow()
                 initialLayoutReady = true
                 didInitialScroll = false
@@ -725,9 +720,6 @@ struct ChatDetailView: View {
             lastMessageSnapshotDigest = nil
             totalStoredMessages = 0
             rebuildMessageSnapshotIfNeeded(force: true)
-            initialUnreadCount = max(0, conversation?.unreadCount ?? 0)
-            let readCursor = chatService.readCursor(for: newContact.address)
-            initialReadBlockTime = readCursor?.blockTime ?? 0
             configureInitialMessageWindow()
             previousMessagesCount = messages.count
             chatService.enterConversation(for: newContact.address)
@@ -783,50 +775,15 @@ struct ChatDetailView: View {
         return min(max(12, Int(Double(messagePageSize) * 0.9)), count - 1)
     }
 
-    private func initialAnchorIndex() -> Int? {
-        guard !messages.isEmpty else { return nil }
-        // If there are no unread incoming messages, open near the latest context
-        // instead of honoring possibly stale read cursors.
-        guard initialUnreadCount > 0 else { return nil }
-
-        // Only anchor on the actual read-blockTime cursor (now sourced from the max of the
-        // per-device CloudKit marker, legacy status, and any not-yet-flushed in-memory read - see
-        // `ChatService.readCursor(for:)`). There used to also be a fallback here that estimated
-        // the anchor by counting `initialUnreadCount` messages back from the end when no cursor
-        // was available - but `unreadCount` is a plain incrementing counter with no reconciliation
-        // against the real read position, so it can drift arbitrarily far from the truth (e.g.
-        // after a message arrives while the count was already stale), silently opening the chat
-        // deep in old history instead of at the most recent messages. Safer to just open at the
-        // bottom whenever there's no trustworthy blockTime cursor to anchor to.
-        guard initialReadBlockTime > 0 else { return nil }
-
-        let hasVisibleReadBoundary = messages.contains {
-            !$0.isOutgoing && Int64($0.blockTime) <= initialReadBlockTime
-        }
-        guard hasVisibleReadBoundary else { return nil }
-
-        if let firstUnreadIncomingIndex = messages.firstIndex(where: {
-            !$0.isOutgoing && Int64($0.blockTime) > initialReadBlockTime
-        }) {
-            return max(0, firstUnreadIncomingIndex - 1)
-        }
-        // Cursor exists but unread boundary not found in this window; do not
-        // fall back to txId because it may be stale and place us mid-history.
-        return nil
-    }
-
+    /// Always opens at the bottom (most recent message) rather than resuming at the first unread
+    /// message - anchoring to a read cursor meant a new message arriving mid-conversation could
+    /// silently open the chat scrolled up into older history instead of showing the newest
+    /// content immediately, which was more confusing than helpful.
     private func configureInitialMessageWindow() {
         messagePageSize = configuredMessagePageSize()
-        if let anchorIndex = initialAnchorIndex() {
-            // Open directly at the read anchor: show anchor message at top and newer messages below.
-            // Older history is loaded only when user scrolls up.
-            loadedMessageCount = min(messages.count, max(1, messages.count - anchorIndex))
-            initialScrollAnchorMessageId = messages[anchorIndex].id
-        } else {
-            let targetWindow = max(initialMessageWindowSize(), messagePageSize)
-            loadedMessageCount = min(messages.count, targetWindow)
-            initialScrollAnchorMessageId = nil
-        }
+        let targetWindow = max(initialMessageWindowSize(), messagePageSize)
+        loadedMessageCount = min(messages.count, targetWindow)
+        initialScrollAnchorMessageId = nil
         totalStoredMessages = max(totalStoredMessages, messages.count)
         refreshStoredMessageCountAsync()
     }
@@ -1889,7 +1846,8 @@ struct ChatDetailView: View {
             avatarURLString: senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
             avatarDisplayName: replyDisplayName(for: senderAddress ?? contact.address),
             revealOffset: revealOffset,
-            maxRevealOffset: maxRevealOffset
+            maxRevealOffset: maxRevealOffset,
+            photosBlocked: !contactsManager.shouldAutoDisplayPhotos(for: contact, settings: settingsViewModel.settings)
         )
     }
 

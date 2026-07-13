@@ -18,6 +18,8 @@ struct SettingsView: View {
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
     @State private var messageStoreSize = "Unknown"
+    @State private var cloudKitStorageSize: String = "Not checked"
+    @State private var isRefreshingCloudKitStorage = false
     @State private var diagnosticsArchiveURL: URL?
     @State private var showDiagnosticsShareSheet = false
     @State private var chatHistoryArchiveURL: URL?
@@ -49,6 +51,11 @@ struct SettingsView: View {
 
                     Toggle("Show contact balance", isOn: $settingsViewModel.settings.showContactBalance)
                         .onChange(of: settingsViewModel.settings.showContactBalance) { _ in
+                            settingsViewModel.saveSettings()
+                        }
+
+                    Toggle("Require approval for photos from new contacts", isOn: $settingsViewModel.settings.requirePhotoApprovalForNewContacts)
+                        .onChange(of: settingsViewModel.settings.requirePhotoApprovalForNewContacts) { _ in
                             settingsViewModel.saveSettings()
                         }
 
@@ -120,9 +127,30 @@ struct SettingsView: View {
                         refreshMessageStoreSize()
                     }
 
-                    Text("Storage used: \(messageStoreSize)")
+                    Text("Local storage used: \(messageStoreSize)")
                         .font(.footnote)
                         .foregroundColor(.secondary)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("iCloud storage used: \(cloudKitStorageSize)")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                            Text("This is a live check of your iCloud account, separate from local storage above.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        if isRefreshingCloudKitStorage {
+                            ProgressView()
+                        } else {
+                            Button {
+                                Task { await refreshCloudKitStorageSize() }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                    }
                 }
 
                 Section("Chat History") {
@@ -411,6 +439,24 @@ struct SettingsView: View {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         messageStoreSize = formatter.string(fromByteCount: bytes)
+    }
+
+    /// Live server round-trip - unlike `refreshMessageStoreSize()`, this isn't refreshed
+    /// automatically on every settings change, since it costs a network request.
+    private func refreshCloudKitStorageSize() async {
+        isRefreshingCloudKitStorage = true
+        defer { isRefreshingCloudKitStorage = false }
+        let result = await MessageStore.shared.estimateCurrentWalletCloudKitStorage()
+        switch result {
+        case .success(let estimate):
+            let formatter = ByteCountFormatter()
+            formatter.countStyle = .file
+            let bytesText = formatter.string(fromByteCount: estimate.estimatedBytes)
+            cloudKitStorageSize = "\(bytesText) (\(estimate.recordCount) records)"
+        case .failure(let error):
+            cloudKitStorageSize = "Unavailable"
+            NSLog("[SettingsView] Failed to estimate CloudKit storage: \(error)")
+        }
     }
 
     private func wipeIncomingMessages() async {
