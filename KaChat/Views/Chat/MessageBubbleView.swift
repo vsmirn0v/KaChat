@@ -32,6 +32,7 @@ struct MessageBubbleView: View {
     /// instead of auto-decoding - driven by `ContactsManager.shouldAutoDisplayPhotos(for:settings:)`.
     var photosBlocked: Bool = false
     @State private var shimmerPhase: CGFloat = -1
+    @State private var showFullText = false
 
     init(
         message: ChatMessage,
@@ -336,9 +337,23 @@ struct MessageBubbleView: View {
         .frame(maxWidth: 240, alignment: message.isOutgoing ? .trailing : .leading)
     }
 
+    /// Above this, a message renders as a truncated, tap-to-expand preview instead of laying out
+    /// the full text inline - matches iMessage's behavior for very long messages, and specifically
+    /// guards against a huge wall of text (e.g. raw base64 that ended up as plain message content
+    /// instead of being recognized as a file/image envelope) making the whole chat scroll janky,
+    /// since SwiftUI's `Text`/`fixedSize` layout cost for a single giant string is what actually
+    /// causes the lag, not the message itself being "long" in a normal-prose sense.
+    private static let inlineTextTruncationThreshold = 2_000
+    private static let truncatedPreviewLength = 500
+
     @ViewBuilder
     private func messageTextContent(isSingleEmojiOnly: Bool) -> some View {
-        if MessageTextRenderPlan.requiresLinkTextView(displayText) {
+        // Cheap proxy for "is this too long" - String.utf8.count is O(1) for native Swift
+        // strings, unlike .count (grapheme-cluster counting), which is a full O(n) scan and
+        // would itself cost real time on a huge string.
+        if displayText.utf8.count > Self.inlineTextTruncationThreshold {
+            truncatedMessageContent
+        } else if MessageTextRenderPlan.requiresLinkTextView(displayText) {
             LinkifiedMessageTextView(
                 text: displayText,
                 isOutgoing: message.isOutgoing,
@@ -352,6 +367,28 @@ struct MessageBubbleView: View {
                 .font(isSingleEmojiOnly ? .system(size: UIFont.preferredFont(forTextStyle: .body).pointSize * 5.0) : .body)
                 .foregroundStyle(isSingleEmojiOnly ? Color.primary : (message.isOutgoing ? Color.white : Color.primary))
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var truncatedMessageContent: some View {
+        Button {
+            showFullText = true
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(displayText.prefix(Self.truncatedPreviewLength)) + "…")
+                    .font(.body)
+                    .foregroundStyle(message.isOutgoing ? Color.white : Color.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Show More")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(message.isOutgoing ? Color.white.opacity(0.85) : Color.accentColor)
+            }
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showFullText) {
+            FullMessageTextView(text: displayText) {
+                handleCopy(displayText, toast: "Message copied to clipboard.")
+            }
         }
     }
 
@@ -716,6 +753,41 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
             return nil
         }
 
+    }
+}
+
+/// Full text of a message too long to render inline (see `MessageBubbleView.inlineTextTruncationThreshold`)
+/// - a plain scrollable, selectable text view, matching iMessage's "tap to see more" detail sheet.
+/// Shared with `BroadcastChannelView`'s room bubble, not just private-chat messages.
+struct FullMessageTextView: View {
+    let text: String
+    let onCopy: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(text)
+                    .font(.body)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .navigationTitle("Message")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        onCopy()
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                }
+            }
+        }
     }
 }
 
