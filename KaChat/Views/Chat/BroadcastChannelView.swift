@@ -166,9 +166,8 @@ struct BroadcastChannelView: View {
                                     .task(id: message.senderAddress) {
                                         // Own address is always fetched by the room-level `.task`
                                         // above; this only opts *other* senders in when the
-                                        // auto-avatar-search privacy toggle is on.
+                                        // KNS avatars toggle is on.
                                         guard broadcastService.showKnsAvatarsEnabled,
-                                              broadcastService.autoAvatarSearchEnabled,
                                               message.senderAddress != myAddress,
                                               knsService.profileCache[message.senderAddress] == nil else { return }
                                         _ = await knsService.fetchProfile(for: message.senderAddress)
@@ -704,6 +703,14 @@ private struct BroadcastMessageRow: View {
     let revealOffset: CGFloat
     let maxRevealOffset: CGFloat
 
+    @State private var showFullText = false
+
+    /// See `MessageBubbleView.inlineTextTruncationThreshold`'s doc comment - broadcast rooms are
+    /// public/unencrypted, so a huge wall of text (e.g. stray base64) landing here is if anything
+    /// more likely than in a private chat.
+    private static let inlineTextTruncationThreshold = 2_000
+    private static let truncatedPreviewLength = 500
+
     private var displayText: String {
         replyQuote?.text ?? message.content
     }
@@ -826,6 +833,8 @@ private struct BroadcastMessageRow: View {
     private var bubbleContent: some View {
         if let voicePayload {
             BroadcastAudioBubble(data: voicePayload.data, isOwnMessage: isOwnMessage)
+        } else if displayText.utf8.count > Self.inlineTextTruncationThreshold {
+            truncatedTextContent
         } else if MessageTextRenderPlan.requiresLinkTextView(displayText) {
             LinkifiedMessageTextView(
                 text: displayText,
@@ -841,6 +850,29 @@ private struct BroadcastMessageRow: View {
                 .foregroundColor(isOwnMessage ? .white : .primary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
+        }
+    }
+
+    private var truncatedTextContent: some View {
+        Button {
+            showFullText = true
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(displayText.prefix(Self.truncatedPreviewLength)) + "…")
+                    .foregroundColor(isOwnMessage ? .white : .primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Show More")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(isOwnMessage ? Color.white.opacity(0.85) : Color.accentColor)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showFullText) {
+            FullMessageTextView(text: displayText) {
+                onCopyMessage()
+            }
         }
     }
 
@@ -888,9 +920,14 @@ private struct BroadcastMessageRow: View {
                     }
                 }
             }
-            .onTapGesture(count: 2) {
+            // `.simultaneousGesture` rather than `.onTapGesture(count: 2)`: the latter is a
+            // discrete, exclusive gesture that a Button descendant (the truncated-text preview's
+            // "Show More" tap target) would always win the race against, since a Button's tap
+            // fires immediately on touch-up. Matches the fix already applied to the private-chat
+            // text bubble/image bubble for the same reason.
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
                 onReply()
-            }
+            })
     }
 
     private var deliveryBadge: some View {

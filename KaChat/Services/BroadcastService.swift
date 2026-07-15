@@ -23,15 +23,12 @@ final class BroadcastService: ObservableObject {
 
     /// Shows a "Popular" tab of curated channels in the list screen. Default matches Android.
     @Published private(set) var popularTabEnabled: Bool
-    /// Shows senders' KNS avatars in rooms; off shows plain initials for everyone. Default matches Android.
+    /// Shows senders' KNS avatars in rooms and automatically looks them up as soon as a message
+    /// appears; off shows plain initials for everyone and never fetches avatars. Default matches Android.
     @Published private(set) var showKnsAvatarsEnabled: Bool
-    /// Automatically looks up a sender's KNS avatar as soon as their message appears, rather than
-    /// only on demand - off by default since a sender's avatar URL can be used to detect viewing.
-    @Published private(set) var autoAvatarSearchEnabled: Bool
 
     private let popularTabEnabledKey = "kachat_broadcast_popular_enabled"
     private let showKnsAvatarsEnabledKey = "kachat_broadcast_show_kns_avatars"
-    private let autoAvatarSearchEnabledKey = "kachat_broadcast_auto_avatar_search"
 
     private let store = BroadcastStore.shared
 
@@ -54,7 +51,6 @@ final class BroadcastService: ObservableObject {
         let defaults = UserDefaults.standard
         popularTabEnabled = (defaults.object(forKey: popularTabEnabledKey) as? Bool) ?? true
         showKnsAvatarsEnabled = (defaults.object(forKey: showKnsAvatarsEnabledKey) as? Bool) ?? true
-        autoAvatarSearchEnabled = (defaults.object(forKey: autoAvatarSearchEnabledKey) as? Bool) ?? false
     }
 
     // MARK: - Settings
@@ -67,11 +63,6 @@ final class BroadcastService: ObservableObject {
     func setShowKnsAvatarsEnabled(_ enabled: Bool) {
         showKnsAvatarsEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: showKnsAvatarsEnabledKey)
-    }
-
-    func setAutoAvatarSearchEnabled(_ enabled: Bool) {
-        autoAvatarSearchEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: autoAvatarSearchEnabledKey)
     }
 
     // MARK: - Wallet lifecycle

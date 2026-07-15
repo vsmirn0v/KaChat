@@ -226,7 +226,8 @@ struct BroadcastListView: View {
             ForEach(BroadcastService.featuredChannels, id: \.self) { name in
                 let alreadyJoined = broadcastService.channels.contains { $0.channelName == name }
                 Button {
-                    joinAndOpen(name)
+                    guard !alreadyJoined else { return }
+                    join(name)
                 } label: {
                     HStack {
                         Text("#\(name)")
@@ -380,11 +381,6 @@ struct BroadcastListView: View {
         }
     }
 
-    private func joinAndOpen(_ rawName: String) {
-        guard join(rawName) else { return }
-        selectedChannel = BroadcastChannelName.normalize(rawName)
-    }
-
     @discardableResult
     private func join(_ rawName: String) -> Bool {
         let normalized = BroadcastChannelName.normalize(rawName)
@@ -519,7 +515,6 @@ private struct RetentionSettingsView: View {
 private struct BroadcastSettingsView: View {
     @EnvironmentObject var broadcastService: BroadcastService
     @Environment(\.dismiss) private var dismiss
-    @State private var showAutoAvatarWarning = false
 
     var body: some View {
         Form {
@@ -544,25 +539,7 @@ private struct BroadcastSettingsView: View {
                 )) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("KNS Profile Pictures")
-                        Text("Shows senders' KNS avatars in rooms. Off shows plain initials for everyone instead.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                Toggle(isOn: Binding(
-                    get: { broadcastService.autoAvatarSearchEnabled },
-                    set: { enabling in
-                        if enabling {
-                            showAutoAvatarWarning = true
-                        } else {
-                            broadcastService.setAutoAvatarSearchEnabled(false)
-                        }
-                    }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Automatic Avatar Search")
-                        Text("Automatically looks up a sender's KNS avatar as soon as their message appears. Off by default - see warning if you enable it.")
+                        Text("Shows senders' KNS avatars in rooms and looks them up automatically as messages appear. Off shows plain initials for everyone and never fetches avatars.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
@@ -588,14 +565,6 @@ private struct BroadcastSettingsView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Done") { dismiss() }
             }
-        }
-        .alert("Enable Automatic Avatar Search?", isPresented: $showAutoAvatarWarning) {
-            Button("Enable Anyway", role: .destructive) {
-                broadcastService.setAutoAvatarSearchEnabled(true)
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("A sender's avatar picture can be set to any web address they choose, and this app would fetch it the moment their message appears on your screen - before you tap anything. That means anyone who posts in a room you view can learn that you viewed it, roughly when, and your IP address, just from you opening the channel.\n\nOnly enable this if you're comfortable with senders in a room potentially detecting when you're viewing it.")
         }
     }
 }
