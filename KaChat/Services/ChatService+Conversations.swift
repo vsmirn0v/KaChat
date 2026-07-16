@@ -2046,7 +2046,6 @@ extension ChatService {
             utxos: availableUtxos
         )
         var messageFee = estimateFeeFromBuiltTx(messageTx, availableUtxos)
-        var estimatedAfterCompaction = false
         let singleInputFeeSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
             payload: messageTx.payload,
             inputCount: 1,
@@ -2102,7 +2101,6 @@ extension ChatService {
                     utxos: compactedCandidates
                 )
                 messageFee = estimateFeeFromBuiltTx(messageTx, compactedCandidates)
-                estimatedAfterCompaction = true
             }
         }
 
