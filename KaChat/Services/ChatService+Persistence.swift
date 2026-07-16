@@ -75,6 +75,23 @@ extension ChatService {
         conversations = cached
     }
 
+    /// Debounced wrapper around `persistChatListSnapshotIfPossible()` - `conversations`'s `didSet`
+    /// fires on every single per-message/per-index mutation (e.g. `conversations[i].messages[j] = ...`
+    /// during a catch-up sync loop or push-driven delivery-status update), and the actual persist
+    /// does a full `JSONEncoder` encode of every conversation's complete `lastMessage` (including a
+    /// photo message's entire base64 payload) plus a `UserDefaults` write. Processing a burst of N
+    /// new messages after resuming from background used to mean N of those encode+write cycles
+    /// back-to-back on the main thread - a real freeze right in the app-resume scenario. Mirrors
+    /// `scheduleBadgeUpdate()`'s debounce right next to it, which this was missing.
+    func scheduleChatListSnapshotPersist() {
+        chatListSnapshotPersistTask?.cancel()
+        chatListSnapshotPersistTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            persistChatListSnapshotIfPossible()
+        }
+    }
+
     func persistChatListSnapshotIfPossible() {
         guard !suppressChatListSnapshotPersistence else { return }
         guard let walletAddress = WalletManager.shared.currentWallet?.publicAddress else { return }

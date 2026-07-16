@@ -89,6 +89,10 @@ struct KaChatApp: App {
             // Flush any pending read status updates to CloudKit before backgrounding
             appDelegate.beginBackgroundFlushIfNeeded()
             ReadStatusSyncManager.shared.flushPendingUpdates()
+            // Flush the debounced chat-list snapshot write immediately too, rather than leaving
+            // it in-flight for a 300ms timer that iOS could suspend the process before firing.
+            ChatService.shared.chatListSnapshotPersistTask?.cancel()
+            ChatService.shared.persistChatListSnapshotIfPossible()
             // Force immediate CloudKit export before backgrounding
             MessageStore.shared.flushCloudKitExport()
             // Checkpoint WAL when going to background to reduce file size

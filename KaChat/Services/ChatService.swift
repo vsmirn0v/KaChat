@@ -41,7 +41,7 @@ final class ChatService: ObservableObject {
     @Published var conversations: [Conversation] = [] {
         didSet {
             scheduleBadgeUpdate()
-            persistChatListSnapshotIfPossible()
+            scheduleChatListSnapshotPersist()
         }
     }
     @Published var isLoading = false
@@ -289,6 +289,7 @@ final class ChatService: ObservableObject {
     let pushReregisterCooldown: TimeInterval = 600
 
     var badgeUpdateTask: Task<Void, Never>?
+    var chatListSnapshotPersistTask: Task<Void, Never>?
     var pendingLastMessageUpdates: [UUID: Date] = [:]
     var pendingLastMessageUpdateWorkItem: DispatchWorkItem?
     let lastMessageBatchDelay: TimeInterval = 0.8
