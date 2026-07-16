@@ -158,6 +158,7 @@
 		4D3D20082F72000800000001 /* ComposerKeyCommandPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerKeyCommandPolicy.swift; sourceTree = "<group>"; };
 		4D3D20092F72000900000001 /* BroadcastNavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastNavigationPolicy.swift; sourceTree = "<group>"; };
 		PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoQualitySettingsSheet.swift; sourceTree = "<group>"; };
+		A91062000000000000000010 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
 		6A61ACF41FEA483D9EF0924F /* KNSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSService.swift; sourceTree = "<group>"; };
 		B2B2B2B20001000000000001 /* Blake2b.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Blake2b.swift; sourceTree = "<group>"; };
 		BCAR00010001000000000001 /* BroadcastAudioRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastAudioRecording.swift; sourceTree = "<group>"; };
@@ -345,6 +346,7 @@
 			isa = PBXGroup;
 			children = (
 				4348A8842F2EC4AD00A5518E /* KaChatRelease.entitlements */,
+				A91062000000000000000010 /* Version.xcconfig */,
 				E80000112D4C000000000011 /* App */,
 				E80000122D4C000000000012 /* Models */,
 				E80000132D4C000000000013 /* Services */,
@@ -943,12 +945,12 @@
 /* Begin XCBuildConfiguration section */
 		43BBF34F2F15A52900B42BDA /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A91062000000000000000010 /* Version.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = KaChatNotificationService/KaChatNotificationService.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "KaChatNotificationService/KaChatNotificationService-mac.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = RP4Z22SFSD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = KaChatNotificationService/Info.plist;
@@ -960,7 +962,6 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -978,12 +979,12 @@
 		};
 		43BBF3502F15A52900B42BDA /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A91062000000000000000010 /* Version.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = KaChatNotificationService/KaChatNotificationServiceRelease.entitlements;
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "KaChatNotificationService/KaChatNotificationService-mac.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = RP4Z22SFSD;
 				ENABLE_DEBUG_DYLIB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -996,7 +997,6 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatNotificationService;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1141,6 +1141,7 @@
 		};
 		E800000B2D4C00000000000B /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A91062000000000000000010 /* Version.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -1148,7 +1149,6 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "KaChat/KaChat-mac.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				DEVELOPMENT_TEAM = RP4Z22SFSD;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1175,7 +1175,6 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1194,6 +1193,7 @@
 		};
 		E800000C2D4C00000000000C /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A91062000000000000000010 /* Version.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -1201,7 +1201,6 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "KaChat/KaChat-mac.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
 				DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO;
 				DEVELOPMENT_TEAM = RP4Z22SFSD;
 				ENABLE_DEBUG_DYLIB = NO;
@@ -1229,7 +1228,6 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1248,11 +1246,11 @@
 		};
 		SHREXT00010001000000000B /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A91062000000000000000010 /* Version.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = KaChatShareExtension/KaChatShareExtension.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = RP4Z22SFSD;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = KaChatShareExtension/Info.plist;
@@ -1264,7 +1262,6 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1282,11 +1279,11 @@
 		};
 		SHREXT00010001000000000C /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A91062000000000000000010 /* Version.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = KaChatShareExtension/KaChatShareExtensionRelease.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = RP4Z22SFSD;
 				ENABLE_DEBUG_DYLIB = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1299,7 +1296,6 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.kachat.app.KaChatShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

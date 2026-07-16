@@ -1,0 +1,11 @@
+// Shared version/build-number source for every target (main app, KaChatNotificationService,
+// KaChatShareExtension). App Store Connect requires every bundle in an archive to share the
+// exact same CFBundleVersion - before this file existed, each target carried its own
+// independent copy of CURRENT_PROJECT_VERSION/MARKETING_VERSION in project.pbxproj, so
+// Xcode Cloud's automatic build-number management only updated the main app (whichever target
+// it treats as primary), leaving the extensions on a stale value and failing archive
+// validation with "The CFBundleVersion of an app extension must match that of its containing
+// parent app." Routing all three targets through this single file means any tool that bumps
+// the version only has to change it here for it to apply everywhere.
+CURRENT_PROJECT_VERSION = 11
+MARKETING_VERSION = 2.0
