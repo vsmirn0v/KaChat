@@ -2177,7 +2177,7 @@ struct ChatDetailView: View {
 
     private func handleImageDrop(_ providers: [NSItemProvider]) -> Bool {
         guard canAcceptImageAttachment,
-              let provider = providers.first(where: ChatImageAttachmentLoader.canLoadImage(from:)) else {
+              let provider = providers.first(where: { ChatImageAttachmentLoader.canLoadImage(from: $0) }) else {
             return false
         }
 
