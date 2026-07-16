@@ -810,7 +810,14 @@ struct ConversationRow: View {
     }
 
     private func formatPreview(_ content: String) -> String {
-        let key = "\(content.count)|\(content.hashValue)|\(content.prefix(24))" as NSString
+        // `content.utf8.count` (not `.count`, which does a full Unicode grapheme-cluster scan)
+        // - a chat's last message can be a multi-MB base64 photo/audio payload, and this cache
+        // key has to be computed before the cache can even be checked. With `.count` (and the
+        // `.hashValue` this used to also include, an equally expensive full-string hash), every
+        // row in the chat list paid two full scans of its entire last-message content on every
+        // single render - including the render triggered by returning from a chat, which made
+        // that transition visibly freeze for chats with large last messages.
+        let key = "\(content.utf8.count)|\(content.prefix(24))" as NSString
         if let cached = Self.previewCache.object(forKey: key) {
             return cached as String
         }
