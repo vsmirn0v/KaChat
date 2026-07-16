@@ -16,6 +16,7 @@ struct KaChatApp: App {
     @State private var pendingOutboundShareId: String?
     @State private var isProcessingOutboundShare = false
     @State private var lastActiveResyncAt: Date?
+    @State private var hasCompletedFirstActiveTransition = false
     @Environment(\.scenePhase) private var scenePhase
 
     /// Below this, becoming active again skips the heavier resync work (node pool reconnect
@@ -106,6 +107,20 @@ struct KaChatApp: App {
             // Cancel background fetch when app becomes active (we'll poll normally)
             BackgroundTaskManager.shared.cancelBackgroundFetch()
 
+            let isFirstActiveTransition = !hasCompletedFirstActiveTransition
+            hasCompletedFirstActiveTransition = true
+            // On cold launch specifically, every cache (KNS avatars, message-preview parsing,
+            // image decoding) is empty, node pool/CloudKit/catch-up sync all kick off at once,
+            // and the user is most likely to immediately start navigating around (e.g. opening a
+            // chat and coming right back out) - all of that is MainActor-bound work (every
+            // service here is @MainActor), so it directly competes with the user's own taps and
+            // the chat list's own first-render work for the main thread's attention, which showed
+            // up as a real freeze/black-screen specifically right after launch, getting harder to
+            // reproduce once things warmed up. This grace period doesn't skip any of the sync
+            // work below, just lets the very first render settle before it starts contending for
+            // the main thread.
+            let coldStartGraceNanos: UInt64 = isFirstActiveTransition ? 2_000_000_000 : 0
+
             let shouldRunHeavyResync = lastActiveResyncAt.map {
                 Date().timeIntervalSince($0) > activeResyncDebounce
             } ?? true
@@ -117,6 +132,9 @@ struct KaChatApp: App {
                 // that are dead right now instead of waiting for the next request to lazily discover
                 // and fix just that one endpoint.
                 Task {
+                    if coldStartGraceNanos > 0 {
+                        try? await Task.sleep(nanoseconds: coldStartGraceNanos)
+                    }
                     await NodePoolService.shared.reconnectStaleConnections()
                 }
             }
@@ -136,6 +154,9 @@ struct KaChatApp: App {
             // Then sync messages that may have arrived while backgrounded
             if shouldRunHeavyResync {
                 Task {
+                    if coldStartGraceNanos > 0 {
+                        try? await Task.sleep(nanoseconds: coldStartGraceNanos)
+                    }
                     // Fetch CloudKit changes to get messages sent from other devices
                     let settings = AppSettings.load()
                     if settings.storeMessagesInICloud {
