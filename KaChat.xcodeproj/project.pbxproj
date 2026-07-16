@@ -584,7 +584,6 @@
 				43BBF3422F15A52900B42BDA /* Sources */,
 				43BBF3432F15A52900B42BDA /* Frameworks */,
 				43BBF3442F15A52900B42BDA /* Resources */,
-				BNUM00010001000000000002 /* Set Build Number */,
 			);
 			buildRules = (
 			);
@@ -609,7 +608,6 @@
 				E80000012D4C000000000001 /* Frameworks */,
 				E80000052D4C000000000005 /* Resources */,
 				43BBF34E2F15A52900B42BDA /* Embed Foundation Extensions */,
-				BNUM00010001000000000001 /* Set Build Number */,
 			);
 			buildRules = (
 			);
@@ -634,7 +632,6 @@
 				SHREXT000100010000000009 /* Sources */,
 				SHREXT000100010000000007 /* Frameworks */,
 				SHREXT000100010000000008 /* Resources */,
-				SHREXT00010001000000000A /* Set Build Number */,
 			);
 			buildRules = (
 			);
@@ -739,54 +736,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		BNUM00010001000000000001 /* Set Build Number */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Set Build Number";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "buildNumber=$(date +%Y%m%d%H%M)\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $buildNumber\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\" 2>/dev/null || /usr/libexec/PlistBuddy -c \"Add :CFBundleVersion string $buildNumber\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n";
-		};
-		BNUM00010001000000000002 /* Set Build Number */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Set Build Number";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# Read build number from parent app to ensure they match\nbuildNumber=$(/usr/libexec/PlistBuddy -c \"Print :CFBundleVersion\" \"${BUILT_PRODUCTS_DIR}/KaChat.app/Info.plist\" 2>/dev/null)\nif [ -z \"$buildNumber\" ]; then\n  buildNumber=$(date +%Y%m%d%H%M)\nfi\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $buildNumber\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\" 2>/dev/null || /usr/libexec/PlistBuddy -c \"Add :CFBundleVersion string $buildNumber\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n";
-		};
-		SHREXT00010001000000000A /* Set Build Number */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Set Build Number";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# Read build number from parent app to ensure they match\nbuildNumber=$(/usr/libexec/PlistBuddy -c \"Print :CFBundleVersion\" \"${BUILT_PRODUCTS_DIR}/KaChat.app/Info.plist\" 2>/dev/null)\nif [ -z \"$buildNumber\" ]; then\n  buildNumber=$(date +%Y%m%d%H%M)\nfi\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $buildNumber\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\" 2>/dev/null || /usr/libexec/PlistBuddy -c \"Add :CFBundleVersion string $buildNumber\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		43BBF3422F15A52900B42BDA /* Sources */ = {

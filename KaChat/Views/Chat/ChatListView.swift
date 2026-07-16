@@ -55,20 +55,10 @@ struct ChatListView: View {
             } else {
                 NavigationStack {
                     chatListPane
-                        .navigationDestination(isPresented: Binding(
-                            get: { selectedContact != nil },
-                            set: { isPresented in
-                                if !isPresented {
-                                    selectedContact = nil
-                                }
-                            }
-                        )) {
-                            if let contact = selectedContact {
-                                ChatDetailView(contact: contact, startInPaymentMode: selectedContactStartInPaymentMode)
-                            } else {
-                                EmptyView()
-                            }
-                        }
+                        .modifier(ChatDetailNavigationDestination(
+                            selectedContact: $selectedContact,
+                            startInPaymentMode: selectedContactStartInPaymentMode
+                        ))
                 }
             }
         }
@@ -650,6 +640,41 @@ struct ChatListView: View {
                     AppLog.log("[ChatListView] Notification permission denied by user")
                 } else {
                     AppLog.log("[ChatListView] Notification permission granted")
+                }
+            }
+        }
+    }
+}
+
+/// `.navigationDestination(item:)` (iOS 17+) rather than `isPresented:` + a synthetic get/set
+/// boolean - see `BroadcastChannelDestination` below for why: popping back via the native swipe
+/// gesture toggles the synthetic boolean through a quick true→false transition that can race
+/// UIKit's own pop animation, which is what produced the black screen flashing in from the right
+/// when swiping back out of a chat quickly. Binding directly to the optional `Contact` item is
+/// the race-free API SwiftUI provides for this; iOS 16 falls back to the older pattern since
+/// `item:` isn't available there.
+private struct ChatDetailNavigationDestination: ViewModifier {
+    @Binding var selectedContact: Contact?
+    let startInPaymentMode: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.navigationDestination(item: $selectedContact) { contact in
+                ChatDetailView(contact: contact, startInPaymentMode: startInPaymentMode)
+            }
+        } else {
+            content.navigationDestination(isPresented: Binding(
+                get: { selectedContact != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        selectedContact = nil
+                    }
+                }
+            )) {
+                if let contact = selectedContact {
+                    ChatDetailView(contact: contact, startInPaymentMode: startInPaymentMode)
+                } else {
+                    EmptyView()
                 }
             }
         }

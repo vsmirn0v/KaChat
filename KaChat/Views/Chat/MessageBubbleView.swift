@@ -186,6 +186,12 @@ struct MessageBubbleView: View {
 
     private var isKNSTransferMessage: Bool {
         guard message.messageType == .contextual else { return false }
+        // A KNS transfer status message is always a short fixed phrase ("Sent alice.kas
+        // domain") - bail out on UTF-8 byte length before the `trimmingCharacters`/`lowercased`
+        // normalization below, which otherwise runs unguarded on every bubble's `body`
+        // evaluation, including photo messages whose `content` is their multi-KB-to-multi-MB
+        // base64 JSON payload (photos are also sent as `.contextual`, so they hit this path too).
+        guard message.content.utf8.count <= 256 else { return false }
         let normalized = message.content
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -549,6 +555,14 @@ struct MessageBubbleView: View {
     }
 
     private func isSingleEmojiOnlyMessage(_ text: String) -> Bool {
+        // `.count` is a full Unicode grapheme-cluster scan (O(n)) - fine for a real single-emoji
+        // message, but this runs unguarded on every bubble's `body` evaluation for every message,
+        // including photo/audio ones whose `displayText` (see call site) is their multi-KB-to
+        // -multi-MB base64 JSON payload. Bailing out on UTF-8 byte length first (O(1) on native
+        // Swift storage, unlike `.count`) avoids paying that scan for anything that obviously
+        // isn't a single character already - matches the same fix already applied to
+        // `ConversationRow.formatPreview` and `MessageReplyCodec.parse` for this exact pattern.
+        guard text.utf8.count <= 32 else { return false }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count == 1 else {
             return false

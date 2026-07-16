@@ -478,16 +478,12 @@ struct ChatDetailView: View {
                     }
                     .onChange(of: isMessageFocused) { focused in
                         if focused {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                scrollToBottom(using: proxy, animated: true)
-                            }
+                            pinToBottomThroughKeyboardTransition()
                         }
                     }
                     .onChange(of: isPaymentFocused) { focused in
                         if focused {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                scrollToBottom(using: proxy, animated: true)
-                            }
+                            pinToBottomThroughKeyboardTransition()
                         }
                     }
                     .simultaneousGesture(
@@ -1696,7 +1692,6 @@ struct ChatDetailView: View {
         // Check if keyboard is currently open
         let wasKeyboardOpen = isMessageFocused || isPaymentFocused
 
-        inputMode = mode
         feeEstimateSompi = nil
         isEstimatingFee = false
         if mode != .payment { amountText = "" }
@@ -1705,24 +1700,28 @@ struct ChatDetailView: View {
             cancelRecording()
         }
 
-        // Transfer focus to keep keyboard open when switching between message and payment
+        // Transfer focus to keep keyboard open when switching between message and payment.
+        // This must land in the same SwiftUI update pass as the `inputMode` change below -
+        // deferring it to a later run-loop turn leaves a gap where the old field has already
+        // resigned (removed from the view hierarchy) but the new one hasn't requested focus
+        // yet, which drops the tab bar into view and blanks the content behind it before the
+        // new keyboard slides back up from scratch.
         if wasKeyboardOpen {
-            // Small delay to let SwiftUI update the view hierarchy
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                switch mode {
-                case .message:
-                    isPaymentFocused = false
-                    isMessageFocused = true
-                case .payment:
-                    isMessageFocused = false
-                    isPaymentFocused = true
-                case .audio:
-                    // Close keyboard for audio mode
-                    isMessageFocused = false
-                    isPaymentFocused = false
-                }
+            switch mode {
+            case .message:
+                isPaymentFocused = false
+                isMessageFocused = true
+            case .payment:
+                isMessageFocused = false
+                isPaymentFocused = true
+            case .audio:
+                // Close keyboard for audio mode
+                isMessageFocused = false
+                isPaymentFocused = false
             }
         }
+
+        inputMode = mode
     }
 
     private func sanitizedAmount(_ value: String) -> String {
@@ -1806,6 +1805,47 @@ struct ChatDetailView: View {
                 isSending = false
             }
         }
+    }
+
+    private func pinToBottomThroughKeyboardTransition() {
+        // `ScrollViewProxy.scrollTo` resolves against the LazyVStack's id-based anchor
+        // bookkeeping, which measured no different behavior at all when this used to retry on
+        // a delay - strong evidence the id lookup itself is what's failing to take effect while
+        // the keyboard-driven safe-area change is still settling, not just the timing. Drive the
+        // real UIScrollView directly instead (the same technique `restoreViewportFromPrependSnapshotIfPossible`
+        // already relies on for exactly this "SwiftUI's own scroll API isn't landing" situation),
+        // and log what's actually happening so if this still doesn't hold, the next repro has
+        // real state to diagnose from instead of another guess.
+        let deadline = Date().addingTimeInterval(1.2)
+        func tick() {
+            defer {
+                if Date() < deadline {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: tick)
+                }
+            }
+            guard let scrollView = scrollViewReference.scrollView else {
+                AppLog.log("[ChatDetailView] keyboard-pin: no scrollView reference yet")
+                return
+            }
+            let minOffsetY = -scrollView.adjustedContentInset.top
+            let maxOffsetY = max(
+                minOffsetY,
+                scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
+            )
+            AppLog.log(
+                "[ChatDetailView] keyboard-pin: displayedMessages=%d initialViewportPositioned=%d contentSize=%.1f bounds=%.1f offsetY=%.1f target=%.1f",
+                displayedMessages.count,
+                initialViewportPositioned ? 1 : 0,
+                scrollView.contentSize.height,
+                scrollView.bounds.height,
+                scrollView.contentOffset.y,
+                maxOffsetY
+            )
+            if abs(scrollView.contentOffset.y - maxOffsetY) > 0.5 {
+                scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: maxOffsetY), animated: false)
+            }
+        }
+        tick()
     }
 
     private func scrollToBottom(
