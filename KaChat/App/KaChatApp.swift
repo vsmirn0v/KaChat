@@ -15,7 +15,18 @@ struct KaChatApp: App {
     @StateObject private var broadcastService = BroadcastService.shared
     @State private var pendingOutboundShareId: String?
     @State private var isProcessingOutboundShare = false
+    @State private var lastActiveResyncAt: Date?
     @Environment(\.scenePhase) private var scenePhase
+
+    /// Below this, becoming active again skips the heavier resync work (node pool reconnect
+    /// sweep, CloudKit fetch + catch-up sync) - only things that must run every single time
+    /// regardless of how brief the background interval was (e.g. resuming a UTXO subscription
+    /// that's unconditionally paused on every backgrounding) still do. Without this, quickly
+    /// backgrounding and resuming (e.g. glancing at the app switcher for a second) re-fired this
+    /// whole battery of MainActor-hopping tasks on every return, competing with the user's own
+    /// taps for the MainActor's serial queue right as they started navigating - reading as
+    /// laggy "surfing around" immediately after a quick resume.
+    private let activeResyncDebounce: TimeInterval = 15
 
     init() {
         // Warm up audio session and crypto on background thread to avoid first-interaction lag
@@ -90,13 +101,20 @@ struct KaChatApp: App {
         case .active:
             // Cancel background fetch when app becomes active (we'll poll normally)
             BackgroundTaskManager.shared.cancelBackgroundFetch()
-            // A batch of gRPC connections can die silently while backgrounded/asleep (the OS
-            // tears down sockets, and the stream-completion callback that would normally
-            // self-reconnect can be suspended along with the rest of the app) - reconnect any
-            // that are dead right now instead of waiting for the next request to lazily discover
-            // and fix just that one endpoint.
-            Task {
-                await NodePoolService.shared.reconnectStaleConnections()
+
+            let shouldRunHeavyResync = lastActiveResyncAt.map {
+                Date().timeIntervalSince($0) > activeResyncDebounce
+            } ?? true
+            if shouldRunHeavyResync {
+                lastActiveResyncAt = Date()
+                // A batch of gRPC connections can die silently while backgrounded/asleep (the OS
+                // tears down sockets, and the stream-completion callback that would normally
+                // self-reconnect can be suspended along with the rest of the app) - reconnect any
+                // that are dead right now instead of waiting for the next request to lazily discover
+                // and fix just that one endpoint.
+                Task {
+                    await NodePoolService.shared.reconnectStaleConnections()
+                }
             }
             if walletManager.currentWallet != nil {
                 Task {
@@ -112,30 +130,32 @@ struct KaChatApp: App {
             }
             // Refresh CloudKit first to pick up messages from other devices
             // Then sync messages that may have arrived while backgrounded
-            Task {
-                // Fetch CloudKit changes to get messages sent from other devices
-                let settings = AppSettings.load()
-                if settings.storeMessagesInICloud {
-                    #if targetEnvironment(macCatalyst)
-                    let cloudKitImportTimeout: TimeInterval = 12.0
-                    #else
-                    let cloudKitImportTimeout: TimeInterval = 6.0
-                    #endif
-                    await MessageStore.shared.fetchCloudKitChanges(
-                        reason: "app-active",
-                        timeout: cloudKitImportTimeout
-                    )
-                    // Sync read statuses from CloudKit (picks up reads from other devices)
-                    await ReadStatusSyncManager.shared.syncFromCloudKit()
-                    // Load any CloudKit-synced messages before indexer sync
-                    ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-                }
-                // Run catch-up sync with push-reliability gating.
-                await ChatService.shared.maybeRunCatchUpSync(trigger: .appActive)
+            if shouldRunHeavyResync {
+                Task {
+                    // Fetch CloudKit changes to get messages sent from other devices
+                    let settings = AppSettings.load()
+                    if settings.storeMessagesInICloud {
+                        #if targetEnvironment(macCatalyst)
+                        let cloudKitImportTimeout: TimeInterval = 12.0
+                        #else
+                        let cloudKitImportTimeout: TimeInterval = 6.0
+                        #endif
+                        await MessageStore.shared.fetchCloudKitChanges(
+                            reason: "app-active",
+                            timeout: cloudKitImportTimeout
+                        )
+                        // Sync read statuses from CloudKit (picks up reads from other devices)
+                        await ReadStatusSyncManager.shared.syncFromCloudKit()
+                        // Load any CloudKit-synced messages before indexer sync
+                        ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+                    }
+                    // Run catch-up sync with push-reliability gating.
+                    await ChatService.shared.maybeRunCatchUpSync(trigger: .appActive)
 
-                // One-time migration to per-device read markers (only when store is ready)
-                if MessageStore.shared.isStoreLoaded && MessageStore.shared.currentWalletAddress != nil {
-                    ReadStatusSyncManager.shared.runMigrationIfNeeded()
+                    // One-time migration to per-device read markers (only when store is ready)
+                    if MessageStore.shared.isStoreLoaded && MessageStore.shared.currentWalletAddress != nil {
+                        ReadStatusSyncManager.shared.runMigrationIfNeeded()
+                    }
                 }
             }
             if settingsViewModel.settings.notificationMode == .remotePush {
