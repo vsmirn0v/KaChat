@@ -370,13 +370,7 @@ struct ChatListView: View {
                 )
             }
 
-            if displayed.isEmpty {
-                if searchText.isEmpty {
-                    emptyStateView
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                }
-            } else {
+            if !displayed.isEmpty {
                 ForEach(Array(displayed.enumerated()), id: \.element.id) { index, conversation in
                     Button {
                         // List(selection:)'s native edit-mode row-selection UI never gets a
@@ -438,6 +432,16 @@ struct ChatListView: View {
             }
         }
         .listStyle(.plain)
+        .overlay {
+            // Rendered as an overlay rather than a List row: as a row, it sat right after the
+            // Broadcasts row with no content to expand into the remaining space, which left a
+            // stray-looking separator line floating above Broadcasts with a large dead gap below
+            // it instead of a normal centered empty state. An overlay isn't subject to List's
+            // row/separator layout at all, so it can just center properly over the whole list area.
+            if displayed.isEmpty && searchText.isEmpty {
+                emptyStateView
+            }
+        }
     }
 
     private var selectionActionBar: some View {
@@ -643,9 +647,9 @@ struct ChatListView: View {
                     // User denied - disable notifications in settings
                     settingsViewModel.settings.notificationsEnabled = false
                     settingsViewModel.saveSettings()
-                    NSLog("[ChatListView] Notification permission denied by user")
+                    AppLog.log("[ChatListView] Notification permission denied by user")
                 } else {
-                    NSLog("[ChatListView] Notification permission granted")
+                    AppLog.log("[ChatListView] Notification permission granted")
                 }
             }
         }
