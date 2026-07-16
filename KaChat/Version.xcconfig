@@ -9,3 +9,8 @@
 // the version only has to change it here for it to apply everywhere.
 CURRENT_PROJECT_VERSION = 11
 MARKETING_VERSION = 2.0
+
+// Required for `agvtool` (used by ci_scripts/ci_post_clone.sh) to be able to write
+// CURRENT_PROJECT_VERSION for every target - without this, agvtool fails with "not using
+// Apple Generic Versioning" instead of syncing the build number Xcode Cloud assigned.
+VERSIONING_SYSTEM = apple-generic
