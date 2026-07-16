@@ -132,6 +132,7 @@ struct BroadcastChannelView: View {
                                     if shouldShowDateDivider(at: index, in: messages) {
                                         dateDivider(for: message.blockTime)
                                     }
+                                    let messageReplyQuote = replyQuote(for: message)
                                     BroadcastMessageRow(
                                         message: message,
                                         isOwnMessage: message.senderAddress == myAddress,
@@ -139,8 +140,8 @@ struct BroadcastChannelView: View {
                                             ? knsService.profileCache[message.senderAddress]?.avatarURL
                                             : nil,
                                         displayName: displayName(for: message.senderAddress),
-                                        replyQuote: replyQuote(for: message),
-                                        replySenderDisplayName: replyQuote(for: message).map { displayName(for: $0.replyToSender) },
+                                        replyQuote: messageReplyQuote,
+                                        replySenderDisplayName: messageReplyQuote.map { displayName(for: $0.replyToSender) },
                                         onViewProfile: { viewProfile(message.senderAddress) },
                                         onOpenChat: { openChat(with: message.senderAddress) },
                                         onPayInKaspa: { openChat(with: message.senderAddress, paymentMode: true) },
@@ -830,7 +831,7 @@ private struct BroadcastMessageRow: View {
     }
 
     @ViewBuilder
-    private var bubbleContent: some View {
+    private func bubbleContent(voicePayload: VoiceMessageSniff.Payload?) -> some View {
         if let voicePayload {
             BroadcastAudioBubble(data: voicePayload.data, isOwnMessage: isOwnMessage)
         } else if displayText.utf8.count > Self.inlineTextTruncationThreshold {
@@ -877,7 +878,12 @@ private struct BroadcastMessageRow: View {
     }
 
     private var bubble: some View {
-        bubbleContent
+        // Computed once here rather than letting `bubbleContent` and this context menu each call
+        // the (uncached) `VoiceMessageSniff.decode` independently - that decode does a full
+        // JSONSerialization parse + base64 decode of the whole audio payload, so evaluating it
+        // twice per row doubled that cost on every render.
+        let voicePayload = self.voicePayload
+        return bubbleContent(voicePayload: voicePayload)
             .background(isOwnMessage ? Color.accentColor : Color(UIColor.secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .frame(maxWidth: 280, alignment: isOwnMessage ? .trailing : .leading)
