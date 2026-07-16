@@ -49,12 +49,12 @@ final class SharedDataManager {
         }
 
         guard let data = try? JSONEncoder().encode(contacts) else {
-            NSLog("[SharedData] Failed to encode contacts")
+            AppLog.log("[SharedData] Failed to encode contacts")
             return
         }
 
         sharedDefaults?.set(data, forKey: Keys.contacts)
-        NSLog("[SharedData] Synced %d contacts to shared container", contacts.count)
+        AppLog.log("[SharedData] Synced %d contacts to shared container", contacts.count)
     }
 
     /// Sync notification defaults used by the notification service extension.
@@ -102,12 +102,12 @@ final class SharedDataManager {
         secrets[address] = secret.base64EncodedString()
 
         guard let data = try? JSONEncoder().encode(secrets) else {
-            NSLog("[SharedData] Failed to encode shared secrets")
+            AppLog.log("[SharedData] Failed to encode shared secrets")
             return
         }
 
         sharedDefaults?.set(data, forKey: Keys.sharedSecrets)
-        NSLog("[SharedData] Stored shared secret for %@", String(address.suffix(8)))
+        AppLog.log("[SharedData] Stored shared secret for %@", String(address.suffix(8)))
     }
 
     /// Get shared secret for a contact address
@@ -288,7 +288,7 @@ final class SharedDataManager {
         }
 
         guard let data = try? JSONEncoder().encode(shares) else {
-            NSLog("[SharedData] Failed to encode outbound shares")
+            AppLog.log("[SharedData] Failed to encode outbound shares")
             return nil
         }
 
@@ -381,7 +381,7 @@ final class SharedDataManager {
                 .appendingPathComponent(SharedOutboundShare.ImageAttachment.rootDirectoryName, isDirectory: true)
             try? FileManager.default.removeItem(at: outboundShareDirectory)
         }
-        NSLog("[SharedData] Cleared all shared data")
+        AppLog.log("[SharedData] Cleared all shared data")
     }
 
     // MARK: - Unread Count (Badge)

@@ -824,7 +824,7 @@ struct ProfileView: View {
     }
 
     private func logKNSWrite(_ message: String) {
-        NSLog("[KNS_WRITE_UI] %@", message)
+        AppLog.log("[KNS_WRITE_UI] %@", message)
     }
 
     private func diagnosticError(_ error: Error) -> String {

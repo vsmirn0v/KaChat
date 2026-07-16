@@ -65,7 +65,7 @@ final class KaspaRPCRouter: ObservableObject {
         // Start epoch monitoring
         epochMonitor.start()
 
-        NSLog("[RPCRouter] Initialized for %@", network.displayName)
+        AppLog.log("[RPCRouter] Initialized for %@", network.displayName)
     }
 
     /// Shutdown the router
@@ -73,13 +73,13 @@ final class KaspaRPCRouter: ObservableObject {
         epochMonitor.stop()
         await connectionPool.disconnectAll()
         await registry.persistNow()
-        NSLog("[RPCRouter] Shutdown complete")
+        AppLog.log("[RPCRouter] Shutdown complete")
     }
 
     // MARK: - Epoch Handling
 
     private func handleEpochChange(_ newEpochId: Int) async {
-        NSLog("[RPCRouter] Epoch changed to %d - resetting connection stats", newEpochId)
+        AppLog.log("[RPCRouter] Epoch changed to %d - resetting connection stats", newEpochId)
 
         // Reset epoch stats in registry
         await registry.resetEpochStats(newEpochId: newEpochId)
@@ -127,7 +127,7 @@ final class KaspaRPCRouter: ObservableObject {
             } catch {
                 lastError = error
                 excludedEndpoints.insert(endpoint.key)
-                NSLog("[RPCRouter] Request failed on %@: %@", endpoint.key, error.localizedDescription)
+                AppLog.log("[RPCRouter] Request failed on %@: %@", endpoint.key, error.localizedDescription)
             }
         }
 

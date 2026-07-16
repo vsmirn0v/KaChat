@@ -109,7 +109,7 @@ extension ChatService {
         // Raw payload from REST API is hex-encoded
         guard let payloadData = hexStringToData(payload),
               let payloadString = String(data: payloadData, encoding: .utf8) else {
-            NSLog("[ChatService] Raw payload: failed to decode hex to string")
+            AppLog.log("[ChatService] Raw payload: failed to decode hex to string")
             return nil
         }
 
@@ -117,7 +117,7 @@ extension ChatService {
         guard payloadString.hasPrefix("ciph_msg:1:comm:") else {
             // Not a contextual message - could be handshake or other type
             if payloadString.hasPrefix("ciph_msg:") {
-                NSLog("[ChatService] Raw payload: different message type: %@", String(payloadString.prefix(30)))
+                AppLog.log("[ChatService] Raw payload: different message type: %@", String(payloadString.prefix(30)))
             }
             return nil
         }
@@ -126,32 +126,32 @@ extension ChatService {
         let parts = payloadString.split(separator: ":", maxSplits: 4, omittingEmptySubsequences: false)
         // parts: ["ciph_msg", "1", "comm", "ALIAS", "BASE64_ENCRYPTED"]
         guard parts.count >= 5 else {
-            NSLog("[ChatService] Raw payload: unexpected format, parts=%d", parts.count)
+            AppLog.log("[ChatService] Raw payload: unexpected format, parts=%d", parts.count)
             return nil
         }
 
         let base64String = String(parts[4])
         guard !base64String.isEmpty else {
-            NSLog("[ChatService] Raw payload: empty base64 content")
+            AppLog.log("[ChatService] Raw payload: empty base64 content")
             return nil
         }
 
         // Decode base64 to get encrypted bytes
         guard let encryptedData = Data(base64Encoded: base64String) else {
-            NSLog("[ChatService] Raw payload: failed to decode base64")
+            AppLog.log("[ChatService] Raw payload: failed to decode base64")
             return nil
         }
 
         // Decrypt
         do {
             guard let encryptedMessage = KasiaCipher.EncryptedMessage(fromBytes: encryptedData) else {
-                NSLog("[ChatService] Raw payload: failed to parse encrypted message structure")
+                AppLog.log("[ChatService] Raw payload: failed to parse encrypted message structure")
                 return nil
             }
             let decrypted = try KasiaCipher.decrypt(encryptedMessage, privateKey: privateKey)
             return decrypted
         } catch {
-            NSLog("[ChatService] Raw payload: decryption failed: %@", error.localizedDescription)
+            AppLog.log("[ChatService] Raw payload: decryption failed: %@", error.localizedDescription)
             return nil
         }
     }
@@ -163,13 +163,13 @@ extension ChatService {
 
         let parts = payloadString.split(separator: ":", maxSplits: 4, omittingEmptySubsequences: false)
         guard parts.count >= 5 else {
-            NSLog("[ChatService] Raw payload: unexpected format, parts=%d", parts.count)
+            AppLog.log("[ChatService] Raw payload: unexpected format, parts=%d", parts.count)
             return nil
         }
 
         let alias = String(parts[3])
         if alias.isEmpty {
-            NSLog("[ChatService] Raw payload: empty alias")
+            AppLog.log("[ChatService] Raw payload: empty alias")
             return nil
         }
 
@@ -205,7 +205,7 @@ extension ChatService {
 
     nonisolated static func decryptPaymentPayloadFromRawPayloadSync(_ payload: String, privateKey: Data) -> PaymentPayload? {
         guard let payloadData = hexStringToData(payload) else {
-            NSLog("[ChatService] Raw payload: failed to decode hex for payment")
+            AppLog.log("[ChatService] Raw payload: failed to decode hex for payment")
             return nil
         }
 

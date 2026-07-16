@@ -103,7 +103,7 @@ final class UtxoSubscriptionManager: ObservableObject {
 
         // Clean up any existing subscription state before retrying
         if state != .disconnected {
-            NSLog("[UtxoSub] Cleaning up previous subscription state before retry")
+            AppLog.log("[UtxoSub] Cleaning up previous subscription state before retry")
             cleanupExistingSubscription()
         }
 
@@ -123,14 +123,14 @@ final class UtxoSubscriptionManager: ObservableObject {
             }
         }
 
-        NSLog("[UtxoSub] Trying subscription on %d capable nodes", availableNodes.count)
+        AppLog.log("[UtxoSub] Trying subscription on %d capable nodes", availableNodes.count)
 
         // Try each node in sequence until one succeeds
         var lastError: Error?
         for (index, nodeRecord) in availableNodes.enumerated() {
             let endpoint = nodeRecord.endpoint
 
-            NSLog("[UtxoSub] Attempt %d/%d: trying %@", index + 1, availableNodes.count, endpoint.key)
+            AppLog.log("[UtxoSub] Attempt %d/%d: trying %@", index + 1, availableNodes.count, endpoint.key)
 
             do {
                 primaryEndpoint = endpoint
@@ -155,11 +155,11 @@ final class UtxoSubscriptionManager: ObservableObject {
                     }
                 }
 
-                NSLog("[UtxoSub] Subscribed successfully on %@", endpoint.key)
+                AppLog.log("[UtxoSub] Subscribed successfully on %@", endpoint.key)
                 return  // Success!
 
             } catch {
-                NSLog("[UtxoSub] Subscription failed on %@: %@", endpoint.key, error.localizedDescription)
+                AppLog.log("[UtxoSub] Subscription failed on %@: %@", endpoint.key, error.localizedDescription)
                 lastError = error
                 // Continue immediately to next node
             }
@@ -209,7 +209,7 @@ final class UtxoSubscriptionManager: ObservableObject {
         standbyEndpoint = nil
         state = .disconnected
 
-        NSLog("[UtxoSub] Unsubscribed")
+        AppLog.log("[UtxoSub] Unsubscribed")
     }
 
     /// Add notification handler
@@ -248,7 +248,7 @@ final class UtxoSubscriptionManager: ObservableObject {
             // look "stale" and trigger an immediate, unnecessary re-send.
             lastBlockAddedNotificationAt = Date()
         } catch {
-            NSLog("[UtxoSub] Failed to register block-added notifications: %@", error.localizedDescription)
+            AppLog.log("[UtxoSub] Failed to register block-added notifications: %@", error.localizedDescription)
         }
     }
 
@@ -264,7 +264,7 @@ final class UtxoSubscriptionManager: ObservableObject {
 
         // Check if we're already connected to the best node
         if let currentPrimary = primaryEndpoint, currentPrimary.key == bestNode.endpoint.key {
-            NSLog("[UtxoSub] Already connected to best node: %@", currentPrimary.key)
+            AppLog.log("[UtxoSub] Already connected to best node: %@", currentPrimary.key)
             return
         }
 
@@ -278,7 +278,7 @@ final class UtxoSubscriptionManager: ObservableObject {
             currentLatency = nil
         }
 
-        NSLog("[UtxoSub] Pool is healthy - reconnecting to lowest latency node: %@ (%.0fms, was: %@)",
+        AppLog.log("[UtxoSub] Pool is healthy - reconnecting to lowest latency node: %@ (%.0fms, was: %@)",
               bestNode.endpoint.key,
               bestLatency,
               currentLatency.map { String(format: "%.0fms", $0) } ?? "none")
@@ -287,7 +287,7 @@ final class UtxoSubscriptionManager: ObservableObject {
         do {
             try await subscribe(addresses: subscribedAddresses)
         } catch {
-            NSLog("[UtxoSub] Failed to reconnect to best node: %@", error.localizedDescription)
+            AppLog.log("[UtxoSub] Failed to reconnect to best node: %@", error.localizedDescription)
         }
     }
 
@@ -299,7 +299,7 @@ final class UtxoSubscriptionManager: ObservableObject {
 
         // Check if we're already connected to this endpoint
         if let currentPrimary = primaryEndpoint, currentPrimary.key == endpoint.key {
-            NSLog("[UtxoSub] Already connected to endpoint: %@", endpoint.key)
+            AppLog.log("[UtxoSub] Already connected to endpoint: %@", endpoint.key)
             return
         }
 
@@ -315,7 +315,7 @@ final class UtxoSubscriptionManager: ObservableObject {
             currentLatency = nil
         }
 
-        NSLog("[UtxoSub] Reconnecting to better node: %@ (%.0fms, was: %@)",
+        AppLog.log("[UtxoSub] Reconnecting to better node: %@ (%.0fms, was: %@)",
               endpoint.key,
               targetLatency,
               currentLatency.map { String(format: "%.0fms", $0) } ?? "none")
@@ -324,7 +324,7 @@ final class UtxoSubscriptionManager: ObservableObject {
         do {
             try await subscribe(addresses: subscribedAddresses)
         } catch {
-            NSLog("[UtxoSub] Failed to reconnect to better node: %@", error.localizedDescription)
+            AppLog.log("[UtxoSub] Failed to reconnect to better node: %@", error.localizedDescription)
         }
     }
 
@@ -432,10 +432,10 @@ final class UtxoSubscriptionManager: ObservableObject {
             // Connection is alive
             primaryFailures = 0
 
-            NSLog("[UtxoSub] Ping OK on %@ (%.0fms)", endpoint.key, latencyMs)
+            AppLog.log("[UtxoSub] Ping OK on %@ (%.0fms)", endpoint.key, latencyMs)
 
         } catch {
-            NSLog("[UtxoSub] Ping failed on %@ - triggering immediate failover: %@", endpoint.key, error.localizedDescription)
+            AppLog.log("[UtxoSub] Ping failed on %@ - triggering immediate failover: %@", endpoint.key, error.localizedDescription)
             await handlePrimaryFailure()
             return
         }
@@ -447,7 +447,7 @@ final class UtxoSubscriptionManager: ObservableObject {
         if wantsBlockAdded {
             let staleness = lastBlockAddedNotificationAt.map { Date().timeIntervalSince($0) } ?? .infinity
             if staleness > blockAddedStaleThreshold {
-                NSLog("[UtxoSub] Block-added notifications stale (%.0fs) - re-registering", staleness)
+                AppLog.log("[UtxoSub] Block-added notifications stale (%.0fs) - re-registering", staleness)
                 await sendNotifyBlockAdded(on: conn)
             }
         }
@@ -469,7 +469,7 @@ final class UtxoSubscriptionManager: ObservableObject {
         isFailingOver = true
         state = .failover
 
-        NSLog("[UtxoSub] Starting failover from %@", primaryEndpoint?.key ?? "unknown")
+        AppLog.log("[UtxoSub] Starting failover from %@", primaryEndpoint?.key ?? "unknown")
 
         // Try standby first
         if let standby = standbyEndpoint {
@@ -488,11 +488,11 @@ final class UtxoSubscriptionManager: ObservableObject {
                 primaryFailures = 0
                 isFailingOver = false
 
-                NSLog("[UtxoSub] Failover to standby successful: %@", standby.key)
+                AppLog.log("[UtxoSub] Failover to standby successful: %@", standby.key)
                 return
 
             } catch {
-                NSLog("[UtxoSub] Standby failover failed: %@", error.localizedDescription)
+                AppLog.log("[UtxoSub] Standby failover failed: %@", error.localizedDescription)
             }
         }
 
@@ -509,18 +509,18 @@ final class UtxoSubscriptionManager: ObservableObject {
                 primaryFailures = 0
                 isFailingOver = false
 
-                NSLog("[UtxoSub] Failover to new primary: %@", selection.primary.key)
+                AppLog.log("[UtxoSub] Failover to new primary: %@", selection.primary.key)
                 return
 
             } catch {
-                NSLog("[UtxoSub] New primary failover failed: %@", error.localizedDescription)
+                AppLog.log("[UtxoSub] New primary failover failed: %@", error.localizedDescription)
             }
         }
 
         // Complete failure
         state = .failed
         isFailingOver = false
-        NSLog("[UtxoSub] Failover failed - no working endpoints")
+        AppLog.log("[UtxoSub] Failover failed - no working endpoints")
     }
 
     // MARK: - State Resync
@@ -530,7 +530,7 @@ final class UtxoSubscriptionManager: ObservableObject {
     private func resyncUtxoState() async {
         guard let primary = primaryEndpoint, let conn = primaryConnection else { return }
 
-        NSLog("[UtxoSub] Resyncing UTXO state on %@", primary.key)
+        AppLog.log("[UtxoSub] Resyncing UTXO state on %@", primary.key)
 
         do {
             // Fetch current UTXOs
@@ -546,7 +546,7 @@ final class UtxoSubscriptionManager: ObservableObject {
             )
 
             guard case .getUtxosByAddressesResponse(let utxoResponse) = response.payload else {
-                NSLog("[UtxoSub] Resync: invalid response type")
+                AppLog.log("[UtxoSub] Resync: invalid response type")
                 return
             }
 
@@ -558,10 +558,10 @@ final class UtxoSubscriptionManager: ObservableObject {
                 }
             }
 
-            NSLog("[UtxoSub] Resync complete - %d UTXOs", utxoResponse.entries.count)
+            AppLog.log("[UtxoSub] Resync complete - %d UTXOs", utxoResponse.entries.count)
 
         } catch {
-            NSLog("[UtxoSub] Resync failed: %@", error.localizedDescription)
+            AppLog.log("[UtxoSub] Resync failed: %@", error.localizedDescription)
         }
     }
 
@@ -585,10 +585,10 @@ final class UtxoSubscriptionManager: ObservableObject {
             await conn.resetCircuitBreaker()
 
             standbyConnection = conn
-            NSLog("[UtxoSub] Standby warmed up: %@", endpoint.key)
+            AppLog.log("[UtxoSub] Standby warmed up: %@", endpoint.key)
 
         } catch {
-            NSLog("[UtxoSub] Standby warmup failed: %@", error.localizedDescription)
+            AppLog.log("[UtxoSub] Standby warmup failed: %@", error.localizedDescription)
         }
     }
 
@@ -597,13 +597,13 @@ final class UtxoSubscriptionManager: ObservableObject {
     private func handleEpochChange() async {
         guard state == .subscribed else { return }
 
-        NSLog("[UtxoSub] Network epoch changed - resubscribing")
+        AppLog.log("[UtxoSub] Network epoch changed - resubscribing")
 
         // Resubscribe to current addresses
         do {
             try await subscribe(addresses: subscribedAddresses)
         } catch {
-            NSLog("[UtxoSub] Resubscription after epoch change failed: %@", error.localizedDescription)
+            AppLog.log("[UtxoSub] Resubscription after epoch change failed: %@", error.localizedDescription)
         }
     }
 

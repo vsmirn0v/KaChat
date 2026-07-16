@@ -413,7 +413,7 @@ final class BroadcastService: ObservableObject {
     ) async throws {
         if ChatService.shared.isNoConfirmedInputsError(error) {
             let delay = ChatService.shared.nextNoInputRetryDelay(for: pendingId)
-            NSLog("[BroadcastService] Deferred retry (no confirmed inputs) for %@ in %.0fs",
+            AppLog.log("[BroadcastService] Deferred retry (no confirmed inputs) for %@ in %.0fs",
                   String(pendingId.prefix(12)), delay)
             scheduleBroadcastRetry(
                 channel: channel,
@@ -627,7 +627,7 @@ final class BroadcastService: ObservableObject {
         )
         UNUserNotificationCenter.current().add(request) { error in
             if let error {
-                NSLog("[BroadcastService] Failed to send local notification: %@", error.localizedDescription)
+                AppLog.log("[BroadcastService] Failed to send local notification: %@", error.localizedDescription)
             }
         }
     }

@@ -66,6 +66,7 @@
 		E8F100122D4C0001000000FF /* Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F100112D4C0001000000FF /* Toast.swift */; };
 		E8F100152D4C0001000001FF /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F100142D4C0001000001FF /* QRScannerView.swift */; };
 		E8F1A0032F4B000100000003 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F1A0042F4B000100000004 /* Haptics.swift */; };
+		A91062000000000000000001 /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91062000000000000000002 /* AppLog.swift */; };
 		E8F1A0062F4B000100000006 /* external/opus/Opus.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */; };
 		ENGL00012F70000100000002 /* english.txt in Resources */ = {isa = PBXBuildFile; fileRef = ENGL00012F70000100000001 /* english.txt */; };
 		F5A71C3C1061AA2FFE3F837F /* KaChatTransactionBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */; };
@@ -204,6 +205,7 @@
 		E8F100112D4C0001000000FF /* Toast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Toast.swift; sourceTree = "<group>"; };
 		E8F100142D4C0001000001FF /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		E8F1A0042F4B000100000004 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
+		A91062000000000000000002 /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
 		E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = external/opus/Opus.xcframework; sourceTree = "<group>"; };
 		ENGL00012F70000100000001 /* english.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = english.txt; sourceTree = "<group>"; };
 		FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatTransactionBuilder.swift; sourceTree = "<group>"; };
@@ -443,6 +445,7 @@
 				E83000022D4C000200000007 /* OpusBridge.h */,
 				E83000032D4C000200000008 /* OpusBridge.m */,
 				SECV00010001000000000001 /* SecureView.swift */,
+				A91062000000000000000002 /* AppLog.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -842,6 +845,7 @@
 				E81000392D4C00010000001D /* BIP39.swift in Sources */,
 				E810003B2D4C00010000001F /* KaChatCipher.swift in Sources */,
 				E8F1A0032F4B000100000003 /* Haptics.swift in Sources */,
+				A91062000000000000000001 /* AppLog.swift in Sources */,
 				19319293ACD84C2AB108D745 /* KNSService.swift in Sources */,
 				E83000012D4C000200000006 /* OpusBridge.m in Sources */,
 				F5A71C3C1061AA2FFE3F837F /* KaChatTransactionBuilder.swift in Sources */,

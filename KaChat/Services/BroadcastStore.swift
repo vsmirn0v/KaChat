@@ -84,7 +84,7 @@ final class BroadcastStore {
         container.loadPersistentStores { [weak self] _, error in
             guard let self else { return }
             if let error {
-                NSLog("[BroadcastStore] Failed to load store: %@", error.localizedDescription)
+                AppLog.log("[BroadcastStore] Failed to load store: %@", error.localizedDescription)
                 return
             }
             self.isLoaded = true
@@ -383,7 +383,7 @@ final class BroadcastStore {
         do {
             try context.save()
         } catch {
-            NSLog("[BroadcastStore] Save failed: %@", error.localizedDescription)
+            AppLog.log("[BroadcastStore] Save failed: %@", error.localizedDescription)
         }
     }
 

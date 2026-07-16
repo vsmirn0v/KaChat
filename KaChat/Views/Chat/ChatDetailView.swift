@@ -1459,7 +1459,7 @@ struct ChatDetailView: View {
                     }
                 }
                 let errorMsg = error.localizedDescription
-                NSLog("[ChatDetailView] Send message failed: %@", errorMsg)
+                AppLog.log("[ChatDetailView] Send message failed: %@", errorMsg)
                 await MainActor.run {
                     self.error = displayErrorMessage(error)
                 }
@@ -2664,7 +2664,7 @@ struct ChatDetailView: View {
         do {
             try secureDeleteFile(at: url)
         } catch {
-            NSLog("[ChatDetailView] Secure delete failed for %@: %@", url.lastPathComponent, error.localizedDescription)
+            AppLog.log("[ChatDetailView] Secure delete failed for %@: %@", url.lastPathComponent, error.localizedDescription)
             try? FileManager.default.removeItem(at: url)
         }
     }

@@ -44,12 +44,12 @@ final class NetworkEpochMonitor: ObservableObject {
             }
         }
         monitor.start(queue: queue)
-        NSLog("[NetworkEpoch] Started monitoring")
+        AppLog.log("[NetworkEpoch] Started monitoring")
     }
 
     func stop() {
         monitor.cancel()
-        NSLog("[NetworkEpoch] Stopped monitoring")
+        AppLog.log("[NetworkEpoch] Stopped monitoring")
     }
 
     // MARK: - Path Handling
@@ -70,8 +70,8 @@ final class NetworkEpochMonitor: ObservableObject {
             epochId += 1
             lastPathChangeTime = Date()
 
-            NSLog("[NetworkEpoch] Path changed significantly - new epoch: %d", epochId)
-            NSLog("[NetworkEpoch] Status: %@, Expensive: %@, Constrained: %@",
+            AppLog.log("[NetworkEpoch] Path changed significantly - new epoch: %d", epochId)
+            AppLog.log("[NetworkEpoch] Status: %@, Expensive: %@, Constrained: %@",
                   isOnline ? "online" : "offline",
                   isExpensive ? "yes" : "no",
                   isConstrained ? "yes" : "no")
@@ -86,7 +86,7 @@ final class NetworkEpochMonitor: ObservableObject {
         networkQuality = determineQuality(path: path)
 
         if networkQuality != oldQuality {
-            NSLog("[NetworkEpoch] Network quality changed: %@ -> %@",
+            AppLog.log("[NetworkEpoch] Network quality changed: %@ -> %@",
                   String(describing: oldQuality), String(describing: networkQuality))
         }
 

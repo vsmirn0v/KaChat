@@ -48,7 +48,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     /// Log detailed metrics for a completed request
     nonisolated private func logMetrics(_ metrics: URLSessionTaskMetrics, endpoint: String, task: URLSessionTask) {
         guard let transaction = metrics.transactionMetrics.last else {
-            NSLog("[KNS] [%@] No transaction data", endpoint)
+            AppLog.log("[KNS] [%@] No transaction data", endpoint)
             return
         }
 
@@ -98,10 +98,10 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         let timingStr = timings.isEmpty ? "no-timing-data" : timings.joined(separator: " ")
 
         if let err = task.error {
-            NSLog("[KNS] [%@] FAIL | %@ %@ | %@:%@ | %@ | err=%@",
+            AppLog.log("[KNS] [%@] FAIL | %@ %@ | %@:%@ | %@ | err=%@",
                   endpoint, connProto, connType, remoteAddr, remotePort, timingStr, err.localizedDescription)
         } else {
-            NSLog("[KNS] [%@] OK | %@ %@ | %@:%@ | %@",
+            AppLog.log("[KNS] [%@] OK | %@ %@ | %@:%@ | %@",
                   endpoint, connProto, connType, remoteAddr, remotePort, timingStr)
         }
     }
@@ -714,7 +714,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
                 inscriptionId: ownerData.id
             )
         } catch {
-            NSLog("[KNS] Domain resolution error for %@: %@", domain, error.localizedDescription)
+            AppLog.log("[KNS] Domain resolution error for %@: %@", domain, error.localizedDescription)
             return nil
         }
     }
@@ -770,7 +770,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return (normalizedDomain, inscriptionId?.isEmpty == false ? inscriptionId : nil, false)
         } catch {
-            NSLog("[KNS] Primary name fetch error for %@: %@", address, error.localizedDescription)
+            AppLog.log("[KNS] Primary name fetch error for %@: %@", address, error.localizedDescription)
             return (nil, nil, true)
         }
     }
@@ -817,7 +817,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
                 }
             return (domains, false)
         } catch {
-            NSLog("[KNS] Assets fetch error for %@: %@", address, error.localizedDescription)
+            AppLog.log("[KNS] Assets fetch error for %@: %@", address, error.localizedDescription)
             return ([], true)
         }
     }
@@ -855,7 +855,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
             }
             return (result.data, false)
         } catch {
-            NSLog("[KNS] Domain profile fetch error for %@: %@", assetId, error.localizedDescription)
+            AppLog.log("[KNS] Domain profile fetch error for %@: %@", assetId, error.localizedDescription)
             return (nil, true)
         }
     }
@@ -1122,7 +1122,7 @@ final class KNSProfileWriteService: ObservableObject {
     private init() {}
 
     private func log(_ message: String) {
-        NSLog("[KNS_WRITE] %@", message)
+        AppLog.log("[KNS_WRITE] %@", message)
     }
 
     private func diagnosticError(_ error: Error) -> String {
@@ -1305,7 +1305,7 @@ final class KNSDomainInscribeService: ObservableObject {
     private init() {}
 
     private func log(_ message: String) {
-        NSLog("[KNS_INSCRIBE] %@", message)
+        AppLog.log("[KNS_INSCRIBE] %@", message)
     }
 
     @discardableResult
@@ -1511,7 +1511,7 @@ final class KNSDomainTransferService: ObservableObject {
     private init() {}
 
     private func log(_ message: String) {
-        NSLog("[KNS_TRANSFER] %@", message)
+        AppLog.log("[KNS_TRANSFER] %@", message)
     }
 
     @discardableResult

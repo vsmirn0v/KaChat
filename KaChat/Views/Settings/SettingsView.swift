@@ -455,7 +455,7 @@ struct SettingsView: View {
             cloudKitStorageSize = "\(bytesText) (\(estimate.recordCount) records)"
         case .failure(let error):
             cloudKitStorageSize = "Unavailable"
-            NSLog("[SettingsView] Failed to estimate CloudKit storage: \(error)")
+            AppLog.log("[SettingsView] Failed to estimate CloudKit storage: \(error)")
         }
     }
 
@@ -479,7 +479,7 @@ struct SettingsView: View {
         // Clear CloudKit data first (before store is removed)
         if deleteCloudData {
             if let error = await MessageStore.shared.purgeCloudKitData() {
-                NSLog("[Settings] CloudKit purge failed: %@", error.localizedDescription)
+                AppLog.log("[Settings] CloudKit purge failed: %@", error.localizedDescription)
             }
         }
 
@@ -535,7 +535,7 @@ struct SettingsView: View {
             chatHistoryArchiveURL = fileURL
             showChatHistoryShareSheet = true
         } catch {
-            NSLog("[Settings] Failed to export chat history: %@", error.localizedDescription)
+            AppLog.log("[Settings] Failed to export chat history: %@", error.localizedDescription)
             showToast(error.localizedDescription, style: .error)
         }
     }
@@ -572,7 +572,7 @@ struct SettingsView: View {
                     )
                 }
             } catch {
-                NSLog("[Settings] Failed to import chat history: %@", error.localizedDescription)
+                AppLog.log("[Settings] Failed to import chat history: %@", error.localizedDescription)
                 showToast("Import failed: \(error.localizedDescription)", style: .error)
             }
         }
@@ -640,7 +640,7 @@ struct SettingsView: View {
             diagnosticsArchiveURL = zipURL
             showDiagnosticsShareSheet = true
         } catch {
-            NSLog("[Settings] Failed to export diagnostics: %@", error.localizedDescription)
+            AppLog.log("[Settings] Failed to export diagnostics: %@", error.localizedDescription)
             showToast("Failed to export diagnostics.", style: .error)
         }
     }
@@ -959,7 +959,7 @@ struct NotificationsSettingsView: View {
                 settingsViewModel.settings.notificationMode = .remotePush
                 settingsViewModel.saveSettings()
             } catch {
-                NSLog("[Settings] Failed to enable push: %@", error.localizedDescription)
+                AppLog.log("[Settings] Failed to enable push: %@", error.localizedDescription)
                 settingsViewModel.settings.notificationMode = previousMode
                 settingsViewModel.saveSettings()
                 if case PushError.permissionDenied = error {
@@ -2425,7 +2425,7 @@ struct ConnectionStatusDetailView: View {
 
         let settings = AppSettings.load()
 
-        NSLog("[ConnectionStatus] Starting reconnect via NodePoolService...")
+        AppLog.log("[ConnectionStatus] Starting reconnect via NodePoolService...")
 
         // Disconnect current subscription
         nodePool.disconnect()
@@ -2436,22 +2436,22 @@ struct ConnectionStatusDetailView: View {
         // Reconnect via node pool
         do {
             try await nodePool.connect(network: settings.networkType)
-            NSLog("[ConnectionStatus] Connected via NodePool, activeNodes=%d",
+            AppLog.log("[ConnectionStatus] Connected via NodePool, activeNodes=%d",
                   nodePool.activeNodeCount)
 
             // Small delay to let connections stabilize
             try? await Task.sleep(nanoseconds: 200_000_000)
 
             // Re-setup subscriptions
-            NSLog("[ConnectionStatus] Setting up subscriptions...")
+            AppLog.log("[ConnectionStatus] Setting up subscriptions...")
             await chatService.setupUtxoSubscriptionAfterReconnect()
-            NSLog("[ConnectionStatus] Subscription setup complete, isSubscribed=%@",
+            AppLog.log("[ConnectionStatus] Subscription setup complete, isSubscribed=%@",
                   chatService.isRpcSubscribed ? "true" : "false")
 
             // Refresh node list
             await reloadNodeRecords()
         } catch {
-            NSLog("[ConnectionStatus] Reconnect failed: %@", error.localizedDescription)
+            AppLog.log("[ConnectionStatus] Reconnect failed: %@", error.localizedDescription)
         }
     }
 

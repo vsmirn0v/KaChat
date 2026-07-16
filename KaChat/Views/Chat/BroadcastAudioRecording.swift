@@ -168,7 +168,7 @@ final class BroadcastAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDeleg
                     self.isPreparing = false
                 }
             } catch {
-                NSLog("[BroadcastAudioPlayer] Failed to decode voice message: %@", error.localizedDescription)
+                AppLog.log("[BroadcastAudioPlayer] Failed to decode voice message: %@", error.localizedDescription)
                 await MainActor.run { self.isPreparing = false }
             }
         }

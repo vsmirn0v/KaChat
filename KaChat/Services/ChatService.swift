@@ -448,7 +448,7 @@ final class ChatService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            NSLog("[ChatService] RPC subscriptions restored - syncing to catch any missed messages")
+            AppLog.log("[ChatService] RPC subscriptions restored - syncing to catch any missed messages")
             Task { @MainActor in
                 await self?.maybeRunCatchUpSync(trigger: .rpcSubscriptionsRestored)
             }
@@ -460,7 +460,7 @@ final class ChatService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            NSLog("[ChatService] RPC reconnected - re-subscribing to UTXOs...")
+            AppLog.log("[ChatService] RPC reconnected - re-subscribing to UTXOs...")
             Task { @MainActor in
                 self?.isUtxoSubscribed = false  // Reset subscription state
                 await self?.setupUtxoSubscription()

@@ -120,7 +120,7 @@ extension ChatService {
         // Debug: count messages with/without content
         let withContent = messages.filter { $0.message.content != "📤 Sent via another device" }.count
         let placeholder = messages.count - withContent
-        NSLog("[ChatService] loadMessagesFromStore: %d messages (%d with content, %d placeholder)",
+        AppLog.log("[ChatService] loadMessagesFromStore: %d messages (%d with content, %d placeholder)",
               messages.count, withContent, placeholder)
 
         var grouped: [String: [String: ChatMessage]] = [:]
@@ -401,7 +401,7 @@ extension ChatService {
         }
 
         lastCloudKitImportAt = Date()
-        NSLog("[ChatService] Processing remote store change")
+        AppLog.log("[ChatService] Processing remote store change")
 
         Task {
             messageStore.refreshFromCloudKit()
@@ -491,7 +491,7 @@ extension ChatService {
     func refreshPushReliabilityPrerequisites() {
         if !isPushChannelOperational() {
             if pushReliabilityState != .disabled {
-                NSLog("[ChatService] Push reliability disabled (push mode not operational)")
+                AppLog.log("[ChatService] Push reliability disabled (push mode not operational)")
             }
             pushReliabilityState = .disabled
             pushConsecutiveMisses = 0
@@ -507,7 +507,7 @@ extension ChatService {
         if pushReliabilityState == .disabled {
             pushReliabilityState = .unknown
             pushConsecutiveMisses = 0
-            NSLog("[ChatService] Push reliability moved to unknown (operational)")
+            AppLog.log("[ChatService] Push reliability moved to unknown (operational)")
             persistPushReliabilityState()
         }
     }
@@ -638,7 +638,7 @@ extension ChatService {
         }
 
         pushConsecutiveMisses += 1
-        NSLog("[ChatService] Push miss for tx=%@ sender=%@ misses=%d",
+        AppLog.log("[ChatService] Push miss for tx=%@ sender=%@ misses=%d",
               String(txId.prefix(12)),
               String(senderAddress.suffix(10)),
               pushConsecutiveMisses)
@@ -661,7 +661,7 @@ extension ChatService {
         }
         persistPushReliabilityState()
 
-        NSLog("[ChatService] Push reliability state %@ -> %@ (%@)",
+        AppLog.log("[ChatService] Push reliability state %@ -> %@ (%@)",
               oldState.rawValue,
               newState.rawValue,
               reason)
@@ -679,7 +679,7 @@ extension ChatService {
         let now = Date()
         if let lastPushReregisterAt,
            now.timeIntervalSince(lastPushReregisterAt) < pushReregisterCooldown {
-            NSLog("[ChatService] Skipping push re-register - cooldown active")
+            AppLog.log("[ChatService] Skipping push re-register - cooldown active")
             return
         }
 
@@ -700,7 +700,7 @@ extension ChatService {
         cloudKitImportFirstAttemptAt[txId] = firstAttempt
         let elapsed = Date().timeIntervalSince(firstAttempt)
         if elapsed >= cloudKitImportMaxWaitSeconds {
-            NSLog("[ChatService] CloudKit import wait exhausted for %@ after %.0fs",
+            AppLog.log("[ChatService] CloudKit import wait exhausted for %@ after %.0fs",
                   String(txId.prefix(12)), elapsed)
             cloudKitImportFirstAttemptAt.removeValue(forKey: txId)
             cloudKitImportLastObservedAt.removeValue(forKey: txId)
@@ -725,7 +725,7 @@ extension ChatService {
             }
         }
 
-        NSLog("[ChatService] CloudKit import %@ for %@ - retrying in %.1fs (elapsed %.0fs, after=%@)",
+        AppLog.log("[ChatService] CloudKit import %@ for %@ - retrying in %.1fs (elapsed %.0fs, after=%@)",
               retryReason,
               String(txId.prefix(12)),
               delaySeconds,
@@ -948,7 +948,7 @@ extension ChatService {
 
         let removed = removeSuppressedPaymentMessages(txIds: normalizedTxIds)
         if added > 0 || removed > 0 {
-            NSLog(
+            AppLog.log(
                 "[ChatService] Registered %d suppressed payment tx ids (%@), removed=%d",
                 normalizedTxIds.count,
                 reason,
@@ -1005,7 +1005,7 @@ extension ChatService {
 
         if removedCount > 0 {
             saveMessages()
-            NSLog(
+            AppLog.log(
                 "[ChatService] Removed %d suppressed payment message(s), droppedConversations=%d",
                 removedCount,
                 removedConversationCount
@@ -1160,8 +1160,8 @@ extension ChatService {
             // Trigger CloudKit export for outgoing content (debounced)
             if shouldExport && didWrite {
                 await MainActor.run {
-                    NSLog("[ChatService] Triggering CloudKit export after message store sync")
-                    NSLog("[ChatService] Requesting CloudKit export after message store sync")
+                    AppLog.log("[ChatService] Triggering CloudKit export after message store sync")
+                    AppLog.log("[ChatService] Requesting CloudKit export after message store sync")
                     self.messageStore.triggerCloudKitExport()
                     self.pendingCloudKitExport = false
                 }
@@ -1446,7 +1446,7 @@ extension ChatService {
             // Derive deterministic pair
             guard let myAlias = try? DeterministicAlias.deriveMyAlias(privateKey: privateKey, theirAddress: address),
                   let theirAlias = try? DeterministicAlias.deriveTheirAlias(privateKey: privateKey, theirAddress: address) else {
-                NSLog("[ChatService] Failed to derive deterministic aliases for %@", String(address.suffix(10)))
+                AppLog.log("[ChatService] Failed to derive deterministic aliases for %@", String(address.suffix(10)))
                 continue
             }
 
@@ -1467,7 +1467,7 @@ extension ChatService {
 
         if migrated > 0 {
             saveRoutingStates()
-            NSLog("[ChatService] Migrated %d contacts to deterministic routing states", migrated)
+            AppLog.log("[ChatService] Migrated %d contacts to deterministic routing states", migrated)
         }
         userDefaults.set(true, forKey: deterministicMigrationDoneKey)
     }

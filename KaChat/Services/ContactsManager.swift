@@ -550,7 +550,7 @@ final class ContactsManager: ObservableObject {
                 try await systemContactsService.fetchLinkTargets()
             }
         } catch {
-            NSLog("[ContactsManager] Failed to load system contact link targets: %@", error.localizedDescription)
+            AppLog.log("[ContactsManager] Failed to load system contact link targets: %@", error.localizedDescription)
             return []
         }
     }
@@ -746,7 +746,7 @@ final class ContactsManager: ObservableObject {
         if allowAutomaticSystemContactWrites && (!activeLinks.isEmpty || force) {
             let removed = await systemContactsService.removeOrphanedAutoCreatedContacts(activeLinks: activeLinks)
             if removed > 0 {
-                NSLog("[ContactsManager] Removed %d orphaned auto-created system contacts", removed)
+                AppLog.log("[ContactsManager] Removed %d orphaned auto-created system contacts", removed)
             }
         }
     }
@@ -836,7 +836,7 @@ final class ContactsManager: ObservableObject {
                 saveContacts(syncShared: true, updatePush: false, publishContacts: true)
             }
         } catch {
-            NSLog("[ContactsManager] Failed to write KaChat metadata to system contact %@: %@",
+            AppLog.log("[ContactsManager] Failed to write KaChat metadata to system contact %@: %@",
                   target.contactIdentifier, error.localizedDescription)
         }
 
@@ -1649,7 +1649,7 @@ actor SystemContactsService {
             }
         } catch {
             if !isMissingRecordError(error) {
-                NSLog("[SystemContactsService] Failed to remove orphaned auto-created contacts: %@",
+                AppLog.log("[SystemContactsService] Failed to remove orphaned auto-created contacts: %@",
                       error.localizedDescription)
             }
             return 0

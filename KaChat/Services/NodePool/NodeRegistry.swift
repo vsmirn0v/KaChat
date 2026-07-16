@@ -74,16 +74,16 @@ actor NodeRegistry {
         do {
             let loaded = try store.loadAll()
             records = Dictionary(uniqueKeysWithValues: loaded.map { ($0.endpoint.key, $0) })
-            NSLog("[NodeRegistry] Loaded %d node records", records.count)
+            AppLog.log("[NodeRegistry] Loaded %d node records", records.count)
         } catch {
-            NSLog("[NodeRegistry] Failed to load records: %@", error.localizedDescription)
+            AppLog.log("[NodeRegistry] Failed to load records: %@", error.localizedDescription)
         }
     }
 
     /// Initialize with seed nodes for the given network
     /// Note: Seeds are now populated via DNS resolution in NodeProfiler.quickBoot()
     func initializeSeeds(for network: NetworkType) {
-        NSLog("[NodeRegistry] Seed nodes will be populated via DNS resolution")
+        AppLog.log("[NodeRegistry] Seed nodes will be populated via DNS resolution")
     }
 
     // MARK: - CRUD Operations
@@ -175,7 +175,7 @@ actor NodeRegistry {
             records[key]?.health.resetForNewEpoch(newEpochId)
             records[key]?.updateState()
         }
-        NSLog("[NodeRegistry] Reset epoch stats for %d nodes (epoch: %d)", records.count, newEpochId)
+        AppLog.log("[NodeRegistry] Reset epoch stats for %d nodes (epoch: %d)", records.count, newEpochId)
         scheduleSave()
     }
 
@@ -274,7 +274,7 @@ actor NodeRegistry {
         }
 
         if removed > 0 {
-            NSLog("[NodeRegistry] Pruned %d old nodes", removed)
+            AppLog.log("[NodeRegistry] Pruned %d old nodes", removed)
             scheduleSave()
         }
     }
@@ -298,7 +298,7 @@ actor NodeRegistry {
         }
 
         let removed = totalBefore - records.count
-        NSLog("[NodeRegistry] Cleared %d discovered nodes (kept: %d)", removed, records.count)
+        AppLog.log("[NodeRegistry] Cleared %d discovered nodes (kept: %d)", removed, records.count)
         scheduleSave()
     }
 
@@ -458,7 +458,7 @@ actor NodeRegistry {
         let finalActiveCount = records.values.filter { $0.state == .active }.count
 
         if promoted > 0 || demoted > 0 {
-            NSLog(
+            AppLog.log(
                 "[NodeRegistry] Rebalanced active pool: promoted=%d demoted=%d active=%d eligible=%d",
                 promoted,
                 demoted,
@@ -526,9 +526,9 @@ actor NodeRegistry {
         do {
             try store.saveAll(Array(records.values))
             isDirty = false
-            NSLog("[NodeRegistry] Persisted %d node records", records.count)
+            AppLog.log("[NodeRegistry] Persisted %d node records", records.count)
         } catch {
-            NSLog("[NodeRegistry] Failed to persist records: %@", error.localizedDescription)
+            AppLog.log("[NodeRegistry] Failed to persist records: %@", error.localizedDescription)
         }
     }
 
@@ -595,7 +595,7 @@ extension NodeRegistry {
             }
         }
 
-        NSLog("[NodeRegistry] Migrated %d endpoints from old format", oldEndpoints.count)
+        AppLog.log("[NodeRegistry] Migrated %d endpoints from old format", oldEndpoints.count)
         scheduleSave()
     }
 }

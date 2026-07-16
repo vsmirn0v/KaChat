@@ -467,7 +467,7 @@ final class WalletManager: ObservableObject {
             return wallet
         }
 
-        NSLog(
+        AppLog.log(
             "[WalletManager] Wallet record mismatch detected (stored=%@ local=%@). Repairing wallet record from local keys.",
             String(wallet.publicAddress.suffix(12)),
             String(localWallet.publicAddress.suffix(12))
@@ -475,7 +475,7 @@ final class WalletManager: ObservableObject {
         do {
             try keychainService.saveWallet(localWallet)
         } catch {
-            NSLog("[WalletManager] Failed to persist repaired wallet record: %@", error.localizedDescription)
+            AppLog.log("[WalletManager] Failed to persist repaired wallet record: %@", error.localizedDescription)
         }
         return localWallet
     }
@@ -563,7 +563,7 @@ final class WalletManager: ObservableObject {
             }
             try keychainService.saveAccountSnapshot(wallet: wallet, seedPhrase: seedPhrase, privateKey: privateKey)
         } catch {
-            NSLog("[WalletManager] Failed to snapshot current account: %@", error.localizedDescription)
+            AppLog.log("[WalletManager] Failed to snapshot current account: %@", error.localizedDescription)
         }
     }
 
@@ -675,19 +675,19 @@ final class WalletManager: ObservableObject {
 
     private func logPrivateKeyStorageStatus() {
         let preStatus = keychainService.privateKeyStorageStatus()
-        NSLog("[WalletManager] Private key storage (pre-migration): %@", preStatus)
+        AppLog.log("[WalletManager] Private key storage (pre-migration): %@", preStatus)
 
         do {
             let migratedKey = try keychainService.loadPrivateKey()
             if migratedKey == nil {
-                NSLog("[WalletManager] Private key migration check: no key found")
+                AppLog.log("[WalletManager] Private key migration check: no key found")
             }
         } catch {
-            NSLog("[WalletManager] Private key migration check failed: %@", error.localizedDescription)
+            AppLog.log("[WalletManager] Private key migration check failed: %@", error.localizedDescription)
         }
 
         let postStatus = keychainService.privateKeyStorageStatus()
-        NSLog("[WalletManager] Private key storage (post-migration): %@", postStatus)
+        AppLog.log("[WalletManager] Private key storage (post-migration): %@", postStatus)
     }
 
     /// Derive master key from seed using BIP32

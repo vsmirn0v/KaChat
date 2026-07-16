@@ -34,7 +34,7 @@ struct KasiaTransactionBuilder {
     private static func addSompiChecked(_ current: UInt64, _ amount: UInt64, context: String) throws -> UInt64 {
         let (next, overflow) = current.addingReportingOverflow(amount)
         guard !overflow else {
-            NSLog("[TxBuilder] Rejecting suspicious UTXO sum overflow (%@): current=%llu add=%llu", context, current, amount)
+            AppLog.log("[TxBuilder] Rejecting suspicious UTXO sum overflow (%@): current=%llu add=%llu", context, current, amount)
             throw KasiaError.networkError("Invalid UTXO data: amount overflow")
         }
         return next
@@ -248,17 +248,17 @@ struct KasiaTransactionBuilder {
         }
 
         #if DEBUG
-        NSLog("[TxBuilder] Building payment transaction:")
-        NSLog("[TxBuilder]   from: %@", senderAddress)
-        NSLog("[TxBuilder]   to: %@", recipientAddress)
-        NSLog("[TxBuilder]   amount: %llu sompi", amount)
+        AppLog.log("[TxBuilder] Building payment transaction:")
+        AppLog.log("[TxBuilder]   from: %@", senderAddress)
+        AppLog.log("[TxBuilder]   to: %@", recipientAddress)
+        AppLog.log("[TxBuilder]   amount: %llu sompi", amount)
         #endif
 
         // Build payment payload (encrypted hex under ciph_msg:1:pay:)
         let paymentPayload = try buildPaymentPayload(message: note, amount: amount, recipientPublicKey: recipientPublicKey)
         #if DEBUG
-        NSLog("[TxBuilder]   payload size: %d bytes", paymentPayload.count)
-        NSLog("[TxBuilder]   payload hex (first 100): %@", paymentPayload.prefix(100).map { String(format: "%02x", $0) }.joined())
+        AppLog.log("[TxBuilder]   payload size: %d bytes", paymentPayload.count)
+        AppLog.log("[TxBuilder]   payload hex (first 100): %@", paymentPayload.prefix(100).map { String(format: "%02x", $0) }.joined())
         #endif
 
         guard let recipientScriptPubKey = KaspaAddress.scriptPublicKey(from: recipientAddress) else {
@@ -288,7 +288,7 @@ struct KasiaTransactionBuilder {
             selectedTotal = next
         }
         let totalForLog = selectedTotalOverflow ? "overflow" : String(selectedTotal)
-        NSLog("[TxBuilder]   selected %d UTXOs, total input: %@, change: %llu", selection.utxos.count, totalForLog, selection.change)
+        AppLog.log("[TxBuilder]   selected %d UTXOs, total input: %@, change: %llu", selection.utxos.count, totalForLog, selection.change)
         #endif
 
         var outputs: [KaspaRpcTransactionOutput] = [
@@ -305,7 +305,7 @@ struct KasiaTransactionBuilder {
         }
 
         #if DEBUG
-        NSLog("[TxBuilder]   %d outputs: %@", outputs.count, outputs.map { String($0.value) }.joined(separator: ", "))
+        AppLog.log("[TxBuilder]   %d outputs: %@", outputs.count, outputs.map { String($0.value) }.joined(separator: ", "))
         #endif
 
         let unsignedTx = KaspaRpcTransaction(
@@ -1049,7 +1049,7 @@ struct KasiaTransactionBuilder {
 
         if let bestSelection {
             if bestSelection.outputAmount < minOutputAmount {
-                NSLog("[TxBuilder] Compaction target not met (target=%llu, got=%llu) - using best input reduction set (%d inputs)",
+                AppLog.log("[TxBuilder] Compaction target not met (target=%llu, got=%llu) - using best input reduction set (%d inputs)",
                       minOutputAmount,
                       bestSelection.outputAmount,
                       bestSelection.utxos.count)
@@ -1593,11 +1593,11 @@ struct KasiaTransactionBuilder {
                 // Zero sighash bytes after verification
                 for i in sighashBytes.indices { sighashBytes[i] = 0 }
                 if !isValid {
-                    NSLog("[TxBuilder] Schnorr signature INVALID for input %d of tx", index)
+                    AppLog.log("[TxBuilder] Schnorr signature INVALID for input %d of tx", index)
                     return false
                 }
             } catch {
-                NSLog("[TxBuilder] Schnorr verification error for input %d: %@", index, error.localizedDescription)
+                AppLog.log("[TxBuilder] Schnorr verification error for input %d: %@", index, error.localizedDescription)
                 return true // Verification setup failed; skip gracefully
             }
         }

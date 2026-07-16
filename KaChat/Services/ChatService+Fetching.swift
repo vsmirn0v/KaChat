@@ -25,7 +25,7 @@ extension ChatService {
                 if ChatService.handleDpiPaginationFailure(error, context: "handshake lookup") {
                     return nil
                 }
-                NSLog("[ChatService] Indexer handshake check attempt %d failed: %@", attempt, error.localizedDescription)
+                AppLog.log("[ChatService] Indexer handshake check attempt %d failed: %@", attempt, error.localizedDescription)
             }
 
             if attempt < 3 {
@@ -39,7 +39,7 @@ extension ChatService {
     func fetchIncomingHandshakes(for address: String, blockTime: UInt64) async throws -> [HandshakeResponse] {
         let key = "in|\(address)|\(blockTime)|50"
         if let existing = handshakeFetchTasks[key] {
-            NSLog("[ChatService] Handshake fetch in-flight, reusing task (%@)", String(address.suffix(10)))
+            AppLog.log("[ChatService] Handshake fetch in-flight, reusing task (%@)", String(address.suffix(10)))
             return try await existing.value
         }
         let task = Task { [apiClient] in
@@ -60,7 +60,7 @@ extension ChatService {
     func fetchOutgoingHandshakes(for address: String, blockTime: UInt64) async throws -> [HandshakeResponse] {
         let key = "out|\(address)|\(blockTime)|50"
         if let existing = handshakeFetchTasks[key] {
-            NSLog("[ChatService] Handshake fetch in-flight, reusing task (%@)", String(address.suffix(10)))
+            AppLog.log("[ChatService] Handshake fetch in-flight, reusing task (%@)", String(address.suffix(10)))
             return try await existing.value
         }
         let task = Task { [apiClient] in
@@ -81,14 +81,14 @@ extension ChatService {
     func fetchIncomingPayments(for address: String, blockTime: UInt64) async throws -> [PaymentResponse] {
         let key = "in|\(address)|\(blockTime)"
         if let existing = paymentFetchTasks[key] {
-            NSLog("[ChatService] Payment fetch in-flight, reusing task (%@)", String(address.suffix(10)))
+            AppLog.log("[ChatService] Payment fetch in-flight, reusing task (%@)", String(address.suffix(10)))
             return try await existing.value
         }
-        NSLog("[ChatService] === FETCH INCOMING PAYMENTS START === address=%@, blockTime=%llu", String(address.suffix(10)), blockTime)
+        AppLog.log("[ChatService] === FETCH INCOMING PAYMENTS START === address=%@, blockTime=%llu", String(address.suffix(10)), blockTime)
         let task = Task { [self] in
             // Fetch from Kaspa API instead of indexer
             let result = try await fetchPaymentsFromKaspaAPI(for: address, blockTime: blockTime, incoming: true)
-            NSLog("[ChatService] === FETCH INCOMING PAYMENTS DONE === count=%d", result.count)
+            AppLog.log("[ChatService] === FETCH INCOMING PAYMENTS DONE === count=%d", result.count)
             return result
         }
         paymentFetchTasks[key] = task
@@ -96,7 +96,7 @@ extension ChatService {
         do {
             return try await task.value
         } catch {
-            NSLog("[ChatService] === FETCH INCOMING PAYMENTS ERROR === %@", error.localizedDescription)
+            AppLog.log("[ChatService] === FETCH INCOMING PAYMENTS ERROR === %@", error.localizedDescription)
             throw error
         }
     }
@@ -104,14 +104,14 @@ extension ChatService {
     func fetchOutgoingPayments(for address: String, blockTime: UInt64) async throws -> [PaymentResponse] {
         let key = "out|\(address)|\(blockTime)"
         if let existing = paymentFetchTasks[key] {
-            NSLog("[ChatService] Payment fetch in-flight, reusing task (%@)", String(address.suffix(10)))
+            AppLog.log("[ChatService] Payment fetch in-flight, reusing task (%@)", String(address.suffix(10)))
             return try await existing.value
         }
-        NSLog("[ChatService] === FETCH OUTGOING PAYMENTS START === address=%@, blockTime=%llu", String(address.suffix(10)), blockTime)
+        AppLog.log("[ChatService] === FETCH OUTGOING PAYMENTS START === address=%@, blockTime=%llu", String(address.suffix(10)), blockTime)
         let task = Task { [self] in
             // Fetch from Kaspa API instead of indexer
             let result = try await fetchPaymentsFromKaspaAPI(for: address, blockTime: blockTime, incoming: false)
-            NSLog("[ChatService] === FETCH OUTGOING PAYMENTS DONE === count=%d", result.count)
+            AppLog.log("[ChatService] === FETCH OUTGOING PAYMENTS DONE === count=%d", result.count)
             return result
         }
         paymentFetchTasks[key] = task
@@ -119,7 +119,7 @@ extension ChatService {
         do {
             return try await task.value
         } catch {
-            NSLog("[ChatService] === FETCH OUTGOING PAYMENTS ERROR === %@", error.localizedDescription)
+            AppLog.log("[ChatService] === FETCH OUTGOING PAYMENTS ERROR === %@", error.localizedDescription)
             throw error
         }
     }
@@ -141,11 +141,11 @@ extension ChatService {
     /// Payments are regular Kaspa transactions - payload is optional for encrypted message
     func fetchPaymentsFromKaspaAPI(for address: String, blockTime: UInt64, incoming: Bool) async throws -> [PaymentResponse] {
         let direction = incoming ? "INCOMING" : "OUTGOING"
-        NSLog("[ChatService] fetchPaymentsFromKaspaAPI START - direction=%@, address=%@", direction, String(address.suffix(10)))
+        AppLog.log("[ChatService] fetchPaymentsFromKaspaAPI START - direction=%@, address=%@", direction, String(address.suffix(10)))
 
         // Fetch all transactions with pagination
         let transactions = await fetchFullTransactionsPaginated(for: address, stopAtBlockTime: blockTime)
-        NSLog("[ChatService] Fetched total %d transactions from Kaspa API", transactions.count)
+        AppLog.log("[ChatService] Fetched total %d transactions from Kaspa API", transactions.count)
 
         var knsHandledCount = 0
         for transaction in transactions where isKNSRevealTransaction(transaction) {
@@ -158,7 +158,7 @@ extension ChatService {
             }
         }
         if knsHandledCount > 0 {
-            NSLog("[ChatService] Processed %d KNS reveal tx(s) during %@ payment fetch", knsHandledCount, direction)
+            AppLog.log("[ChatService] Processed %d KNS reveal tx(s) during %@ payment fetch", knsHandledCount, direction)
         }
 
         var payments: [PaymentResponse] = []
@@ -254,7 +254,7 @@ extension ChatService {
 
                 // Skip self-stash transactions (sender == receiver) - these are handled as contextual messages
                 if sender == address {
-                    NSLog("[ChatService] Skipping self-stash payment %@ - handled as contextual message",
+                    AppLog.log("[ChatService] Skipping self-stash payment %@ - handled as contextual message",
                           String(tx.transactionId.prefix(12)))
                     continue
                 }
@@ -287,7 +287,7 @@ extension ChatService {
                 let isContextual = isContextualPayload(payload)
                 let isSelfStash = isSelfStashPayload(payload)
                 if isContextual || isSelfStash {
-                    NSLog("[ChatService] Skipping non-payment tx %@ (isContextual: %d, isSelfStash: %d, payload prefix: %@)",
+                    AppLog.log("[ChatService] Skipping non-payment tx %@ (isContextual: %d, isSelfStash: %d, payload prefix: %@)",
                           String(tx.transactionId.prefix(12)),
                           isContextual ? 1 : 0,
                           isSelfStash ? 1 : 0,
@@ -338,7 +338,7 @@ extension ChatService {
                         payload: payloadData
                     )
                     if !sigsValid {
-                        NSLog("[ChatService] WARNING: Skipping payment %@ - Schnorr signature verification FAILED",
+                        AppLog.log("[ChatService] WARNING: Skipping payment %@ - Schnorr signature verification FAILED",
                               String(tx.transactionId.prefix(16)))
                         continue
                     }
@@ -359,11 +359,11 @@ extension ChatService {
 
             payments.append(payment)
             let dirStr = incoming ? "IN" : "OUT"
-            NSLog("[ChatService] Found payment [%@]: %@... amount=%llu sompi", dirStr, String(tx.transactionId.prefix(16)), amount)
+            AppLog.log("[ChatService] Found payment [%@]: %@... amount=%llu sompi", dirStr, String(tx.transactionId.prefix(16)), amount)
         }
 
         let dirStr = incoming ? "incoming" : "outgoing"
-        NSLog(
+        AppLog.log(
             "[ChatService] fetchPaymentsFromKaspaAPI DONE - found %d %@ payments (skipped: %d old, %d wrong direction, %d suppressed)",
             payments.count,
             dirStr,
@@ -400,12 +400,12 @@ extension ChatService {
                     URLQueryItem(name: "resolve_previous_outpoints", value: "light")
                 ]
             ) else {
-                NSLog("[ChatService] Invalid URL for fetching transactions")
+                AppLog.log("[ChatService] Invalid URL for fetching transactions")
                 break
             }
 
             if pageCount == 0 {
-                NSLog("[ChatService] Kaspa API URL: %@", url.absoluteString)
+                AppLog.log("[ChatService] Kaspa API URL: %@", url.absoluteString)
             }
 
             do {
@@ -413,7 +413,7 @@ extension ChatService {
 
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200...299).contains(httpResponse.statusCode) else {
-                    NSLog("[ChatService] Kaspa API returned non-2xx status")
+                    AppLog.log("[ChatService] Kaspa API returned non-2xx status")
                     break
                 }
 
@@ -430,7 +430,7 @@ extension ChatService {
                     // Find the oldest transaction in this batch
                     let oldestBlockTime = transactions.compactMap { $0.blockTime }.min() ?? 0
                     if oldestBlockTime > 0 && oldestBlockTime <= stopAtBlockTime {
-                        NSLog("[ChatService] Pagination: reached transactions older than stopAtBlockTime, stopping")
+                        AppLog.log("[ChatService] Pagination: reached transactions older than stopAtBlockTime, stopping")
                         break
                     }
                 }
@@ -445,18 +445,18 @@ extension ChatService {
                 pageCount += 1
 
                 if pageCount > 0 {
-                    NSLog("[ChatService] Pagination: fetched page %d, total transactions: %d, offset: %d",
+                    AppLog.log("[ChatService] Pagination: fetched page %d, total transactions: %d, offset: %d",
                           pageCount + 1, allTransactions.count, offset)
                 }
 
             } catch {
-                NSLog("[ChatService] Pagination error: %@", error.localizedDescription)
+                AppLog.log("[ChatService] Pagination error: %@", error.localizedDescription)
                 break
             }
         }
 
         if allTransactions.count >= maxTransactions {
-            NSLog("[ChatService] Pagination: reached max transactions limit (%d)", maxTransactions)
+            AppLog.log("[ChatService] Pagination: reached max transactions limit (%d)", maxTransactions)
         }
 
         return allTransactions
@@ -527,7 +527,7 @@ extension ChatService {
             // If a payment message with this txId already exists, remove it first
             // (handles UTXO notification initially classifying a handshake as payment)
             if let existingMsg = findLocalMessage(txId: handshake.txId), existingMsg.messageType == .payment {
-                NSLog("[ChatService] Replacing misclassified payment with handshake for tx %@", String(handshake.txId.prefix(12)))
+                AppLog.log("[ChatService] Replacing misclassified payment with handshake for tx %@", String(handshake.txId.prefix(12)))
                 removeMessage(txId: handshake.txId)
             }
 
@@ -569,7 +569,7 @@ extension ChatService {
                 if let earliestPayment = conv.messages
                     .filter({ $0.messageType == .payment && $0.isOutgoing })
                     .min(by: { $0.blockTime < $1.blockTime }) {
-                    NSLog("[ChatService] Reclassifying outgoing payment %@ as handshake for %@",
+                    AppLog.log("[ChatService] Reclassifying outgoing payment %@ as handshake for %@",
                           String(earliestPayment.txId.prefix(12)), String(contactAddress.suffix(10)))
                     replaceMessageType(txId: earliestPayment.txId, contactAddress: contactAddress, newType: .handshake, newContent: "[Handshake sent]")
                     reclassified += 1
@@ -589,7 +589,7 @@ extension ChatService {
                     .filter({ $0.messageType == .payment && !$0.isOutgoing })
                     .min(by: { $0.blockTime < $1.blockTime }) {
                     let content = "[Request to communicate]"
-                    NSLog("[ChatService] Reclassifying incoming payment %@ as handshake for %@",
+                    AppLog.log("[ChatService] Reclassifying incoming payment %@ as handshake for %@",
                           String(earliestPayment.txId.prefix(12)), String(contactAddress.suffix(10)))
                     replaceMessageType(txId: earliestPayment.txId, contactAddress: contactAddress, newType: .handshake, newContent: content)
                     reclassified += 1
@@ -598,7 +598,7 @@ extension ChatService {
         }
 
         if reclassified > 0 {
-            NSLog("[ChatService] Reclassified %d payment(s) as handshake(s)", reclassified)
+            AppLog.log("[ChatService] Reclassified %d payment(s) as handshake(s)", reclassified)
         }
 
         // Ensure aliases are set for contacts with completed handshake exchange.
@@ -612,7 +612,7 @@ extension ChatService {
             if hasOutgoing && hasIncoming && !hasRouting && (ourAliases[addr]?.isEmpty ?? true) {
                 let fallbackAlias = generateAlias()
                 addOurAlias(fallbackAlias, for: addr, blockTime: nil)
-                NSLog("[ChatService] Generated fallback alias for %@ (self-stash unavailable)", String(addr.suffix(10)))
+                AppLog.log("[ChatService] Generated fallback alias for %@ (self-stash unavailable)", String(addr.suffix(10)))
             }
         }
     }
@@ -668,7 +668,7 @@ extension ChatService {
         let matches = payloadString.hasPrefix("ciph_msg:1:comm:")
         if !matches && payloadString.hasPrefix("ciph_msg:") {
             // Log near-miss for debugging
-            NSLog("[ChatService] Payload prefix '%@' starts with 'ciph_msg:' but not 'ciph_msg:1:comm:'", payloadString)
+            AppLog.log("[ChatService] Payload prefix '%@' starts with 'ciph_msg:' but not 'ciph_msg:1:comm:'", payloadString)
         }
         return matches
     }
@@ -680,7 +680,7 @@ extension ChatService {
         let matches = payloadString.hasPrefix("ciph_msg:1:self_stash:")
         if !matches && payloadString.hasPrefix("ciph_msg:") {
             // Log near-miss for debugging
-            NSLog("[ChatService] Payload prefix '%@' starts with 'ciph_msg:' but not 'ciph_msg:1:self_stash:'", payloadString)
+            AppLog.log("[ChatService] Payload prefix '%@' starts with 'ciph_msg:' but not 'ciph_msg:1:self_stash:'", payloadString)
         }
         return matches
     }
@@ -868,7 +868,7 @@ extension ChatService {
             updateLastPollTime(resolvedBlockTime)
         }
         removeKNSTransferChatHint(for: txId)
-        NSLog(
+        AppLog.log(
             "[ChatService] Added KNS transfer message from hint tx=%@ domain=%@",
             String(txId.prefix(12)),
             hint.domainName
@@ -907,7 +907,7 @@ extension ChatService {
         let myNormalized = myAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let recipient = recipientAddress?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !recipient.isEmpty else {
-            NSLog("[ChatService] KNS transfer %@ missing recipient in payload (%@)", String(txId.prefix(12)), source)
+            AppLog.log("[ChatService] KNS transfer %@ missing recipient in payload (%@)", String(txId.prefix(12)), source)
             return
         }
 
@@ -944,7 +944,7 @@ extension ChatService {
               !contactAddress.isEmpty,
               contactAddress.lowercased() != myNormalized,
               isValidKaspaAddress(contactAddress) else {
-            NSLog("[ChatService] KNS transfer %@ has unresolved counterparty (%@)", String(txId.prefix(12)), source)
+            AppLog.log("[ChatService] KNS transfer %@ has unresolved counterparty (%@)", String(txId.prefix(12)), source)
             return
         }
 
@@ -983,7 +983,7 @@ extension ChatService {
             updateLastPollTime(blockTimeMs)
         }
         removeKNSTransferChatHint(for: txId)
-        NSLog(
+        AppLog.log(
             "[ChatService] Added KNS transfer message tx=%@ direction=%@ domain=%@ source=%@",
             String(txId.prefix(12)),
             isOutgoing ? "outgoing" : "incoming",
@@ -1137,7 +1137,7 @@ extension ChatService {
                         if payment.sender == ourAddress {
                             if let fullTx = await fetchKaspaFullTransaction(txId: txId, retries: 1, delayNs: 500_000_000),
                                let derivedSender = deriveSenderFromFullTx(fullTx, excluding: ourAddress) {
-                                NSLog("[ChatService] Indexer sender mismatch for %@ - using full tx sender %@",
+                                AppLog.log("[ChatService] Indexer sender mismatch for %@ - using full tx sender %@",
                                       String(txId.prefix(12)), String(derivedSender.suffix(10)))
                                 return TransactionResolveInfo(
                                     sender: derivedSender,
@@ -1146,7 +1146,7 @@ extension ChatService {
                                 )
                             }
                         }
-                        NSLog("[ChatService] Resolved tx %@ from indexer (attempt %d, start=%llu)",
+                        AppLog.log("[ChatService] Resolved tx %@ from indexer (attempt %d, start=%llu)",
                               String(txId.prefix(12)), attempt, startBlockTime)
                         return TransactionResolveInfo(
                             sender: payment.sender,
@@ -1155,7 +1155,7 @@ extension ChatService {
                         )
                     }
                 } catch {
-                    NSLog("[ChatService] Indexer resolve failed for %@ (attempt %d): %@",
+                    AppLog.log("[ChatService] Indexer resolve failed for %@ (attempt %d): %@",
                           String(txId.prefix(12)), attempt, error.localizedDescription)
                 }
                 try? await Task.sleep(nanoseconds: 600_000_000)
@@ -1191,7 +1191,7 @@ extension ChatService {
                 path: "/transactions/\(txId)",
                 queryItems: [URLQueryItem(name: "resolve_previous_outpoints", value: "light")]
             ) else { return }
-            NSLog("[ChatService] Kaspa REST resolve request: %@", url.absoluteString)
+            AppLog.log("[ChatService] Kaspa REST resolve request: %@", url.absoluteString)
 
             // Initial delay to give indexer time to process
             try? await Task.sleep(nanoseconds: 1_500_000_000)  // 1500ms
@@ -1243,7 +1243,7 @@ extension ChatService {
                     )
 
                     if await state.trySetResult(info) {
-                        NSLog("[ChatService] Resolved tx %@ from REST API on attempt %d", String(txId.prefix(12)), attempt)
+                        AppLog.log("[ChatService] Resolved tx %@ from REST API on attempt %d", String(txId.prefix(12)), attempt)
                         return
                     }
                 } catch {
@@ -1264,7 +1264,7 @@ extension ChatService {
 
             let elapsed = DispatchTime.now().uptimeNanoseconds - startTime.uptimeNanoseconds
             if elapsed > timeout {
-                NSLog("[ChatService] Transaction resolution timeout for %@", String(txId.prefix(12)))
+                AppLog.log("[ChatService] Transaction resolution timeout for %@", String(txId.prefix(12)))
                 restTask.cancel()
                 return nil
             }
@@ -1282,7 +1282,7 @@ extension ChatService {
             path: "/transactions/\(txId)",
             queryItems: [URLQueryItem(name: "resolve_previous_outpoints", value: "light")]
         ) else { return nil }
-        NSLog("[ChatService] Kaspa REST full tx request: %@", url.absoluteString)
+        AppLog.log("[ChatService] Kaspa REST full tx request: %@", url.absoluteString)
 
         for attempt in 1...max(1, retries) {
             do {
@@ -1293,7 +1293,7 @@ extension ChatService {
                     continue
                 }
                 let fullTx = try JSONDecoder().decode(KaspaFullTransactionResponse.self, from: data)
-                NSLog("[ChatService] Kaspa REST full tx resolved for %@ on attempt %d",
+                AppLog.log("[ChatService] Kaspa REST full tx resolved for %@ on attempt %d",
                       String(txId.prefix(12)), attempt)
                 return fullTx
             } catch {
@@ -1324,7 +1324,7 @@ extension ChatService {
         ) else { return nil }
 
         do {
-            NSLog("[ChatService] Kaspa REST fetchAnyInputAddress: %@", url.absoluteString)
+            AppLog.log("[ChatService] Kaspa REST fetchAnyInputAddress: %@", url.absoluteString)
             let (data, response) = try await URLSession.shared.data(from: url)
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
@@ -1346,14 +1346,14 @@ extension ChatService {
             }
             return nil
         } catch {
-            NSLog("[ChatService] fetchAnyInputAddress failed for %@: %@", String(txId.prefix(16)), error.localizedDescription)
+            AppLog.log("[ChatService] fetchAnyInputAddress failed for %@: %@", String(txId.prefix(16)), error.localizedDescription)
             return nil
         }
     }
 
     func fetchSavedHandshakes(myAddress: String, privateKey: Data?) async throws {
         guard let privKey = privateKey else {
-            NSLog("[ChatService] Cannot fetch saved handshakes - no private key")
+            AppLog.log("[ChatService] Cannot fetch saved handshakes - no private key")
             return
         }
 
@@ -1366,7 +1366,7 @@ extension ChatService {
             }
             throw error
         }
-        NSLog("[ChatService] Fetched %d saved handshakes from self-stash", savedHandshakes.count)
+        AppLog.log("[ChatService] Fetched %d saved handshakes from self-stash", savedHandshakes.count)
 
         for stash in savedHandshakes {
             guard let stashedData = stash.stashedData else { continue }
@@ -1375,7 +1375,7 @@ extension ChatService {
                 let contact = savedData.contactAddress
                 let alias = savedData.ourAlias
                 if !contact.isEmpty && !alias.isEmpty {
-                    NSLog("[ChatService] Saved handshake: contact=%@, ourAlias=%@, theirAlias=%@",
+                    AppLog.log("[ChatService] Saved handshake: contact=%@, ourAlias=%@, theirAlias=%@",
                           String(contact.suffix(10)), alias, savedData.theirAlias ?? "nil")
                     addOurAlias(alias, for: contact, blockTime: stash.blockTime)
                     if let theirAlias = savedData.theirAlias, !theirAlias.isEmpty {
@@ -1387,7 +1387,7 @@ extension ChatService {
                     // Even if legacy alias is empty, derive deterministic from address
                     ensureRoutingState(for: contact, privateKey: privKey)
                 } else {
-                    NSLog("[ChatService] Saved handshake missing contact or alias")
+                    AppLog.log("[ChatService] Saved handshake missing contact or alias")
                 }
             }
         }
@@ -1408,20 +1408,20 @@ extension ChatService {
             } catch {
                 attempt += 1
                 let delaySeconds = Double(delay) / 1_000_000_000.0
-                NSLog("[ChatService] %@ failed (attempt %d): %@. Retrying in %.1fs",
+                AppLog.log("[ChatService] %@ failed (attempt %d): %@. Retrying in %.1fs",
                       label, attempt, error.localizedDescription, delaySeconds)
                 try? await Task.sleep(nanoseconds: delay)
                 delay = min(delay * 2, maxDelayNs)
             }
         }
 
-        NSLog("[ChatService] %@ cancelled", label)
+        AppLog.log("[ChatService] %@ cancelled", label)
         return nil
     }
 
     static func handleDpiPaginationFailure(_ error: Error, context: String) -> Bool {
         if case KasiaAPIClientError.dpiPaginationExhausted(let endpoint) = error {
-            NSLog("[ChatService] DPI pagination exhausted for %@ (%@)", endpoint, context)
+            AppLog.log("[ChatService] DPI pagination exhausted for %@ (%@)", endpoint, context)
             MessageStore.shared.markDpiCorruptionWarning(endpoint: endpoint)
             return true
         }
@@ -1570,7 +1570,7 @@ extension ChatService {
             let effectiveSince = applyMessageRetention(to: startBlockTime)
             let fetchKey = contextualFetchKey(address: contactAddress, alias: alias, limit: 50, since: effectiveSince)
             guard beginContextualFetch(fetchKey) else {
-                NSLog("[ChatService] Contextual fetch in-flight, skipping incoming %@",
+                AppLog.log("[ChatService] Contextual fetch in-flight, skipping incoming %@",
                       String(contactAddress.suffix(10)))
                 continue
             }
@@ -1673,7 +1673,7 @@ extension ChatService {
             let effectiveSince = applyMessageRetention(to: startBlockTime)
             let fetchKey = contextualFetchKey(address: myAddress, alias: ourAlias, limit: 50, since: effectiveSince)
             guard beginContextualFetch(fetchKey) else {
-                NSLog("[ChatService] Contextual fetch in-flight, skipping outgoing %@",
+                AppLog.log("[ChatService] Contextual fetch in-flight, skipping outgoing %@",
                       String(contactAddress.suffix(10)))
                 continue
             }
@@ -1780,7 +1780,7 @@ extension ChatService {
                 let effectiveSince = forceExactBlockTime ? startBlockTime : applyMessageRetention(to: startBlockTime)
                 let fetchKey = contextualFetchKey(address: contactAddress, alias: alias, limit: 50, since: effectiveSince)
                 guard beginContextualFetch(fetchKey) else {
-                    NSLog("[ChatService] Contextual fetch in-flight, skipping active incoming %@",
+                    AppLog.log("[ChatService] Contextual fetch in-flight, skipping active incoming %@",
                           String(contactAddress.suffix(10)))
                     continue
                 }
@@ -1874,7 +1874,7 @@ extension ChatService {
                 let effectiveSince = forceExactBlockTime ? startBlockTime : applyMessageRetention(to: startBlockTime)
                 let fetchKey = contextualFetchKey(address: myAddress, alias: ourAlias, limit: 50, since: effectiveSince)
                 guard beginContextualFetch(fetchKey) else {
-                    NSLog("[ChatService] Contextual fetch in-flight, skipping active outgoing %@",
+                    AppLog.log("[ChatService] Contextual fetch in-flight, skipping active outgoing %@",
                           String(contactAddress.suffix(10)))
                     continue
                 }
@@ -1967,7 +1967,7 @@ extension ChatService {
             switch result {
             case .success(let added):
                 if added, attempt > 1 {
-                    NSLog("[ChatService] Found messages from %@ on attempt %d", String(contactAddress.suffix(10)), attempt)
+                    AppLog.log("[ChatService] Found messages from %@ on attempt %d", String(contactAddress.suffix(10)), attempt)
                 }
                 completedSuccessfully = true
                 return
@@ -1980,7 +1980,7 @@ extension ChatService {
             }
         }
 
-        NSLog("[ChatService] No new messages from %@ after %d attempts", String(contactAddress.suffix(10)), maxAttempts)
+        AppLog.log("[ChatService] No new messages from %@ after %d attempts", String(contactAddress.suffix(10)), maxAttempts)
     }
 
     /// Fetch contextual messages from a specific contact (triggered by UTXO notification)
@@ -1990,7 +1990,7 @@ extension ChatService {
         // Get incoming aliases for this contact (deterministic + legacy)
         let aliases = incomingAliases(for: contactAddress)
         guard !aliases.isEmpty else {
-            NSLog("[ChatService] No alias for contact %@, cannot fetch contextual messages", String(contactAddress.suffix(10)))
+            AppLog.log("[ChatService] No alias for contact %@, cannot fetch contextual messages", String(contactAddress.suffix(10)))
             return .success(added: false)
         }
         let nowMs = currentTimeMs()
@@ -2014,7 +2014,7 @@ extension ChatService {
                 let effectiveSince = applyMessageRetention(to: startBlockTime)
                 let fetchKey = contextualFetchKey(address: contactAddress, alias: alias, limit: 10, since: effectiveSince)
                 guard beginContextualFetch(fetchKey) else {
-                    NSLog("[ChatService] Contextual fetch in-flight, skipping contact %@",
+                    AppLog.log("[ChatService] Contextual fetch in-flight, skipping contact %@",
                           String(contactAddress.suffix(10)))
                     continue
                 }
@@ -2074,7 +2074,7 @@ extension ChatService {
 
             if newMessagesAdded {
                 saveMessages()
-                NSLog("[ChatService] New contextual messages added from contact %@", String(contactAddress.suffix(10)))
+                AppLog.log("[ChatService] New contextual messages added from contact %@", String(contactAddress.suffix(10)))
             }
 
             return .success(added: newMessagesAdded)
@@ -2083,7 +2083,7 @@ extension ChatService {
             if ChatService.handleDpiPaginationFailure(error, context: "contact contextual messages") {
                 return .failure
             }
-            NSLog("[ChatService] Failed to fetch contextual messages from contact %@: %@",
+            AppLog.log("[ChatService] Failed to fetch contextual messages from contact %@: %@",
                   String(contactAddress.suffix(10)), error.localizedDescription)
             return .failure
         }
@@ -2113,7 +2113,7 @@ extension ChatService {
         deliveryStatus: ChatMessage.DeliveryStatus = .sent
     ) async {
         let direction = isOutgoing ? "outgoing" : "incoming"
-        NSLog("[ChatService] === PROCESSING %d %@ PAYMENTS ===", payments.count, direction)
+        AppLog.log("[ChatService] === PROCESSING %d %@ PAYMENTS ===", payments.count, direction)
         let hideAutoCreatedPaymentChats = SettingsViewModel.loadSettings().hideAutoCreatedPaymentChats
 
         var needsFullSync = false
@@ -2155,10 +2155,10 @@ extension ChatService {
                         // as a temporary solution, then schedule full sync for proper resolution
                         if let tempSender = await fetchAnyInputAddress(txId: payment.txId, excludeAddress: myAddress) {
                             contactAddress = tempSender
-                            NSLog("[ChatService] Using temporary sender for %@: %@", String(payment.txId.prefix(16)), String(tempSender.suffix(20)))
+                            AppLog.log("[ChatService] Using temporary sender for %@: %@", String(payment.txId.prefix(16)), String(tempSender.suffix(20)))
                             needsFullSync = true
                         } else {
-                            NSLog("[ChatService] Sender completely unresolved for %@, scheduling full sync", String(payment.txId.prefix(16)))
+                            AppLog.log("[ChatService] Sender completely unresolved for %@, scheduling full sync", String(payment.txId.prefix(16)))
                             needsFullSync = true
                             continue
                         }
@@ -2169,7 +2169,7 @@ extension ChatService {
             }
 
             // Skip if we couldn't determine the contact address
-            NSLog("[ChatService] Payment %@ - contactAddress: %@, myAddress: %@, match: %d",
+            AppLog.log("[ChatService] Payment %@ - contactAddress: %@, myAddress: %@, match: %d",
                   String(payment.txId.prefix(16)),
                   String(contactAddress.suffix(20)),
                   String(myAddress.suffix(20)),
@@ -2180,11 +2180,11 @@ extension ChatService {
                     // Don't replace a promoted outgoing payment with an incoming classification
                     // from an async resolve - the outgoing classification is authoritative
                     if existing.messageType == .payment && existing.deliveryStatus != .pending {
-                        NSLog("[ChatService] Skipping incoming reclassification for %@ - already promoted as outgoing payment",
+                        AppLog.log("[ChatService] Skipping incoming reclassification for %@ - already promoted as outgoing payment",
                               String(payment.txId.prefix(16)))
                         continue
                     }
-                    NSLog("[ChatService] Replacing outgoing message for %@ with incoming payment",
+                    AppLog.log("[ChatService] Replacing outgoing message for %@ with incoming payment",
                           String(payment.txId.prefix(16)))
                     removeMessage(txId: payment.txId)
                 } else {
@@ -2207,19 +2207,19 @@ extension ChatService {
             }
 
             if contactAddress.isEmpty || contactAddress == myAddress {
-                NSLog("[ChatService] Skipping payment %@ - self-address detected", String(payment.txId.prefix(16)))
+                AppLog.log("[ChatService] Skipping payment %@ - self-address detected", String(payment.txId.prefix(16)))
                 continue
             }
 
             // Skip if this transaction already exists as a handshake message
             if let existingMsg = findLocalMessage(txId: payment.txId), existingMsg.messageType == .handshake {
-                NSLog("[ChatService] Skipping payment %@ - already exists as handshake", String(payment.txId.prefix(16)))
+                AppLog.log("[ChatService] Skipping payment %@ - already exists as handshake", String(payment.txId.prefix(16)))
                 continue
             }
 
             // Check if this payment is actually a handshake (REST API payload detection)
             if let payload = payment.messagePayload, !payload.isEmpty, isHandshakePayload(payload) {
-                NSLog("[ChatService] Payment %@ has handshake payload - processing as handshake", String(payment.txId.prefix(16)))
+                AppLog.log("[ChatService] Payment %@ has handshake payload - processing as handshake", String(payment.txId.prefix(16)))
                 var handshakeContent = "[Handshake]"
                 if !isOutgoing, let privKey = privateKey {
                     // For incoming handshakes, decrypt to extract alias
@@ -2227,9 +2227,9 @@ extension ChatService {
                         handshakeContent = "[Request to communicate]"
                         if let alias = decrypted.alias {
                             addConversationAlias(alias, for: contactAddress, blockTime: payment.blockTime)
-                            NSLog("[ChatService] Extracted alias '%@' from payment-handshake by %@", alias, String(contactAddress.suffix(10)))
+                            AppLog.log("[ChatService] Extracted alias '%@' from payment-handshake by %@", alias, String(contactAddress.suffix(10)))
                         } else {
-                            NSLog("[ChatService] Received deterministic (alias-less) payment-handshake from %@", String(contactAddress.suffix(10)))
+                            AppLog.log("[ChatService] Received deterministic (alias-less) payment-handshake from %@", String(contactAddress.suffix(10)))
                         }
                         if let convId = decrypted.conversationId {
                             conversationIds[contactAddress] = convId
@@ -2258,7 +2258,7 @@ extension ChatService {
 
             if let payload = payment.messagePayload, !payload.isEmpty {
                 if isContextualPayload(payload) {
-                    NSLog("[ChatService] Payment %@ has contextual payload - skipping as payment", String(payment.txId.prefix(16)))
+                    AppLog.log("[ChatService] Payment %@ has contextual payload - skipping as payment", String(payment.txId.prefix(16)))
                     if let privateKey,
                        shouldAttemptSelfStashDecryption(payloadHex: payload, contactAddress: contactAddress),
                        let decrypted = await decryptContextualMessageFromRawPayload(payload, privateKey: privateKey) {
@@ -2282,7 +2282,7 @@ extension ChatService {
                 }
 
                 if isSelfStashPayload(payload) {
-                    NSLog("[ChatService] Payment %@ has self-stash payload - skipping", String(payment.txId.prefix(16)))
+                    AppLog.log("[ChatService] Payment %@ has self-stash payload - skipping", String(payment.txId.prefix(16)))
                     continue
                 }
             }
@@ -2290,7 +2290,7 @@ extension ChatService {
             let existingContact = contactsManager.getContact(byAddress: contactAddress)
             let hasExistingConversation = conversations.contains { $0.contact.address == contactAddress }
             if hideAutoCreatedPaymentChats && existingContact == nil && !hasExistingConversation {
-                NSLog("[ChatService] Skipping payment %@ - auto-created payment chats disabled for %@",
+                AppLog.log("[ChatService] Skipping payment %@ - auto-created payment chats disabled for %@",
                       String(payment.txId.prefix(16)),
                       String(contactAddress.suffix(20)))
                 if let blockTime = payment.blockTime, blockTime > lastPollTime {
@@ -2352,7 +2352,7 @@ extension ChatService {
 
         // Trigger full sync if we have unresolved senders
         if needsFullSync {
-            NSLog("[ChatService] Triggering full sync to resolve pending senders...")
+            AppLog.log("[ChatService] Triggering full sync to resolve pending senders...")
             Task { @MainActor in
                 // Small delay before full sync to let API propagate
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -2383,21 +2383,21 @@ extension ChatService {
         timestamp: Int64
     ) async -> Bool {
         guard let privateKey = WalletManager.shared.getPrivateKey() else {
-            NSLog("[ChatService] Outgoing push: missing private key")
+            AppLog.log("[ChatService] Outgoing push: missing private key")
             return false
         }
 
         // Check if message already exists with content (not placeholder)
         if let existingMsg = findLocalMessage(txId: txId),
            existingMsg.content != "📤 Sent via another device" {
-            NSLog("[ChatService] Outgoing push already exists with content: %@", txId)
+            AppLog.log("[ChatService] Outgoing push already exists with content: %@", txId)
             return true
         }
 
         // PRIORITY 1: Try CloudKit sync first
         // Outgoing messages from other devices have their content stored in CloudKit
         // The on-chain payload is encrypted for the recipient, so we can't decrypt it here
-        NSLog("[ChatService] Outgoing push from other device: %@ - trying CloudKit sync", txId)
+        AppLog.log("[ChatService] Outgoing push from other device: %@ - trying CloudKit sync", txId)
 
         let settings = currentSettings
         if settings.storeMessagesInICloud {
@@ -2413,17 +2413,17 @@ extension ChatService {
             // Check if CloudKit delivered the content
             if let cloudKitMsg = findLocalMessage(txId: txId),
                cloudKitMsg.content != "📤 Sent via another device" {
-                NSLog("[ChatService] Outgoing push resolved via CloudKit: %@", txId)
+                AppLog.log("[ChatService] Outgoing push resolved via CloudKit: %@", txId)
                 return true
             }
 
-            NSLog("[ChatService] CloudKit sync did not deliver content for %@ - trying payload decrypt", txId)
+            AppLog.log("[ChatService] CloudKit sync did not deliver content for %@ - trying payload decrypt", txId)
         }
 
         // PRIORITY 2: Try to decrypt on-chain payload (may work for some message types)
         let rawPayload = await resolveRawPayloadForTx(txId: txId, payloadHint: payload)
         guard let rawPayload else {
-            NSLog("[ChatService] Outgoing push: failed to resolve raw payload for %@", txId)
+            AppLog.log("[ChatService] Outgoing push: failed to resolve raw payload for %@", txId)
             // Schedule a retry - CloudKit may deliver later
             scheduleCloudKitRetryForOutgoing(txId: txId, sender: sender, timestamp: timestamp)
             return false
@@ -2431,22 +2431,22 @@ extension ChatService {
 
         guard let payloadString = Self.hexStringToData(rawPayload)
             .flatMap({ String(data: $0, encoding: .utf8) }) else {
-            NSLog("[ChatService] Outgoing push: invalid raw payload for %@", txId)
+            AppLog.log("[ChatService] Outgoing push: invalid raw payload for %@", txId)
             return false
         }
 
         guard let alias = Self.extractContextualAlias(fromRawPayloadString: payloadString) else {
-            NSLog("[ChatService] Outgoing push: alias not found for %@", txId)
+            AppLog.log("[ChatService] Outgoing push: alias not found for %@", txId)
             return false
         }
 
         guard let contactAddress = contactAddressForOutgoingAlias(alias) else {
-            NSLog("[ChatService] Outgoing push: no contact for alias %@ (tx=%@)", alias, txId)
+            AppLog.log("[ChatService] Outgoing push: no contact for alias %@ (tx=%@)", alias, txId)
             return false
         }
 
         guard let decrypted = await decryptContextualMessageFromRawPayload(rawPayload, privateKey: privateKey) else {
-            NSLog("[ChatService] Outgoing push: decrypt failed for %@ - content will sync via CloudKit", txId)
+            AppLog.log("[ChatService] Outgoing push: decrypt failed for %@ - content will sync via CloudKit", txId)
             // Create placeholder message - CloudKit will deliver actual content
             let placeholderMessage = ChatMessage(
                 txId: txId,
@@ -2475,7 +2475,7 @@ extension ChatService {
             messageType: msgType
         ) {
             saveMessages(triggerExport: true)
-            NSLog("[ChatService] Outgoing push updated pending message: %@ to %@", txId, String(contactAddress.suffix(10)))
+            AppLog.log("[ChatService] Outgoing push updated pending message: %@ to %@", txId, String(contactAddress.suffix(10)))
             return true
         }
 
@@ -2493,7 +2493,7 @@ extension ChatService {
 
         addMessageToConversation(message, contactAddress: contactAddress)
         saveMessages(triggerExport: true)
-        NSLog("[ChatService] Outgoing push imported: %@ to %@", txId, String(contactAddress.suffix(10)))
+        AppLog.log("[ChatService] Outgoing push imported: %@ to %@", txId, String(contactAddress.suffix(10)))
         return true
     }
 
@@ -2509,7 +2509,7 @@ extension ChatService {
             // Check if content arrived
             if let msg = findLocalMessage(txId: txId),
                msg.content != "📤 Sent via another device" {
-                NSLog("[ChatService] CloudKit retry successful for outgoing: %@", txId)
+                AppLog.log("[ChatService] CloudKit retry successful for outgoing: %@", txId)
                 return
             }
 
@@ -2519,7 +2519,7 @@ extension ChatService {
 
             if let msg = findLocalMessage(txId: txId),
                msg.content == "📤 Sent via another device" {
-                NSLog("[ChatService] Outgoing message %@ still awaiting CloudKit sync", txId)
+                AppLog.log("[ChatService] Outgoing message %@ still awaiting CloudKit sync", txId)
             }
         }
     }
