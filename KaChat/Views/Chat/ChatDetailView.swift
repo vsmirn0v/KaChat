@@ -232,6 +232,10 @@ struct ChatDetailView: View {
         return Array(messages.suffix(min(loadedMessageCount, messages.count)))
     }
 
+    private var displayedTimelineItems: [ChatTimelineItem] {
+        ChatTimelineLayout.items(for: displayedMessages)
+    }
+
     private func shouldPrefer(_ candidate: ChatMessage, over existing: ChatMessage) -> Bool {
         let existingPlaceholder = isPlaceholderContent(existing.content)
         let candidatePlaceholder = isPlaceholderContent(candidate.content)
@@ -338,23 +342,29 @@ struct ChatDetailView: View {
                                 if shouldShowDateDivider(at: index, in: currentDisplayedMessages) {
                                     dateDividerView(for: message.timestamp)
                                 }
-                                messageRow(message)
-                                    .id(message.id)
-                                    .onAppear {
-                                        if index == 0 {
-                                            topVisibleMessageId = message.id
-                                            triggerTopPaginationIfNeeded(using: proxy)
+                            ForEach(displayedTimelineItems) { item in
+                                switch item {
+                                case .daySeparator(let day):
+                                    daySeparator(day)
+                                case .message(let index, let message):
+                                    messageRow(message)
+                                        .id(message.id)
+                                        .onAppear {
+                                            if index == 0 {
+                                                topVisibleMessageId = message.id
+                                                triggerTopPaginationIfNeeded(using: proxy)
+                                            }
+                                            if initialViewportPositioned, index <= nearTopPrefetchThresholdIndex() {
+                                                scheduleOlderPrefetchIfNeeded()
+                                            }
                                         }
-                                        if initialViewportPositioned, index <= nearTopPrefetchThresholdIndex() {
-                                            scheduleOlderPrefetchIfNeeded()
+                                        .onDisappear {
+                                            if index == 0, topVisibleMessageId == message.id {
+                                                topVisibleMessageId = nil
+                                                hasLoadedCurrentTopPage = false
+                                            }
                                         }
-                                    }
-                                    .onDisappear {
-                                        if index == 0, topVisibleMessageId == message.id {
-                                            topVisibleMessageId = nil
-                                            hasLoadedCurrentTopPage = false
-                                        }
-                                    }
+                                }
                             }
                             if shouldShowUnnotifiedWarning {
                                 unnotifiedMessageBanner
@@ -1858,72 +1868,31 @@ struct ChatDetailView: View {
         )
     }
 
-    /// "You" for our own address, else the contact's alias - matches broadcast rooms'
-    /// `displayName(for:)`, simplified since a 1:1 chat only ever has two possible senders.
-    private func replyDisplayName(for address: String) -> String {
-        if address == walletManager.currentWallet?.publicAddress {
-            return "You"
+    private func daySeparator(_ day: Date) -> some View {
+        let isToday = MessageDaySeparatorFormatter.isToday(day)
+        let label = MessageDaySeparatorFormatter.label(for: day)
+        return HStack {
+            Spacer(minLength: 0)
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .foregroundStyle(isToday ? Color.accentColor : Color.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background {
+                    Capsule()
+                        .fill(isToday ? Color.accentColor.opacity(0.12) : Color(.systemGray6))
+                }
+                .overlay {
+                    Capsule()
+                        .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+                }
+                .accessibilityLabel(label)
+            Spacer(minLength: 0)
         }
-        return contact.alias.isEmpty ? String(address.suffix(10)) : contact.alias
-    }
-
-    private func replyBanner(for reply: ChatMessage) -> some View {
-        let replyQuote = MessageReplyCodec.parse(reply.content)
-        let previewText = replyQuote?.text ?? reply.content
-        return HStack(spacing: 8) {
-            Image(systemName: "arrowshape.turn.up.left.fill")
-                .font(.caption)
-                .foregroundColor(.accentColor)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Replying to \(replyDisplayName(for: reply.senderAddress))")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.accentColor)
-                Text(MessageReplyCodec.previewText(for: previewText))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer()
-            Button {
-                chatService.cancelReply()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color(UIColor.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func shouldShowDateDivider(at index: Int, in messages: [ChatMessage]) -> Bool {
-        guard index > 0 else { return true }
-        return !Calendar.current.isDate(messages[index - 1].timestamp, inSameDayAs: messages[index].timestamp)
-    }
-
-    private func dateDividerView(for date: Date) -> some View {
-        HStack {
-            Spacer()
-            Text(formatDateDivider(date))
-                .font(.caption2)
-                .fontWeight(.semibold)
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-                .background(Color(UIColor.secondarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            Spacer()
-        }
-        .padding(.vertical, 8)
-    }
-
-    private func formatDateDivider(_ date: Date) -> String {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(date) { return "Today" }
-        if calendar.isDateInYesterday(date) { return "Yesterday" }
-        return SharedFormatting.chatDay.string(from: date)
+        .padding(.top, 10)
+        .padding(.bottom, 2)
     }
 
     private func retryOutgoingMessage(_ message: ChatMessage) {
