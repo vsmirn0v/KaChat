@@ -331,17 +331,9 @@ struct ChatDetailView: View {
                                     topAnchorVisibilityWorkItem = workItem
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
                                 }
-                            // `displayedMessages` is a computed property (a fresh `Array(messages.suffix(...))`
-                            // copy on every access, not cached) - snapshotting it once here, rather than
-                            // letting the ForEach closure below re-read it via `shouldShowDateDivider`'s
-                            // `in:` argument on every single row, avoids re-copying the entire loaded
-                            // window once per row (O(n) work × n rows = O(n^2) per body evaluation) on
-                            // every render pass, including ones triggered mid-scroll.
-                            let currentDisplayedMessages = displayedMessages
-                            ForEach(Array(currentDisplayedMessages.enumerated()), id: \.element.id) { index, message in
-                                if shouldShowDateDivider(at: index, in: currentDisplayedMessages) {
-                                    dateDividerView(for: message.timestamp)
-                                }
+                            // `displayedTimelineItems` (see `ChatTimelineLayout`) already computes
+                            // `displayedMessages` exactly once internally, so day separators are
+                            // resolved up front rather than re-checked per row.
                             ForEach(displayedTimelineItems) { item in
                                 switch item {
                                 case .daySeparator(let day):
