@@ -79,13 +79,13 @@ final class NodePoolService: ObservableObject {
     func initialize(network: NetworkType) async {
         // Already fully initialized - nothing to do
         if isInitialized {
-            NSLog("[NodePool] Already initialized")
+            AppLog.log("[NodePool] Already initialized")
             return
         }
 
         // Initialization already in progress - wait for quickBoot to complete
         if isInitializing {
-            NSLog("[NodePool] Initialization already in progress, waiting for quickBoot...")
+            AppLog.log("[NodePool] Initialization already in progress, waiting for quickBoot...")
             // Wait for the existing quickBoot task if available
             if let bootTask = quickBootTask {
                 await bootTask.value
@@ -94,13 +94,13 @@ final class NodePoolService: ObservableObject {
             while isInitializing && !isInitialized {
                 try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms
             }
-            NSLog("[NodePool] Existing initialization complete, ready")
+            AppLog.log("[NodePool] Existing initialization complete, ready")
             return
         }
 
         isInitializing = true
         self.networkType = network
-        NSLog("[NodePool] Initializing for %@", network.displayName)
+        AppLog.log("[NodePool] Initializing for %@", network.displayName)
 
         // Load persisted records FIRST
         await registry.load()
@@ -110,7 +110,7 @@ final class NodePoolService: ObservableObject {
         let hasCachedActiveNodes = cachedActiveCount > 0
 
         if hasCachedActiveNodes {
-            NSLog("[NodePool] Found %d cached active nodes - ready for immediate connection", cachedActiveCount)
+            AppLog.log("[NodePool] Found %d cached active nodes - ready for immediate connection", cachedActiveCount)
         }
 
         // Initialize seed nodes
@@ -167,17 +167,17 @@ final class NodePoolService: ObservableObject {
             isReady = true
             activeNodeCount = cachedActiveCount
             await updatePoolStats()
-            NSLog("[NodePool] Ready with cached nodes - quickBoot will run in background")
+            AppLog.log("[NodePool] Ready with cached nodes - quickBoot will run in background")
 
             // Run quickBoot in background to refresh/expand pool
             quickBootTask = Task {
                 await self.profiler?.quickBoot()
                 await self.updatePoolStats()
-                NSLog("[NodePool] Background quickBoot complete")
+                AppLog.log("[NodePool] Background quickBoot complete")
             }
         } else {
             // No cached nodes - must wait for quickBoot
-            NSLog("[NodePool] No cached active nodes - waiting for quickBoot")
+            AppLog.log("[NodePool] No cached active nodes - waiting for quickBoot")
 
             // Store the quickBoot task so other callers can wait on it
             quickBootTask = Task {
@@ -193,14 +193,14 @@ final class NodePoolService: ObservableObject {
         // Start periodic stats update
         startPeriodicStatsUpdate()
 
-        NSLog("[NodePool] Initialization complete")
+        AppLog.log("[NodePool] Initialization complete")
     }
 
     /// Shutdown the node pool
     func shutdown() async {
         guard isInitialized || isInitializing else { return }
 
-        NSLog("[NodePool] Shutting down")
+        AppLog.log("[NodePool] Shutting down")
 
         // Cancel any in-progress quickBoot
         quickBootTask?.cancel()
@@ -229,7 +229,7 @@ final class NodePoolService: ObservableObject {
         isInitializing = false
         isReady = false
 
-        NSLog("[NodePool] Shutdown complete")
+        AppLog.log("[NodePool] Shutdown complete")
     }
 
     /// Start node discovery early (before wallet is created/imported)
@@ -240,17 +240,17 @@ final class NodePoolService: ObservableObject {
             await initialize(network: network)
         }
 
-        NSLog("[NodePool] Starting early discovery warmup")
+        AppLog.log("[NodePool] Starting early discovery warmup")
 
         // Do a test getInfo call to verify connectivity and trigger activity
         Task {
             do {
                 // Try to get info from the network as a warmup
                 let info = try await self.getInfo()
-                NSLog("[NodePool] Early discovery warmup successful - network: %@, synced: %d",
+                AppLog.log("[NodePool] Early discovery warmup successful - network: %@, synced: %d",
                       info.serverVersion, info.isSynced)
             } catch {
-                NSLog("[NodePool] Early discovery warmup failed: %@", error.localizedDescription)
+                AppLog.log("[NodePool] Early discovery warmup failed: %@", error.localizedDescription)
                 // Continue anyway - probing will happen in background
             }
         }
@@ -343,7 +343,7 @@ final class NodePoolService: ObservableObject {
                     isError: true
                 )
                 lastError = error
-                NSLog("[NodePool] getUtxosByAddresses failed on %@: %@ (trying next node)",
+                AppLog.log("[NodePool] getUtxosByAddresses failed on %@: %@ (trying next node)",
                       endpoint.key, error.localizedDescription)
             }
         }
@@ -412,7 +412,7 @@ final class NodePoolService: ObservableObject {
             for await tuple in group {
                 if let (entry, endpoint) = tuple, let entry = entry {
                     group.cancelAll()
-                    NSLog("[NodePool] getMempoolEntry: FOUND %@ in mempool on attempt %d from %@ (payload: %d chars, outputs: %d, fee: %llu)",
+                    AppLog.log("[NodePool] getMempoolEntry: FOUND %@ in mempool on attempt %d from %@ (payload: %d chars, outputs: %d, fee: %llu)",
                           String(txId.prefix(12)), attempt, endpoint.key, entry.payload.count, entry.outputs.count, entry.fee)
                     return entry
                 }
@@ -638,7 +638,7 @@ final class NodePoolService: ObservableObject {
                     isError: true
                 )
                 lastError = error
-                NSLog("[NodePool] Request failed on %@: %@", endpoint.key, error.localizedDescription)
+                AppLog.log("[NodePool] Request failed on %@: %@", endpoint.key, error.localizedDescription)
             }
         }
 
@@ -726,7 +726,7 @@ final class NodePoolService: ObservableObject {
                             isTimeout: isTimeout,
                             isError: true
                         )
-                        NSLog("[NodePool] Hedged request failed on %@: %@", endpoint.key, error.localizedDescription)
+                        AppLog.log("[NodePool] Hedged request failed on %@: %@", endpoint.key, error.localizedDescription)
                         return nil
                     }
                 }
@@ -801,7 +801,7 @@ final class NodePoolService: ObservableObject {
     private func reconnectToBestNodeIfNeeded() async {
         guard let subManager = subscriptionManager else { return }
 
-        NSLog("[NodePool] Pool became healthy - checking if reconnect needed")
+        AppLog.log("[NodePool] Pool became healthy - checking if reconnect needed")
         await subManager.reconnectToBestNodeIfNeeded()
     }
 
@@ -809,7 +809,7 @@ final class NodePoolService: ObservableObject {
     private func handleBetterNodeDetected(_ betterEndpoint: Endpoint) async {
         guard let subManager = subscriptionManager else { return }
 
-        NSLog("[NodePool] Better node detected: %@ - triggering reconnect", betterEndpoint.key)
+        AppLog.log("[NodePool] Better node detected: %@ - triggering reconnect", betterEndpoint.key)
         await subManager.reconnectToEndpoint(betterEndpoint)
     }
 
@@ -839,7 +839,7 @@ final class NodePoolService: ObservableObject {
         guard !isRefreshing else { return }
 
         isRefreshing = true
-        NSLog("[NodePool] Starting pool refresh")
+        AppLog.log("[NodePool] Starting pool refresh")
 
         await profiler?.forceProbeAll()
         await profiler?.forceDiscovery()
@@ -847,14 +847,23 @@ final class NodePoolService: ObservableObject {
 
         lastRefreshDate = Date()
         isRefreshing = false
-        NSLog("[NodePool] Pool refresh complete")
+        AppLog.log("[NodePool] Pool refresh complete")
+    }
+
+    /// Reconnect any currently-tracked connection that's dead right now - cheap, non-disruptive
+    /// alternative to `refreshPool()`/`clearConnectionPool()` meant to be called every time the app
+    /// returns to the foreground (see `KaChatApp.handleScenePhaseChange`), since a batch of
+    /// connections can die silently while backgrounded/asleep and otherwise only get reconnected
+    /// lazily, one at a time, whenever something happens to pick that exact endpoint for a request.
+    func reconnectStaleConnections() async {
+        await connectionPool.reconnectDisconnected()
     }
 
     /// Clear discovered nodes and restart pool discovery/connection.
     func clearConnectionPool() async {
         guard !isRefreshing else { return }
         isRefreshing = true
-        NSLog("[NodePool] Clearing connection pool")
+        AppLog.log("[NodePool] Clearing connection pool")
 
         // Stop active subscription and connections.
         subscriptionManager?.unsubscribe()
@@ -871,7 +880,7 @@ final class NodePoolService: ObservableObject {
         await updatePoolStats()
 
         isRefreshing = false
-        NSLog("[NodePool] Connection pool cleared and restarted")
+        AppLog.log("[NodePool] Connection pool cleared and restarted")
     }
 
     // MARK: - Connection (Compatibility)
@@ -889,19 +898,19 @@ final class NodePoolService: ObservableObject {
         // Check if we already have active nodes (from cache or quickBoot)
         await updatePoolStats()
         if activeCount > 0 {
-            NSLog("[NodePool] Connect: already have %d active nodes", activeCount)
+            AppLog.log("[NodePool] Connect: already have %d active nodes", activeCount)
             connectionError = nil
             return
         }
 
         // Wait for pool to get at least one active node (up to 10 seconds)
         // This only happens on first launch with no cached nodes
-        NSLog("[NodePool] Connect: no active nodes yet, waiting...")
+        AppLog.log("[NodePool] Connect: no active nodes yet, waiting...")
         for _ in 0..<10 {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             await updatePoolStats()
             if activeCount > 0 {
-                NSLog("[NodePool] Connect: found %d active nodes", activeCount)
+                AppLog.log("[NodePool] Connect: found %d active nodes", activeCount)
                 break
             }
         }
@@ -929,7 +938,7 @@ final class NodePoolService: ObservableObject {
         // Convert old GrpcEndpoint to NodeRecord
         await registry.migrateFromOldFormat(settings.grpcEndpointPool)
 
-        NSLog("[NodePool] Migrated %d endpoints from old format", settings.grpcEndpointPool.count)
+        AppLog.log("[NodePool] Migrated %d endpoints from old format", settings.grpcEndpointPool.count)
     }
 
     // MARK: - UI/Debug Support
@@ -961,30 +970,30 @@ final class NodePoolService: ObservableObject {
     func addEndpoint(_ endpoint: Endpoint) async {
         await registry.upsert(endpoint: endpoint, origin: .userAdded)
 
-        NSLog("[NodePool] Probing user-added endpoint: %@", endpoint.key)
+        AppLog.log("[NodePool] Probing user-added endpoint: %@", endpoint.key)
 
         // First probe - gets node to verified state
         await profiler?.profileEndpoint(endpoint)
 
         // Check if node is eligible for active status
         guard let record = await registry.get(endpoint) else {
-            NSLog("[NodePool] Failed to probe user-added endpoint: %@", endpoint.key)
+            AppLog.log("[NodePool] Failed to probe user-added endpoint: %@", endpoint.key)
             await updatePoolStats()
             return
         }
 
         // If node is synced and has UTXO index, probe again to promote to active
         if record.profile.isSynced == true && record.profile.isUtxoIndexed == true {
-            NSLog("[NodePool] User-added endpoint %@ is eligible, probing again to promote to active", endpoint.key)
+            AppLog.log("[NodePool] User-added endpoint %@ is eligible, probing again to promote to active", endpoint.key)
             await profiler?.profileEndpoint(endpoint)
 
             // Verify promotion
             if let updatedRecord = await registry.get(endpoint) {
-                NSLog("[NodePool] User-added endpoint %@ state: %@ (consecutiveSuccesses: %d)",
+                AppLog.log("[NodePool] User-added endpoint %@ state: %@ (consecutiveSuccesses: %d)",
                       endpoint.key, updatedRecord.state.displayName, updatedRecord.health.consecutiveSuccesses)
             }
         } else {
-            NSLog("[NodePool] User-added endpoint %@ not eligible: isSynced=%@, isUtxoIndexed=%@",
+            AppLog.log("[NodePool] User-added endpoint %@ not eligible: isSynced=%@, isUtxoIndexed=%@",
                   endpoint.key,
                   record.profile.isSynced == true ? "true" : "false",
                   record.profile.isUtxoIndexed == true ? "true" : "false")

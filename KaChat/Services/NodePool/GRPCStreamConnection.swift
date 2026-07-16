@@ -289,11 +289,11 @@ actor GRPCStreamConnection {
         switch result {
         case .success(let status):
             if status.code != .ok {
-                NSLog("[GRPCStream] Stream closed on %@ with status: %@",
+                AppLog.log("[GRPCStream] Stream closed on %@ with status: %@",
                       endpoint.key, status.code.description)
             }
         case .failure(let error):
-            NSLog("[GRPCStream] Stream failed on %@: %@",
+            AppLog.log("[GRPCStream] Stream failed on %@: %@",
                   endpoint.key, error.localizedDescription)
         }
 
@@ -302,6 +302,31 @@ actor GRPCStreamConnection {
         state = .disconnected
         connectedAt = nil
         stream = nil
+
+        scheduleAutoReconnect()
+    }
+
+    /// Self-heal from an unexpected drop (e.g. the OS killing sockets on sleep/wake, or a brief
+    /// network hiccup) instead of passively waiting for the next caller to notice this connection
+    /// is dead and reconnect it. Without this, a batch of connections that all die at once (as
+    /// happens on wake/foreground) only got reconnected one-by-one, lazily, whenever something
+    /// happened to pick that exact endpoint for a request - which could take a while, or never
+    /// happen before a hedge round already exhausted its (small) candidate list and failed.
+    ///
+    /// Only reached from `handleStreamClosed`, which already guards on `state == .connected` at
+    /// the time of the unexpected drop - a deliberate `disconnect()` call sets `state` to
+    /// `.disconnected` itself first, so `handleStreamClosed`'s guard fails and this never fires
+    /// for intentional disconnects (pool teardown, wallet switch, etc).
+    private func scheduleAutoReconnect() {
+        Task { [weak self] in
+            guard let self else { return }
+            // Small jitter in case many connections drop in the same instant (observed: ~20+
+            // sockets aborting within the same second on a network path change), so reconnects
+            // don't all slam the network at once.
+            try? await Task.sleep(nanoseconds: UInt64.random(in: 100_000_000...1_000_000_000))
+            guard await self.state == .disconnected else { return }
+            try? await self.connect()
+        }
     }
 
     /// Disconnect from the endpoint
@@ -329,7 +354,7 @@ actor GRPCStreamConnection {
         state = .disconnected
         connectedAt = nil
 
-        NSLog("[GRPCStream] Disconnected from %@", endpoint.key)
+        AppLog.log("[GRPCStream] Disconnected from %@", endpoint.key)
     }
 
     /// Check if connection should be attempted (circuit breaker)
@@ -358,7 +383,7 @@ actor GRPCStreamConnection {
         // A live connection is evidence the node is responsive
         if !circuitBreaker.checkState() {
             circuitBreaker.reset()
-            NSLog("[GRPCStream] Reset circuit breaker for live connection %@", endpoint.key)
+            AppLog.log("[GRPCStream] Reset circuit breaker for live connection %@", endpoint.key)
         }
 
         // Generate request ID
@@ -446,7 +471,7 @@ actor GRPCStreamConnection {
                 // Silently ignore late responses for recently timed-out requests
                 if !recentlyTimedOutTypes.contains(knownType) {
                     // Unexpected unmatched response - log for debugging
-                    NSLog("[GRPCStream] Unmatched response on %@: %@", endpoint.key, String(describing: knownType))
+                    AppLog.log("[GRPCStream] Unmatched response on %@: %@", endpoint.key, String(describing: knownType))
                 }
             }
             return
@@ -512,7 +537,7 @@ actor GRPCStreamConnection {
 
         pending.continuation.resume(throwing: KasiaError.networkError("Request timeout"))
 
-        NSLog("[GRPCStream] Request timeout on %@ (type: %@)",
+        AppLog.log("[GRPCStream] Request timeout on %@ (type: %@)",
               endpoint.key, String(describing: pending.type))
     }
 
@@ -546,7 +571,7 @@ actor GRPCStreamConnection {
            errorDesc.contains("already complete") ||
            errorDesc.contains("connection closed") ||
            errorDesc.contains("stream closed") {
-            NSLog("[GRPCStream] Stream dead on %@ - marking disconnected: %@",
+            AppLog.log("[GRPCStream] Stream dead on %@ - marking disconnected: %@",
                   endpoint.key, error.localizedDescription)
             markDisconnected()
         }
@@ -677,7 +702,7 @@ actor GRPCConnectionPool {
         // Create shared event loop group with reasonable thread count
         // On mobile, 2-4 threads is usually sufficient
         self.sharedEventLoopGroup = PlatformSupport.makeEventLoopGroup(loopCount: 2)
-        NSLog("[GRPCPool] Initialized with shared EventLoopGroup")
+        AppLog.log("[GRPCPool] Initialized with shared EventLoopGroup")
     }
 
     deinit {
@@ -685,7 +710,7 @@ actor GRPCConnectionPool {
         let group = sharedEventLoopGroup
         DispatchQueue.global(qos: .utility).async {
             try? group.syncShutdownGracefully()
-            NSLog("[GRPCPool] Shared EventLoopGroup shut down")
+            AppLog.log("[GRPCPool] Shared EventLoopGroup shut down")
         }
     }
 
@@ -722,7 +747,7 @@ actor GRPCConnectionPool {
         if let key = oldest?.key {
             if let conn = connections.removeValue(forKey: key) {
                 await conn.disconnect()
-                NSLog("[GRPCPool] Evicted oldest disconnected connection: %@", key)
+                AppLog.log("[GRPCPool] Evicted oldest disconnected connection: %@", key)
             }
         }
     }
@@ -769,6 +794,23 @@ actor GRPCConnectionPool {
         return connected
     }
 
+    /// Proactively reconnect every currently-tracked connection that isn't connected right now,
+    /// in parallel - meant to be called when the app returns to the foreground, since backgrounding
+    /// can suspend a connection's own stream-completion callback (`GRPCStreamConnection`'s
+    /// self-reconnect in `handleStreamClosed`) from running promptly, leaving connections dead
+    /// until something happens to pick that exact endpoint for a request. Only touches connections
+    /// already in the pool (bounded, cheap) - not a full node discovery/probe cycle.
+    func reconnectDisconnected() async {
+        await withTaskGroup(of: Void.self) { group in
+            for conn in connections.values {
+                group.addTask {
+                    guard await !conn.isConnected else { return }
+                    try? await conn.connect()
+                }
+            }
+        }
+    }
+
     /// Prune idle/disconnected connections to free memory
     /// Keeps connections that are still connected or were recently used
     func pruneIdleConnections(maxAge: TimeInterval) async {
@@ -794,7 +836,7 @@ actor GRPCConnectionPool {
         }
 
         if pruned > 0 {
-            NSLog("[GRPCPool] Pruned %d idle connections, %d remaining", pruned, connections.count)
+            AppLog.log("[GRPCPool] Pruned %d idle connections, %d remaining", pruned, connections.count)
         }
     }
 }

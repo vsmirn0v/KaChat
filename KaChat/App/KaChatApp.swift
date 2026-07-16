@@ -90,6 +90,14 @@ struct KaChatApp: App {
         case .active:
             // Cancel background fetch when app becomes active (we'll poll normally)
             BackgroundTaskManager.shared.cancelBackgroundFetch()
+            // A batch of gRPC connections can die silently while backgrounded/asleep (the OS
+            // tears down sockets, and the stream-completion callback that would normally
+            // self-reconnect can be suspended along with the rest of the app) - reconnect any
+            // that are dead right now instead of waiting for the next request to lazily discover
+            // and fix just that one endpoint.
+            Task {
+                await NodePoolService.shared.reconnectStaleConnections()
+            }
             if walletManager.currentWallet != nil {
                 Task {
                     await contactsManager.bootstrapSystemContactsIfNeeded()
@@ -207,7 +215,7 @@ struct KaChatApp: App {
                     try await sendSharedImage(image, to: contact)
                 }
             } catch {
-                NSLog("[Share] Auto-send failed for %@: %@",
+                AppLog.log("[Share] Auto-send failed for %@: %@",
                       String(share.contactAddress.suffix(10)),
                       error.localizedDescription)
                 if !cleanedText.isEmpty {
