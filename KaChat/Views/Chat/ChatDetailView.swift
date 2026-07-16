@@ -1860,6 +1860,46 @@ struct ChatDetailView: View {
         )
     }
 
+    /// "You" for our own address, else the contact's alias - matches broadcast rooms'
+    /// `displayName(for:)`, simplified since a 1:1 chat only ever has two possible senders.
+    private func replyDisplayName(for address: String) -> String {
+        if address == walletManager.currentWallet?.publicAddress {
+            return "You"
+        }
+        return contact.alias.isEmpty ? String(address.suffix(10)) : contact.alias
+    }
+
+    private func replyBanner(for reply: ChatMessage) -> some View {
+        let replyQuote = MessageReplyCodec.parse(reply.content)
+        let previewText = replyQuote?.text ?? reply.content
+        return HStack(spacing: 8) {
+            Image(systemName: "arrowshape.turn.up.left.fill")
+                .font(.caption)
+                .foregroundColor(.accentColor)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Replying to \(replyDisplayName(for: reply.senderAddress))")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.accentColor)
+                Text(MessageReplyCodec.previewText(for: previewText))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button {
+                chatService.cancelReply()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(UIColor.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
     private func daySeparator(_ day: Date) -> some View {
         let isToday = MessageDaySeparatorFormatter.isToday(day)
         let label = MessageDaySeparatorFormatter.label(for: day)
