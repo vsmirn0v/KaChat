@@ -692,8 +692,17 @@ enum MessageReplyCodec {
     /// Parses `text` as a reply if it looks like one, else returns nil - a plain text message
     /// never accidentally renders as a reply just because it happens to start with `{`, since this
     /// also requires the explicit "reply" type marker.
+    ///
+    /// This runs on every message row's body evaluation, for every visible/newly-appearing row,
+    /// uncached - so it's a hot path when scrolling. A reply envelope is always small (a short
+    /// reply-to preview plus the reply text itself), but a photo/file message's envelope is ALSO
+    /// valid JSON starting with `{` (see `MediaFile`) - without this size guard, every image
+    /// message's multi-KB-to-multi-MB base64 payload got a real `trimmingCharacters` copy,
+    /// UTF8 re-encode, and full `JSONDecoder` decode attempt here, just to fail the `type ==
+    /// "reply"` check afterward. Scrolling fast through a photo-heavy chat's history - revealing
+    /// many such messages at once - made that add up to a real multi-second freeze.
     static func parse(_ text: String?) -> MessageReplyContent? {
-        guard let text else { return nil }
+        guard let text, text.utf8.count < 100_000 else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
         guard let parsed = try? JSONDecoder().decode(MessageReplyContent.self, from: data),
