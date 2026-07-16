@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import UserNotifications
+import UIKit
 
 @main
 struct KaChatApp: App {
@@ -11,9 +12,21 @@ struct KaChatApp: App {
     @StateObject private var settingsViewModel = SettingsViewModel()
     @StateObject private var pushManager = PushNotificationManager.shared
     @StateObject private var giftService = GiftService.shared
+    @StateObject private var broadcastService = BroadcastService.shared
     @State private var pendingOutboundShareId: String?
     @State private var isProcessingOutboundShare = false
+    @State private var lastActiveResyncAt: Date?
     @Environment(\.scenePhase) private var scenePhase
+
+    /// Below this, becoming active again skips the heavier resync work (node pool reconnect
+    /// sweep, CloudKit fetch + catch-up sync) - only things that must run every single time
+    /// regardless of how brief the background interval was (e.g. resuming a UTXO subscription
+    /// that's unconditionally paused on every backgrounding) still do. Without this, quickly
+    /// backgrounding and resuming (e.g. glancing at the app switcher for a second) re-fired this
+    /// whole battery of MainActor-hopping tasks on every return, competing with the user's own
+    /// taps for the MainActor's serial queue right as they started navigating - reading as
+    /// laggy "surfing around" immediately after a quick resume.
+    private let activeResyncDebounce: TimeInterval = 15
 
     init() {
         // Warm up audio session and crypto on background thread to avoid first-interaction lag
@@ -31,6 +44,7 @@ struct KaChatApp: App {
                 .environmentObject(settingsViewModel)
                 .environmentObject(pushManager)
                 .environmentObject(giftService)
+                .environmentObject(broadcastService)
                 .onAppear {
                     ChatService.shared.settingsViewModel = settingsViewModel
                     if #available(iOS 16.0, macCatalyst 16.0, *) {
@@ -73,14 +87,39 @@ struct KaChatApp: App {
                 ChatService.shared.pauseUtxoSubscriptionForRemotePush()
             }
             // Flush any pending read status updates to CloudKit before backgrounding
+            appDelegate.beginBackgroundFlushIfNeeded()
             ReadStatusSyncManager.shared.flushPendingUpdates()
+            // Flush the debounced chat-list snapshot write immediately too, rather than leaving
+            // it in-flight for a 300ms timer that iOS could suspend the process before firing.
+            ChatService.shared.chatListSnapshotPersistTask?.cancel()
+            ChatService.shared.persistChatListSnapshotIfPossible()
             // Force immediate CloudKit export before backgrounding
             MessageStore.shared.flushCloudKitExport()
             // Checkpoint WAL when going to background to reduce file size
             MessageStore.shared.checkpointWAL()
+            // Give the async saves above a moment to actually land before releasing the
+            // background task, since iOS can suspend the process as soon as it ends.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                appDelegate.endBackgroundFlushIfNeeded()
+            }
         case .active:
             // Cancel background fetch when app becomes active (we'll poll normally)
             BackgroundTaskManager.shared.cancelBackgroundFetch()
+
+            let shouldRunHeavyResync = lastActiveResyncAt.map {
+                Date().timeIntervalSince($0) > activeResyncDebounce
+            } ?? true
+            if shouldRunHeavyResync {
+                lastActiveResyncAt = Date()
+                // A batch of gRPC connections can die silently while backgrounded/asleep (the OS
+                // tears down sockets, and the stream-completion callback that would normally
+                // self-reconnect can be suspended along with the rest of the app) - reconnect any
+                // that are dead right now instead of waiting for the next request to lazily discover
+                // and fix just that one endpoint.
+                Task {
+                    await NodePoolService.shared.reconnectStaleConnections()
+                }
+            }
             if walletManager.currentWallet != nil {
                 Task {
                     await contactsManager.bootstrapSystemContactsIfNeeded()
@@ -95,30 +134,32 @@ struct KaChatApp: App {
             }
             // Refresh CloudKit first to pick up messages from other devices
             // Then sync messages that may have arrived while backgrounded
-            Task {
-                // Fetch CloudKit changes to get messages sent from other devices
-                let settings = AppSettings.load()
-                if settings.storeMessagesInICloud {
-                    #if targetEnvironment(macCatalyst)
-                    let cloudKitImportTimeout: TimeInterval = 12.0
-                    #else
-                    let cloudKitImportTimeout: TimeInterval = 6.0
-                    #endif
-                    await MessageStore.shared.fetchCloudKitChanges(
-                        reason: "app-active",
-                        timeout: cloudKitImportTimeout
-                    )
-                    // Sync read statuses from CloudKit (picks up reads from other devices)
-                    await ReadStatusSyncManager.shared.syncFromCloudKit()
-                    // Load any CloudKit-synced messages before indexer sync
-                    ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-                }
-                // Run catch-up sync with push-reliability gating.
-                await ChatService.shared.maybeRunCatchUpSync(trigger: .appActive)
+            if shouldRunHeavyResync {
+                Task {
+                    // Fetch CloudKit changes to get messages sent from other devices
+                    let settings = AppSettings.load()
+                    if settings.storeMessagesInICloud {
+                        #if targetEnvironment(macCatalyst)
+                        let cloudKitImportTimeout: TimeInterval = 12.0
+                        #else
+                        let cloudKitImportTimeout: TimeInterval = 6.0
+                        #endif
+                        await MessageStore.shared.fetchCloudKitChanges(
+                            reason: "app-active",
+                            timeout: cloudKitImportTimeout
+                        )
+                        // Sync read statuses from CloudKit (picks up reads from other devices)
+                        await ReadStatusSyncManager.shared.syncFromCloudKit()
+                        // Load any CloudKit-synced messages before indexer sync
+                        ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+                    }
+                    // Run catch-up sync with push-reliability gating.
+                    await ChatService.shared.maybeRunCatchUpSync(trigger: .appActive)
 
-                // One-time migration to per-device read markers (only when store is ready)
-                if MessageStore.shared.isStoreLoaded && MessageStore.shared.currentWalletAddress != nil {
-                    ReadStatusSyncManager.shared.runMigrationIfNeeded()
+                    // One-time migration to per-device read markers (only when store is ready)
+                    if MessageStore.shared.isStoreLoaded && MessageStore.shared.currentWalletAddress != nil {
+                        ReadStatusSyncManager.shared.runMigrationIfNeeded()
+                    }
                 }
             }
             if settingsViewModel.settings.notificationMode == .remotePush {
@@ -173,7 +214,7 @@ struct KaChatApp: App {
         }
 
         let cleanedText = share.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanedText.isEmpty else {
+        guard share.hasSendableContent else {
             SharedDataManager.removeOutboundShare(id: share.id)
             pendingOutboundShareId = nil
             return
@@ -191,19 +232,47 @@ struct KaChatApp: App {
 
         if share.autoSend {
             do {
-                try await chatService.sendMessage(to: contact, content: cleanedText)
+                if !cleanedText.isEmpty {
+                    try await chatService.sendMessage(to: contact, content: cleanedText)
+                }
+                if let image = share.image {
+                    try await sendSharedImage(image, to: contact)
+                }
             } catch {
-                NSLog("[Share] Auto-send failed for %@, saved as draft: %@",
+                AppLog.log("[Share] Auto-send failed for %@: %@",
                       String(share.contactAddress.suffix(10)),
                       error.localizedDescription)
-                chatService.setDraft(cleanedText, for: share.contactAddress)
+                if !cleanedText.isEmpty {
+                    chatService.setDraft(cleanedText, for: share.contactAddress)
+                }
             }
         } else {
-            chatService.setDraft(cleanedText, for: share.contactAddress)
+            if !cleanedText.isEmpty {
+                chatService.setDraft(cleanedText, for: share.contactAddress)
+            }
         }
 
         SharedDataManager.removeOutboundShare(id: share.id)
         pendingOutboundShareId = nil
+    }
+
+    private func sendSharedImage(_ image: SharedOutboundShare.ImageAttachment, to contact: Contact) async throws {
+        guard let fileURL = SharedDataManager.outboundShareImageFileURL(for: image) else {
+            throw KasiaError.networkError("Could not locate shared image")
+        }
+
+        let imageData = try Data(contentsOf: fileURL)
+        guard let uiImage = UIImage(data: imageData) else {
+            throw KasiaError.networkError("Shared image could not be decoded")
+        }
+
+        let preparedImage = try ImagePrep.prepareForChatMessage(uiImage)
+        try await chatService.sendImage(
+            to: contact,
+            imageData: preparedImage.data,
+            fileName: preparedImage.fileName,
+            mimeType: preparedImage.mimeType
+        )
     }
 
     /// Pre-initialize heavy components to avoid lag on first user interaction
@@ -220,6 +289,27 @@ struct KaChatApp: App {
 
 // MARK: - App Delegate for Notification and Background Task Handling
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    private var backgroundFlushTaskId: UIBackgroundTaskIdentifier = .invalid
+
+    /// Requests a few extra seconds of background execution time so the debounced read-marker
+    /// and CloudKit export writes triggered on backgrounding (both `context.perform`, not
+    /// `performAndWait`, so they return before the save actually lands) get a chance to complete
+    /// before iOS can suspend the process. Without this, backgrounding right after reading a chat
+    /// can lose that write, resurrecting a stale "unread" position and wrong scroll anchor the
+    /// next time the chat is opened.
+    func beginBackgroundFlushIfNeeded() {
+        endBackgroundFlushIfNeeded()
+        backgroundFlushTaskId = UIApplication.shared.beginBackgroundTask(withName: "ReadStatusFlush") { [weak self] in
+            self?.endBackgroundFlushIfNeeded()
+        }
+    }
+
+    func endBackgroundFlushIfNeeded() {
+        guard backgroundFlushTaskId != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundFlushTaskId)
+        backgroundFlushTaskId = .invalid
+    }
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Set notification delegate to handle foreground notifications
         UNUserNotificationCenter.current().delegate = self
@@ -387,9 +477,26 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 response.notification.request.content.userInfo
             )
         }
-        // The threadIdentifier contains the contact address
-        let contactAddress = response.notification.request.content.threadIdentifier
-        if !contactAddress.isEmpty {
+        // The threadIdentifier contains the contact address, or "broadcast:<channel>" for a
+        // broadcast room notification (see `BroadcastService.notifyIfEnabled`).
+        let threadIdentifier = response.notification.request.content.threadIdentifier
+        if threadIdentifier.hasPrefix("broadcast:") {
+            let channel = String(threadIdentifier.dropFirst("broadcast:".count))
+            if !channel.isEmpty {
+                // Store pending navigation for cold start scenario
+                Task { @MainActor in
+                    BroadcastService.shared.pendingBroadcastNavigation = channel
+                }
+
+                // Also post notification for already-running views
+                NotificationCenter.default.post(
+                    name: .openBroadcast,
+                    object: nil,
+                    userInfo: ["channel": channel]
+                )
+            }
+        } else if !threadIdentifier.isEmpty {
+            let contactAddress = threadIdentifier
             // Store pending navigation for cold start scenario
             Task { @MainActor in
                 ChatService.shared.pendingChatNavigation = contactAddress
@@ -419,5 +526,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 
 extension Notification.Name {
     static let openChat = Notification.Name("openChat")
+    static let openBroadcast = Notification.Name("openBroadcast")
     static let showGiftClaim = Notification.Name("showGiftClaim")
 }

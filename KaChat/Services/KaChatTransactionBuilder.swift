@@ -2,6 +2,26 @@ import Foundation
 import CryptoKit
 import P256K
 
+/// Broadcast channel name rules, matching the Android client's
+/// `MessageProtocol.normalizeChannelName`/`isValidChannelName`.
+enum BroadcastChannelName {
+    static let maxLength = 36
+
+    /// Normalize a channel name for comparison/storage: trimmed, lowercased.
+    static func normalize(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// Whether an (already-normalized) channel name is valid: non-empty, within length,
+    /// and free of whitespace/colons (colons are the payload field delimiter).
+    static func isValid(_ name: String) -> Bool {
+        guard !name.isEmpty, name.count <= maxLength else { return false }
+        guard name.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else { return false }
+        guard !name.contains(":") else { return false }
+        return true
+    }
+}
+
 /// Builds Kaspa transactions for Kasia messaging protocol
 struct KasiaTransactionBuilder {
 
@@ -14,7 +34,7 @@ struct KasiaTransactionBuilder {
     private static func addSompiChecked(_ current: UInt64, _ amount: UInt64, context: String) throws -> UInt64 {
         let (next, overflow) = current.addingReportingOverflow(amount)
         guard !overflow else {
-            NSLog("[TxBuilder] Rejecting suspicious UTXO sum overflow (%@): current=%llu add=%llu", context, current, amount)
+            AppLog.log("[TxBuilder] Rejecting suspicious UTXO sum overflow (%@): current=%llu add=%llu", context, current, amount)
             throw KasiaError.networkError("Invalid UTXO data: amount overflow")
         }
         return next
@@ -90,6 +110,82 @@ struct KasiaTransactionBuilder {
         return estimateFee(payload: payload, inputCount: inputCount, outputs: [output]) + 3
     }
 
+    /// Build a broadcast channel message transaction (KaChat 2.0 Broadcast feature).
+    /// Same self-stash shape as a contextual message, but the payload is plaintext -
+    /// broadcasts are public one-to-many channels, so pairwise encryption doesn't apply.
+    static func buildBroadcastTx(
+        from senderAddress: String,
+        channel: String,
+        content: String,
+        senderPrivateKey: Data,
+        utxos: [UTXO]
+    ) throws -> KaspaRpcTransaction {
+        let payload = buildBroadcastPayload(channel: channel, content: content)
+
+        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: senderAddress) else {
+            throw KasiaError.invalidAddress
+        }
+
+        let selection = try selectUtxosForContextualMessage(
+            utxos: utxos,
+            payload: payload,
+            senderScriptPubKey: senderScriptPubKey
+        )
+        let selectedUtxos = selection.utxos
+        let outputAmount = selection.totalInput - selection.fee
+
+        let outputs = [KaspaRpcTransactionOutput(
+            value: outputAmount,
+            scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
+        )]
+
+        let unsignedTx = KaspaRpcTransaction(
+            version: 0,
+            inputs: selectedUtxos.map { utxo in
+                KaspaRpcTransactionInput(
+                    previousOutpoint: utxo.outpoint,
+                    signatureScript: Data(),
+                    sequence: 0,
+                    sigOpCount: 1
+                )
+            },
+            outputs: outputs,
+            lockTime: 0,
+            subnetworkId: standardSubnetworkId,
+            gas: 0,
+            payload: payload
+        )
+
+        return try signTransaction(unsignedTx, privateKey: senderPrivateKey, utxos: selectedUtxos)
+    }
+
+    /// Estimate fee for a broadcast message (compose-bar fee preview)
+    static func estimateBroadcastFee(payload: Data, inputCount: Int, senderScriptPubKey: Data) -> UInt64 {
+        let output = KaspaRpcTransactionOutput(
+            value: 0,
+            scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
+        )
+        return estimateFee(payload: payload, inputCount: inputCount, outputs: [output]) + 3
+    }
+
+    /// Build the plaintext broadcast payload: ciph_msg:1:bcast:<channel>:<content>
+    static func buildBroadcastPayload(channel: String, content: String) -> Data {
+        Data("ciph_msg:1:bcast:\(channel):\(content)".utf8)
+    }
+
+    /// Parse a decoded transaction payload string back into (channel, content).
+    /// Returns nil if the payload isn't a broadcast message.
+    static func parseBroadcastPayload(_ payloadString: String) -> (channel: String, content: String)? {
+        let prefix = "ciph_msg:1:bcast:"
+        guard payloadString.hasPrefix(prefix) else { return nil }
+        let rest = payloadString.dropFirst(prefix.count)
+        guard let colonIndex = rest.firstIndex(of: ":") else { return nil }
+        let channel = String(rest[rest.startIndex..<colonIndex])
+        let content = String(rest[rest.index(after: colonIndex)...])
+        guard !channel.isEmpty else { return nil }
+        return (channel, content)
+    }
+
     /// Build a self-spend compaction transaction for message UTXOs.
     /// Produces a single self output with empty payload to reduce future input count.
     static func buildMessageCompactionTx(
@@ -152,17 +248,17 @@ struct KasiaTransactionBuilder {
         }
 
         #if DEBUG
-        NSLog("[TxBuilder] Building payment transaction:")
-        NSLog("[TxBuilder]   from: %@", senderAddress)
-        NSLog("[TxBuilder]   to: %@", recipientAddress)
-        NSLog("[TxBuilder]   amount: %llu sompi", amount)
+        AppLog.log("[TxBuilder] Building payment transaction:")
+        AppLog.log("[TxBuilder]   from: %@", senderAddress)
+        AppLog.log("[TxBuilder]   to: %@", recipientAddress)
+        AppLog.log("[TxBuilder]   amount: %llu sompi", amount)
         #endif
 
         // Build payment payload (encrypted hex under ciph_msg:1:pay:)
         let paymentPayload = try buildPaymentPayload(message: note, amount: amount, recipientPublicKey: recipientPublicKey)
         #if DEBUG
-        NSLog("[TxBuilder]   payload size: %d bytes", paymentPayload.count)
-        NSLog("[TxBuilder]   payload hex (first 100): %@", paymentPayload.prefix(100).map { String(format: "%02x", $0) }.joined())
+        AppLog.log("[TxBuilder]   payload size: %d bytes", paymentPayload.count)
+        AppLog.log("[TxBuilder]   payload hex (first 100): %@", paymentPayload.prefix(100).map { String(format: "%02x", $0) }.joined())
         #endif
 
         guard let recipientScriptPubKey = KaspaAddress.scriptPublicKey(from: recipientAddress) else {
@@ -192,7 +288,7 @@ struct KasiaTransactionBuilder {
             selectedTotal = next
         }
         let totalForLog = selectedTotalOverflow ? "overflow" : String(selectedTotal)
-        NSLog("[TxBuilder]   selected %d UTXOs, total input: %@, change: %llu", selection.utxos.count, totalForLog, selection.change)
+        AppLog.log("[TxBuilder]   selected %d UTXOs, total input: %@, change: %llu", selection.utxos.count, totalForLog, selection.change)
         #endif
 
         var outputs: [KaspaRpcTransactionOutput] = [
@@ -209,7 +305,7 @@ struct KasiaTransactionBuilder {
         }
 
         #if DEBUG
-        NSLog("[TxBuilder]   %d outputs: %@", outputs.count, outputs.map { String($0.value) }.joined(separator: ", "))
+        AppLog.log("[TxBuilder]   %d outputs: %@", outputs.count, outputs.map { String($0.value) }.joined(separator: ", "))
         #endif
 
         let unsignedTx = KaspaRpcTransaction(
@@ -953,7 +1049,7 @@ struct KasiaTransactionBuilder {
 
         if let bestSelection {
             if bestSelection.outputAmount < minOutputAmount {
-                NSLog("[TxBuilder] Compaction target not met (target=%llu, got=%llu) - using best input reduction set (%d inputs)",
+                AppLog.log("[TxBuilder] Compaction target not met (target=%llu, got=%llu) - using best input reduction set (%d inputs)",
                       minOutputAmount,
                       bestSelection.outputAmount,
                       bestSelection.utxos.count)
@@ -1497,11 +1593,11 @@ struct KasiaTransactionBuilder {
                 // Zero sighash bytes after verification
                 for i in sighashBytes.indices { sighashBytes[i] = 0 }
                 if !isValid {
-                    NSLog("[TxBuilder] Schnorr signature INVALID for input %d of tx", index)
+                    AppLog.log("[TxBuilder] Schnorr signature INVALID for input %d of tx", index)
                     return false
                 }
             } catch {
-                NSLog("[TxBuilder] Schnorr verification error for input %d: %@", index, error.localizedDescription)
+                AppLog.log("[TxBuilder] Schnorr verification error for input %d: %@", index, error.localizedDescription)
                 return true // Verification setup failed; skip gracefully
             }
         }

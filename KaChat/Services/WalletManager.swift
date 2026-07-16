@@ -82,6 +82,7 @@ final class WalletManager: ObservableObject {
                     isLoggedOut = true
                     ContactsManager.shared.setActiveWalletAddress(nil)
                     await MessageStore.shared.setCurrentWallet(nil)
+                    BroadcastService.shared.setCurrentWallet(nil)
                     SharedDataManager.syncWalletAddressForExtension()
                     SharedDataManager.setPrivateKeyAvailable(false)
                     return
@@ -105,6 +106,7 @@ final class WalletManager: ObservableObject {
                 isLoading = false
                 // Switch MessageStore to this wallet's store and CloudKit zone
                 await MessageStore.shared.setCurrentWallet(canonicalWallet.publicAddress)
+                BroadcastService.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                 Task { _ = try? await refreshBalance() }
                 return
@@ -118,6 +120,7 @@ final class WalletManager: ObservableObject {
             UserDefaults.standard.removeObject(forKey: logoutFlagKey)
             ContactsManager.shared.setActiveWalletAddress(nil)
             await MessageStore.shared.setCurrentWallet(nil)
+            BroadcastService.shared.setCurrentWallet(nil)
             SharedDataManager.syncWalletAddressForExtension()
             SharedDataManager.setPrivateKeyAvailable(false)
         } catch {
@@ -176,6 +179,7 @@ final class WalletManager: ObservableObject {
         // Switch MessageStore to this wallet's store and CloudKit zone FIRST
         // This must happen before resetForNewWallet() to avoid clearing the wrong store
         await MessageStore.shared.setCurrentWallet(wallet.publicAddress)
+        BroadcastService.shared.setCurrentWallet(wallet.publicAddress)
         SharedDataManager.syncWalletAddressForExtension()
         SharedDataManager.setPrivateKeyAvailable(true)
 
@@ -240,6 +244,7 @@ final class WalletManager: ObservableObject {
 
         // Switch MessageStore back to default store (no wallet)
         await MessageStore.shared.setCurrentWallet(nil)
+        BroadcastService.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
         SharedDataManager.setPrivateKeyAvailable(false)
     }
@@ -260,6 +265,7 @@ final class WalletManager: ObservableObject {
         ContactsManager.shared.setActiveWalletAddress(nil)
 
         await MessageStore.shared.setCurrentWallet(nil)
+        BroadcastService.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
         SharedDataManager.setPrivateKeyAvailable(false)
     }
@@ -346,6 +352,8 @@ final class WalletManager: ObservableObject {
         await MessageStore.shared.setCurrentWallet(account.publicAddress)
         MessageStore.shared.clearAll()
         await MessageStore.shared.destroyLocalStoreFiles()
+        BroadcastService.shared.setCurrentWallet(account.publicAddress)
+        BroadcastStore.shared.clearAll()
 
         do {
             try keychainService.deleteAccountSnapshot(publicAddress: account.publicAddress)
@@ -363,6 +371,7 @@ final class WalletManager: ObservableObject {
         UserDefaults.standard.removeObject(forKey: logoutFlagKey)
 
         await MessageStore.shared.setCurrentWallet(nil)
+        BroadcastService.shared.setCurrentWallet(nil)
         ChatService.shared.resetForNewWallet(skipStoreClear: true)
         ContactsManager.shared.deleteAllContacts()
         ContactsManager.shared.setActiveWalletAddress(nil)
@@ -458,7 +467,7 @@ final class WalletManager: ObservableObject {
             return wallet
         }
 
-        NSLog(
+        AppLog.log(
             "[WalletManager] Wallet record mismatch detected (stored=%@ local=%@). Repairing wallet record from local keys.",
             String(wallet.publicAddress.suffix(12)),
             String(localWallet.publicAddress.suffix(12))
@@ -466,7 +475,7 @@ final class WalletManager: ObservableObject {
         do {
             try keychainService.saveWallet(localWallet)
         } catch {
-            NSLog("[WalletManager] Failed to persist repaired wallet record: %@", error.localizedDescription)
+            AppLog.log("[WalletManager] Failed to persist repaired wallet record: %@", error.localizedDescription)
         }
         return localWallet
     }
@@ -554,7 +563,7 @@ final class WalletManager: ObservableObject {
             }
             try keychainService.saveAccountSnapshot(wallet: wallet, seedPhrase: seedPhrase, privateKey: privateKey)
         } catch {
-            NSLog("[WalletManager] Failed to snapshot current account: %@", error.localizedDescription)
+            AppLog.log("[WalletManager] Failed to snapshot current account: %@", error.localizedDescription)
         }
     }
 
@@ -666,19 +675,19 @@ final class WalletManager: ObservableObject {
 
     private func logPrivateKeyStorageStatus() {
         let preStatus = keychainService.privateKeyStorageStatus()
-        NSLog("[WalletManager] Private key storage (pre-migration): %@", preStatus)
+        AppLog.log("[WalletManager] Private key storage (pre-migration): %@", preStatus)
 
         do {
             let migratedKey = try keychainService.loadPrivateKey()
             if migratedKey == nil {
-                NSLog("[WalletManager] Private key migration check: no key found")
+                AppLog.log("[WalletManager] Private key migration check: no key found")
             }
         } catch {
-            NSLog("[WalletManager] Private key migration check failed: %@", error.localizedDescription)
+            AppLog.log("[WalletManager] Private key migration check failed: %@", error.localizedDescription)
         }
 
         let postStatus = keychainService.privateKeyStorageStatus()
-        NSLog("[WalletManager] Private key storage (post-migration): %@", postStatus)
+        AppLog.log("[WalletManager] Private key storage (post-migration): %@", postStatus)
     }
 
     /// Derive master key from seed using BIP32

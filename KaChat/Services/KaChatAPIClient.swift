@@ -44,7 +44,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
         let confidence = await dpiState.recordHTTP2SyncSuccess(gain: confidenceGainSyncSuccess)
         #if DEBUG
         let epochId = await currentEpochId()
-        NSLog("[KasiaAPI] HTTP/2 sync success signal (epoch=%d confidence=%d)", epochId, confidence)
+        AppLog.log("[KasiaAPI] HTTP/2 sync success signal (epoch=%d confidence=%d)", epochId, confidence)
         #endif
     }
 
@@ -83,7 +83,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
     /// Log detailed metrics for a completed request
     private func logMetrics(_ metrics: URLSessionTaskMetrics, endpoint: String, task: URLSessionTask) {
         guard let transaction = metrics.transactionMetrics.last else {
-            NSLog("[KasiaAPI] [%@] No transaction data", endpoint)
+            AppLog.log("[KasiaAPI] [%@] No transaction data", endpoint)
             return
         }
 
@@ -153,10 +153,10 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
         let taskError = task.error
 
         if let err = taskError {
-            NSLog("[KasiaAPI] [%@] FAIL | %@ %@%@ | %@:%@ | %@ | err=%@",
+            AppLog.log("[KasiaAPI] [%@] FAIL | %@ %@%@ | %@:%@ | %@ | err=%@",
                   endpoint, connProto, connType, proxyStr, remoteAddr, remotePort, timingStr, err.localizedDescription)
         } else {
-            NSLog("[KasiaAPI] [%@] OK | %@ %@%@ | %@:%@ | %@",
+            AppLog.log("[KasiaAPI] [%@] OK | %@ %@%@ | %@:%@ | %@",
                   endpoint, connProto, connType, proxyStr, remoteAddr, remotePort, timingStr)
         }
     }
@@ -310,12 +310,12 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
                 if await shouldScaleDownPagination(error) {
                     let nextLimit = nextDpiLimit(after: currentLimit, fallbackBase: baseLimit)
                     if nextLimit < currentLimit {
-                        NSLog("[KasiaAPI] DPI pagination: reducing limit from %d to %d for %@", currentLimit, nextLimit, endpoint)
+                        AppLog.log("[KasiaAPI] DPI pagination: reducing limit from %d to %d for %@", currentLimit, nextLimit, endpoint)
                         currentLimit = nextLimit
                         continue
                     }
                     if currentLimit <= 1 {
-                        NSLog("[KasiaAPI] DPI pagination: limit=1 failed for %@", endpoint)
+                        AppLog.log("[KasiaAPI] DPI pagination: limit=1 failed for %@", endpoint)
                         throw KasiaAPIClientError.dpiPaginationExhausted(endpoint: endpoint)
                     }
                 }
@@ -339,13 +339,13 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
             pageCount += 1
 
             if pageCount > 1 {
-                NSLog("[KasiaAPI] Pagination: fetched page %d for %@, total items: %d, next cursor: %llu",
+                AppLog.log("[KasiaAPI] Pagination: fetched page %d for %@, total items: %d, next cursor: %llu",
                       pageCount, endpoint, allResults.count, currentBlockTime)
             }
         }
 
         if pageCount >= maxPages {
-            NSLog("[KasiaAPI] Pagination: reached max pages (%d) for %@, total items: %d",
+            AppLog.log("[KasiaAPI] Pagination: reached max pages (%d) for %@, total items: %d",
                   maxPages, endpoint, allResults.count)
         }
 
@@ -395,7 +395,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
             } catch {
                 if await shouldTryHTTP1AfterFailure(url: url, error: error, source: "primary") {
                     #if DEBUG
-                    NSLog("[KasiaAPI] Primary failed; switching to HTTP/1.1 for %@", url.absoluteString)
+                    AppLog.log("[KasiaAPI] Primary failed; switching to HTTP/1.1 for %@", url.absoluteString)
                     #endif
                     await markHTTP1ForEpoch()
                     return try await performHTTP1(url: url)
@@ -403,7 +403,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
                 if shouldRetryWithFallback(error) {
                     resetSessions()
                     #if DEBUG
-                    NSLog("[KasiaAPI] Primary session failed for %@, retrying with fallback session", url.absoluteString)
+                    AppLog.log("[KasiaAPI] Primary session failed for %@, retrying with fallback session", url.absoluteString)
                     #endif
                     var fallbackRequest = request
                     fallbackRequest.setValue("close", forHTTPHeaderField: "Connection")
@@ -415,7 +415,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
                     } catch {
                         if await shouldTryHTTP1AfterFailure(url: url, error: error, source: "fallback") {
                             #if DEBUG
-                            NSLog("[KasiaAPI] Fallback failed; trying HTTP/1.1 for %@", url.absoluteString)
+                            AppLog.log("[KasiaAPI] Fallback failed; trying HTTP/1.1 for %@", url.absoluteString)
                             #endif
                             let result: T = try await performHTTP1(url: url)
                             await markHTTP1ForEpoch()
@@ -437,7 +437,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
             dpiSuspectedSnapshot = true
         }
         #if DEBUG
-        NSLog("[KasiaAPI] DPI suspected - forcing HTTP/1.1 for epoch %d", epochId)
+        AppLog.log("[KasiaAPI] DPI suspected - forcing HTTP/1.1 for epoch %d", epochId)
         #endif
     }
 
@@ -451,7 +451,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
         )
         #if DEBUG
         let epochId = await currentEpochId()
-        NSLog("[KasiaAPI] HTTP/2 path success (%@, bytes=%d, epoch=%d confidence=%d) %@",
+        AppLog.log("[KasiaAPI] HTTP/2 path success (%@, bytes=%d, epoch=%d confidence=%d) %@",
               source, responseBytes, epochId, confidence, url.absoluteString)
         #endif
     }
@@ -466,7 +466,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
         if await shouldForceHTTP1() { return false }
         guard shouldRetryWithFallback(error) else { return false }
         #if DEBUG
-        NSLog("[KasiaAPI] Evaluating HTTP/1.1 fallback for %@ via %@ (err=%@)",
+        AppLog.log("[KasiaAPI] Evaluating HTTP/1.1 fallback for %@ via %@ (err=%@)",
               url.absoluteString, source, error.localizedDescription)
         #endif
         guard isDpiLikelyError(error) else {
@@ -481,7 +481,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
             failureWindow: confidentModeFailureWindow
         )
         #if DEBUG
-        NSLog("[KasiaAPI] DPI fallback decision for %@: switch=%@ reason=%@ conf=%d streak=%d online=%@",
+        AppLog.log("[KasiaAPI] DPI fallback decision for %@: switch=%@ reason=%@ conf=%d streak=%d online=%@",
               url.absoluteString,
               decision.shouldTryHTTP1 ? "yes" : "no",
               decision.reason,
@@ -495,14 +495,14 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
             let rootOk = await checkRootReachable()
             if !rootOk {
                 #if DEBUG
-                NSLog("[KasiaAPI] HTTP/1.1 root probe failed; staying on HTTP/2 for %@", url.absoluteString)
+                AppLog.log("[KasiaAPI] HTTP/1.1 root probe failed; staying on HTTP/2 for %@", url.absoluteString)
                 #endif
                 return false
             }
         }
 
         #if DEBUG
-        NSLog("[KasiaAPI] DPI-like failure; trying HTTP/1.1 for %@", url.absoluteString)
+        AppLog.log("[KasiaAPI] DPI-like failure; trying HTTP/1.1 for %@", url.absoluteString)
         #endif
         return true
     }
@@ -536,15 +536,15 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
             let ok = (200...599).contains(response.statusCode)
             await dpiState.setRootCheck(epochId: currentEpoch, ok: ok)
             if ok {
-                NSLog("[KasiaAPI] HTTP/1.1 root probe OK: %@", rootURL.absoluteString)
+                AppLog.log("[KasiaAPI] HTTP/1.1 root probe OK: %@", rootURL.absoluteString)
             } else {
-                NSLog("[KasiaAPI] HTTP/1.1 root probe status %d: %@",
+                AppLog.log("[KasiaAPI] HTTP/1.1 root probe status %d: %@",
                       response.statusCode, rootURL.absoluteString)
             }
             return ok
         } catch {
             await dpiState.setRootCheck(epochId: currentEpoch, ok: false)
-            NSLog("[KasiaAPI] HTTP/1.1 root probe failed for %@: %@", rootURL.absoluteString, error.localizedDescription)
+            AppLog.log("[KasiaAPI] HTTP/1.1 root probe failed for %@: %@", rootURL.absoluteString, error.localizedDescription)
             return false
         }
     }
@@ -563,13 +563,13 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
             let (data, response) = try await http1Client.get(url: url, timeout: 10)
             #if DEBUG
             let elapsed = Int(Date().timeIntervalSince(start) * 1000)
-            NSLog("[KasiaAPI] [%@] OK | HTTP/1.1 | TOTAL=%dms", url.absoluteString, elapsed)
+            AppLog.log("[KasiaAPI] [%@] OK | HTTP/1.1 | TOTAL=%dms", url.absoluteString, elapsed)
             #endif
             return try processResponse(data: data, response: response, url: url)
         } catch {
             #if DEBUG
             let elapsed = Int(Date().timeIntervalSince(start) * 1000)
-            NSLog("[KasiaAPI] [%@] FAIL | HTTP/1.1 | TOTAL=%dms | err=%@",
+            AppLog.log("[KasiaAPI] [%@] FAIL | HTTP/1.1 | TOTAL=%dms | err=%@",
                   url.absoluteString, elapsed, error.localizedDescription)
             #endif
             throw error
@@ -673,7 +673,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
 
     private func makeSession(kind: String, configuration: URLSessionConfiguration) -> URLSession {
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-        NSLog("[KasiaAPI] URLSession initialized (%@)", kind)
+        AppLog.log("[KasiaAPI] URLSession initialized (%@)", kind)
         return session
     }
 

@@ -10,6 +10,7 @@ extension Notification.Name {
 /// RPC notification types emitted by gRPC subscriptions
 enum KaspaRPCNotification: Equatable {
     case utxosChanged
+    case blockAdded
 }
 
 // MARK: - Node Info

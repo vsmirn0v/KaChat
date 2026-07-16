@@ -52,7 +52,7 @@ actor NodeSelector {
         referenceDaaScore = scores[scores.count / 2]
         referenceUpdatedAt = Date()
 
-        NSLog("[NodeSelector] Updated reference DAA: %llu (from %d nodes)",
+        AppLog.log("[NodeSelector] Updated reference DAA: %llu (from %d nodes)",
               referenceDaaScore ?? 0, scores.count)
     }
 
@@ -60,7 +60,7 @@ actor NodeSelector {
     func setReferenceDaaScore(_ score: UInt64) {
         referenceDaaScore = score
         referenceUpdatedAt = Date()
-        NSLog("[NodeSelector] Set external reference DAA: %llu", score)
+        AppLog.log("[NodeSelector] Set external reference DAA: %llu", score)
     }
 
     /// Whether reference needs refresh

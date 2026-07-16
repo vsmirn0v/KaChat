@@ -12,6 +12,10 @@ final class SharedDataManager {
         UserDefaults(suiteName: appGroupIdentifier)
     }
 
+    private static var sharedContainerURL: URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
+    }
+
     static func sharedDefaultsValue(forKey key: String) -> Any? {
         sharedDefaults?.object(forKey: key)
     }
@@ -45,12 +49,12 @@ final class SharedDataManager {
         }
 
         guard let data = try? JSONEncoder().encode(contacts) else {
-            NSLog("[SharedData] Failed to encode contacts")
+            AppLog.log("[SharedData] Failed to encode contacts")
             return
         }
 
         sharedDefaults?.set(data, forKey: Keys.contacts)
-        NSLog("[SharedData] Synced %d contacts to shared container", contacts.count)
+        AppLog.log("[SharedData] Synced %d contacts to shared container", contacts.count)
     }
 
     /// Sync notification defaults used by the notification service extension.
@@ -98,12 +102,12 @@ final class SharedDataManager {
         secrets[address] = secret.base64EncodedString()
 
         guard let data = try? JSONEncoder().encode(secrets) else {
-            NSLog("[SharedData] Failed to encode shared secrets")
+            AppLog.log("[SharedData] Failed to encode shared secrets")
             return
         }
 
         sharedDefaults?.set(data, forKey: Keys.sharedSecrets)
-        NSLog("[SharedData] Stored shared secret for %@", String(address.suffix(8)))
+        AppLog.log("[SharedData] Stored shared secret for %@", String(address.suffix(8)))
     }
 
     /// Get shared secret for a contact address
@@ -284,12 +288,17 @@ final class SharedDataManager {
         }
 
         guard let data = try? JSONEncoder().encode(shares) else {
-            NSLog("[SharedData] Failed to encode outbound shares")
+            AppLog.log("[SharedData] Failed to encode outbound shares")
             return nil
         }
 
         sharedDefaults?.set(data, forKey: Keys.outboundShares)
         return share
+    }
+
+    static func outboundShareImageFileURL(for image: SharedOutboundShare.ImageAttachment) -> URL? {
+        guard let sharedContainerURL else { return nil }
+        return sharedContainerURL.appendingPathComponent(image.relativePath, isDirectory: false)
     }
 
     static func getOutboundShare(id: String) -> SharedOutboundShare? {
@@ -305,7 +314,11 @@ final class SharedDataManager {
     }
 
     static func removeOutboundShare(id: String) {
-        let filtered = getOutboundShares().filter { $0.id != id }
+        let shares = getOutboundShares()
+        if let share = shares.first(where: { $0.id == id }) {
+            removeOutboundShareFiles(for: share)
+        }
+        let filtered = shares.filter { $0.id != id }
         if filtered.isEmpty {
             sharedDefaults?.removeObject(forKey: Keys.outboundShares)
             return
@@ -317,7 +330,10 @@ final class SharedDataManager {
 
     static func pruneOutboundShares() {
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
-        let filtered = getOutboundShares().filter { nowMs - $0.createdAtMs <= SharedOutboundShare.maxAgeMs }
+        let shares = getOutboundShares()
+        let filtered = shares.filter { nowMs - $0.createdAtMs <= SharedOutboundShare.maxAgeMs }
+        let expired = shares.filter { nowMs - $0.createdAtMs > SharedOutboundShare.maxAgeMs }
+        expired.forEach(removeOutboundShareFiles)
         if filtered.isEmpty {
             sharedDefaults?.removeObject(forKey: Keys.outboundShares)
             return
@@ -325,6 +341,15 @@ final class SharedDataManager {
         if let data = try? JSONEncoder().encode(filtered) {
             sharedDefaults?.set(data, forKey: Keys.outboundShares)
         }
+    }
+
+    private static func removeOutboundShareFiles(for share: SharedOutboundShare) {
+        guard share.image != nil,
+              let sharedContainerURL else { return }
+        let directory = sharedContainerURL
+            .appendingPathComponent(SharedOutboundShare.ImageAttachment.rootDirectoryName, isDirectory: true)
+            .appendingPathComponent(share.id, isDirectory: true)
+        try? FileManager.default.removeItem(at: directory)
     }
 
     // MARK: - Private Key Availability
@@ -351,7 +376,12 @@ final class SharedDataManager {
         sharedDefaults?.removeObject(forKey: Keys.unreadCount)
         sharedDefaults?.removeObject(forKey: Keys.incomingNotificationSoundEnabled)
         sharedDefaults?.removeObject(forKey: Keys.incomingNotificationVibrationEnabled)
-        NSLog("[SharedData] Cleared all shared data")
+        if let sharedContainerURL {
+            let outboundShareDirectory = sharedContainerURL
+                .appendingPathComponent(SharedOutboundShare.ImageAttachment.rootDirectoryName, isDirectory: true)
+            try? FileManager.default.removeItem(at: outboundShareDirectory)
+        }
+        AppLog.log("[SharedData] Cleared all shared data")
     }
 
     // MARK: - Unread Count (Badge)
@@ -405,40 +435,5 @@ struct SharedPendingMessage: Codable {
         sender = try container.decode(String.self, forKey: .sender)
         type = try container.decodeIfPresent(String.self, forKey: .type)
         timestamp = try container.decode(Int64.self, forKey: .timestamp)
-    }
-}
-
-/// Outbound share request created by Share Extension.
-struct SharedOutboundShare: Codable {
-    let id: String
-    let contactAddress: String
-    let text: String
-    let createdAtMs: Int64
-    let autoSend: Bool
-
-    static let maxStoredItems = 50
-    static let maxAgeMs: Int64 = 7 * 24 * 60 * 60 * 1000
-
-    init(
-        id: String,
-        contactAddress: String,
-        text: String,
-        createdAtMs: Int64,
-        autoSend: Bool = true
-    ) {
-        self.id = id
-        self.contactAddress = contactAddress
-        self.text = text
-        self.createdAtMs = createdAtMs
-        self.autoSend = autoSend
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        contactAddress = try container.decode(String.self, forKey: .contactAddress)
-        text = try container.decode(String.self, forKey: .text)
-        createdAtMs = try container.decode(Int64.self, forKey: .createdAtMs)
-        autoSend = try container.decodeIfPresent(Bool.self, forKey: .autoSend) ?? true
     }
 }

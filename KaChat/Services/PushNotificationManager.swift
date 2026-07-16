@@ -107,7 +107,7 @@ final class PushNotificationManager: ObservableObject {
         pendingRegistration = true
         UIApplication.shared.registerForRemoteNotifications()
 
-        NSLog("[Push] Requested APNs registration")
+        AppLog.log("[Push] Requested APNs registration")
     }
 
     /// Request permission, register with APNs, and wait for indexer registration.
@@ -175,7 +175,7 @@ final class PushNotificationManager: ObservableObject {
                 try await registerWithIndexer()
             } catch {
                 lastError = error.localizedDescription
-                NSLog("[Push] Refresh registration failed: %@", error.localizedDescription)
+                AppLog.log("[Push] Refresh registration failed: %@", error.localizedDescription)
                 if registrationContinuation != nil {
                     completeRegistration(with: error)
                 }
@@ -188,18 +188,18 @@ final class PushNotificationManager: ObservableObject {
         let settings = AppSettings.load()
         guard settings.notificationMode == .remotePush else { return }
         guard permissionStatus == .authorized || permissionStatus == .provisional else {
-            NSLog("[Push] Skipping forced re-registration - permission not granted")
+            AppLog.log("[Push] Skipping forced re-registration - permission not granted")
             return
         }
         guard registrationContinuation == nil else {
-            NSLog("[Push] Skipping forced re-registration - explicit registration flow in progress")
+            AppLog.log("[Push] Skipping forced re-registration - explicit registration flow in progress")
             return
         }
 
         if deviceToken == nil {
             pendingRegistration = true
             UIApplication.shared.registerForRemoteNotifications()
-            NSLog("[Push] Forced re-registration requested (%@), refreshing APNs token", reason)
+            AppLog.log("[Push] Forced re-registration requested (%@), refreshing APNs token", reason)
             return
         }
 
@@ -209,10 +209,10 @@ final class PushNotificationManager: ObservableObject {
 
         do {
             try await registerWithIndexer()
-            NSLog("[Push] Forced re-registration succeeded (%@)", reason)
+            AppLog.log("[Push] Forced re-registration succeeded (%@)", reason)
         } catch {
             lastError = error.localizedDescription
-            NSLog("[Push] Forced re-registration failed (%@): %@",
+            AppLog.log("[Push] Forced re-registration failed (%@): %@",
                   reason,
                   error.localizedDescription)
         }
@@ -234,7 +234,7 @@ final class PushNotificationManager: ObservableObject {
         }
         persistDeviceToken(token)
 
-        NSLog("[Push] Received APNs token: %@...%@",
+        AppLog.log("[Push] Received APNs token: %@...%@",
               String(token.prefix(8)), String(token.suffix(8)))
 
         // If we were waiting for registration, complete it
@@ -253,7 +253,7 @@ final class PushNotificationManager: ObservableObject {
                         self.completeRegistration()
                     }
                 } catch {
-                    NSLog("[Push] Failed to register with indexer: %@", error.localizedDescription)
+                    AppLog.log("[Push] Failed to register with indexer: %@", error.localizedDescription)
                     lastError = error.localizedDescription
                     await MainActor.run {
                         self.completeRegistration(with: error)
@@ -265,7 +265,7 @@ final class PushNotificationManager: ObservableObject {
 
     /// Called from AppDelegate when APNs registration fails
     func didFailToRegisterForRemoteNotifications(error: Error) {
-        NSLog("[Push] APNs registration failed: %@", error.localizedDescription)
+        AppLog.log("[Push] APNs registration failed: %@", error.localizedDescription)
         pendingRegistration = false
         lastError = error.localizedDescription
         completeRegistration(with: error)
@@ -390,7 +390,7 @@ final class PushNotificationManager: ObservableObject {
 
         SharedDataManager.syncContactsForExtension()
 
-        NSLog("[Push] Registered with indexer, watching %d addresses", watchedAddresses.count)
+        AppLog.log("[Push] Registered with indexer, watching %d addresses", watchedAddresses.count)
         if registrationContinuation != nil {
             completeRegistration()
         }
@@ -417,7 +417,7 @@ final class PushNotificationManager: ObservableObject {
                 aliases: aliases
             )
         } catch {
-            NSLog("[Push] Recovery unregister auth build failed: %@", error.localizedDescription)
+            AppLog.log("[Push] Recovery unregister auth build failed: %@", error.localizedDescription)
             return false
         }
 
@@ -437,14 +437,14 @@ final class PushNotificationManager: ObservableObject {
             if httpResponse.statusCode == 200 {
                 isRegistered = false
                 persistRegistrationStatus(false)
-                NSLog("[Push] Recovery unregister succeeded, retrying register")
+                AppLog.log("[Push] Recovery unregister succeeded, retrying register")
                 return true
             }
             let reason = parseIndexerError(from: responseData) ?? "unknown"
-            NSLog("[Push] Recovery unregister failed: status=%d reason=%@", httpResponse.statusCode, reason)
+            AppLog.log("[Push] Recovery unregister failed: status=%d reason=%@", httpResponse.statusCode, reason)
             return false
         } catch {
-            NSLog("[Push] Recovery unregister error: %@", error.localizedDescription)
+            AppLog.log("[Push] Recovery unregister error: %@", error.localizedDescription)
             return false
         }
     }
@@ -500,7 +500,7 @@ final class PushNotificationManager: ObservableObject {
                 try await registerWithIndexer()
             } catch {
                 lastError = error.localizedDescription
-                NSLog("[Push] Failed to register with indexer while updating watched addresses: %@",
+                AppLog.log("[Push] Failed to register with indexer while updating watched addresses: %@",
                       error.localizedDescription)
                 if registrationContinuation != nil {
                     completeRegistration(with: error)
@@ -563,7 +563,7 @@ final class PushNotificationManager: ObservableObject {
         let aliases = collectAliases(forWatchedAddresses: watchedAddresses)
         let primaryAddress = collectPrimaryAddress()
         if watchedAddresses.isEmpty {
-            NSLog("[Push] No eligible chats for push, unregistering device from indexer")
+            AppLog.log("[Push] No eligible chats for push, unregistering device from indexer")
             await unregister()
             lastWatchedSignature = ""
             lastWatchedUpdateSuccessAt = Date()
@@ -587,7 +587,7 @@ final class PushNotificationManager: ObservableObject {
             )
         } catch {
             lastError = error.localizedDescription
-            NSLog("[Push] Failed to build auth for watched update: %@", error.localizedDescription)
+            AppLog.log("[Push] Failed to build auth for watched update: %@", error.localizedDescription)
             return
         }
 
@@ -610,7 +610,7 @@ final class PushNotificationManager: ObservableObject {
             let (responseData, response) = try await URLSession.shared.data(for: urlRequest)
 
             guard let httpResponse = response as? HTTPURLResponse else {
-                NSLog("[Push] Failed to update watched addresses: invalid response")
+                AppLog.log("[Push] Failed to update watched addresses: invalid response")
                 return
             }
             guard httpResponse.statusCode == 200 else {
@@ -632,7 +632,7 @@ final class PushNotificationManager: ObservableObject {
                     activateWalletBindingConflictCooldown(reason: reason)
                     return
                 }
-                NSLog("[Push] Failed to update watched addresses: status=%d reason=%@", httpResponse.statusCode, reason)
+                AppLog.log("[Push] Failed to update watched addresses: status=%d reason=%@", httpResponse.statusCode, reason)
                 return
             }
 
@@ -641,9 +641,9 @@ final class PushNotificationManager: ObservableObject {
 
             lastWatchedSignature = signature
             lastWatchedUpdateSuccessAt = Date()
-            NSLog("[Push] Updated watched addresses: %d", watchedAddresses.count)
+            AppLog.log("[Push] Updated watched addresses: %d", watchedAddresses.count)
         } catch {
-            NSLog("[Push] Error updating addresses: %@", error.localizedDescription)
+            AppLog.log("[Push] Error updating addresses: %@", error.localizedDescription)
         }
 
         if updateWatchedPending {
@@ -690,7 +690,7 @@ final class PushNotificationManager: ObservableObject {
                 )
             } catch {
                 // Best-effort fallback for mixed/legacy backend mode.
-                NSLog("[Push] Failed to build auth for unregister, trying unsigned request: %@", error.localizedDescription)
+                AppLog.log("[Push] Failed to build auth for unregister, trying unsigned request: %@", error.localizedDescription)
                 auth = nil
             }
 
@@ -704,7 +704,7 @@ final class PushNotificationManager: ObservableObject {
 
             let (responseData, response) = try await URLSession.shared.data(for: urlRequest)
             guard let httpResponse = response as? HTTPURLResponse else {
-                NSLog("[Push] Error unregistering: invalid response")
+                AppLog.log("[Push] Error unregistering: invalid response")
                 return
             }
             if httpResponse.statusCode == 200 {
@@ -712,7 +712,7 @@ final class PushNotificationManager: ObservableObject {
                 persistRegistrationStatus(false)
                 lastError = nil
                 clearWalletBindingConflictCooldown()
-                NSLog("[Push] Unregistered from indexer")
+                AppLog.log("[Push] Unregistered from indexer")
                 return
             }
 
@@ -725,9 +725,9 @@ final class PushNotificationManager: ObservableObject {
                 isRegistered = false
                 persistRegistrationStatus(false)
             }
-            NSLog("[Push] Failed to unregister: status=%d reason=%@", httpResponse.statusCode, reason)
+            AppLog.log("[Push] Failed to unregister: status=%d reason=%@", httpResponse.statusCode, reason)
         } catch {
-            NSLog("[Push] Error unregistering: %@", error.localizedDescription)
+            AppLog.log("[Push] Error unregistering: %@", error.localizedDescription)
         }
     }
 
@@ -736,7 +736,7 @@ final class PushNotificationManager: ObservableObject {
         // Get messages decrypted by extension
         let storedMessages = SharedDataManager.getStoredMessages()
         if !storedMessages.isEmpty {
-            NSLog("[Push] Processing %d messages from extension", storedMessages.count)
+            AppLog.log("[Push] Processing %d messages from extension", storedMessages.count)
 
             for msg in storedMessages {
                 // Add to ChatService if not already present
@@ -764,7 +764,7 @@ final class PushNotificationManager: ObservableObject {
         // Get pending messages that need fetching (large payloads)
         let pendingMessages = SharedDataManager.getPendingMessages()
         if !pendingMessages.isEmpty {
-            NSLog("[Push] Fetching %d pending messages", pendingMessages.count)
+            AppLog.log("[Push] Fetching %d pending messages", pendingMessages.count)
 
             var failed: [SharedPendingMessage] = []
             for pending in pendingMessages {
@@ -812,7 +812,7 @@ final class PushNotificationManager: ObservableObject {
 
         pruneRecentlyHandledPushes()
         if let lastHandled = recentlyHandledPushes[txId], Date().timeIntervalSince(lastHandled) < 60 {
-            NSLog("[Push] Remote push already handled recently: %@", txId)
+            AppLog.log("[Push] Remote push already handled recently: %@", txId)
             return true
         }
 
@@ -824,7 +824,7 @@ final class PushNotificationManager: ObservableObject {
             if let ourAddress = WalletManager.shared.currentWallet?.publicAddress,
                sender == ourAddress,
                ChatService.shared.hasLocalMessage(txId: txId) {
-                NSLog("[Push] Outgoing payment already in local messages: %@", txId)
+                AppLog.log("[Push] Outgoing payment already in local messages: %@", txId)
                 return true
             }
 
@@ -835,7 +835,7 @@ final class PushNotificationManager: ObservableObject {
                 payload: payload,
                 timestamp: timestamp
             ) {
-                NSLog("[Push] Remote payment handled: %@", txId)
+                AppLog.log("[Push] Remote payment handled: %@", txId)
                 recentlyHandledPushes[txId] = Date()
                 if let task = retryTasks.removeValue(forKey: txId) {
                     task.cancel()
@@ -844,7 +844,7 @@ final class PushNotificationManager: ObservableObject {
                 return true
             }
 
-            NSLog("[Push] Remote payment handled via fetch: %@", txId)
+            AppLog.log("[Push] Remote payment handled via fetch: %@", txId)
             let fetched = await ChatService.shared.fetchPaymentByTxId(
                 txId,
                 sender: sender,
@@ -853,7 +853,7 @@ final class PushNotificationManager: ObservableObject {
             )
             if !fetched {
                 SharedDataManager.addPendingMessage(txId: txId, sender: sender, type: messageType)
-                NSLog("[Push] Remote payment fetch failed, queued for retry: %@", txId)
+                AppLog.log("[Push] Remote payment fetch failed, queued for retry: %@", txId)
                 scheduleRetryFetchIfActive(txId: txId, sender: sender, type: messageType)
                 return false
             }
@@ -868,7 +868,7 @@ final class PushNotificationManager: ObservableObject {
         if let ourAddress = WalletManager.shared.currentWallet?.publicAddress,
            sender == ourAddress {
             if ChatService.shared.hasLocalMessage(txId: txId) {
-                NSLog("[Push] Outgoing push already in local messages: %@", txId)
+                AppLog.log("[Push] Outgoing push already in local messages: %@", txId)
                 return true
             }
             return await ChatService.shared.addOutgoingMessageFromPush(
@@ -881,9 +881,9 @@ final class PushNotificationManager: ObservableObject {
 
         if messageType == "contextual" {
             if let payload {
-                NSLog("[Push] Remote push payload len=%d tx=%@", payload.count, txId)
+                AppLog.log("[Push] Remote push payload len=%d tx=%@", payload.count, txId)
                 if let content = decryptContextualPayload(payload) {
-                    NSLog("[Push] Remote push handled via decrypt: %@", txId)
+                    AppLog.log("[Push] Remote push handled via decrypt: %@", txId)
                     recentlyHandledPushes[txId] = Date()
                     if let task = retryTasks.removeValue(forKey: txId) {
                         task.cancel()
@@ -898,15 +898,15 @@ final class PushNotificationManager: ObservableObject {
                     return true
                 }
             } else {
-                NSLog("[Push] Remote push missing payload: %@", txId)
+                AppLog.log("[Push] Remote push missing payload: %@", txId)
             }
         }
 
-        NSLog("[Push] Remote push handled via fetch: %@", txId)
+        AppLog.log("[Push] Remote push handled via fetch: %@", txId)
         let fetched = await ChatService.shared.fetchMessageByTxId(txId, sender: sender)
         if !fetched {
             SharedDataManager.addPendingMessage(txId: txId, sender: sender, type: messageType)
-            NSLog("[Push] Remote push fetch failed, queued for retry: %@", txId)
+            AppLog.log("[Push] Remote push fetch failed, queued for retry: %@", txId)
             scheduleRetryFetchIfActive(txId: txId, sender: sender, type: messageType)
             return false
         }
@@ -1447,7 +1447,7 @@ final class PushNotificationManager: ObservableObject {
             return true
         }
         let remainingSeconds = Int(ceil(blockedUntil.timeIntervalSince(now)))
-        NSLog("[Push] Skipping push registration for %ds due to wallet binding conflict", max(1, remainingSeconds))
+        AppLog.log("[Push] Skipping push registration for %ds due to wallet binding conflict", max(1, remainingSeconds))
         lastWalletBindingConflictLogAt = now
         return true
     }
@@ -1467,11 +1467,11 @@ final class PushNotificationManager: ObservableObject {
         lastWalletBindingConflictLogAt = now
         let normalizedReason = reason?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let normalizedReason, !normalizedReason.isEmpty {
-            NSLog("[Push] Token-wallet binding conflict: %@. Deferring retries for %.0f seconds.",
+            AppLog.log("[Push] Token-wallet binding conflict: %@. Deferring retries for %.0f seconds.",
                   normalizedReason,
                   walletBindingConflictCooldown)
         } else {
-            NSLog("[Push] Token-wallet binding conflict. Deferring retries for %.0f seconds.",
+            AppLog.log("[Push] Token-wallet binding conflict. Deferring retries for %.0f seconds.",
                   walletBindingConflictCooldown)
         }
     }
@@ -1497,7 +1497,7 @@ final class PushNotificationManager: ObservableObject {
 
     private func decryptContextualPayload(_ payload: String) -> String? {
         guard let privateKey = try? KeychainService.shared.loadPrivateKey() else {
-            NSLog("[Push] Decrypt failed: missing private key")
+            AppLog.log("[Push] Decrypt failed: missing private key")
             return nil
         }
 
@@ -1550,13 +1550,13 @@ final class PushNotificationManager: ObservableObject {
 
     private func decryptEncryptedBytes(_ encryptedData: Data, privateKey: Data) -> String? {
         guard let encrypted = KasiaCipher.EncryptedMessage(fromBytes: encryptedData) else {
-            NSLog("[Push] Decrypt failed: invalid encrypted message len=%d", encryptedData.count)
+            AppLog.log("[Push] Decrypt failed: invalid encrypted message len=%d", encryptedData.count)
             return nil
         }
         do {
             return try KasiaCipher.decrypt(encrypted, privateKey: privateKey)
         } catch {
-            NSLog("[Push] Decrypt failed: %@", error.localizedDescription)
+            AppLog.log("[Push] Decrypt failed: %@", error.localizedDescription)
             return nil
         }
     }

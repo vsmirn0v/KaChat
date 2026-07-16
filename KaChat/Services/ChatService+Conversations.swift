@@ -9,7 +9,7 @@ import CryptoKit
 extension ChatService {
     func enterConversation(for address: String) {
         activeConversationAddress = address
-        NSLog("[ChatService] Entered conversation for %@", String(address.suffix(12)))
+        AppLog.log("[ChatService] Entered conversation for %@", String(address.suffix(12)))
     }
 
     /// Returns total number of stored messages for a contact in current wallet scope.
@@ -23,18 +23,6 @@ extension ChatService {
         await Task.detached(priority: .utility) {
             MessageStore.shared.countMessages(contactAddress: contactAddress)
         }.value
-    }
-
-    /// Read cursor for a conversation, preferring effective CloudKit marker status.
-    /// Falls back to local conversation read status if no markers are available.
-    func readCursor(for contactAddress: String) -> (txId: String?, blockTime: Int64)? {
-        if let effective = messageStore.recomputeEffectiveReadStatus(conversationId: contactAddress) {
-            return (effective.lastReadTxId, effective.lastReadBlockTime)
-        }
-        if let status = messageStore.fetchReadStatus(contactAddress: contactAddress) {
-            return (status.lastReadTxId, status.lastReadBlockTime)
-        }
-        return nil
     }
 
     /// Loads the next older page of messages for a conversation from persistent store.
@@ -148,7 +136,7 @@ extension ChatService {
             ReadStatusSyncManager.shared.userLeftConversation(address)
         }
         activeConversationAddress = nil
-        NSLog("[ChatService] Left conversation")
+        AppLog.log("[ChatService] Left conversation")
     }
 
     /// Fetch only handshakes (lightweight, needed to establish encryption keys)
@@ -156,12 +144,12 @@ extension ChatService {
     /// NOTE: Assumes configureAPIIfNeeded() was already called by startup flow
     func fetchHandshakesOnly() async {
         guard let wallet = WalletManager.shared.currentWallet else {
-            NSLog("[ChatService] fetchHandshakesOnly: No wallet")
+            AppLog.log("[ChatService] fetchHandshakesOnly: No wallet")
             return
         }
 
         guard isConfigured else {
-            NSLog("[ChatService] fetchHandshakesOnly: API not configured")
+            AppLog.log("[ChatService] fetchHandshakesOnly: API not configured")
             return
         }
 
@@ -181,53 +169,53 @@ extension ChatService {
         )
         let privateKey = WalletManager.shared.getPrivateKey()
 
-        NSLog("[ChatService] Fetching incoming handshakes (since=%llu)...", incomingSince)
+        AppLog.log("[ChatService] Fetching incoming handshakes (since=%llu)...", incomingSince)
         // Fetch incoming handshakes
         guard let incoming = await retryUntilSuccess(
             label: "fetch incoming handshakes (bootstrap)",
             operation: { [self] in try await fetchIncomingHandshakes(for: wallet.publicAddress, blockTime: incomingSince) }
         ) else {
-            NSLog("[ChatService] Failed to fetch incoming handshakes")
+            AppLog.log("[ChatService] Failed to fetch incoming handshakes")
             return
         }
         advanceSyncCursor(for: incomingHandshakeKey, maxBlockTime: incoming.compactMap { $0.blockTime }.max())
-        NSLog("[ChatService] Fetched %d incoming handshakes", incoming.count)
+        AppLog.log("[ChatService] Fetched %d incoming handshakes", incoming.count)
 
-        NSLog("[ChatService] Fetching outgoing handshakes...")
+        AppLog.log("[ChatService] Fetching outgoing handshakes...")
 
 
         guard let outgoing = await retryUntilSuccess(
             label: "fetch outgoing handshakes (bootstrap)",
             operation: { [self] in try await fetchOutgoingHandshakes(for: wallet.publicAddress, blockTime: outgoingSince) }
         ) else {
-            NSLog("[ChatService] Failed to fetch outgoing handshakes")
+            AppLog.log("[ChatService] Failed to fetch outgoing handshakes")
             return
         }
         advanceSyncCursor(for: outgoingHandshakeKey, maxBlockTime: outgoing.compactMap { $0.blockTime }.max())
-        NSLog("[ChatService] Fetched %d outgoing handshakes", outgoing.count)
+        AppLog.log("[ChatService] Fetched %d outgoing handshakes", outgoing.count)
 
-        NSLog("[ChatService] Handshake bootstrap: %d incoming, %d outgoing", incoming.count, outgoing.count)
+        AppLog.log("[ChatService] Handshake bootstrap: %d incoming, %d outgoing", incoming.count, outgoing.count)
 
         // Process handshakes to extract aliases
-        NSLog("[ChatService] Processing handshakes...")
+        AppLog.log("[ChatService] Processing handshakes...")
         await processHandshakes(incoming, isOutgoing: false, myAddress: wallet.publicAddress, privateKey: privateKey)
         await processHandshakes(outgoing, isOutgoing: true, myAddress: wallet.publicAddress, privateKey: privateKey)
-        NSLog("[ChatService] Handshakes processed")
+        AppLog.log("[ChatService] Handshakes processed")
 
         // Fetch saved handshakes from self-stash
-        NSLog("[ChatService] Fetching saved handshakes from self-stash...")
+        AppLog.log("[ChatService] Fetching saved handshakes from self-stash...")
         _ = await retryUntilSuccess(
             label: "fetch saved handshakes (bootstrap)",
             operation: { [self] in try await fetchSavedHandshakes(myAddress: wallet.publicAddress, privateKey: privateKey) }
         )
-        NSLog("[ChatService] Self-stash fetch complete")
+        AppLog.log("[ChatService] Self-stash fetch complete")
 
         saveConversationAliases()
         saveOurAliases()
         saveConversationIds()
         saveRoutingStates()
 
-        NSLog("[ChatService] Handshake bootstrap complete. Aliases: %d, Our aliases: %d, Routing: %d", conversationAliases.count, ourAliases.count, routingStates.count)
+        AppLog.log("[ChatService] Handshake bootstrap complete. Aliases: %d, Our aliases: %d, Routing: %d", conversationAliases.count, ourAliases.count, routingStates.count)
     }
 
     func fetchNewMessages(forActiveOnly activeAddress: String? = nil) async {
@@ -320,7 +308,7 @@ extension ChatService {
         // (or on initial sync when lastPaymentFetchTime is 0)
         let shouldFetchPayments = activeAddress == nil && (!isUtxoSubscribed || lastPaymentFetchTime == 0)
         if shouldFetchPayments {
-            NSLog("[ChatService] === FETCHING PAYMENTS (full fetch, utxoSubscribed=%d) ===", isUtxoSubscribed ? 1 : 0)
+            AppLog.log("[ChatService] === FETCHING PAYMENTS (full fetch, utxoSubscribed=%d) ===", isUtxoSubscribed ? 1 : 0)
             guard let incomingPayments = await retryUntilSuccess(
                 label: "fetch incoming payments",
                 operation: { [self] in try await fetchIncomingPayments(for: wallet.publicAddress, blockTime: messageSince) }
@@ -336,7 +324,7 @@ extension ChatService {
                 return
             }
             outPayments = outgoingPayments
-            NSLog("[ChatService] === PAYMENT FETCH COMPLETE: in=%d, out=%d ===", inPayments.count, outPayments.count)
+            AppLog.log("[ChatService] === PAYMENT FETCH COMPLETE: in=%d, out=%d ===", inPayments.count, outPayments.count)
 
             // Update last payment fetch time for UTXO subscription
             if !inPayments.isEmpty || !outPayments.isEmpty {
@@ -348,14 +336,14 @@ extension ChatService {
                 lastPaymentFetchTime = fallbackSince > 0 ? fallbackSince : UInt64(Date().timeIntervalSince1970 * 1000)
             }
         } else if activeAddress != nil {
-            NSLog("[ChatService] Skipping payment fetch - active conversation only")
+            AppLog.log("[ChatService] Skipping payment fetch - active conversation only")
         } else {
-            NSLog("[ChatService] Skipping payment fetch - UTXO subscription active")
+            AppLog.log("[ChatService] Skipping payment fetch - UTXO subscription active")
         }
 
-        NSLog("[ChatService] Fetched: %d incoming handshakes, %d outgoing handshakes", incoming.count, outgoing.count)
+        AppLog.log("[ChatService] Fetched: %d incoming handshakes, %d outgoing handshakes", incoming.count, outgoing.count)
         if shouldFetchPayments {
-            NSLog("[ChatService] Fetched: %d incoming payments, %d outgoing payments", inPayments.count, outPayments.count)
+            AppLog.log("[ChatService] Fetched: %d incoming payments, %d outgoing payments", inPayments.count, outPayments.count)
         }
 
         // Get private key for decryption
@@ -375,7 +363,7 @@ extension ChatService {
                 outPayments = outPayments.filter { !handshakeTxIds.contains($0.txId) }
                 let filtered = (inBefore - inPayments.count) + (outBefore - outPayments.count)
                 if filtered > 0 {
-                    NSLog("[ChatService] Filtered %d handshake txs from payment results", filtered)
+                    AppLog.log("[ChatService] Filtered %d handshake txs from payment results", filtered)
                 }
             }
             await processPayments(inPayments, isOutgoing: false, myAddress: wallet.publicAddress, privateKey: privateKey)
@@ -675,7 +663,7 @@ extension ChatService {
         addPendingOutputs(from: compaction.transaction, txId: submitted.txId, senderScriptPubKey: senderScriptPubKey)
         lastMessageCompactionAt = Date()
 
-        NSLog("[ChatService] Auto-compaction tx %@ submitted (inputs=%d, output=%llu, allowOrphan=%@)",
+        AppLog.log("[ChatService] Auto-compaction tx %@ submitted (inputs=%d, output=%llu, allowOrphan=%@)",
               String(submitted.txId.prefix(12)),
               compaction.selectedUtxos.count,
               compaction.outputAmount,
@@ -890,13 +878,28 @@ extension ChatService {
             throw KasiaError.keychainError("Could not get private key")
         }
 
+        // If replying, wrap the content in the shared reply envelope (matches broadcasts'
+        // sendBroadcast) so the quote survives even if the original message is later pruned.
+        let payload: String
+        if let reply = replyingTo {
+            let preview = MessageReplyCodec.previewText(for: reply.content)
+            payload = MessageReplyCodec.encode(
+                replyToId: reply.txId,
+                replyToSender: reply.senderAddress,
+                replyToPreview: preview,
+                text: trimmed
+            )
+        } else {
+            payload = trimmed
+        }
+
         let pendingTxId = "pending_\(UUID().uuidString)"
         let pendingTimestamp = Date()
         let pendingMessage = ChatMessage(
             txId: pendingTxId,
             senderAddress: wallet.publicAddress,
             receiverAddress: contact.address,
-            content: trimmed,
+            content: payload,
             timestamp: pendingTimestamp,
             blockTime: UInt64(pendingTimestamp.timeIntervalSince1970 * 1000),
             isOutgoing: true,
@@ -910,7 +913,7 @@ extension ChatService {
         do {
             try await ensureSufficientBalanceForMessageSend(
                 to: contact,
-                content: trimmed,
+                content: payload,
                 walletAddress: wallet.publicAddress,
                 privateKey: privateKey
             )
@@ -919,9 +922,9 @@ extension ChatService {
                 markPendingMessageFailed(pendingTxId, contactAddress: contact.address)
                 throw error
             } else if isNoConfirmedInputsError(error) {
-                NSLog("[ChatService] Message send precheck deferred: %@", error.localizedDescription)
+                AppLog.log("[ChatService] Message send precheck deferred: %@", error.localizedDescription)
             } else if shouldBypassBalancePrecheck(error) {
-                NSLog("[ChatService] Message balance precheck unavailable, continuing send: %@", error.localizedDescription)
+                AppLog.log("[ChatService] Message balance precheck unavailable, continuing send: %@", error.localizedDescription)
             } else {
                 markPendingMessageFailed(pendingTxId, contactAddress: contact.address)
                 throw error
@@ -931,12 +934,13 @@ extension ChatService {
         try await enqueueOutgoingTxOperation {
             try await self.sendMessageInternal(
                 to: contact,
-                content: trimmed,
+                content: payload,
                 messageType: messageType,
                 pendingTxId: pendingTxId,
                 pendingMessageId: pendingMessage.id
             )
         }
+        replyingTo = nil
     }
 
     func sendAudio(
@@ -966,6 +970,41 @@ extension ChatService {
         let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
         guard let jsonString = String(data: jsonData, encoding: .utf8) else {
             throw KasiaError.networkError("Failed to prepare audio payload")
+        }
+
+        try await sendMessage(to: contact, content: jsonString, messageType: .audio)
+    }
+
+    /// Sends a photo - same inline JSON envelope as `sendAudio`, just an image mimeType, matching
+    /// Android's `ImageMessage` (which itself reuses its `VoiceMessageContent` shape). Reuses the
+    /// `.audio` message type since rendering already keys off the JSON's `mimeType`, not this.
+    func sendImage(
+        to contact: Contact,
+        imageData: Data,
+        fileName: String = "photo.jpg",
+        mimeType: String = "image/jpeg"
+    ) async throws {
+        guard !imageData.isEmpty else {
+            throw KasiaError.networkError("Image is empty")
+        }
+
+        let resolvedFileName = fileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "photo.jpg"
+            : fileName
+        let resolvedMimeType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "image/jpeg"
+            : mimeType
+        let base64 = imageData.base64EncodedString()
+        let payload: [String: Any] = [
+            "type": "file",
+            "name": resolvedFileName,
+            "size": imageData.count,
+            "mimeType": resolvedMimeType,
+            "content": "data:\(resolvedMimeType);base64,\(base64)"
+        ]
+        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
+        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+            throw KasiaError.networkError("Failed to prepare image payload")
         }
 
         try await sendMessage(to: contact, content: jsonString, messageType: .audio)
@@ -1080,12 +1119,12 @@ extension ChatService {
             guard !availableUtxos.isEmpty else {
                 let totalBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
                 if totalBalanceSompi == 0 {
-                    NSLog("[ChatService] No confirmed UTXOs available - wallet balance is zero for %@",
+                    AppLog.log("[ChatService] No confirmed UTXOs available - wallet balance is zero for %@",
                           String(activePendingTxId.prefix(12)))
                     throw KasiaError.networkError("Zero balance: add funds to your wallet and try again.")
                 }
 
-                NSLog("[ChatService] No confirmed spendable UTXOs available for %@",
+                AppLog.log("[ChatService] No confirmed spendable UTXOs available for %@",
                       String(activePendingTxId.prefix(12)))
                 throw KasiaError.networkError(noSpendableFundsYetMessage())
             }
@@ -1160,7 +1199,7 @@ extension ChatService {
                     effectiveFeeSompi = totalInputSompi > totalOutputSompi
                         ? totalInputSompi - totalOutputSompi
                         : 0
-                    NSLog("[ChatService] Auto-compaction refreshed message inputs for %@: %d -> %d",
+                    AppLog.log("[ChatService] Auto-compaction refreshed message inputs for %@: %d -> %d",
                           String(activePendingTxId.prefix(12)),
                           initialMessageInputCount,
                           transaction.inputs.count)
@@ -1168,7 +1207,7 @@ extension ChatService {
                     if didSubmitCompaction {
                         throw error
                     }
-                    NSLog("[ChatService] Auto-compaction skipped for %@: %@",
+                    AppLog.log("[ChatService] Auto-compaction skipped for %@: %@",
                           String(activePendingTxId.prefix(12)),
                           error.localizedDescription)
                 }
@@ -1178,7 +1217,7 @@ extension ChatService {
             let extraFeeSompi = effectiveFeeSompi > singleInputFeeSompi
                 ? effectiveFeeSompi - singleInputFeeSompi
                 : 0
-            NSLog("[ChatService] Message tx plan %@: inputs=%d fee=%llu singleInputFee=%llu extra=%llu allowOrphan=%@",
+            AppLog.log("[ChatService] Message tx plan %@: inputs=%d fee=%llu singleInputFee=%llu extra=%llu allowOrphan=%@",
                   String(activePendingTxId.prefix(12)),
                   transaction.inputs.count,
                   effectiveFeeSompi,
@@ -1203,13 +1242,13 @@ extension ChatService {
                 let confirmedOnlyUtxos = candidateUtxos.filter { $0.blockDaaScore > 0 }
                 guard !confirmedOnlyUtxos.isEmpty else { throw error }
 
-                NSLog("[ChatService] Message submit fallback to confirmed-only inputs for %@",
+                AppLog.log("[ChatService] Message submit fallback to confirmed-only inputs for %@",
                       String(activePendingTxId.prefix(12)))
 
                 let confirmedOnlyTransaction = try buildMessageTransaction(confirmedOnlyUtxos)
                 let confirmedOnlyInputs = confirmedOnlyTransaction.inputs.count
                 if confirmedOnlyInputs > 2 {
-                    NSLog("[ChatService] Skipping expensive confirmed-only fallback for %@ (inputs=%d)",
+                    AppLog.log("[ChatService] Skipping expensive confirmed-only fallback for %@ (inputs=%d)",
                           String(activePendingTxId.prefix(12)),
                           confirmedOnlyInputs)
                     throw error
@@ -1262,7 +1301,7 @@ extension ChatService {
         } catch {
             releaseMessageOutpoints()
             if let acceptedTxId = acceptedTransactionId(from: error) {
-                NSLog("[ChatService] Message already accepted by consensus for %@ -> promoting pending to %@",
+                AppLog.log("[ChatService] Message already accepted by consensus for %@ -> promoting pending to %@",
                       String(activePendingTxId.prefix(12)),
                       String(acceptedTxId.prefix(12)))
                 if let activePendingMessageId {
@@ -1290,7 +1329,7 @@ extension ChatService {
                 let retryNumber = spendableFundsRetryAttempt + 1
                 let retryDelay = spendableFundsRetryDelay(for: retryNumber)
                 if let jitterRatio = retryDelay.jitterRatio {
-                    NSLog(
+                    AppLog.log(
                         "[ChatService] Retrying send (no spendable funds) for %@ (%d/%d) in %.0fms (+%.0f%% jitter)",
                         String(activePendingTxId.prefix(12)),
                         retryNumber,
@@ -1299,7 +1338,7 @@ extension ChatService {
                         jitterRatio * 100
                     )
                 } else {
-                    NSLog(
+                    AppLog.log(
                         "[ChatService] Retrying send (no spendable funds) for %@ (%d/%d) in %.0fms",
                         String(activePendingTxId.prefix(12)),
                         retryNumber,
@@ -1320,7 +1359,7 @@ extension ChatService {
             }
             if shouldRetryNoSpendableFundsError(error) {
                 let delay = nextNoInputRetryDelay(for: activePendingTxId)
-                NSLog(
+                AppLog.log(
                     "[ChatService] Deferred retry (no confirmed inputs) for %@ in %.0fs",
                     String(activePendingTxId.prefix(12)),
                     delay
@@ -1335,7 +1374,7 @@ extension ChatService {
                 return
             }
             if shouldRetrySendError(error) {
-                NSLog("[ChatService] Message send retry scheduled for %@: %@",
+                AppLog.log("[ChatService] Message send retry scheduled for %@: %@",
                       String(activePendingTxId.prefix(12)), error.localizedDescription)
                 scheduleOutgoingRetry(
                     contact: contact,
@@ -1791,9 +1830,9 @@ extension ChatService {
                 if isInsufficientBalancePopupError(error) {
                     throw error
                 } else if isNoConfirmedInputsError(error) {
-                    NSLog("[ChatService] Payment send precheck deferred: %@", error.localizedDescription)
+                    AppLog.log("[ChatService] Payment send precheck deferred: %@", error.localizedDescription)
                 } else if shouldBypassBalancePrecheck(error) {
-                    NSLog("[ChatService] Payment balance precheck unavailable, continuing send: %@", error.localizedDescription)
+                    AppLog.log("[ChatService] Payment balance precheck unavailable, continuing send: %@", error.localizedDescription)
                 } else {
                     throw error
                 }
@@ -1868,9 +1907,9 @@ extension ChatService {
             )
 
             // Submit via RPC manager
-            NSLog("[ChatService] Submitting payment via RPC manager...")
+            AppLog.log("[ChatService] Submitting payment via RPC manager...")
             let (txId, endpoint) = try await rpcManager.submitTransaction(tx, allowOrphan: false)
-            NSLog("[ChatService] Payment submitted: \(txId) via \(endpoint)")
+            AppLog.log("[ChatService] Payment submitted: \(txId) via \(endpoint)")
             _ = updatePendingMessageById(pendingMessageId, newTxId: txId, contactAddress: contact.address)
             markOutgoingAttemptSubmitted(
                 messageId: pendingMessageId,
@@ -1883,7 +1922,7 @@ extension ChatService {
             saveMessages(triggerExport: true)
         } catch {
             if let acceptedTxId = acceptedTransactionId(from: error) {
-                NSLog("[ChatService] Payment already accepted by consensus for %@ -> promoting pending to %@",
+                AppLog.log("[ChatService] Payment already accepted by consensus for %@ -> promoting pending to %@",
                       String(activePendingTxId.prefix(12)),
                       String(acceptedTxId.prefix(12)))
                 _ = updatePendingMessageById(pendingMessageId, newTxId: acceptedTxId, contactAddress: contact.address)
@@ -1901,7 +1940,7 @@ extension ChatService {
 
             if isNoConfirmedInputsError(error) {
                 let delay = nextNoInputRetryDelay(for: activePendingTxId)
-                NSLog(
+                AppLog.log(
                     "[ChatService] Payment deferred retry %@ in %.0fs (no confirmed inputs)",
                     String(activePendingTxId.prefix(12)),
                     delay
@@ -1949,9 +1988,22 @@ extension ChatService {
             ensureRoutingState(for: contact.address, privateKey: privateKey)
         }
         let alias = outgoingAlias(for: contact.address)
+        // Account for the reply envelope's extra bytes, matching the wrapping `sendMessage` does.
+        let estimatedContent: String
+        if let reply = replyingTo {
+            let preview = MessageReplyCodec.previewText(for: reply.content)
+            estimatedContent = MessageReplyCodec.encode(
+                replyToId: reply.txId,
+                replyToSender: reply.senderAddress,
+                replyToPreview: preview,
+                text: trimmed
+            )
+        } else {
+            estimatedContent = trimmed
+        }
         let payload = try KasiaTransactionBuilder.buildContextualMessagePayload(
             alias: alias,
-            message: trimmed,
+            message: estimatedContent,
             recipientPublicKey: recipientPublicKey
         )
 
@@ -2171,9 +2223,9 @@ extension ChatService {
                 if isInsufficientBalancePopupError(error) {
                     throw error
                 } else if isNoConfirmedInputsError(error) {
-                    NSLog("[ChatService] Handshake send precheck deferred: %@", error.localizedDescription)
+                    AppLog.log("[ChatService] Handshake send precheck deferred: %@", error.localizedDescription)
                 } else if shouldBypassBalancePrecheck(error) {
-                    NSLog("[ChatService] Handshake balance precheck unavailable, continuing send: %@", error.localizedDescription)
+                    AppLog.log("[ChatService] Handshake balance precheck unavailable, continuing send: %@", error.localizedDescription)
                 } else {
                     throw error
                 }
@@ -2249,7 +2301,7 @@ extension ChatService {
             )
 
             let (txId, endpoint) = try await rpcManager.submitTransaction(transaction, allowOrphan: false)
-            NSLog("[ChatService] Handshake submitted: \(txId) via \(endpoint)")
+            AppLog.log("[ChatService] Handshake submitted: \(txId) via \(endpoint)")
             if let activePendingMessageId {
                 _ = updatePendingMessageById(activePendingMessageId, newTxId: txId, contactAddress: contact.address)
             } else {
@@ -2286,7 +2338,7 @@ extension ChatService {
             )
         } catch {
             if let acceptedTxId = acceptedTransactionId(from: error) {
-                NSLog("[ChatService] Handshake already accepted by consensus for %@ -> promoting pending to %@",
+                AppLog.log("[ChatService] Handshake already accepted by consensus for %@ -> promoting pending to %@",
                       String(activePendingTxId.prefix(12)),
                       String(acceptedTxId.prefix(12)))
                 if let activePendingMessageId {
@@ -2308,7 +2360,7 @@ extension ChatService {
 
             if isNoConfirmedInputsError(error) {
                 let delay = nextNoInputRetryDelay(for: activePendingTxId)
-                NSLog(
+                AppLog.log(
                     "[ChatService] Handshake deferred retry %@ in %.0fs (no confirmed inputs)",
                     String(activePendingTxId.prefix(12)),
                     delay
@@ -2354,13 +2406,25 @@ extension ChatService {
         declinedContacts.contains(address)
     }
 
+    /// Drops the in-memory conversation and its routing bookkeeping for a permanently-deleted
+    /// contact - pairs with `ContactsManager.deleteContact`, which handles the persisted
+    /// contact/message/tombstone side of the same delete.
+    func removeConversation(for address: String) {
+        conversations.removeAll { $0.contact.address == address }
+        routingStates.removeValue(forKey: address)
+        conversationAliases.removeValue(forKey: address)
+        declinedContacts.remove(address)
+        chatFetchStates.removeValue(forKey: address)
+        chatFetchCounts.removeValue(forKey: address)
+        chatFetchFailed.remove(address)
+    }
+
     func isConversationVisibleInChatList(_ conversation: Conversation, settings: AppSettings? = nil) -> Bool {
         let settings = settings ?? currentSettings
         let address = conversation.contact.address
         guard !isConversationDeclined(address) else { return false }
 
         let effectiveContact = contactsManager.getContact(byAddress: address) ?? conversation.contact
-        guard !effectiveContact.isArchived else { return false }
 
         if settings.hideAutoCreatedPaymentChats &&
             effectiveContact.isAutoAdded &&
@@ -2431,7 +2495,7 @@ extension ChatService {
             selected.append(utxo)
             let (nextTotal, overflow) = total.addingReportingOverflow(utxo.amount)
             if overflow {
-                NSLog("[ChatService] Overflow while splitting handshake UTXOs; falling back to full set")
+                AppLog.log("[ChatService] Overflow while splitting handshake UTXOs; falling back to full set")
                 return (utxos, [])
             }
             total = nextTotal
@@ -2459,7 +2523,7 @@ extension ChatService {
         let settings = currentSettings
 
         // Use gRPC manager for connection with timeout
-        NSLog("[ChatService] Connecting via RPC manager (timeout: %.1fs)...", timeout)
+        AppLog.log("[ChatService] Connecting via RPC manager (timeout: %.1fs)...", timeout)
 
         // Race between connection and timeout
         try await withThrowingTaskGroup(of: Void.self) { group in
@@ -2651,7 +2715,7 @@ extension ChatService {
                         utxos: first
                     )
                     let (txId, endpoint) = try await rpcManager.submitTransaction(stashTx, allowOrphan: false)
-                    NSLog("[ChatService] Self-stash submitted: \(txId) via \(endpoint)")
+                    AppLog.log("[ChatService] Self-stash submitted: \(txId) via \(endpoint)")
                     succeeded.append(job)
                 } catch {
                     print("[ChatService] Pending self-stash failed: \(error.localizedDescription)")
@@ -2975,7 +3039,7 @@ extension ChatService {
                 } else {
                     targetTxId = lastInMemoryIncoming?.txId
                 }
-                NSLog(
+                AppLog.log(
                     "[ChatService] Marking conversation %@ as read at blockTime=%lld (inMemory=%lld, store=%lld)",
                     String(conversation.contact.address.suffix(8)),
                     targetBlockTime,
@@ -2988,6 +3052,35 @@ extension ChatService {
                     lastReadBlockTime: UInt64(targetBlockTime)
                 )
             }
+        }
+    }
+
+    /// Manually flags a whole conversation as unread again (chat list swipe/bulk action) - the
+    /// counterpart to `markConversationAsRead`. Sets a nominal unread count of 1 rather than
+    /// recomputing an exact unseen-message tally, matching how "mark as unread" works in other
+    /// mail/chat apps: a manual triage flag for the badge, not a literal count. Doesn't touch the
+    /// `lastReadTxId`/`lastReadBlockTime` read cursor - that cursor drives push-reliability/backfill
+    /// bookkeeping, a separate concern from this local, user-initiated triage flag.
+    func markConversationAsUnread(_ conversation: Conversation) {
+        guard let index = conversations.firstIndex(where: { $0.id == conversation.id }),
+              conversation.unreadCount == 0 else { return }
+        updateConversation(at: index, persist: false) { updated in
+            updated.unreadCount = 1
+        }
+        messageStore.updateConversationUnread(contactAddress: conversation.contact.address, unreadCount: 1)
+    }
+
+    /// Bulk "Mark as Read" for multi-selected conversations in the chat list.
+    func markConversationsAsRead(_ conversations: [Conversation]) {
+        for conversation in conversations where conversation.unreadCount > 0 {
+            markConversationAsRead(conversation)
+        }
+    }
+
+    /// Bulk "Mark as Unread" for multi-selected conversations in the chat list.
+    func markConversationsAsUnread(_ conversations: [Conversation]) {
+        for conversation in conversations where conversation.unreadCount == 0 {
+            markConversationAsUnread(conversation)
         }
     }
 

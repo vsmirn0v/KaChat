@@ -238,7 +238,7 @@ actor NodeProfiler {
         startProbeLoop()
         startDiscoveryLoop()
         startMaintenanceLoop()
-        NSLog(
+        AppLog.log(
             "[NodeProfiler] Started for %@ (tcp-screen=%@, explore=%.2f, stageA=%.2fs)",
             network.displayName,
             tcpScreening.mode.rawValue,
@@ -259,7 +259,7 @@ actor NodeProfiler {
         maintenanceTask = nil
         tcpPingTask?.cancel()
         tcpPingTask = nil
-        NSLog("[NodeProfiler] Stopped")
+        AppLog.log("[NodeProfiler] Stopped")
     }
 
     // MARK: - Maintenance Loop
@@ -300,7 +300,7 @@ actor NodeProfiler {
         await connectionPool.pruneIdleConnections(maxAge: 2 * 60)
 #endif
 
-        NSLog("[NodeProfiler] Maintenance cycle complete, connections: %d", await connectionPool.connectionCount())
+        AppLog.log("[NodeProfiler] Maintenance cycle complete, connections: %d", await connectionPool.connectionCount())
     }
 
     // MARK: - Probe Loop
@@ -337,7 +337,7 @@ actor NodeProfiler {
 
         guard !nodesToProbe.isEmpty else { return }
 
-        NSLog("[NodeProfiler] Probing %d nodes", nodesToProbe.count)
+        AppLog.log("[NodeProfiler] Probing %d nodes", nodesToProbe.count)
 
         // Probe in parallel with concurrency limit
         let maxProbes = await getMaxConcurrentProbes()
@@ -425,13 +425,13 @@ actor NodeProfiler {
         if candidateBetterNode?.key == bestRecord.endpoint.key {
             // Same node as before - increment counter
             candidateConsecutiveCount += 1
-            NSLog("[NodeProfiler] Better node %@ confirmed (%d/%d): %.0fms vs %.0fms (%.0f%% improvement)",
+            AppLog.log("[NodeProfiler] Better node %@ confirmed (%d/%d): %.0fms vs %.0fms (%.0f%% improvement)",
                   bestRecord.endpoint.key, candidateConsecutiveCount, requiredConsecutiveProbes,
                   bestLatency, primaryLatency, (1 - bestLatency / primaryLatency) * 100)
 
             if candidateConsecutiveCount >= requiredConsecutiveProbes {
                 // Trigger reconnection
-                NSLog("[NodeProfiler] Triggering reconnect to better node %@ (%.0fms vs %.0fms)",
+                AppLog.log("[NodeProfiler] Triggering reconnect to better node %@ (%.0fms vs %.0fms)",
                       bestRecord.endpoint.key, bestLatency, primaryLatency)
                 candidateBetterNode = nil
                 candidateConsecutiveCount = 0
@@ -441,7 +441,7 @@ actor NodeProfiler {
             // Different node - start new tracking
             candidateBetterNode = bestRecord.endpoint
             candidateConsecutiveCount = 1
-            NSLog("[NodeProfiler] New candidate better node: %@ (%.0fms vs %.0fms, %.0f%% improvement)",
+            AppLog.log("[NodeProfiler] New candidate better node: %@ (%.0fms vs %.0fms, %.0f%% improvement)",
                   bestRecord.endpoint.key, bestLatency, primaryLatency, (1 - bestLatency / primaryLatency) * 100)
         }
     }
@@ -548,7 +548,7 @@ actor NodeProfiler {
             cachedProbeMode = result
             lastProbeModeCheck = now
             if lastLoggedProbeMode != "aggressive" {
-                NSLog("[NodeProfiler] Probe mode: AGGRESSIVE - only %d active nodes (threshold: %.0fms)", activeCount, lowLatencyThreshold)
+                AppLog.log("[NodeProfiler] Probe mode: AGGRESSIVE - only %d active nodes (threshold: %.0fms)", activeCount, lowLatencyThreshold)
                 lastLoggedProbeMode = "aggressive"
             }
             return result
@@ -562,7 +562,7 @@ actor NodeProfiler {
             cachedProbeMode = result
             lastProbeModeCheck = now
             if lastLoggedProbeMode != "conservative" {
-                NSLog("[NodeProfiler] Probe mode: CONSERVATIVE - %d active nodes (%d low-latency <%.0fms), min latency: %.0fms",
+                AppLog.log("[NodeProfiler] Probe mode: CONSERVATIVE - %d active nodes (%d low-latency <%.0fms), min latency: %.0fms",
                       activeCount, lowLatencyCount, lowLatencyThreshold, minLatency)
                 lastLoggedProbeMode = "conservative"
             }
@@ -572,7 +572,7 @@ actor NodeProfiler {
             cachedProbeMode = result
             lastProbeModeCheck = now
             if lastLoggedProbeMode != "aggressive-nolatency" {
-                NSLog("[NodeProfiler] Probe mode: AGGRESSIVE - %d active nodes but no low-latency node <%.0fms (min: %.0fms)",
+                AppLog.log("[NodeProfiler] Probe mode: AGGRESSIVE - %d active nodes but no low-latency node <%.0fms (min: %.0fms)",
                       activeCount, lowLatencyThreshold, minLatency)
                 lastLoggedProbeMode = "aggressive-nolatency"
             }
@@ -1017,11 +1017,11 @@ actor NodeProfiler {
                             peerInfoBytes = serialized.count
                         }
                         peerInfoOk = true
-                        NSLog("[NodeProfiler] Peer info check passed for %@ (%d bytes, %d peers)",
+                        AppLog.log("[NodeProfiler] Peer info check passed for %@ (%d bytes, %d peers)",
                               endpoint.key, peerInfoBytes, peerInfo.infos.count)
                     }
                 } catch {
-                    NSLog("[NodeProfiler] Peer info check failed for %@ (possible DPI block): %@",
+                    AppLog.log("[NodeProfiler] Peer info check failed for %@ (possible DPI block): %@",
                           endpoint.key, error.localizedDescription)
                 }
 
@@ -1087,7 +1087,7 @@ actor NodeProfiler {
         let hardPause = await hardPauseState()
         if hardPause.paused {
             if lastLoggedHardPause != true {
-                NSLog(
+                AppLog.log(
                     "[NodeProfiler] Discovery HARD-PAUSED - %d active nodes under %.0fms and no recent errors",
                     hardPause.fastCount,
                     hardPause.thresholdMs
@@ -1099,7 +1099,7 @@ actor NodeProfiler {
 
         if lastLoggedHardPause == true {
             let mode = await getProbeMode()
-            NSLog(
+            AppLog.log(
                 "[NodeProfiler] Discovery RESUMED - active=%d low-latency=%d errors=%d",
                 mode.activeCount,
                 mode.lowLatencyCount,
@@ -1111,7 +1111,7 @@ actor NodeProfiler {
         // Refill discovery tokens.
         refillDiscoveryTokens()
         guard discoveryTokens > 0 else {
-            NSLog("[NodeProfiler] Discovery budget exhausted")
+            AppLog.log("[NodeProfiler] Discovery budget exhausted")
             return
         }
 
@@ -1130,7 +1130,7 @@ actor NodeProfiler {
         }
 
         lastHealthyDiscoveryAt = now
-        NSLog("[NodeProfiler] Healthy pool - running slow background discovery")
+        AppLog.log("[NodeProfiler] Healthy pool - running slow background discovery")
         await discoverWithRetry()
         await rebalanceActivePool(reason: "healthy-discovery")
 
@@ -1148,7 +1148,7 @@ actor NodeProfiler {
         )
 
         if result.promoted > 0 || result.demoted > 0 {
-            NSLog(
+            AppLog.log(
                 "[NodeProfiler] Rebalance (%@): active=%d eligible=%d +%d/-%d",
                 reason,
                 result.activeCount,
@@ -1202,12 +1202,12 @@ actor NodeProfiler {
             }
 
             if discovered > 0 {
-                NSLog("[NodeProfiler] Discovered %d new peers from %@", discovered, endpoint.key)
+                AppLog.log("[NodeProfiler] Discovered %d new peers from %@", discovered, endpoint.key)
             }
 
             // Track successful discovery
             successfulDiscoveryCount += 1
-            NSLog("[NodeProfiler] getConnectedPeerInfo succeeded (%d total successful)", successfulDiscoveryCount)
+            AppLog.log("[NodeProfiler] getConnectedPeerInfo succeeded (%d total successful)", successfulDiscoveryCount)
 
             // Check if we should start TCP ping checks
             await checkAndStartTcpPingIfReady()
@@ -1215,7 +1215,7 @@ actor NodeProfiler {
             return true
 
         } catch {
-            NSLog("[NodeProfiler] Discovery failed from %@: %@", endpoint.key, error.localizedDescription)
+            AppLog.log("[NodeProfiler] Discovery failed from %@: %@", endpoint.key, error.localizedDescription)
             return false
         }
     }
@@ -1247,7 +1247,7 @@ actor NodeProfiler {
         case .poor, .offline: sourceParallelism = 1
         }
 
-        NSLog(
+        AppLog.log(
             "[NodeProfiler] Discovery fanout starting: target=%d parallel=%d pool=%d quality=%d",
             targetSuccesses,
             sourceParallelism,
@@ -1271,7 +1271,7 @@ actor NodeProfiler {
                 // No more endpoints available, wait and retry
                 if successCount == 0 {
                     // Haven't succeeded once yet, keep trying
-                    NSLog("[NodeProfiler] No endpoints available for discovery, waiting...")
+                    AppLog.log("[NodeProfiler] No endpoints available for discovery, waiting...")
                     try? await Task.sleep(nanoseconds: 5 * 1_000_000_000)  // Wait 5 seconds
                     attempts += 1
                     continue
@@ -1308,7 +1308,7 @@ actor NodeProfiler {
                 if success {
                     batchSuccesses += 1
                     successCount += 1
-                    NSLog("[NodeProfiler] discovery success %d/%d from %@", successCount, targetSuccesses, endpoint.key)
+                    AppLog.log("[NodeProfiler] discovery success %d/%d from %@", successCount, targetSuccesses, endpoint.key)
                     if successCount >= targetSuccesses {
                         break
                     }
@@ -1327,7 +1327,7 @@ actor NodeProfiler {
         telemetry.discoverySuccesses += successCount
         if discoveryCallsThisRun > 0 {
             let successRate = (Double(successCount) / Double(discoveryCallsThisRun)) * 100
-            NSLog(
+            AppLog.log(
                 "[NodeProfiler] Discovery efficiency: %d/%d successes (%.0f%%), attempts=%d",
                 successCount,
                 discoveryCallsThisRun,
@@ -1337,7 +1337,7 @@ actor NodeProfiler {
         }
 
         if successCount > 0 {
-            NSLog("[NodeProfiler] Discovery with retry complete: %d/%d endpoints succeeded", successCount, targetSuccesses)
+            AppLog.log("[NodeProfiler] Discovery with retry complete: %d/%d endpoints succeeded", successCount, targetSuccesses)
             // Force immediate save after discovery to persist new nodes
             await registry.persistNow()
         }
@@ -1592,7 +1592,7 @@ actor NodeProfiler {
         }
 
         if tcpScreening.mode == .gate && !passed {
-            NSLog("[NodeProfiler] TCP gate blocked candidate probe for %@", record.endpoint.key)
+            AppLog.log("[NodeProfiler] TCP gate blocked candidate probe for %@", record.endpoint.key)
             return false
         }
         return true
@@ -1616,7 +1616,7 @@ actor NodeProfiler {
         // Don't start if already running
         guard tcpPingTask == nil || tcpPingTask?.isCancelled == true else { return }
 
-        NSLog("[NodeProfiler] Starting TCP ping check on candidates (mode=%@, quality=%d, aggressive mode, DNS complete)", tcpScreening.mode.rawValue, networkQuality.rawValue)
+        AppLog.log("[NodeProfiler] Starting TCP ping check on candidates (mode=%@, quality=%d, aggressive mode, DNS complete)", tcpScreening.mode.rawValue, networkQuality.rawValue)
         startTcpPingBatches()
     }
 
@@ -1640,11 +1640,11 @@ actor NodeProfiler {
             .filter { shouldRefreshTcpPing($0, now: now) }
 
         guard !candidates.isEmpty else {
-            NSLog("[NodeProfiler] No candidates to TCP ping")
+            AppLog.log("[NodeProfiler] No candidates to TCP ping")
             return
         }
 
-        NSLog("[NodeProfiler] TCP ping check: %d candidates to check", candidates.count)
+        AppLog.log("[NodeProfiler] TCP ping check: %d candidates to check", candidates.count)
 
         var checked = 0
         var passed = 0
@@ -1659,20 +1659,20 @@ actor NodeProfiler {
 
             // Stop if we've found enough reachable nodes
             if passed >= tcpScreening.maxPassedNodes {
-                NSLog("[NodeProfiler] TCP ping check stopped: found %d reachable nodes", passed)
+                AppLog.log("[NodeProfiler] TCP ping check stopped: found %d reachable nodes", passed)
                 break
             }
 
             // Re-check conditions before each batch
             let networkQuality = await MainActor.run { epochMonitor.networkQuality }
             guard networkQuality == .excellent || networkQuality == .good else {
-                NSLog("[NodeProfiler] TCP ping check stopped: network quality degraded")
+                AppLog.log("[NodeProfiler] TCP ping check stopped: network quality degraded")
                 break
             }
 
             let mode = await getProbeMode()
             if mode.isConservative {
-                NSLog("[NodeProfiler] TCP ping check stopped: switched to conservative mode")
+                AppLog.log("[NodeProfiler] TCP ping check stopped: switched to conservative mode")
                 break
             }
 
@@ -1748,7 +1748,7 @@ actor NodeProfiler {
         )
         let stageARate = stageAChecked > 0 ? (Double(stageAPassed) / Double(stageAChecked)) * 100 : 0
         let stageBRate = stageBChecked > 0 ? (Double(stageBPassed) / Double(stageBChecked)) * 100 : 0
-        NSLog(
+        AppLog.log(
             "[NodeProfiler] TCP staged efficiency: A %d/%d (%.0f%%), B %d/%d (%.0f%%)",
             stageAPassed,
             stageAChecked,
@@ -1757,7 +1757,7 @@ actor NodeProfiler {
             stageBChecked,
             stageBRate
         )
-        NSLog("[NodeProfiler] TCP ping check complete: %d/%d candidates passed", passed, checked)
+        AppLog.log("[NodeProfiler] TCP ping check complete: %d/%d candidates passed", passed, checked)
 
         if telemetry.tcpRuns % 5 == 0 {
             logTelemetrySnapshot(reason: "tcp")
@@ -1941,7 +1941,7 @@ actor NodeProfiler {
             stageBRate = 0
         }
 
-        NSLog(
+        AppLog.log(
             "[NodeProfiler] Telemetry[%@]: probeCycles=%d discovery=%d/%d(%.0f%%) tcpA=%d/%d(%.0f%%) tcpB=%d/%d(%.0f%%)",
             reason,
             telemetry.probeCycles,
@@ -1961,13 +1961,13 @@ actor NodeProfiler {
 
     /// Force immediate probe of all nodes
     func forceProbeAll() async {
-        NSLog("[NodeProfiler] Force probing all nodes")
+        AppLog.log("[NodeProfiler] Force probing all nodes")
         await runProbeCycle()
     }
 
     /// Force immediate discovery
     func forceDiscovery() async {
-        NSLog("[NodeProfiler] Force discovery")
+        AppLog.log("[NodeProfiler] Force discovery")
         await runDiscoveryCycle()
     }
 
@@ -1993,7 +1993,7 @@ actor NodeProfiler {
 
                 guard status == 0, let addrList = result else {
                     if status != 0 {
-                        NSLog("[NodeProfiler] DNS resolution failed for %@: %@",
+                        AppLog.log("[NodeProfiler] DNS resolution failed for %@: %@",
                               seed.hostname, String(cString: gai_strerror(status)))
                     }
                     continuation.resume(returning: [])
@@ -2040,7 +2040,7 @@ actor NodeProfiler {
     private func refreshDNSSeeds() async {
         let seeds = networkType == .mainnet ? mainnetDNSSeeds : testnetDNSSeeds
 
-        NSLog("[NodeProfiler] Resolving %d DNS seeds...", seeds.count)
+        AppLog.log("[NodeProfiler] Resolving %d DNS seeds...", seeds.count)
 
         var totalResolved = 0
 
@@ -2064,13 +2064,13 @@ actor NodeProfiler {
                 }
 
                 if !endpoints.isEmpty {
-                    NSLog("[NodeProfiler] DNS seed %@ resolved to %d IPs", hostname, endpoints.count)
+                    AppLog.log("[NodeProfiler] DNS seed %@ resolved to %d IPs", hostname, endpoints.count)
                 }
             }
         }
 
         if totalResolved > 0 {
-            NSLog("[NodeProfiler] Added %d new nodes from DNS resolution", totalResolved)
+            AppLog.log("[NodeProfiler] Added %d new nodes from DNS resolution", totalResolved)
             // Force immediate save after DNS discovery
             await registry.persistNow()
         }
@@ -2110,14 +2110,14 @@ actor NodeProfiler {
         let persistedVerified = await registry.records(inState: .verified)
 
         if !persistedActive.isEmpty {
-            NSLog("[NodeProfiler] Quick boot: found %d persisted active nodes, skipping DNS resolution", persistedActive.count)
+            AppLog.log("[NodeProfiler] Quick boot: found %d persisted active nodes, skipping DNS resolution", persistedActive.count)
 
             // Verify one of the persisted nodes is still working
             if let node = persistedActive.first {
                 await probeNode(node.endpoint)
                 let stillActive = await registry.stateCounts()[.active] ?? 0
                 if stillActive > 0 {
-                    NSLog("[NodeProfiler] Quick boot: persisted node verified, starting peer discovery")
+                    AppLog.log("[NodeProfiler] Quick boot: persisted node verified, starting peer discovery")
                     _ = await discoverFromNode(node.endpoint)
                     await rebalanceActivePool(reason: "quick-boot-persisted-active")
 
@@ -2129,14 +2129,14 @@ actor NodeProfiler {
                 }
             }
         } else if !persistedVerified.isEmpty {
-            NSLog("[NodeProfiler] Quick boot: found %d persisted verified nodes, probing...", persistedVerified.count)
+            AppLog.log("[NodeProfiler] Quick boot: found %d persisted verified nodes, probing...", persistedVerified.count)
 
             // Try to promote verified nodes to active
             for node in persistedVerified.prefix(5) {
                 await probeNode(node.endpoint)
                 let activeCount = await registry.stateCounts()[.active] ?? 0
                 if activeCount > 0 {
-                    NSLog("[NodeProfiler] Quick boot: verified node promoted to active")
+                    AppLog.log("[NodeProfiler] Quick boot: verified node promoted to active")
                     _ = await discoverFromNode(node.endpoint)
                     await rebalanceActivePool(reason: "quick-boot-persisted-verified")
 
@@ -2149,14 +2149,14 @@ actor NodeProfiler {
         }
 
         // No persisted nodes worked - fall back to DNS resolution
-        NSLog("[NodeProfiler] Quick boot: no valid persisted nodes, starting DNS resolution")
+        AppLog.log("[NodeProfiler] Quick boot: no valid persisted nodes, starting DNS resolution")
 
         // Run DNS resolution in background
         Task { [weak self] in
             guard let self = self else { return }
             await self.refreshDNSSeeds()
             await self.startDNSRefreshLoop()
-            NSLog("[NodeProfiler] DNS resolution complete, continuing in background")
+            AppLog.log("[NodeProfiler] DNS resolution complete, continuing in background")
         }
 
         // Probe resolved seed nodes, return as soon as we have one active
@@ -2169,7 +2169,7 @@ actor NodeProfiler {
                 .filter { $0.origin == .seed }
 
             if !seeds.isEmpty {
-                NSLog("[NodeProfiler] Found %d resolved seeds, starting probes", seeds.count)
+                AppLog.log("[NodeProfiler] Found %d resolved seeds, starting probes", seeds.count)
 
                 var foundActive = false
                 await withTaskGroup(of: Void.self) { group in
@@ -2179,7 +2179,7 @@ actor NodeProfiler {
                         // Check if we have an active node
                         let activeCount = await registry.stateCounts()[.active] ?? 0
                         if activeCount > 0 {
-                            NSLog("[NodeProfiler] Quick boot complete - found active node")
+                            AppLog.log("[NodeProfiler] Quick boot complete - found active node")
                             foundActive = true
                             return
                         }
@@ -2192,7 +2192,7 @@ actor NodeProfiler {
                             // Check again after each probe completes
                             let activeCount = await registry.stateCounts()[.active] ?? 0
                             if activeCount > 0 {
-                                NSLog("[NodeProfiler] Quick boot complete - found active node")
+                                AppLog.log("[NodeProfiler] Quick boot complete - found active node")
                                 foundActive = true
                                 return
                             }
@@ -2208,7 +2208,7 @@ actor NodeProfiler {
                     for await _ in group {
                         let activeCount = await registry.stateCounts()[.active] ?? 0
                         if activeCount > 0 {
-                            NSLog("[NodeProfiler] Quick boot complete - found active node")
+                            AppLog.log("[NodeProfiler] Quick boot complete - found active node")
                             foundActive = true
                             return
                         }
@@ -2219,7 +2219,7 @@ actor NodeProfiler {
                 if foundActive {
                     let activeNodes = await registry.records(inState: .active)
                     if let node = activeNodes.first {
-                        NSLog("[NodeProfiler] Quick boot: calling discovery for peer discovery")
+                        AppLog.log("[NodeProfiler] Quick boot: calling discovery for peer discovery")
                         _ = await discoverFromNode(node.endpoint)
                     }
                     await rebalanceActivePool(reason: "quick-boot-seed-probes")
@@ -2235,7 +2235,7 @@ actor NodeProfiler {
             attemptCount += 1
         }
 
-        NSLog("[NodeProfiler] Quick boot finished initial probes")
+        AppLog.log("[NodeProfiler] Quick boot finished initial probes")
 
         // Continue peer discovery in background
         Task.detached { [weak self] in
@@ -2252,7 +2252,7 @@ actor NodeProfiler {
             let activeNodes = await self.registry.records(inState: .active)
             let verifiedNodes = await self.registry.records(inState: .verified)
             if let workingNode = activeNodes.first ?? verifiedNodes.first {
-                NSLog("[NodeProfiler] Calling discovery from %@", workingNode.endpoint.key)
+                AppLog.log("[NodeProfiler] Calling discovery from %@", workingNode.endpoint.key)
                 _ = await self.discoverFromNode(workingNode.endpoint)
             }
 
@@ -2262,7 +2262,7 @@ actor NodeProfiler {
                 .prefix(50)
 
             if !candidates.isEmpty {
-                NSLog("[NodeProfiler] Probing %d discovered candidates", candidates.count)
+                AppLog.log("[NodeProfiler] Probing %d discovered candidates", candidates.count)
             }
 
             let maxProbes = await self.getMaxConcurrentProbes()
@@ -2286,7 +2286,7 @@ actor NodeProfiler {
 
             await self.rebalanceActivePool(reason: "quick-boot-background")
 
-            NSLog("[NodeProfiler] Background peer discovery complete")
+            AppLog.log("[NodeProfiler] Background peer discovery complete")
         }
     }
 }
@@ -2443,9 +2443,9 @@ private actor LocalGeoIPDatabase {
             }
 
             entries = built.sorted { $0.start < $1.start }
-            NSLog("[NodeProfiler] Loaded local GeoIP DB with %d ranges", entries.count)
+            AppLog.log("[NodeProfiler] Loaded local GeoIP DB with %d ranges", entries.count)
         } catch {
-            NSLog("[NodeProfiler] Failed to load local GeoIP DB: %@", error.localizedDescription)
+            AppLog.log("[NodeProfiler] Failed to load local GeoIP DB: %@", error.localizedDescription)
         }
     }
 

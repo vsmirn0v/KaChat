@@ -4,6 +4,10 @@ import UIKit
 
 struct ChatInfoView: View {
     @Binding var contact: Contact
+    var title: String = "Chat Info"
+    /// Per-contact notification overrides only make sense for a 1:1 chat thread - hidden when
+    /// viewing a broadcast sender's profile (there's no per-sender notification setting there).
+    var showsNotificationSettings: Bool = true
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
@@ -12,6 +16,7 @@ struct ChatInfoView: View {
     @State private var editedAlias: String = ""
     @State private var notificationModeOverride: ContactNotificationMode? = nil
     @State private var realtimeUpdatesDisabled: Bool = false
+    @State private var photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil
     @State private var isLoadingKNS = false
     @State private var isLoadingBalance = false
     @State private var showQR = false
@@ -32,6 +37,15 @@ struct ChatInfoView: View {
     private var hasUserVisibleLink: Bool {
         guard linkedSystemContactId != nil else { return false }
         return linkedSystemContactSource == .manual || linkedSystemContactSource == .matched
+    }
+
+    /// Describes what "Automatic" currently resolves to for this contact, so the picker
+    /// label reflects the smart default (trusted contacts show, untrusted ones hide).
+    private var automaticPhotoDisplayDescription: String {
+        guard settingsViewModel.settings.requirePhotoApprovalForNewContacts else {
+            return "Show"
+        }
+        return (!contact.isAutoAdded || contact.hasSentOutgoingMessage) ? "Show" : "Hidden"
     }
 
     private var knsInfo: KNSAddressInfo? {
@@ -188,17 +202,31 @@ struct ChatInfoView: View {
                     }
                 }
 
+                if showsNotificationSettings {
+                    Section {
+                        Picker("Incoming Notifications", selection: $notificationModeOverride) {
+                            Text("Default (\(settingsViewModel.settings.defaultIncomingNotificationMode.displayName))")
+                                .tag(ContactNotificationMode?.none)
+                            Text("Off").tag(ContactNotificationMode?.some(.off))
+                            Text("No Sound").tag(ContactNotificationMode?.some(.noSound))
+                            Text("Sound").tag(ContactNotificationMode?.some(.sound))
+                        }
+                        .pickerStyle(.menu)
+                    } footer: {
+                        Text("Default follows Settings > Notifications. Off disables notifications for this contact.")
+                    }
+                }
+
                 Section {
-                    Picker("Incoming Notifications", selection: $notificationModeOverride) {
-                        Text("Default (\(settingsViewModel.settings.defaultIncomingNotificationMode.displayName))")
-                            .tag(ContactNotificationMode?.none)
-                        Text("Off").tag(ContactNotificationMode?.some(.off))
-                        Text("No Sound").tag(ContactNotificationMode?.some(.noSound))
-                        Text("Sound").tag(ContactNotificationMode?.some(.sound))
+                    Picker("Photos", selection: $photoAutoDisplayOverride) {
+                        Text("Automatic (\(automaticPhotoDisplayDescription))")
+                            .tag(PhotoAutoDisplayMode?.none)
+                        Text("Always Show").tag(PhotoAutoDisplayMode?.some(.alwaysShow))
+                        Text("Always Hide").tag(PhotoAutoDisplayMode?.some(.alwaysHide))
                     }
                     .pickerStyle(.menu)
                 } footer: {
-                    Text("Default follows Settings > Notifications. Off disables notifications for this contact.")
+                    Text("Automatic hides photos from contacts you haven't added or messaged yet, until you tap to reveal them.")
                 }
 
                 // TODO: Fix realtimeUpdatesDisabled feature - currently broken, hidden until fixed
@@ -355,7 +383,7 @@ struct ChatInfoView: View {
                 }
             }
             .toast(message: toastMessage, style: toastStyle)
-            .navigationTitle("Chat Info")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showQR) {
                 NavigationStack {
@@ -444,13 +472,13 @@ struct ChatInfoView: View {
                         saveChanges()
                         dismiss()
                     }
-                    .disabled(editedAlias.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
             .onAppear {
                 editedAlias = contact.alias
                 notificationModeOverride = contact.notificationModeOverride
                 realtimeUpdatesDisabled = contact.realtimeUpdatesDisabled
+                photoAutoDisplayOverride = contact.photoAutoDisplayOverride
                 linkedSystemContactId = contact.systemContactId
                 linkedSystemContactName = contact.systemDisplayNameSnapshot
                 linkedSystemContactSource = contact.systemContactLinkSource
@@ -513,10 +541,11 @@ struct ChatInfoView: View {
     private func saveChanges() {
         var updatedContact = contact
         let trimmedAlias = editedAlias.trimmingCharacters(in: .whitespaces)
-        if !trimmedAlias.isEmpty {
-            updatedContact.alias = trimmedAlias
-        }
+        updatedContact.alias = trimmedAlias.isEmpty
+            ? Contact.generateDefaultAlias(from: contact.address)
+            : trimmedAlias
         updatedContact.notificationModeOverride = notificationModeOverride
+        updatedContact.photoAutoDisplayOverride = photoAutoDisplayOverride
         updatedContact.systemContactId = linkedSystemContactId
         updatedContact.systemDisplayNameSnapshot = linkedSystemContactName
         updatedContact.systemContactLinkSource = linkedSystemContactSource

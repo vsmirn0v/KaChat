@@ -118,8 +118,18 @@ final class ReadStatusSyncManager: ObservableObject {
             }
         }
 
-        NSLog("[ReadStatusSync] Recorded read for %@ (blockTime: %lld), idle flush in %.0fs",
+        AppLog.log("[ReadStatusSync] Recorded read for %@ (blockTime: %lld), idle flush in %.0fs",
               String(contactAddress.suffix(8)), blockTime, idleInterval)
+    }
+
+    /// The freshest read position recorded for a conversation but not yet flushed to Core Data,
+    /// if any. `recordRead` only writes here immediately - the actual `CDReadMarker` write is
+    /// debounced up to `idleInterval` (15s) - so callers deciding "is this chat fully read"
+    /// (e.g. the initial scroll-anchor check) need to consult this in-memory value too, or they
+    /// can see a stale pre-read cursor for that whole debounce window.
+    func pendingReadCursor(for contactAddress: String) -> (txId: String?, blockTime: Int64)? {
+        guard let marker = pendingMarkers[contactAddress] else { return nil }
+        return (marker.lastReadTxId, marker.lastReadBlockTime)
     }
 
     /// Called when user leaves a conversation. Immediately flushes pending read marker.
@@ -138,7 +148,7 @@ final class ReadStatusSyncManager: ObservableObject {
     func flushAllPending() {
         guard !pendingMarkers.isEmpty else { return }
 
-        NSLog("[ReadStatusSync] Flushing all %d pending read markers", pendingMarkers.count)
+        AppLog.log("[ReadStatusSync] Flushing all %d pending read markers", pendingMarkers.count)
 
         // Cancel all idle timers
         for timer in idleTimers.values {
@@ -160,11 +170,11 @@ final class ReadStatusSyncManager: ObservableObject {
     func syncFromCloudKit() async {
         guard isCloudKitEnabled else { return }
         guard currentWalletAddress != nil else {
-            NSLog("[ReadStatusSync] No wallet set, skipping CloudKit sync")
+            AppLog.log("[ReadStatusSync] No wallet set, skipping CloudKit sync")
             return
         }
 
-        NSLog("[ReadStatusSync] Starting CloudKit read status sync...")
+        AppLog.log("[ReadStatusSync] Starting CloudKit read status sync...")
 
         // Refresh view context to pick up CloudKit changes
         // NSPersistentCloudKitContainer handles the actual sync - we just need to refresh
@@ -173,7 +183,7 @@ final class ReadStatusSyncManager: ObservableObject {
         // Fetch all read statuses from local store (which includes CloudKit-synced data)
         let readStatuses = MessageStore.shared.fetchAllReadStatuses()
 
-        NSLog("[ReadStatusSync] Loaded %d read statuses from CloudKit-synced store", readStatuses.count)
+        AppLog.log("[ReadStatusSync] Loaded %d read statuses from CloudKit-synced store", readStatuses.count)
     }
 
     // MARK: - Legacy API (for backwards compatibility during migration)
@@ -211,7 +221,7 @@ final class ReadStatusSyncManager: ObservableObject {
     /// Persist a read marker to Core Data (which syncs to CloudKit via NSPersistentCloudKitContainer)
     private func persistReadMarker(_ marker: PendingReadMarker) {
         guard let deviceId = deviceId else {
-            NSLog("[ReadStatusSync] Cannot persist read marker: no device ID")
+            AppLog.log("[ReadStatusSync] Cannot persist read marker: no device ID")
             return
         }
 
@@ -223,7 +233,7 @@ final class ReadStatusSyncManager: ObservableObject {
             lastReadBlockTime: marker.lastReadBlockTime
         )
 
-        NSLog("[ReadStatusSync] Persisted read marker for %@ device=%@ blockTime=%lld",
+        AppLog.log("[ReadStatusSync] Persisted read marker for %@ device=%@ blockTime=%lld",
               String(marker.conversationId.suffix(8)), String(deviceId.prefix(8)), marker.lastReadBlockTime)
     }
 
@@ -231,13 +241,13 @@ final class ReadStatusSyncManager: ObservableObject {
     private func handleRemoteReadStatusChange(_ notification: Notification) {
         guard let conversations = notification.userInfo?["conversations"] as? Set<String> else { return }
 
-        NSLog("[ReadStatusSync] Remote read status changed for %d conversations", conversations.count)
+        AppLog.log("[ReadStatusSync] Remote read status changed for %d conversations", conversations.count)
 
         // Recompute effective read status for each affected conversation
         // The ChatService should listen for this and update unread counts
         for conversationId in conversations {
             if let effective = MessageStore.shared.recomputeEffectiveReadStatus(conversationId: conversationId) {
-                NSLog("[ReadStatusSync] Effective read status for %@: blockTime=%lld (%d devices)",
+                AppLog.log("[ReadStatusSync] Effective read status for %@: blockTime=%lld (%d devices)",
                       String(conversationId.suffix(8)), effective.lastReadBlockTime, effective.deviceCount)
             }
         }

@@ -128,7 +128,7 @@ class NotificationService: UNNotificationServiceExtension {
         case "contextual":
             if let payloadHex,
                let decrypted = decryptContextualMessage(payloadHex: payloadHex) {
-                content.body = decrypted
+                content.body = unwrapReplyText(decrypted)
                 storeDecryptedMessage(
                     txId: txId,
                     sender: senderAddress,
@@ -278,6 +278,40 @@ class NotificationService: UNNotificationServiceExtension {
     private func formatAddress(_ address: String) -> String {
         guard address.count > 8 else { return address }
         return String(address.suffix(8))
+    }
+
+    /// Minimal local mirror of the main app's `MessageReplyContent`/`MessageReplyCodec` (this
+    /// extension target doesn't compile Models.swift) - unwraps a reply envelope to its own
+    /// `text` for display, so the lock-screen notification shows the reply's actual message
+    /// instead of the raw `{"type":"reply",...}` JSON. The stored/decrypted content handed to the
+    /// main app is left untouched so its own reply-aware rendering still works.
+    private struct PushReplyEnvelope: Decodable {
+        let type: String
+        let text: String
+    }
+
+    private func unwrapReplyText(_ content: String) -> String {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return content }
+        guard let parsed = try? JSONDecoder().decode(PushReplyEnvelope.self, from: data),
+              parsed.type == "reply" else { return content }
+        return inlineAttachmentPreview(for: parsed.text)
+    }
+
+    /// Mirrors the main app's `MessageReplyCodec.previewText`'s voice/image detection - the
+    /// reply's own text can itself be the inline file-attachment JSON `MediaFile`/`sendAudio`/
+    /// `sendImage` use (e.g. replying to a photo), which without this shows as raw JSON in the
+    /// notification instead of a placeholder label.
+    private func inlineAttachmentPreview(for text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let mimeType = (json["mimeType"] as? String)?.lowercased() else {
+            return text
+        }
+        if mimeType.hasPrefix("audio/") { return "🎤 Audio message" }
+        if mimeType.hasPrefix("image/") { return "📷 Photo" }
+        return text
     }
 
     private func storeDecryptedMessage(txId: String, sender: String, content: String, timestamp: Int64) {

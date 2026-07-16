@@ -82,7 +82,7 @@ extension ChatService {
                 let addr = entry.address ?? "unknown"
                 return "\(addr.suffix(10)):\(entry.amount)@\(entry.outputIndex)"
             }.joined(separator: ",")
-            NSLog("[ChatService] UTXO notif %@ added=[%@] removed=[%@]",
+            AppLog.log("[ChatService] UTXO notif %@ added=[%@] removed=[%@]",
                   String(txId.prefix(12)), addedDesc, removedDesc)
         }
 
@@ -162,7 +162,7 @@ extension ChatService {
             if ambiguousDirectionTxIds.contains(txId) {
                 if !deferredTxIds.contains(txId) {
                     deferredTxIds.insert(txId)
-                    NSLog("[ChatService] Incoming UTXO %@ has outputs to us and contact without spend info - resolving direction",
+                    AppLog.log("[ChatService] Incoming UTXO %@ has outputs to us and contact without spend info - resolving direction",
                           String(txId.prefix(12)))
                     if selfStashFirstAttemptAt[txId] == nil {
                         selfStashFirstAttemptAt[txId] = Date()
@@ -211,7 +211,7 @@ extension ChatService {
             ) {
                 if !deferredTxIds.contains(txId) {
                     deferredTxIds.insert(txId)
-                    NSLog("[ChatService] Deferring realtime classification for %@ while local send is in-flight",
+                    AppLog.log("[ChatService] Deferring realtime classification for %@ while local send is in-flight",
                           String(txId.prefix(12)))
                 }
                 continue
@@ -224,7 +224,7 @@ extension ChatService {
                 let onlySelfOutput = txAddedAddresses.count == 1 && txAddedAddresses.contains(myAddress)
                 let hasContactOutput = !txAddedAddresses.intersection(contactAddresses).isEmpty
                 if onlySelfOutput {
-                    NSLog("[ChatService] Incoming UTXO %@ has only self output - resolving before showing payment",
+                    AppLog.log("[ChatService] Incoming UTXO %@ has only self output - resolving before showing payment",
                           String(txId.prefix(12)))
                     deferredTxIds.insert(txId)
                     if selfStashFirstAttemptAt[txId] == nil {
@@ -249,7 +249,7 @@ extension ChatService {
                     continue
                 }
                 if hasContactOutput && !weAreSpendingInTx {
-                    NSLog("[ChatService] Incoming UTXO %@ has contact output without spend info - resolving direction",
+                    AppLog.log("[ChatService] Incoming UTXO %@ has contact output without spend info - resolving direction",
                           String(txId.prefix(12)))
                     deferredTxIds.insert(txId)
                     if selfStashFirstAttemptAt[txId] == nil {
@@ -280,13 +280,13 @@ extension ChatService {
                 if let sender = inferredSender {
                     // Skip self-stash transactions (sender == receiver) - these are handled as contextual messages
                     if sender == myAddress {
-                        NSLog("[ChatService] Skipping self-stash payment %@ - handled as contextual message",
+                        AppLog.log("[ChatService] Skipping self-stash payment %@ - handled as contextual message",
                               String(txId.prefix(12)))
                         continue
                     }
 
                     if outputSender != nil && removedSender == nil && !weAreSpendingInTx {
-                        NSLog("[ChatService] Incoming UTXO %@ has ambiguous sender (output-only) - resolving before showing payment",
+                        AppLog.log("[ChatService] Incoming UTXO %@ has ambiguous sender (output-only) - resolving before showing payment",
                               String(txId.prefix(12)))
                         enqueueIncomingPaymentResolution(
                             txId: txId,
@@ -299,7 +299,7 @@ extension ChatService {
                     }
 
                     // We have handshake with this contact - show payment immediately
-                    NSLog("[ChatService] Incoming payment from %@ (%.2f KAS) - showing immediately",
+                    AppLog.log("[ChatService] Incoming payment from %@ (%.2f KAS) - showing immediately",
                           String(sender.suffix(10)), Double(entry.amount) / 100_000_000)
 
                     let payment = PaymentResponse(
@@ -326,7 +326,7 @@ extension ChatService {
                     )
                 } else {
                     // Unknown sender - need to resolve from REST API
-                    NSLog("[ChatService] Incoming payment from unknown sender (tx: %@) - resolving...", String(txId.prefix(12)))
+                    AppLog.log("[ChatService] Incoming payment from unknown sender (tx: %@) - resolving...", String(txId.prefix(12)))
                     enqueueIncomingPaymentResolution(
                         txId: txId,
                         amount: entry.amount,
@@ -347,12 +347,12 @@ extension ChatService {
                         .messages.filter { $0.isOutgoing && $0.deliveryStatus == .pending } ?? []
 
                     if promoteKnownOutgoingAttempt(contactAddress: utxoAddress, newTxId: txId) {
-                        NSLog("[ChatService] Outgoing tx matched tracked pending message: %@", String(txId.prefix(12)))
+                        AppLog.log("[ChatService] Outgoing tx matched tracked pending message: %@", String(txId.prefix(12)))
                         continue
                     }
 
                     if hasMyOutputInTx && pendingOutgoingForContact.isEmpty {
-                        NSLog("[ChatService] Outgoing-looking tx %@ has self output without pending message - resolving direction",
+                        AppLog.log("[ChatService] Outgoing-looking tx %@ has self output without pending message - resolving direction",
                               String(txId.prefix(12)))
                         if selfStashFirstAttemptAt[txId] == nil {
                             selfStashFirstAttemptAt[txId] = Date()
@@ -380,7 +380,7 @@ extension ChatService {
                     // (race condition: UTXO notification arrives before pending txId is updated)
                     let hasNonPaymentPending = pendingOutgoingForContact.contains { $0.messageType != .payment }
                     if hasNonPaymentPending {
-                        NSLog("[ChatService] Skipping outgoing payment to %@ - non-payment message in flight",
+                        AppLog.log("[ChatService] Skipping outgoing payment to %@ - non-payment message in flight",
                               String(utxoAddress.suffix(10)))
                         continue
                     }
@@ -390,14 +390,14 @@ extension ChatService {
                     // Otherwise, trigger CloudKit import (sent from another device with same wallet)
                     if utxoAddress == myAddress {
                         if findLocalMessage(txId: txId) != nil {
-                            NSLog("[ChatService] Own self-stash %@ already exists locally - skipping",
+                            AppLog.log("[ChatService] Own self-stash %@ already exists locally - skipping",
                                   String(txId.prefix(12)))
                             continue
                         }
 
                         // Message sent from another device - trigger CloudKit import to get message text
                         // (indexer only has encrypted payload we can't decrypt)
-                        NSLog("[ChatService] Own self-stash %@ not found locally - triggering CloudKit import for multi-device sync",
+                        AppLog.log("[ChatService] Own self-stash %@ not found locally - triggering CloudKit import for multi-device sync",
                               String(txId.prefix(12)))
                         Task { @MainActor [weak self] in
                             let importAfter = Date()
@@ -413,7 +413,7 @@ extension ChatService {
                     }
 
                     // We sent this - outgoing payment to contact
-                    NSLog("[ChatService] Outgoing payment to %@ (%.2f KAS) - showing immediately",
+                    AppLog.log("[ChatService] Outgoing payment to %@ (%.2f KAS) - showing immediately",
                           String(utxoAddress.suffix(10)), Double(entry.amount) / 100_000_000)
 
                     let payment = PaymentResponse(
@@ -444,7 +444,7 @@ extension ChatService {
                         }
                         await inFlightResolveTracker.insert(txId)
 
-                        NSLog("[ChatService] Self-stash from %@ detected (tx: %@) - resolving for message...",
+                        AppLog.log("[ChatService] Self-stash from %@ detected (tx: %@) - resolving for message...",
                               String(utxoAddress.suffix(10)), String(txId.prefix(12)))
 
                         // Need to resolve TX to get payload for decryption
@@ -513,7 +513,7 @@ extension ChatService {
         senderHint: String? = nil
     ) async {
         guard !(await inFlightResolveTracker.contains(txId)) else {
-            NSLog("[ChatService] Incoming resolve already in flight for %@", String(txId.prefix(12)))
+            AppLog.log("[ChatService] Incoming resolve already in flight for %@", String(txId.prefix(12)))
             return
         }
         await inFlightResolveTracker.insert(txId)
@@ -589,7 +589,7 @@ extension ChatService {
 
         // Fallback handshake check from indexer if payload is still missing from tx endpoints.
         if let handshake = await checkIndexerForHandshake(txId: txId, myAddress: myAddress) {
-            NSLog("[ChatService] Handshake detected from indexer for %@", String(txId.prefix(12)))
+            AppLog.log("[ChatService] Handshake detected from indexer for %@", String(txId.prefix(12)))
             removeMessage(txId: txId)
             if let privateKey = privateKey {
                 await processHandshakes([handshake], isOutgoing: false, myAddress: myAddress, privateKey: privateKey)
@@ -601,7 +601,7 @@ extension ChatService {
         }
 
         guard let info = txInfo else {
-            NSLog("[ChatService] Failed to resolve incoming payment %@ from mempool/indexer/REST - scheduling retry", String(txId.prefix(12)))
+            AppLog.log("[ChatService] Failed to resolve incoming payment %@ from mempool/indexer/REST - scheduling retry", String(txId.prefix(12)))
             scheduleResolveRetry(
                 txId: txId,
                 amount: amount,
@@ -664,7 +664,7 @@ extension ChatService {
 
             if let fullTx,
                let derivedSender = deriveSenderFromFullTx(fullTx, excluding: myAddress) {
-                NSLog("[ChatService] Sender mismatch for %@ - treating as incoming from %@",
+                AppLog.log("[ChatService] Sender mismatch for %@ - treating as incoming from %@",
                       String(txId.prefix(12)), String(derivedSender.suffix(10)))
                 let resolvedAmount = amount > 0 ? amount : sumOutputsToAddress(fullTx.outputs, address: myAddress)
                 incomingResolutionPendingTxIds.remove(txId)
@@ -709,7 +709,7 @@ extension ChatService {
                 }
             }
 
-            NSLog("[ChatService] Incoming payment %@ still ambiguous (sender=self) - scheduling retry",
+            AppLog.log("[ChatService] Incoming payment %@ still ambiguous (sender=self) - scheduling retry",
                   String(txId.prefix(12)))
             scheduleResolveRetry(
                 txId: txId,
@@ -724,7 +724,7 @@ extension ChatService {
 
         // We still don't have a payload/fullTx. Keep pending and retry rather than misclassifying.
         if (payloadHex?.isEmpty ?? true) && fullTx == nil {
-            NSLog("[ChatService] Incoming payment %@ missing payload/fullTx after resolution attempt - scheduling retry",
+            AppLog.log("[ChatService] Incoming payment %@ missing payload/fullTx after resolution attempt - scheduling retry",
                   String(txId.prefix(12)))
             scheduleResolveRetry(
                 txId: txId,
@@ -773,7 +773,7 @@ extension ChatService {
 
         let current = resolveRetryCounts[txId, default: 0]
         if current >= incomingResolutionMaxAdditionalRetries {
-            NSLog("[ChatService] Incoming payment %@ unresolved after %d retries - marking warning",
+            AppLog.log("[ChatService] Incoming payment %@ unresolved after %d retries - marking warning",
                   String(txId.prefix(12)), current)
             if let existing = findLocalMessage(txId: txId),
                !existing.isOutgoing,
@@ -915,7 +915,7 @@ extension ChatService {
             guard let senderAddress, !senderAddress.isEmpty, senderAddress != myAddress else {
                 return false
             }
-            NSLog("[ChatService] Incoming payment %@ resolved as handshake", String(txId.prefix(12)))
+            AppLog.log("[ChatService] Incoming payment %@ resolved as handshake", String(txId.prefix(12)))
             removeMessage(txId: txId)
             let handshake = HandshakeResponse(
                 txId: txId,
@@ -935,7 +935,7 @@ extension ChatService {
         }
 
         if isContextualPayload(payloadHex) {
-            NSLog("[ChatService] Incoming payment %@ resolved as contextual - replacing", String(txId.prefix(12)))
+            AppLog.log("[ChatService] Incoming payment %@ resolved as contextual - replacing", String(txId.prefix(12)))
             removeMessage(txId: txId)
             if let privateKey,
                let senderAddress,
@@ -948,7 +948,7 @@ extension ChatService {
         }
 
         if isSelfStashPayload(payloadHex) {
-            NSLog("[ChatService] Incoming payment %@ resolved as self-stash - removing", String(txId.prefix(12)))
+            AppLog.log("[ChatService] Incoming payment %@ resolved as self-stash - removing", String(txId.prefix(12)))
             removeMessage(txId: txId)
             return true
         }
@@ -974,11 +974,11 @@ extension ChatService {
         }
 
         guard !candidates.isEmpty else { return }
-        NSLog("[ChatService] Retrying %d unresolved incoming payment(s) on sync", candidates.count)
+        AppLog.log("[ChatService] Retrying %d unresolved incoming payment(s) on sync", candidates.count)
 
         for txId in candidates.sorted() {
             guard let amount = incomingAmountHint(txId: txId), amount > 0 else {
-                NSLog("[ChatService] Skipping warning tx %@ on sync retry - missing amount hint", String(txId.prefix(12)))
+                AppLog.log("[ChatService] Skipping warning tx %@ on sync retry - missing amount hint", String(txId.prefix(12)))
                 continue
             }
             resolveRetryCounts.removeValue(forKey: txId)
@@ -1047,7 +1047,7 @@ extension ChatService {
             let uniqueOutputs = Set(outputAddresses)
             let hasSelfInput = uniqueInputs.contains(myAddress)
             let hasSelfOutput = uniqueOutputs.contains(myAddress)
-            NSLog("[ChatService] Tx %@ inputs=%d (self=%d) outputs=%d (self=%d)",
+            AppLog.log("[ChatService] Tx %@ inputs=%d (self=%d) outputs=%d (self=%d)",
                   String(txId.prefix(12)), uniqueInputs.count, hasSelfInput ? 1 : 0,
                   uniqueOutputs.count, hasSelfOutput ? 1 : 0)
 
@@ -1055,7 +1055,7 @@ extension ChatService {
                 if findLocalMessage(txId: txId) != nil {
                     return
                 }
-                NSLog("[ChatService] Verified self-stash %@ - triggering CloudKit import", String(txId.prefix(12)))
+                AppLog.log("[ChatService] Verified self-stash %@ - triggering CloudKit import", String(txId.prefix(12)))
                 let importAfter = Date()
                 let didImport = await MessageStore.shared.fetchCloudKitChanges(
                     reason: "self-stash-verified-\(String(txId.prefix(12)))",
@@ -1092,7 +1092,7 @@ extension ChatService {
                     )
                     await processPayments([payment], isOutgoing: true, myAddress: myAddress)
                 } else {
-                    NSLog("[ChatService] Resolved %@ as outgoing with no contact output - ignoring", String(txId.prefix(12)))
+                    AppLog.log("[ChatService] Resolved %@ as outgoing with no contact output - ignoring", String(txId.prefix(12)))
                 }
                 clearSelfStashRetryState(txId: txId)
                 return
@@ -1101,7 +1101,7 @@ extension ChatService {
             // Inputs are not all ours: treat as incoming payment to our address.
             let amountToMe = sumOutputsToAddress(fullTx.outputs, address: myAddress)
             guard amountToMe > 0 else {
-                NSLog("[ChatService] Resolved %@ without output to us - ignoring", String(txId.prefix(12)))
+                AppLog.log("[ChatService] Resolved %@ without output to us - ignoring", String(txId.prefix(12)))
                 return
             }
 
@@ -1110,7 +1110,7 @@ extension ChatService {
                 sender = await fetchAnyInputAddress(txId: txId, excludeAddress: myAddress)
             }
             guard let resolvedSender = sender else {
-                NSLog("[ChatService] Resolved %@ without sender - scheduling retry", String(txId.prefix(12)))
+                AppLog.log("[ChatService] Resolved %@ without sender - scheduling retry", String(txId.prefix(12)))
                 scheduleSelfStashRetry(
                     txId: txId,
                     myAddress: myAddress,
@@ -1123,7 +1123,7 @@ extension ChatService {
 
             if let existing = findLocalMessage(txId: txId) {
                 if existing.isOutgoing {
-                    NSLog("[ChatService] Removing outgoing message for %@ - resolved as incoming", String(txId.prefix(12)))
+                    AppLog.log("[ChatService] Removing outgoing message for %@ - resolved as incoming", String(txId.prefix(12)))
                     removeMessage(txId: txId)
                 } else {
                     return
@@ -1186,10 +1186,10 @@ extension ChatService {
         mempoolResolveInFlight.insert(txId)
         defer { mempoolResolveInFlight.remove(txId) }
 
-        NSLog("[ChatService] Mempool lookup start for %@", String(txId.prefix(12)))
+        AppLog.log("[ChatService] Mempool lookup start for %@", String(txId.prefix(12)))
         let entry = await NodePoolService.shared.getMempoolEntry(txId: txId, attempt: 1)
         if entry == nil {
-            NSLog("[ChatService] Mempool lookup miss for %@", String(txId.prefix(12)))
+            AppLog.log("[ChatService] Mempool lookup miss for %@", String(txId.prefix(12)))
             return
         }
         guard let entry else { return }
@@ -1216,7 +1216,7 @@ extension ChatService {
                     if !entry.payload.isEmpty {
                         let payload = entry.payload
                         if isContextualPayload(payload) || isSelfStashPayload(payload) {
-                            NSLog("[ChatService] Mempool resolved %@ as self-stash (inputs=ours, outputs=self) - triggering CloudKit import",
+                            AppLog.log("[ChatService] Mempool resolved %@ as self-stash (inputs=ours, outputs=self) - triggering CloudKit import",
                                   String(txId.prefix(12)))
                             let importAfter = Date()
                             let didImport = await MessageStore.shared.fetchCloudKitChanges(
@@ -1229,11 +1229,11 @@ extension ChatService {
                             }
                             await handleCloudKitImportResult(txId: txId, didImport: didImport)
                         } else {
-                            NSLog("[ChatService] Mempool resolved %@ as self-spend (inputs=ours, outputs=self) - ignoring",
+                            AppLog.log("[ChatService] Mempool resolved %@ as self-spend (inputs=ours, outputs=self) - ignoring",
                                   String(txId.prefix(12)))
                         }
                     } else {
-                        NSLog("[ChatService] Mempool resolved %@ as self-spend (inputs=ours, outputs=self) - ignoring",
+                        AppLog.log("[ChatService] Mempool resolved %@ as self-spend (inputs=ours, outputs=self) - ignoring",
                               String(txId.prefix(12)))
                     }
                     mempoolResolvedTxIds.insert(txId)
@@ -1248,7 +1248,7 @@ extension ChatService {
         // the mempool resolve runs.
         let knownOutgoing = isKnownOutgoingAttemptTxId(txId)
         if knownOutgoing {
-            NSLog("[ChatService] Mempool resolve %@ - known outgoing attempt, skipping UTXO input check",
+            AppLog.log("[ChatService] Mempool resolve %@ - known outgoing attempt, skipping UTXO input check",
                   String(txId.prefix(12)))
         }
 
@@ -1267,7 +1267,7 @@ extension ChatService {
                let outputs = outputsByAddress[receiver] {
                 let amountToContact = outputs.reduce(UInt64(0)) { $0 + $1.amount }
                 if amountToContact > 0 {
-                    NSLog("[ChatService] Mempool resolved %@ as outgoing to %@",
+                    AppLog.log("[ChatService] Mempool resolved %@ as outgoing to %@",
                           String(txId.prefix(12)), String(receiver.suffix(10)))
                     let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
                     let payment = PaymentResponse(
@@ -1291,7 +1291,7 @@ extension ChatService {
         // Incoming payment to us; infer sender from contact output (change address)
         // Guard: don't reclassify as incoming if already correctly handled as outgoing
         if let existing = findLocalMessage(txId: txId), existing.isOutgoing && existing.messageType == .payment {
-            NSLog("[ChatService] Mempool resolve %@ - already exists as outgoing payment, skipping incoming classification",
+            AppLog.log("[ChatService] Mempool resolve %@ - already exists as outgoing payment, skipping incoming classification",
                   String(txId.prefix(12)))
             mempoolResolvedTxIds.insert(txId)
             return
@@ -1301,7 +1301,7 @@ extension ChatService {
            let myOutputs = outputsByAddress[myAddress] {
             let amountToMe = myOutputs.reduce(UInt64(0)) { $0 + $1.amount }
             if amountToMe > 0 {
-                NSLog("[ChatService] Mempool resolved %@ as incoming from %@",
+                AppLog.log("[ChatService] Mempool resolved %@ as incoming from %@",
                       String(txId.prefix(12)), String(sender.suffix(10)))
                 let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
                 let payment = PaymentResponse(
@@ -1335,7 +1335,7 @@ extension ChatService {
         let elapsed = now.timeIntervalSince(selfStashFirstAttemptAt[txId] ?? now)
         let current = selfStashRetryCounts[txId, default: 0]
         if elapsed >= 30.0 && current >= 1 {
-            NSLog("[ChatService] Self-stash %@ unresolved after %.0fs - triggering full sync",
+            AppLog.log("[ChatService] Self-stash %@ unresolved after %.0fs - triggering full sync",
                   String(txId.prefix(12)), elapsed)
             Task { @MainActor in
                 await fetchNewMessages()
@@ -1380,7 +1380,7 @@ extension ChatService {
             if findLocalMessage(txId: txId) != nil {
                 return
             }
-            NSLog("[ChatService] Failed to resolve payload for self-stash %@ - scheduling retry", String(txId.prefix(12)))
+            AppLog.log("[ChatService] Failed to resolve payload for self-stash %@ - scheduling retry", String(txId.prefix(12)))
             scheduleSelfStashRetry(txId: txId, myAddress: myAddress, blockDaaScore: blockDaaScore, privateKey: privateKey)
             return
         }
@@ -1400,7 +1400,7 @@ extension ChatService {
                 if findLocalMessage(txId: txId) != nil { return }
 
                 let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
-                NSLog("[ChatService] Decrypted message from %@ via fast resolve", String(contactAddress.suffix(10)))
+                AppLog.log("[ChatService] Decrypted message from %@ via fast resolve", String(contactAddress.suffix(10)))
 
                 let message = ChatMessage(
                     txId: txId,
@@ -1434,7 +1434,7 @@ extension ChatService {
     func shouldAttemptSelfStashDecryption(payloadHex: String, contactAddress: String) -> Bool {
         guard let payloadData = Self.hexStringToData(payloadHex),
               let payloadString = String(data: payloadData, encoding: .utf8) else {
-            NSLog("[ChatService] Raw payload: failed to decode hex to string")
+            AppLog.log("[ChatService] Raw payload: failed to decode hex to string")
             return false
         }
 
@@ -1449,13 +1449,13 @@ extension ChatService {
                 return true
             }
             let expectedPrimary = primaryConversationAlias(for: contactAddress) ?? routingStates[contactAddress]?.deterministicMyAlias ?? "-"
-            NSLog("[ChatService] Raw payload: alias mismatch for %@ (expected %@, got %@) - skipping",
+            AppLog.log("[ChatService] Raw payload: alias mismatch for %@ (expected %@, got %@) - skipping",
                   String(contactAddress.suffix(10)), expectedPrimary, alias)
             return false
         }
 
         if aliasBelongsToAnotherContact(alias, excluding: contactAddress) {
-            NSLog("[ChatService] Raw payload: alias belongs to another contact (%@) - skipping", alias)
+            AppLog.log("[ChatService] Raw payload: alias belongs to another contact (%@) - skipping", alias)
             return false
         }
 
@@ -1544,7 +1544,7 @@ extension ChatService {
         }
 
         // Step 1: Single immediate mempool query to all active nodes
-        NSLog("[ChatService] Mempool lookup start for self-stash %@", String(txId.prefix(12)))
+        AppLog.log("[ChatService] Mempool lookup start for self-stash %@", String(txId.prefix(12)))
         if let entry = await NodePoolService.shared.getMempoolEntry(txId: txId, attempt: 1) {
             if !entry.payload.isEmpty {
                 mempoolPayloadByTxId[txId] = entry.payload
@@ -1552,12 +1552,12 @@ extension ChatService {
                     return nil
                 }
                 let elapsed = Date().timeIntervalSince(startTime) * 1000
-                NSLog("[ChatService] Payload resolved from mempool in %.0fms for %@",
+                AppLog.log("[ChatService] Payload resolved from mempool in %.0fms for %@",
                       elapsed, String(txId.prefix(12)))
                 return entry.payload
             }
         }
-        NSLog("[ChatService] Mempool lookup miss for self-stash %@", String(txId.prefix(12)))
+        AppLog.log("[ChatService] Mempool lookup miss for self-stash %@", String(txId.prefix(12)))
 
         // Step 2: Fall back to REST API with polling
         guard let url = kaspaRestURL(path: "/transactions/\(txId)") else { return nil }
@@ -1592,7 +1592,7 @@ extension ChatService {
                         return nil
                     }
                     let elapsed = Date().timeIntervalSince(startTime) * 1000
-                    NSLog("[ChatService] Payload resolved from REST in %.0fms (attempt %d) for %@",
+                    AppLog.log("[ChatService] Payload resolved from REST in %.0fms (attempt %d) for %@",
                           elapsed, attempt, String(txId.prefix(12)))
                     return payloadHex
                 }
@@ -1604,7 +1604,7 @@ extension ChatService {
         }
 
         let elapsed = Date().timeIntervalSince(startTime) * 1000
-        NSLog("[ChatService] Payload resolution timeout after %.0fms for %@",
+        AppLog.log("[ChatService] Payload resolution timeout after %.0fms for %@",
               elapsed, String(txId.prefix(12)))
         return nil
     }
@@ -1627,13 +1627,13 @@ extension ChatService {
         // No explicit configuration needed
         if !isConfigured {
             isConfigured = true
-            NSLog("[ChatService] Configuring API with indexer URL: %@", apiClient.currentBaseURL ?? "unknown")
+            AppLog.log("[ChatService] Configuring API with indexer URL: %@", apiClient.currentBaseURL ?? "unknown")
 
             // Only load messages if store is ready (don't block on fresh imports)
             if messageStore.isStoreLoaded {
                 loadMessagesFromStoreIfNeeded(onlyIfEmpty: true)
             } else {
-                NSLog("[ChatService] Store not loaded yet, skipping message load from store")
+                AppLog.log("[ChatService] Store not loaded yet, skipping message load from store")
             }
         }
     }
@@ -1656,13 +1656,13 @@ extension ChatService {
         }
         NodePoolService.shared.unsubscribeUtxosChanged()
         isUtxoSubscribed = false
-        NSLog("[ChatService] Polling and UTXO subscription stopped")
+        AppLog.log("[ChatService] Polling and UTXO subscription stopped")
     }
 
     func stopPollingTimerOnly() {
         pollTask?.cancel()
         pollTask = nil
-        NSLog("[ChatService] Polling task stopped")
+        AppLog.log("[ChatService] Polling task stopped")
     }
 
     /// Called when entering a chat view - sets active conversation for unread tracking

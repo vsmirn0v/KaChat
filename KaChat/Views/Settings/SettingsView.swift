@@ -18,6 +18,8 @@ struct SettingsView: View {
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
     @State private var messageStoreSize = "Unknown"
+    @State private var cloudKitStorageSize: String = "Not checked"
+    @State private var isRefreshingCloudKitStorage = false
     @State private var diagnosticsArchiveURL: URL?
     @State private var showDiagnosticsShareSheet = false
     @State private var chatHistoryArchiveURL: URL?
@@ -27,6 +29,8 @@ struct SettingsView: View {
     @State private var isPreparingDiagnostics = false
     @State private var isPreparingChatHistoryExport = false
     @State private var isImportingChatHistory = false
+    @State private var isResolvingDonateAddress = false
+    @State private var showPhotoQualitySheet = false
     @AppStorage(MessageStore.dpiCorruptionWarningKey) private var dpiWarningActive = false
     @AppStorage(MessageStore.dpiCorruptionWarningEndpointKey) private var dpiWarningEndpoint = ""
     @AppStorage(MessageStore.dpiCorruptionWarningDateKey) private var dpiWarningDate: Double = 0
@@ -50,6 +54,11 @@ struct SettingsView: View {
                             settingsViewModel.saveSettings()
                         }
 
+                    Toggle("Require approval for photos from new contacts", isOn: $settingsViewModel.settings.requirePhotoApprovalForNewContacts)
+                        .onChange(of: settingsViewModel.settings.requirePhotoApprovalForNewContacts) { _ in
+                            settingsViewModel.saveSettings()
+                        }
+
                     NavigationLink {
                         NotificationsSettingsView()
                     } label: {
@@ -62,13 +71,13 @@ struct SettingsView: View {
                         }
                     }
 
-                    NavigationLink {
-                        ArchivedChatsView()
+                    Button {
+                        showPhotoQualitySheet = true
                     } label: {
                         HStack {
-                            Label("Archived Chats", systemImage: "archivebox")
+                            Label("Photo Quality", systemImage: "photo")
                             Spacer()
-                            Text("\(contactsManager.archivedContacts.count)")
+                            Text(settingsViewModel.settings.chatPhotoQualityPreset.displayName)
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -118,9 +127,30 @@ struct SettingsView: View {
                         refreshMessageStoreSize()
                     }
 
-                    Text("Storage used: \(messageStoreSize)")
+                    Text("Local storage used: \(messageStoreSize)")
                         .font(.footnote)
                         .foregroundColor(.secondary)
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("iCloud storage used: \(cloudKitStorageSize)")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                            Text("This is a live check of your iCloud account, separate from local storage above.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        if isRefreshingCloudKitStorage {
+                            ProgressView()
+                        } else {
+                            Button {
+                                Task { await refreshCloudKitStorageSize() }
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                    }
                 }
 
                 Section("Chat History") {
@@ -181,7 +211,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Website")
                             Spacer()
-                            Text("kachat.app")
+                            Text("linktr.ee/Kachat_")
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -190,10 +220,28 @@ struct SettingsView: View {
                         HStack {
                             Text("Support Email")
                             Spacer()
-                            Text("support@kachat.app")
+                            Text("kaspasilver@gmail.com")
                                 .foregroundColor(.secondary)
                         }
                     }
+
+                    Button {
+                        Task {
+                            await donate()
+                        }
+                    } label: {
+                        HStack {
+                            Text("Donate")
+                            Spacer()
+                            if isResolvingDonateAddress {
+                                ProgressView()
+                            } else {
+                                Text("kachat.kas")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .disabled(isResolvingDonateAddress)
                 }
 
                 Section("Diagnostics") {
@@ -202,13 +250,24 @@ struct SettingsView: View {
                             await exportDiagnosticsArchive()
                         }
                     } label: {
-                        HStack {
-                            Label("Export Diagnostics Archive", systemImage: "square.and.arrow.up")
-                            Spacer()
-                            if isPreparingDiagnostics {
-                                ProgressView()
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "ladybug.fill")
+                                    .font(.title3)
+                                    .foregroundColor(.accentColor)
+                                Text("Export Diagnostics Archive")
+                                    .font(.body.weight(.medium))
+                                    .foregroundColor(.accentColor)
+                                Spacer()
+                                if isPreparingDiagnostics {
+                                    ProgressView()
+                                }
                             }
+                            Text("Exports app/device info, connection settings, local message counts, and recent app logs as a zip — for troubleshooting with support. No private keys, seed phrases, or decrypted message content are included.")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
                         }
+                        .padding(.vertical, 4)
                     }
                     .disabled(isPreparingDiagnostics)
                 }
@@ -315,6 +374,9 @@ struct SettingsView: View {
                     DiagnosticsShareSheet(fileURL: diagnosticsArchiveURL)
                 }
             }
+            .sheet(isPresented: $showPhotoQualitySheet) {
+                PhotoQualitySettingsSheet(currentPreset: settingsViewModel.settings.chatPhotoQualityPreset)
+            }
             .sheet(isPresented: $showChatHistoryShareSheet) {
                 if let chatHistoryArchiveURL {
                     DiagnosticsShareSheet(fileURL: chatHistoryArchiveURL)
@@ -379,6 +441,24 @@ struct SettingsView: View {
         messageStoreSize = formatter.string(fromByteCount: bytes)
     }
 
+    /// Live server round-trip - unlike `refreshMessageStoreSize()`, this isn't refreshed
+    /// automatically on every settings change, since it costs a network request.
+    private func refreshCloudKitStorageSize() async {
+        isRefreshingCloudKitStorage = true
+        defer { isRefreshingCloudKitStorage = false }
+        let result = await MessageStore.shared.estimateCurrentWalletCloudKitStorage()
+        switch result {
+        case .success(let estimate):
+            let formatter = ByteCountFormatter()
+            formatter.countStyle = .file
+            let bytesText = formatter.string(fromByteCount: estimate.estimatedBytes)
+            cloudKitStorageSize = "\(bytesText) (\(estimate.recordCount) records)"
+        case .failure(let error):
+            cloudKitStorageSize = "Unavailable"
+            AppLog.log("[SettingsView] Failed to estimate CloudKit storage: \(error)")
+        }
+    }
+
     private func wipeIncomingMessages() async {
         await ChatService.shared.wipeIncomingMessagesAndResync()
         refreshMessageStoreSize()
@@ -399,7 +479,7 @@ struct SettingsView: View {
         // Clear CloudKit data first (before store is removed)
         if deleteCloudData {
             if let error = await MessageStore.shared.purgeCloudKitData() {
-                NSLog("[Settings] CloudKit purge failed: %@", error.localizedDescription)
+                AppLog.log("[Settings] CloudKit purge failed: %@", error.localizedDescription)
             }
         }
 
@@ -455,7 +535,7 @@ struct SettingsView: View {
             chatHistoryArchiveURL = fileURL
             showChatHistoryShareSheet = true
         } catch {
-            NSLog("[Settings] Failed to export chat history: %@", error.localizedDescription)
+            AppLog.log("[Settings] Failed to export chat history: %@", error.localizedDescription)
             showToast(error.localizedDescription, style: .error)
         }
     }
@@ -492,10 +572,31 @@ struct SettingsView: View {
                     )
                 }
             } catch {
-                NSLog("[Settings] Failed to import chat history: %@", error.localizedDescription)
+                AppLog.log("[Settings] Failed to import chat history: %@", error.localizedDescription)
                 showToast("Import failed: \(error.localizedDescription)", style: .error)
             }
         }
+    }
+
+    /// Resolves the KNS domain "kachat.kas" to its owner address and jumps straight to that
+    /// chat in payment mode, ready to send - matches the Android client's About screen Donate row.
+    private func donate() async {
+        if isResolvingDonateAddress { return }
+        isResolvingDonateAddress = true
+        defer { isResolvingDonateAddress = false }
+
+        guard let resolution = await KNSService.shared.resolveDomain("kachat.kas") else {
+            showToast("Couldn't resolve kachat.kas. Please try again later.", style: .error)
+            return
+        }
+
+        let contact = contactsManager.getOrCreateContact(address: resolution.ownerAddress, alias: resolution.domain)
+        _ = chatService.getOrCreateConversation(for: contact)
+        NotificationCenter.default.post(
+            name: .openChat,
+            object: nil,
+            userInfo: ["contactAddress": contact.address, "paymentMode": true]
+        )
     }
 
     private func exportDiagnosticsArchive() async {
@@ -539,7 +640,7 @@ struct SettingsView: View {
             diagnosticsArchiveURL = zipURL
             showDiagnosticsShareSheet = true
         } catch {
-            NSLog("[Settings] Failed to export diagnostics: %@", error.localizedDescription)
+            AppLog.log("[Settings] Failed to export diagnostics: %@", error.localizedDescription)
             showToast("Failed to export diagnostics.", style: .error)
         }
     }
@@ -703,11 +804,11 @@ struct SettingsView: View {
     }
 
     private var websiteURL: URL {
-        URL(string: "https://kachat.app")!
+        URL(string: "https://linktr.ee/Kachat_")!
     }
 
     private var supportEmailURL: URL {
-        URL(string: "mailto:support@kachat.app")!
+        URL(string: "mailto:kaspasilver@gmail.com")!
     }
 
 }
@@ -858,7 +959,7 @@ struct NotificationsSettingsView: View {
                 settingsViewModel.settings.notificationMode = .remotePush
                 settingsViewModel.saveSettings()
             } catch {
-                NSLog("[Settings] Failed to enable push: %@", error.localizedDescription)
+                AppLog.log("[Settings] Failed to enable push: %@", error.localizedDescription)
                 settingsViewModel.settings.notificationMode = previousMode
                 settingsViewModel.saveSettings()
                 if case PushError.permissionDenied = error {
@@ -886,49 +987,6 @@ struct NotificationsSettingsView: View {
             withAnimation {
                 toastMessage = nil
             }
-        }
-    }
-}
-
-struct ArchivedChatsView: View {
-    @EnvironmentObject var contactsManager: ContactsManager
-    @EnvironmentObject var chatService: ChatService
-
-    var body: some View {
-        List {
-            if archivedContacts.isEmpty {
-                Text("No archived chats")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-            } else {
-                ForEach(archivedContacts) { contact in
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(contact.alias)
-                            Text(contact.address)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        Button("Unarchive") {
-                            contactsManager.setContactArchived(address: contact.address, isArchived: false)
-                            chatService.checkAndResubscribeIfNeeded()
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                }
-            }
-        }
-        .navigationTitle("Archived Chats")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var archivedContacts: [Contact] {
-        contactsManager.archivedContacts.sorted {
-            let lhs = $0.lastMessageAt ?? $0.addedAt
-            let rhs = $1.lastMessageAt ?? $1.addedAt
-            return lhs > rhs
         }
     }
 }
@@ -2367,7 +2425,7 @@ struct ConnectionStatusDetailView: View {
 
         let settings = AppSettings.load()
 
-        NSLog("[ConnectionStatus] Starting reconnect via NodePoolService...")
+        AppLog.log("[ConnectionStatus] Starting reconnect via NodePoolService...")
 
         // Disconnect current subscription
         nodePool.disconnect()
@@ -2378,22 +2436,22 @@ struct ConnectionStatusDetailView: View {
         // Reconnect via node pool
         do {
             try await nodePool.connect(network: settings.networkType)
-            NSLog("[ConnectionStatus] Connected via NodePool, activeNodes=%d",
+            AppLog.log("[ConnectionStatus] Connected via NodePool, activeNodes=%d",
                   nodePool.activeNodeCount)
 
             // Small delay to let connections stabilize
             try? await Task.sleep(nanoseconds: 200_000_000)
 
             // Re-setup subscriptions
-            NSLog("[ConnectionStatus] Setting up subscriptions...")
+            AppLog.log("[ConnectionStatus] Setting up subscriptions...")
             await chatService.setupUtxoSubscriptionAfterReconnect()
-            NSLog("[ConnectionStatus] Subscription setup complete, isSubscribed=%@",
+            AppLog.log("[ConnectionStatus] Subscription setup complete, isSubscribed=%@",
                   chatService.isRpcSubscribed ? "true" : "false")
 
             // Refresh node list
             await reloadNodeRecords()
         } catch {
-            NSLog("[ConnectionStatus] Reconnect failed: %@", error.localizedDescription)
+            AppLog.log("[ConnectionStatus] Reconnect failed: %@", error.localizedDescription)
         }
     }
 

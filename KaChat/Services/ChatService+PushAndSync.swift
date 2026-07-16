@@ -228,7 +228,7 @@ extension ChatService {
             task.cancel()
         }
 
-        NSLog("[ChatService] Push/UTXO matched tx=%@ sender=%@ type=%@",
+        AppLog.log("[ChatService] Push/UTXO matched tx=%@ sender=%@ type=%@",
               String(normalizedTxId.prefix(12)),
               String(sender.suffix(10)),
               messageType ?? "unknown")
@@ -249,13 +249,13 @@ extension ChatService {
         if shouldDebounce,
            let last = lastCatchUpSyncAt,
            Date().timeIntervalSince(last) < reliablePushCatchUpDebounce {
-            NSLog("[ChatService] Skipping catch-up sync (%@) - push reliable and debounce active",
+            AppLog.log("[ChatService] Skipping catch-up sync (%@) - push reliable and debounce active",
                   trigger.rawValue)
             return
         }
 
         if catchUpSyncInFlight {
-            NSLog("[ChatService] Skipping catch-up sync (%@) - catch-up already in flight",
+            AppLog.log("[ChatService] Skipping catch-up sync (%@) - catch-up already in flight",
                   trigger.rawValue)
             return
         }
@@ -263,7 +263,7 @@ extension ChatService {
         catchUpSyncInFlight = true
         defer { catchUpSyncInFlight = false }
 
-        NSLog("[ChatService] Running catch-up sync (%@), pushState=%@ force=%@",
+        AppLog.log("[ChatService] Running catch-up sync (%@), pushState=%@ force=%@",
               trigger.rawValue, pushReliabilityState.rawValue, force ? "true" : "false")
         await fetchNewMessages()
         lastCatchUpSyncAt = Date()
@@ -286,7 +286,7 @@ extension ChatService {
         // If initial sync already completed (e.g. Mac Catalyst window reopen),
         // just ensure subscription/polling is running — skip the heavy 4-phase sync.
         if hasCompletedInitialSync {
-            NSLog("[ChatService] Initial sync already done, ensuring subscription/polling")
+            AppLog.log("[ChatService] Initial sync already done, ensuring subscription/polling")
             let isRemotePushEnabled = settingsViewModel?.settings.notificationMode == .remotePush
             if !isRemotePushEnabled && !isUtxoSubscribed && pollTask == nil {
                 startFallbackPolling()
@@ -302,75 +302,75 @@ extension ChatService {
         subscriptionBalanceRefreshTask?.cancel()
         subscriptionBalanceRefreshTask = nil
         needsResubscriptionAfterSync = false
-        NSLog("[ChatService] Starting message sync...")
+        AppLog.log("[ChatService] Starting message sync...")
 
         Task {
-            NSLog("[ChatService] Sync task started")
+            AppLog.log("[ChatService] Sync task started")
             let isRemotePushEnabled = settingsViewModel?.settings.notificationMode == .remotePush
             let settings = currentSettings
             let cloudKitEnabled = settings.storeMessagesInICloud
 
-            NSLog("[ChatService] Configuring API...")
+            AppLog.log("[ChatService] Configuring API...")
             await configureAPIIfNeeded()
-            NSLog("[ChatService] API configured")
+            AppLog.log("[ChatService] API configured")
 
             // Phase 1: Fetch handshakes first (needed to decrypt messages)
             // This is lightweight and establishes encryption keys
-            NSLog("[ChatService] Phase 1: Fetching handshakes...")
+            AppLog.log("[ChatService] Phase 1: Fetching handshakes...")
             await fetchHandshakesOnly()
-            NSLog("[ChatService] Phase 1 complete")
+            AppLog.log("[ChatService] Phase 1 complete")
 
             // Phase 2: Setup UTXO subscription for real-time updates
             // This can run while CloudKit syncs
-            NSLog("[ChatService] Phase 2: Setting up UTXO subscription...")
+            AppLog.log("[ChatService] Phase 2: Setting up UTXO subscription...")
             await setupUtxoSubscription()
-            NSLog("[ChatService] Phase 2 complete, isUtxoSubscribed=%d", isUtxoSubscribed ? 1 : 0)
+            AppLog.log("[ChatService] Phase 2 complete, isUtxoSubscribed=%d", isUtxoSubscribed ? 1 : 0)
 
             // Phase 3: Wait for CloudKit to complete (no timeout)
             // CloudKit may have all our messages already
             if cloudKitEnabled {
-                NSLog("[ChatService] Phase 3: Waiting for CloudKit sync to complete...")
+                AppLog.log("[ChatService] Phase 3: Waiting for CloudKit sync to complete...")
                 await messageStore.waitForCloudKitSync(timeout: 0) // 0 = no timeout
-                NSLog("[ChatService] Phase 3 complete - CloudKit sync done")
+                AppLog.log("[ChatService] Phase 3 complete - CloudKit sync done")
 
                 // Phase 3.5: Load CloudKit-synced messages BEFORE indexer sync
                 // This ensures we have any messages sent from other devices before
                 // the indexer creates placeholder entries for them
-                NSLog("[ChatService] Phase 3.5: Loading CloudKit-synced messages...")
+                AppLog.log("[ChatService] Phase 3.5: Loading CloudKit-synced messages...")
                 loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
 
                 // Brief pause to allow any in-flight CloudKit syncs to complete
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-                NSLog("[ChatService] Phase 3.5 complete")
+                AppLog.log("[ChatService] Phase 3.5 complete")
             } else {
-                NSLog("[ChatService] Phase 3 skipped - CloudKit disabled")
+                AppLog.log("[ChatService] Phase 3 skipped - CloudKit disabled")
             }
 
             // Phase 4: Full indexer sync (diff-only writes to reduce DB churn)
             // NOTE: syncFromConversations() will preserve CloudKit content and not
             // overwrite with placeholders thanks to the !isPlaceholder check
-            NSLog("[ChatService] Phase 4: Full indexer sync...")
+            AppLog.log("[ChatService] Phase 4: Full indexer sync...")
             await fetchNewMessages()
-            NSLog("[ChatService] Phase 4 complete")
+            AppLog.log("[ChatService] Phase 4 complete")
 
             // After initial sync, enable notifications (they were suppressed during wallet import)
             suppressNotificationsUntilSynced = false
             hasCompletedInitialSync = true
 
             if isRemotePushEnabled {
-                NSLog("[ChatService] Remote push enabled - skipping local polling")
+                AppLog.log("[ChatService] Remote push enabled - skipping local polling")
                 return
             }
 
             if isUtxoSubscribed {
                 // RPC subscription active - no polling needed, rely on notifications
                 let protocolName = NodePoolService.shared.activeProtocol
-                NSLog("[ChatService] %@ subscription active - using real-time notifications (no polling)", protocolName)
+                AppLog.log("[ChatService] %@ subscription active - using real-time notifications (no polling)", protocolName)
             } else {
                 // RPC subscription failed - use polling as fallback
                 // Poll with 60s delay after each sync completes (not fixed interval)
                 self.startFallbackPolling()
-                NSLog("[ChatService] RPC unavailable - using fallback polling (%.0fs delay after each sync)", pollDelayAfterSync)
+                AppLog.log("[ChatService] RPC unavailable - using fallback polling (%.0fs delay after each sync)", pollDelayAfterSync)
             }
         }
     }
@@ -382,7 +382,7 @@ extension ChatService {
 
     private func scheduleStartPollingWhenStoreReady(interval: TimeInterval) {
         guard startPollingWhenStoreReadyTask == nil else { return }
-        NSLog("[ChatService] Delaying message sync until wallet message store is ready")
+        AppLog.log("[ChatService] Delaying message sync until wallet message store is ready")
         startPollingWhenStoreReadyTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard let self else { return }
@@ -410,13 +410,13 @@ extension ChatService {
 
     func setupUtxoSubscription() async {
         guard let wallet = WalletManager.shared.currentWallet else {
-            NSLog("[ChatService] setupUtxoSubscription: No wallet available")
+            AppLog.log("[ChatService] setupUtxoSubscription: No wallet available")
             subscriptionRetryTask?.cancel()
             subscriptionRetryTask = nil
             return
         }
 
-        NSLog("[ChatService] setupUtxoSubscription: Starting, isConnected=%@",
+        AppLog.log("[ChatService] setupUtxoSubscription: Starting, isConnected=%@",
               NodePoolService.shared.isConnected ? "true" : "false")
 
         // Remove old subscription handler if any
@@ -429,7 +429,7 @@ extension ChatService {
         do {
             try await connectRpcIfNeeded()
             let nodePool = NodePoolService.shared
-            NSLog("[ChatService] setupUtxoSubscription: RPC connected=%@", nodePool.isConnected ? "true" : "false")
+            AppLog.log("[ChatService] setupUtxoSubscription: RPC connected=%@", nodePool.isConnected ? "true" : "false")
 
             // Collect all addresses to subscribe: our wallet + active contacts
             var addressesToSubscribe = Set<String>()
@@ -441,7 +441,7 @@ extension ChatService {
                 addressesToSubscribe.insert(contact.address)
             }
 
-            NSLog("[ChatService] Subscription setup: %d active contacts", contactCount)
+            AppLog.log("[ChatService] Subscription setup: %d active contacts", contactCount)
 
             // TODO: Fix realtimeUpdatesDisabled feature - re-enable polling when fixed
             // Start/restart polling for contacts with realtime disabled
@@ -468,7 +468,7 @@ extension ChatService {
             if pollTask != nil {
                 pollTask?.cancel()
                 pollTask = nil
-                NSLog("[ChatService] Stopped fallback polling - using real-time notifications")
+                AppLog.log("[ChatService] Stopped fallback polling - using real-time notifications")
             }
 
             // Update connected node info
@@ -478,19 +478,19 @@ extension ChatService {
             // Track subscribed address count for resubscription detection
             lastSubscribedAddressCount = addressList.count
             lastSubscribedAddresses = Set(addressList)
-            NSLog("[ChatService] Real-time notifications active for %d addresses", addressList.count)
+            AppLog.log("[ChatService] Real-time notifications active for %d addresses", addressList.count)
             scheduleBalanceRefreshAfterSubscriptionEnabled()
 
             // If this is a restart, sync messages/payments to catch anything missed during downtime
             if isRestart {
-                NSLog("[ChatService] Subscription restarted - evaluating catch-up sync policy")
+                AppLog.log("[ChatService] Subscription restarted - evaluating catch-up sync policy")
                 Task {
                     await self.maybeRunCatchUpSync(trigger: .subscriptionRestart)
                 }
             }
 
         } catch {
-            NSLog("[ChatService] RPC subscription failed: %@", error.localizedDescription)
+            AppLog.log("[ChatService] RPC subscription failed: %@", error.localizedDescription)
             isUtxoSubscribed = false
 
             // Start retry loop with 1s wait between full pool attempts
@@ -514,14 +514,14 @@ extension ChatService {
 
             guard !Task.isCancelled else { return }
 
-            NSLog("[ChatService] Retrying RPC subscription with all pool nodes...")
+            AppLog.log("[ChatService] Retrying RPC subscription with all pool nodes...")
             await setupUtxoSubscription()
 
             guard !Task.isCancelled else { return }
 
             // If still not subscribed after retry, schedule another retry
             if !isUtxoSubscribed {
-                NSLog("[ChatService] All pool nodes failed, retrying in 1s...")
+                AppLog.log("[ChatService] All pool nodes failed, retrying in 1s...")
                 scheduleSubscriptionRetry()
             }
         }
@@ -542,11 +542,11 @@ extension ChatService {
 
                 do {
                     let total = try await WalletManager.shared.refreshBalance()
-                    NSLog("[ChatService] Post-subscription balance refreshed on attempt %d: %@ sompi",
+                    AppLog.log("[ChatService] Post-subscription balance refreshed on attempt %d: %@ sompi",
                           attemptIndex + 1, String(total))
                     return
                 } catch {
-                    NSLog("[ChatService] Post-subscription balance refresh attempt %d failed: %@",
+                    AppLog.log("[ChatService] Post-subscription balance refresh attempt %d failed: %@",
                           attemptIndex + 1, error.localizedDescription)
                 }
             }
@@ -570,7 +570,7 @@ extension ChatService {
         }
         NodePoolService.shared.unsubscribeUtxosChanged()
         isUtxoSubscribed = false
-        NSLog("[ChatService] Remote push active - UTXO subscription paused for background")
+        AppLog.log("[ChatService] Remote push active - UTXO subscription paused for background")
 #endif
     }
 
@@ -598,9 +598,7 @@ extension ChatService {
         for address in contactAddresses {
             addressesToSubscribe.insert(address)
         }
-        if !(contactsManager.getContact(byAddress: contactAddress)?.isArchived ?? false) {
-            addressesToSubscribe.insert(contactAddress)
-        }
+        addressesToSubscribe.insert(contactAddress)
 
         let addressList = Array(addressesToSubscribe)
         lastSubscribedAddressCount = addressList.count
@@ -652,12 +650,12 @@ extension ChatService {
         // If sync is in progress, mark for resubscription after sync completes
         if isLoading {
             needsResubscriptionAfterSync = true
-            NSLog("[ChatService] Address count changed: %d -> %d, deferring resubscription until sync completes",
+            AppLog.log("[ChatService] Address count changed: %d -> %d, deferring resubscription until sync completes",
                   lastSubscribedAddressCount, currentAddressCount)
             return
         }
 
-        NSLog("[ChatService] Address count changed: %d -> %d, executing resubscription",
+        AppLog.log("[ChatService] Address count changed: %d -> %d, executing resubscription",
               lastSubscribedAddressCount, currentAddressCount)
 
         // Cancel any pending resubscription task
@@ -673,7 +671,7 @@ extension ChatService {
         guard needsResubscriptionAfterSync else { return }
         needsResubscriptionAfterSync = false
 
-        NSLog("[ChatService] Sync complete, executing deferred resubscription")
+        AppLog.log("[ChatService] Sync complete, executing deferred resubscription")
 
         pendingResubscriptionTask?.cancel()
         pendingResubscriptionTask = Task {
@@ -683,13 +681,13 @@ extension ChatService {
 
     func addMessageFromPush(txId: String, sender: String, content: String, timestamp: Int64) async {
         guard let wallet = WalletManager.shared.currentWallet else {
-            NSLog("[ChatService] No wallet for push message")
+            AppLog.log("[ChatService] No wallet for push message")
             return
         }
 
         // Check if message already exists
         if findLocalMessage(txId: txId) != nil {
-            NSLog("[ChatService] Push message already exists: %@", txId)
+            AppLog.log("[ChatService] Push message already exists: %@", txId)
             return
         }
 
@@ -713,7 +711,7 @@ extension ChatService {
         addMessageToConversation(message, contactAddress: sender)
         saveMessages()
 
-        NSLog("[ChatService] Added message from push: %@ from %@", txId, String(sender.suffix(10)))
+        AppLog.log("[ChatService] Added message from push: %@ from %@", txId, String(sender.suffix(10)))
     }
 
     /// Add a payment notification received from push
@@ -725,12 +723,12 @@ extension ChatService {
         timestamp: Int64
     ) async -> Bool {
         guard let wallet = WalletManager.shared.currentWallet else {
-            NSLog("[ChatService] No wallet for push payment")
+            AppLog.log("[ChatService] No wallet for push payment")
             return false
         }
 
         if findLocalMessage(txId: txId) != nil {
-            NSLog("[ChatService] Push payment already exists: %@", txId)
+            AppLog.log("[ChatService] Push payment already exists: %@", txId)
             return true
         }
 
@@ -740,7 +738,7 @@ extension ChatService {
                 myAddress: wallet.publicAddress,
                 blockTimeMs: UInt64(max(0, timestamp))
             )
-            NSLog("[ChatService] Push payment %@ is already suppressed", String(txId.prefix(12)))
+            AppLog.log("[ChatService] Push payment %@ is already suppressed", String(txId.prefix(12)))
             return false
         }
 
@@ -754,13 +752,13 @@ extension ChatService {
             myAddress: myAddress,
             source: "kns-push-payment"
            ) {
-            NSLog("[ChatService] Push payment %@ identified as KNS operation, suppressing", String(txId.prefix(12)))
+            AppLog.log("[ChatService] Push payment %@ identified as KNS operation, suppressing", String(txId.prefix(12)))
             return false
         }
 
         if let payload, !payload.isEmpty {
             if isContextualPayload(payload) || isSelfStashPayload(payload) {
-                NSLog("[ChatService] Push payment %@ has non-payment payload prefix, skipping", String(txId.prefix(12)))
+                AppLog.log("[ChatService] Push payment %@ has non-payment payload prefix, skipping", String(txId.prefix(12)))
                 return false
             }
         }
@@ -805,7 +803,7 @@ extension ChatService {
                     }
                 }
             } else if isOutgoing {
-                NSLog("[ChatService] Outgoing payment push: unable to resolve receiver for %@", txId)
+                AppLog.log("[ChatService] Outgoing payment push: unable to resolve receiver for %@", txId)
                 return false
             }
         }
@@ -840,12 +838,12 @@ extension ChatService {
         timestamp: Int64
     ) async -> Bool {
         guard let wallet = WalletManager.shared.currentWallet else {
-            NSLog("[ChatService] No wallet for fetching push payment")
+            AppLog.log("[ChatService] No wallet for fetching push payment")
             return false
         }
 
         if findLocalMessage(txId: txId) != nil {
-            NSLog("[ChatService] Payment already exists: %@", txId)
+            AppLog.log("[ChatService] Payment already exists: %@", txId)
             return true
         }
 
@@ -893,13 +891,13 @@ extension ChatService {
     func fetchMessageByTxId(_ txId: String, sender: String) async -> Bool {
         guard let _ = WalletManager.shared.currentWallet,
               let privateKey = WalletManager.shared.getPrivateKey() else {
-            NSLog("[ChatService] No wallet for fetching push message")
+            AppLog.log("[ChatService] No wallet for fetching push message")
             return false
         }
 
         // Check if already exists
         if findLocalMessage(txId: txId) != nil {
-            NSLog("[ChatService] Message already exists: %@", txId)
+            AppLog.log("[ChatService] Message already exists: %@", txId)
             return true
         }
 
@@ -962,7 +960,7 @@ extension ChatService {
     ) async -> Bool {
         let settings = currentSettings
         guard let url = URL(string: "\(settings.indexerURL)/v1/messages/tx/\(txId)") else {
-            NSLog("[ChatService] Invalid URL for fetching message")
+            AppLog.log("[ChatService] Invalid URL for fetching message")
             return false
         }
 
@@ -972,7 +970,7 @@ extension ChatService {
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                NSLog("[ChatService] Failed to fetch message tx: %@ (status=%d, bytes=%d)",
+                AppLog.log("[ChatService] Failed to fetch message tx: %@ (status=%d, bytes=%d)",
                       txId, status, data.count)
                 return false
             }
@@ -980,7 +978,7 @@ extension ChatService {
             // Parse response and decrypt using existing method
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let payload = json["payload"] as? String {
-                NSLog("[ChatService] Indexer payload len=%d for %@", payload.count, String(txId.prefix(10)))
+                AppLog.log("[ChatService] Indexer payload len=%d for %@", payload.count, String(txId.prefix(10)))
                 if let decrypted = await decryptContextualMessage(payload, privateKey: privateKey) {
                     let timestamp = (json["timestamp"] as? Int64) ?? Int64(Date().timeIntervalSince1970 * 1000)
                     await addMessageFromPush(txId: txId, sender: sender, content: decrypted, timestamp: timestamp)
@@ -994,14 +992,14 @@ extension ChatService {
                 }
 
                 let prefix = payload.prefix(80)
-                NSLog("[ChatService] Failed to decrypt push message: %@ (prefix=%@)",
+                AppLog.log("[ChatService] Failed to decrypt push message: %@ (prefix=%@)",
                       txId, String(prefix))
             } else {
                 let snippet = String(data: data.prefix(200), encoding: .utf8) ?? "<non-utf8>"
-                NSLog("[ChatService] Indexer tx response missing payload for %@ (body=%@)", txId, snippet)
+                AppLog.log("[ChatService] Indexer tx response missing payload for %@ (body=%@)", txId, snippet)
             }
         } catch {
-            NSLog("[ChatService] Error fetching push message: %@", error.localizedDescription)
+            AppLog.log("[ChatService] Error fetching push message: %@", error.localizedDescription)
         }
         return false
     }
@@ -1016,7 +1014,7 @@ extension ChatService {
         }
 
         if let payload = fullTx.payload, !payload.isEmpty {
-            NSLog("[ChatService] Kaspa payload len=%d for %@", payload.count, String(txId.prefix(10)))
+            AppLog.log("[ChatService] Kaspa payload len=%d for %@", payload.count, String(txId.prefix(10)))
             if Self.isPaymentRawPayload(payload) {
                 let ts = fullTx.blockTime ?? fullTx.acceptingBlockTime ?? UInt64(Date().timeIntervalSince1970 * 1000)
                 return await addPaymentFromPush(
@@ -1032,7 +1030,7 @@ extension ChatService {
                 await addMessageFromPush(txId: txId, sender: sender, content: decrypted, timestamp: Int64(ts))
                 return true
             } else {
-                NSLog("[ChatService] Kaspa payload decrypt failed: %@", txId)
+                AppLog.log("[ChatService] Kaspa payload decrypt failed: %@", txId)
             }
         }
 
@@ -1055,7 +1053,7 @@ extension ChatService {
             path: "/transactions/\(txId)",
             queryItems: [URLQueryItem(name: "resolve_previous_outpoints", value: "light")]
         ) else {
-            NSLog("[ChatService] Invalid Kaspa URL for tx fetch: %@", txId)
+            AppLog.log("[ChatService] Invalid Kaspa URL for tx fetch: %@", txId)
             return nil
         }
 
@@ -1063,12 +1061,12 @@ extension ChatService {
             let (data, response) = try await URLSession.shared.data(from: url)
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
-                NSLog("[ChatService] Kaspa API failed to fetch tx: %@", txId)
+                AppLog.log("[ChatService] Kaspa API failed to fetch tx: %@", txId)
                 return nil
             }
             return try? JSONDecoder().decode(KaspaFullTransactionResponse.self, from: data)
         } catch {
-            NSLog("[ChatService] Kaspa tx fetch error: %@ (%@)", txId, error.localizedDescription)
+            AppLog.log("[ChatService] Kaspa tx fetch error: %@ (%@)", txId, error.localizedDescription)
             return nil
         }
     }
@@ -1087,7 +1085,7 @@ extension ChatService {
             myAddress: myAddress,
             source: "kns-push-payment-details"
         ) {
-            NSLog("[ChatService] Suppressing KNS tx %@ while resolving payment details", String(txId.prefix(12)))
+            AppLog.log("[ChatService] Suppressing KNS tx %@ while resolving payment details", String(txId.prefix(12)))
             return nil
         }
 
@@ -1122,7 +1120,7 @@ extension ChatService {
     /// Called when a contact's realtime updates setting is changed
     /// NOTE: Currently unused - feature disabled
     func updateUtxoSubscriptionForRealtimeChange() async {
-        NSLog("[ChatService] Realtime setting changed, updating UTXO subscription")
+        AppLog.log("[ChatService] Realtime setting changed, updating UTXO subscription")
         await setupUtxoSubscription()
     }
 
@@ -1133,7 +1131,7 @@ extension ChatService {
         if var contact = contactsManager.contacts.first(where: { $0.address == contactAddress }) {
             contact.realtimeUpdatesDisabled = true
             contactsManager.updateContact(contact)
-            NSLog("[ChatService] Disabled realtime updates for %@", String(contactAddress.suffix(10)))
+            AppLog.log("[ChatService] Disabled realtime updates for %@", String(contactAddress.suffix(10)))
 
             // Update subscription
             Task {
@@ -1162,7 +1160,7 @@ extension ChatService {
     func dismissNoisyContactWarning() {
         if let warning = noisyContactWarning {
             dismissedSpamWarnings.insert(warning.contactAddress)
-            NSLog("[ChatService] Dismissed noisy contact warning for %@", String(warning.contactAddress.suffix(10)))
+            AppLog.log("[ChatService] Dismissed noisy contact warning for %@", String(warning.contactAddress.suffix(10)))
         }
         noisyContactWarning = nil
     }
@@ -1178,11 +1176,11 @@ extension ChatService {
         // Get contacts with realtime disabled
         let disabledContacts = activeContacts.filter { $0.realtimeUpdatesDisabled }
         guard !disabledContacts.isEmpty else {
-            NSLog("[ChatService] No contacts with realtime disabled, skipping polling setup")
+            AppLog.log("[ChatService] No contacts with realtime disabled, skipping polling setup")
             return
         }
 
-        NSLog("[ChatService] Starting periodic polling for %d contacts with realtime disabled", disabledContacts.count)
+        AppLog.log("[ChatService] Starting periodic polling for %d contacts with realtime disabled", disabledContacts.count)
 
         disabledContactsPollingTask = Task {
             while !Task.isCancelled {
@@ -1207,7 +1205,7 @@ extension ChatService {
         let disabledContacts = await MainActor.run { contactsManager.activeContacts.filter { $0.realtimeUpdatesDisabled } }
         guard !disabledContacts.isEmpty else { return }
 
-        NSLog("[ChatService] Polling %d contacts with realtime disabled", disabledContacts.count)
+        AppLog.log("[ChatService] Polling %d contacts with realtime disabled", disabledContacts.count)
 
         for contact in disabledContacts {
             let contactAddress = contact.address
@@ -1270,7 +1268,7 @@ extension ChatService {
                         if ChatService.handleDpiPaginationFailure(error, context: "disabled contacts contextual") {
                             continue
                         }
-                        NSLog("[ChatService] Failed to poll messages from %@: %@", String(contactAddress.suffix(10)), error.localizedDescription)
+                        AppLog.log("[ChatService] Failed to poll messages from %@: %@", String(contactAddress.suffix(10)), error.localizedDescription)
                     }
                 }
             }
@@ -1298,7 +1296,7 @@ extension ChatService {
                 if ChatService.handleDpiPaginationFailure(error, context: "disabled contacts handshakes") {
                     continue
                 }
-                NSLog("[ChatService] Failed to poll handshakes from %@: %@", String(contactAddress.suffix(10)), error.localizedDescription)
+                AppLog.log("[ChatService] Failed to poll handshakes from %@: %@", String(contactAddress.suffix(10)), error.localizedDescription)
             }
         }
     }
@@ -1331,7 +1329,7 @@ extension ChatService {
                 guard !contact.realtimeUpdatesDisabled else { return }
 
                 // Show warning
-                NSLog("[ChatService] Contact %@ produced %d irrelevant TX notifications in 1 minute - showing warning",
+                AppLog.log("[ChatService] Contact %@ produced %d irrelevant TX notifications in 1 minute - showing warning",
                       String(contactAddress.suffix(10)), timestamps.count)
 
                 noisyContactWarning = NoisyContactWarning(

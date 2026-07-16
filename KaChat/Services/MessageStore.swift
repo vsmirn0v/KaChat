@@ -24,8 +24,6 @@ struct ConversationMeta {
     let lastReadTxId: String?
     let lastReadBlockTime: Int64
     let lastReadAt: Date?
-    // Archived state (synced via CloudKit)
-    let isArchived: Bool
 }
 
 final class MessageStore {
@@ -395,8 +393,7 @@ final class MessageStore {
                         lastMessageAt: conversation.lastMessageAt,
                         lastReadTxId: conversation.lastReadTxId,
                         lastReadBlockTime: conversation.lastReadBlockTime,
-                        lastReadAt: conversation.lastReadAt,
-                        isArchived: conversation.isArchived
+                        lastReadAt: conversation.lastReadAt
                     )
                     if let existing = result[conversation.contactAddress] {
                         // Merge duplicate rows deterministically:
@@ -1078,43 +1075,54 @@ final class MessageStore {
         }
     }
 
-    func setConversationArchived(contactAddress: String, isArchived: Bool) {
+    /// Permanently deletes every message and the conversation row for a single contact - the
+    /// per-contact counterpart to `clearAll()`, used by `ContactsManager.deleteContact` so a
+    /// deleted chat's history doesn't linger even though its `Contact` is gone.
+    ///
+    /// Deletes via plain `context.delete(...)` + `save()` rather than `NSBatchDeleteRequest`:
+    /// a batch delete executes directly against the SQLite store and bypasses the managed object
+    /// context's save cycle, so `NSPersistentCloudKitContainer` never captures it in persistent
+    /// history and never mirrors it to CloudKit - the "deleted" chat would silently reappear via
+    /// iCloud sync on this or other devices. A normal delete+save is what lets deletions propagate
+    /// to iCloud (same pattern already used by `dedupeMessagesIfNeeded`).
+    func deleteConversation(contactAddress: String) {
         guard ensureStoreLoaded() else { return }
         let walletAddr = currentWalletAddress
         let context = container.newBackgroundContext()
-        context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
-        context.perform {
-            let request = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
+        context.performAndWait {
+            guard !self.container.persistentStoreCoordinator.persistentStores.isEmpty else { return }
+
+            let messageFetch = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+            let conversationFetch = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
             if let walletAddr = walletAddr {
-                request.predicate = NSPredicate(
+                messageFetch.predicate = NSPredicate(
                     format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)",
-                    contactAddress,
-                    walletAddr
+                    contactAddress, walletAddr
+                )
+                conversationFetch.predicate = NSPredicate(
+                    format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)",
+                    contactAddress, walletAddr
                 )
             } else {
-                request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+                messageFetch.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+                conversationFetch.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
             }
-            do {
-                var conversations = try context.fetch(request)
-                if conversations.isEmpty {
-                    conversations = [self.fetchOrCreateConversation(contactAddress: contactAddress, walletAddress: walletAddr, in: context)]
-                }
 
-                var didChange = false
-                for conv in conversations {
-                    if conv.isArchived != isArchived {
-                        conv.isArchived = isArchived
-                        conv.updatedAt = Date()
-                        if let walletAddr = walletAddr {
-                            conv.walletAddress = walletAddr
-                        }
-                        didChange = true
-                    }
+            do {
+                let messages = try context.fetch(messageFetch)
+                for message in messages {
+                    context.delete(message)
                 }
-                guard didChange else { return }
-                try context.save()
+                let conversations = try context.fetch(conversationFetch)
+                for conversation in conversations {
+                    context.delete(conversation)
+                }
+                if context.hasChanges {
+                    try context.save()
+                }
+                self.logInfo("[MessageStore] Deleted conversation for %@: %d messages", contactAddress, messages.count)
             } catch {
-                self.logInfo("[MessageStore] Failed to update conversation archived: \(error)")
+                self.logInfo("[MessageStore] Failed to delete conversation for \(contactAddress): \(error)")
             }
         }
     }
@@ -1914,7 +1922,15 @@ final class MessageStore {
 
     private func loadPersistentStores(primaryDescription: NSPersistentStoreDescription, completion: (() -> Void)? = nil) {
         container.loadPersistentStores { [weak self] _, error in
-            guard let self else { return }
+            // `completion` backs `setCurrentWallet(_:) async`'s `withCheckedContinuation` - every
+            // exit path below MUST call it, even on failure, or that continuation hangs forever
+            // with no timeout and no way to recover (previously the two failure branches here
+            // returned without calling it, permanently wedging wallet load on any store-load
+            // error, e.g. a WAL/SHM issue from a cold launch after the process was jetsammed).
+            guard let self else {
+                completion?()
+                return
+            }
             if let error {
                 if primaryDescription.cloudKitContainerOptions != nil {
                     self.logInfo("[MessageStore] CloudKit store load failed: \(error). Falling back to local store.")
@@ -1928,6 +1944,7 @@ final class MessageStore {
                     self.container.loadPersistentStores { _, fallbackError in
                         if let fallbackError {
                             self.logInfo("[MessageStore] Failed to load local store: \(fallbackError)")
+                            completion?()
                             return
                         }
                         self.finishStoreLoad()
@@ -1935,6 +1952,7 @@ final class MessageStore {
                     }
                 } else {
                     self.logInfo("[MessageStore] Failed to load store: \(error)")
+                    completion?()
                 }
                 return
             }
@@ -2394,6 +2412,99 @@ final class MessageStore {
             }
             database.add(op)
         }
+    }
+
+    struct CloudKitStorageEstimate {
+        let recordCount: Int
+        let estimatedBytes: Int64
+    }
+
+    /// Best-effort estimate of how much the current wallet's CloudKit zone is using - CloudKit
+    /// has no public "bytes used" API (the number shown in iOS's own iCloud storage settings is
+    /// computed server-side and never exposed to apps), so this fetches every record actually
+    /// present in the zone right now and sums each one's approximate archived size. This is
+    /// deliberately a live server round-trip, not derived from the local store, so it reflects
+    /// reality even after data was deleted from iCloud outside the app (e.g. via system Settings)
+    /// while the local `.sqlite` cache (see `currentStoreSizeBytes()`) was left untouched.
+    func estimateCurrentWalletCloudKitStorage() async -> Result<CloudKitStorageEstimate, Error> {
+        guard let walletAddress = currentWalletAddress else {
+            return .failure(NSError(domain: "Kasia", code: 2, userInfo: [NSLocalizedDescriptionKey: "No wallet set"]))
+        }
+        let zoneName = zoneNameForWallet(walletAddress)
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
+        let database = CKContainer(identifier: containerId).privateCloudDatabase
+
+        var recordCount = 0
+        var totalBytes: Int64 = 0
+        var changeToken: CKServerChangeToken?
+        var moreComing = true
+
+        while moreComing {
+            let result = await fetchZoneChangesPage(zoneID: zoneID, database: database, changeToken: changeToken)
+            switch result {
+            case .failure(let error):
+                return .failure(error)
+            case .success(let page):
+                recordCount += page.recordCount
+                totalBytes += page.bytes
+                changeToken = page.token
+                moreComing = page.moreComing
+            }
+        }
+        return .success(CloudKitStorageEstimate(recordCount: recordCount, estimatedBytes: totalBytes))
+    }
+
+    private struct ZoneChangesPage {
+        let recordCount: Int
+        let bytes: Int64
+        let token: CKServerChangeToken?
+        let moreComing: Bool
+    }
+
+    private func fetchZoneChangesPage(
+        zoneID: CKRecordZone.ID,
+        database: CKDatabase,
+        changeToken: CKServerChangeToken?
+    ) async -> Result<ZoneChangesPage, Error> {
+        await withCheckedContinuation { continuation in
+            let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration(
+                previousServerChangeToken: changeToken,
+                resultsLimit: nil,
+                desiredKeys: nil
+            )
+            let op = CKFetchRecordZoneChangesOperation(recordZoneIDs: [zoneID], configurationsByRecordZoneID: [zoneID: config])
+            var recordCount = 0
+            var totalBytes: Int64 = 0
+
+            op.recordWasChangedBlock = { _, result in
+                if case .success(let record) = result {
+                    recordCount += 1
+                    totalBytes += Int64(Self.estimatedRecordSize(record))
+                }
+            }
+
+            op.recordZoneFetchResultBlock = { _, result in
+                switch result {
+                case .success(let (token, _, moreComing)):
+                    continuation.resume(returning: .success(
+                        ZoneChangesPage(recordCount: recordCount, bytes: totalBytes, token: token, moreComing: moreComing)
+                    ))
+                case .failure(let error):
+                    if (error as? CKError)?.code == .zoneNotFound {
+                        continuation.resume(returning: .success(ZoneChangesPage(recordCount: 0, bytes: 0, token: nil, moreComing: false)))
+                    } else {
+                        continuation.resume(returning: .failure(error))
+                    }
+                }
+            }
+            database.add(op)
+        }
+    }
+
+    /// CloudKit doesn't expose a "size of this record" API - archiving it is a reasonable
+    /// approximation of what's actually stored/transferred, close enough for a rough UI estimate.
+    private static func estimatedRecordSize(_ record: CKRecord) -> Int {
+        (try? NSKeyedArchiver.archivedData(withRootObject: record, requiringSecureCoding: true))?.count ?? 0
     }
 
     private func ensureStoreLoaded() -> Bool {

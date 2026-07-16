@@ -41,12 +41,13 @@ final class ChatService: ObservableObject {
     @Published var conversations: [Conversation] = [] {
         didSet {
             scheduleBadgeUpdate()
-            persistChatListSnapshotIfPossible()
+            scheduleChatListSnapshotPersist()
         }
     }
     @Published var isLoading = false
     @Published var error: KasiaError?
     @Published var declinedContacts: Set<String> = []
+    @Published var replyingTo: ChatMessage?
     var settingsViewModel: SettingsViewModel?
     var cachedSettings = SettingsViewModel.loadSettings()
     @Published var activeConversationAddress: String?
@@ -288,6 +289,7 @@ final class ChatService: ObservableObject {
     let pushReregisterCooldown: TimeInterval = 600
 
     var badgeUpdateTask: Task<Void, Never>?
+    var chatListSnapshotPersistTask: Task<Void, Never>?
     var pendingLastMessageUpdates: [UUID: Date] = [:]
     var pendingLastMessageUpdateWorkItem: DispatchWorkItem?
     let lastMessageBatchDelay: TimeInterval = 0.8
@@ -380,6 +382,14 @@ final class ChatService: ObservableObject {
         }
     }
 
+    func startReplyTo(_ message: ChatMessage) {
+        replyingTo = message
+    }
+
+    func cancelReply() {
+        replyingTo = nil
+    }
+
     /// Observe conversation count changes to trigger resubscription when new chats are added
     private func observeConversationCount() {
         conversationCountCancellable = $conversations
@@ -439,7 +449,7 @@ final class ChatService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            NSLog("[ChatService] RPC subscriptions restored - syncing to catch any missed messages")
+            AppLog.log("[ChatService] RPC subscriptions restored - syncing to catch any missed messages")
             Task { @MainActor in
                 await self?.maybeRunCatchUpSync(trigger: .rpcSubscriptionsRestored)
             }
@@ -451,7 +461,7 @@ final class ChatService: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            NSLog("[ChatService] RPC reconnected - re-subscribing to UTXOs...")
+            AppLog.log("[ChatService] RPC reconnected - re-subscribing to UTXOs...")
             Task { @MainActor in
                 self?.isUtxoSubscribed = false  // Reset subscription state
                 await self?.setupUtxoSubscription()

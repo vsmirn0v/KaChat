@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import AVFoundation
+import ImageIO
 import UniformTypeIdentifiers
 #if canImport(YbridOpus)
 import YbridOpus
@@ -14,25 +15,98 @@ struct MessageBubbleView: View {
     let onRetry: ((ChatMessage) -> Void)?
     let onAcceptHandshake: (() -> Void)?
     let onDeclineHandshake: (() -> Void)?
-    @State private var showImagePreview = false
+    /// Parsed reply envelope, if `message.content` is a reply - matches broadcast rooms'
+    /// `BroadcastMessageRow.replyQuote`.
+    let replyQuote: MessageReplyContent?
+    let replySenderDisplayName: String?
+    let onReply: (() -> Void)?
+    /// Sender's KNS avatar (or nil for plain initials), matching broadcast rooms'
+    /// `BroadcastMessageRow.avatarButton`.
+    let avatarURLString: String?
+    let avatarDisplayName: String
+    /// Shared horizontal offset driven by the message list's swipe-left-to-reveal-timestamp
+    /// gesture (see `ChatDetailView`'s drag gesture) - 0 at rest, negative while revealed.
+    var revealOffset: CGFloat = 0
+    var maxRevealOffset: CGFloat = 64
+    /// When true, an incoming photo from this contact stays hidden behind a "Show Photo" tap
+    /// instead of auto-decoding - driven by `ContactsManager.shouldAutoDisplayPhotos(for:settings:)`.
+    var photosBlocked: Bool = false
     @State private var shimmerPhase: CGFloat = -1
+    @State private var showFullText = false
 
-    init(message: ChatMessage, onCopy: ((String, ToastStyle) -> Void)? = nil, onRetry: ((ChatMessage) -> Void)? = nil, onAcceptHandshake: (() -> Void)? = nil, onDeclineHandshake: (() -> Void)? = nil) {
+    init(
+        message: ChatMessage,
+        onCopy: ((String, ToastStyle) -> Void)? = nil,
+        onRetry: ((ChatMessage) -> Void)? = nil,
+        onAcceptHandshake: (() -> Void)? = nil,
+        onDeclineHandshake: (() -> Void)? = nil,
+        replyQuote: MessageReplyContent? = nil,
+        replySenderDisplayName: String? = nil,
+        onReply: (() -> Void)? = nil,
+        avatarURLString: String? = nil,
+        avatarDisplayName: String = "",
+        revealOffset: CGFloat = 0,
+        maxRevealOffset: CGFloat = 64,
+        photosBlocked: Bool = false
+    ) {
         self.message = message
         self.onCopy = onCopy
         self.onRetry = onRetry
         self.onAcceptHandshake = onAcceptHandshake
         self.onDeclineHandshake = onDeclineHandshake
+        self.replyQuote = replyQuote
+        self.replySenderDisplayName = replySenderDisplayName
+        self.onReply = onReply
+        self.avatarURLString = avatarURLString
+        self.avatarDisplayName = avatarDisplayName
+        self.revealOffset = revealOffset
+        self.maxRevealOffset = maxRevealOffset
+        self.photosBlocked = photosBlocked
     }
+
+    /// The reply's own text, or the raw content when this isn't a reply - matches broadcast
+    /// rooms' `BroadcastMessageRow.displayText`.
+    private var displayText: String {
+        replyQuote?.text ?? message.content
+    }
+
+    private var timeText: String {
+        SharedFormatting.chatTime.string(from: message.timestamp)
+    }
+
+    /// 0 at rest, 1 once fully dragged open.
+    private var revealProgress: CGFloat {
+        min(max(-revealOffset / maxRevealOffset, 0), 1)
+    }
+
 
     var body: some View {
         let media = mediaFile
-        let image = media?.image(cacheKey: message.txId)
-        let isSingleEmojiOnly = isSingleEmojiOnlyMessage(message.content)
+        let isSingleEmojiOnly = isSingleEmojiOnlyMessage(displayText)
 
-        HStack {
-            if message.isOutgoing {
-                Spacer(minLength: 60)
+        ZStack(alignment: .trailing) {
+            Text(timeText)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .padding(.trailing, 12)
+                .opacity(revealProgress)
+
+            messageContent(media: media, isSingleEmojiOnly: isSingleEmojiOnly)
+                .offset(x: revealOffset)
+        }
+    }
+
+    private var avatarView: some View {
+        KNSAvatarView(avatarURLString: avatarURLString, fallbackText: avatarDisplayName, size: 32)
+    }
+
+    @ViewBuilder
+    private func messageContent(media: MediaFile?, isSingleEmojiOnly: Bool) -> some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            if !message.isOutgoing {
+                avatarView
+            } else {
+                Spacer(minLength: 40)
             }
 
             VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 4) {
@@ -44,67 +118,47 @@ struct MessageBubbleView: View {
                 // Incoming handshake request with Accept/Decline actions
                 if message.messageType == .handshake && !message.isOutgoing && onAcceptHandshake != nil {
                     handshakeRequestBubble
-                } else if let media, media.isImage, let image {
-                    Button {
-                        showImagePreview = true
-                    } label: {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: 220)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button {
-                            handleCopy(media.name, toast: "File name copied.")
-                        } label: {
-                            Label("Copy File Name", systemImage: "doc.on.doc")
-                        }
-
-                        Button {
-                            handleCopy(message.txId, toast: "Transaction ID copied.")
-                        } label: {
-                            Label("Copy Transaction ID", systemImage: "number")
-                        }
-
-                        if shouldShowRetry {
-                            Button {
-                                onRetry?(message)
-                            } label: {
-                                Label("Retry Send", systemImage: "arrow.clockwise")
-                            }
-                        }
-                    }
-                    .fullScreenCover(isPresented: $showImagePreview) {
-                        ImagePreviewView(
-                            image: image,
-                            title: media.name
-                        )
-                    }
-                } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
-                    LazyAudioBubble(
-                        data: data,
-                        mimeType: media.mimeType,
-                        isOutgoing: message.isOutgoing,
-                        fileName: media.name,
-                        txId: message.txId,
-                        onCopy: onCopy,
-                        onRetry: shouldShowRetry ? { onRetry?(message) } : nil
-                    )
                 } else {
-                    messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
+                    if let replyQuote {
+                        replyQuoteView(replyQuote)
+                    }
+
+                    if let media, media.isImage {
+                        // Double-tap-to-reply is handled inside LazyImageBubble itself (co-located
+                        // with its single-tap-to-preview gesture so SwiftUI can disambiguate the
+                        // two correctly) rather than here, unlike the audio/text cases below.
+                        LazyImageBubble(
+                            media: media,
+                            txId: message.txId,
+                            shouldShowRetry: shouldShowRetry,
+                            photosBlocked: photosBlocked && !message.isOutgoing,
+                            senderDisplayName: avatarDisplayName,
+                            onCopy: onCopy,
+                            onRetry: { onRetry?(message) },
+                            onReply: onReply
+                        )
+                    } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
+                        LazyAudioBubble(
+                            data: data,
+                            mimeType: media.mimeType,
+                            isOutgoing: message.isOutgoing,
+                            fileName: media.name,
+                            txId: message.txId,
+                            onCopy: onCopy,
+                            onRetry: shouldShowRetry ? { onRetry?(message) } : nil,
+                            onReply: onReply
+                        )
+                        .simultaneousGesture(TapGesture(count: 2).onEnded { onReply?() })
+                    } else {
+                        messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
+                            .simultaneousGesture(TapGesture(count: 2).onEnded { onReply?() })
+                    }
                 }
 
-                // Timestamp and status
-                HStack(spacing: 4) {
-                    Text(formatTime(message.timestamp))
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-
-                    if shouldShowStatusIcon {
-                        statusIcon
-                    }
+                // Delivery status only - the time now shows via swipe-to-reveal, matching
+                // broadcast rooms, instead of always being visible under every bubble.
+                if shouldShowStatusIcon {
+                    statusIcon
                 }
             }
             .onAppear {
@@ -114,8 +168,10 @@ struct MessageBubbleView: View {
                 startShimmerIfNeeded()
             }
 
-            if !message.isOutgoing {
-                Spacer(minLength: 60)
+            if message.isOutgoing {
+                avatarView
+            } else {
+                Spacer(minLength: 40)
             }
         }
     }
@@ -234,7 +290,7 @@ struct MessageBubbleView: View {
             }
             .contextMenu {
                 Button {
-                    handleCopy(message.content, toast: "Message copied to clipboard.")
+                    handleCopy(displayText, toast: "Message copied to clipboard.")
                 } label: {
                     Label("Copy Message", systemImage: "doc.on.doc")
                 }
@@ -243,6 +299,14 @@ struct MessageBubbleView: View {
                     handleCopy(message.txId, toast: "Transaction ID copied.")
                 } label: {
                     Label("Copy Transaction ID", systemImage: "number")
+                }
+
+                if let onReply {
+                    Button {
+                        onReply()
+                    } label: {
+                        Label("Reply", systemImage: "arrowshape.turn.up.left")
+                    }
                 }
 
                 if shouldShowRetry {
@@ -255,11 +319,43 @@ struct MessageBubbleView: View {
             }
     }
 
+    private func replyQuoteView(_ reply: MessageReplyContent) -> some View {
+        VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 2) {
+            Text(replySenderDisplayName ?? String(reply.replyToSender.suffix(10)))
+                .font(.caption2)
+                .fontWeight(.semibold)
+                .foregroundColor(.accentColor)
+            Text(reply.replyToPreview)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(message.isOutgoing ? .trailing : .leading)
+        }
+        .padding(8)
+        .background(Color(UIColor.tertiarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .frame(maxWidth: 240, alignment: message.isOutgoing ? .trailing : .leading)
+    }
+
+    /// Above this, a message renders as a truncated, tap-to-expand preview instead of laying out
+    /// the full text inline - matches iMessage's behavior for very long messages, and specifically
+    /// guards against a huge wall of text (e.g. raw base64 that ended up as plain message content
+    /// instead of being recognized as a file/image envelope) making the whole chat scroll janky,
+    /// since SwiftUI's `Text`/`fixedSize` layout cost for a single giant string is what actually
+    /// causes the lag, not the message itself being "long" in a normal-prose sense.
+    private static let inlineTextTruncationThreshold = 2_000
+    private static let truncatedPreviewLength = 500
+
     @ViewBuilder
     private func messageTextContent(isSingleEmojiOnly: Bool) -> some View {
-        if MessageTextRenderPlan.requiresLinkTextView(message.content) {
+        // Cheap proxy for "is this too long" - String.utf8.count is O(1) for native Swift
+        // strings, unlike .count (grapheme-cluster counting), which is a full O(n) scan and
+        // would itself cost real time on a huge string.
+        if displayText.utf8.count > Self.inlineTextTruncationThreshold {
+            truncatedMessageContent
+        } else if MessageTextRenderPlan.requiresLinkTextView(displayText) {
             LinkifiedMessageTextView(
-                text: message.content,
+                text: displayText,
                 isOutgoing: message.isOutgoing,
                 isSingleEmojiOnly: isSingleEmojiOnly,
                 onLinkLongPress: { url in
@@ -267,10 +363,32 @@ struct MessageBubbleView: View {
                 }
             )
         } else {
-            Text(message.content)
+            Text(displayText)
                 .font(isSingleEmojiOnly ? .system(size: UIFont.preferredFont(forTextStyle: .body).pointSize * 5.0) : .body)
                 .foregroundStyle(isSingleEmojiOnly ? Color.primary : (message.isOutgoing ? Color.white : Color.primary))
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var truncatedMessageContent: some View {
+        Button {
+            showFullText = true
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(displayText.prefix(Self.truncatedPreviewLength)) + "…")
+                    .font(.body)
+                    .foregroundStyle(message.isOutgoing ? Color.white : Color.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Show More")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(message.isOutgoing ? Color.white.opacity(0.85) : Color.accentColor)
+            }
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showFullText) {
+            FullMessageTextView(text: displayText) {
+                handleCopy(displayText, toast: "Message copied to clipboard.")
+            }
         }
     }
 
@@ -388,22 +506,36 @@ struct MessageBubbleView: View {
             }
 
         case .audio:
-            HStack(spacing: 4) {
-                Image(systemName: "waveform.circle.fill")
-                    .font(.caption2)
-                Text("Audio")
-                    .font(.caption2)
+            // `sendImage` deliberately reuses `.audio` as the message type (the JSON envelope's
+            // own `mimeType` is what actually distinguishes a photo from a voice message), so this
+            // badge needs to check `mediaFile` itself rather than assuming every `.audio` message
+            // is a voice message.
+            if mediaFile?.isImage == true {
+                HStack(spacing: 4) {
+                    Image(systemName: "photo.circle.fill")
+                        .font(.caption2)
+                    Text("Photo")
+                        .font(.caption2)
+                }
+                .foregroundColor(.blue)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(Color.blue.opacity(0.1))
+                .clipShape(Capsule())
+            } else {
+                HStack(spacing: 4) {
+                    Image(systemName: "waveform.circle.fill")
+                        .font(.caption2)
+                    Text("Audio")
+                        .font(.caption2)
+                }
+                .foregroundColor(.blue)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 2)
+                .background(Color.blue.opacity(0.1))
+                .clipShape(Capsule())
             }
-            .foregroundColor(.blue)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            .background(Color.blue.opacity(0.1))
-            .clipShape(Capsule())
         }
-    }
-
-    private func formatTime(_ date: Date) -> String {
-        SharedFormatting.chatTime.string(from: date)
     }
 
     private func handleCopy(_ value: String, toast: String) {
@@ -413,7 +545,7 @@ struct MessageBubbleView: View {
     }
 
     private var mediaFile: MediaFile? {
-        MediaFile.from(message.content, cacheKey: message.txId)
+        MediaFile.from(displayText, cacheKey: message.txId)
     }
 
     private func isSingleEmojiOnlyMessage(_ text: String) -> Bool {
@@ -427,11 +559,15 @@ struct MessageBubbleView: View {
     }
 }
 
-private struct LinkifiedMessageTextView: UIViewRepresentable {
+struct LinkifiedMessageTextView: UIViewRepresentable {
     let text: String
     let isOutgoing: Bool
     let isSingleEmojiOnly: Bool
     let onLinkLongPress: (URL) -> Void
+    /// When false, tapping a link does nothing - only the long-press menu can open it. Used in
+    /// broadcast rooms, where links can come from anonymous public senders, so opening one
+    /// should always require a deliberate long-press rather than a single accidental tap.
+    var tapOpensLink: Bool = true
 
     func makeUIView(context: Context) -> UITextView {
         let textView = UITextView()
@@ -568,6 +704,7 @@ private struct LinkifiedMessageTextView: UIViewRepresentable {
         @objc
         private func handleTap(_ gesture: UITapGestureRecognizer) {
             guard gesture.state == .ended, let textView else { return }
+            guard parent.tapOpensLink else { return }
             let point = gesture.location(in: textView)
             guard let url = url(at: point, in: textView) else { return }
             UIApplication.shared.open(url)
@@ -619,6 +756,41 @@ private struct LinkifiedMessageTextView: UIViewRepresentable {
     }
 }
 
+/// Full text of a message too long to render inline (see `MessageBubbleView.inlineTextTruncationThreshold`)
+/// - a plain scrollable, selectable text view, matching iMessage's "tap to see more" detail sheet.
+/// Shared with `BroadcastChannelView`'s room bubble, not just private-chat messages.
+struct FullMessageTextView: View {
+    let text: String
+    let onCopy: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(text)
+                    .font(.body)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .navigationTitle("Message")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        onCopy()
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                }
+            }
+        }
+    }
+}
+
 private struct ShimmerOverlay: View {
     let phase: CGFloat
 
@@ -639,6 +811,267 @@ private struct ShimmerOverlay: View {
                 )
                 .rotationEffect(.degrees(20))
                 .offset(x: phase * width * 1.5)
+        }
+    }
+}
+
+/// Persists which photo messages the user has explicitly chosen to reveal, keyed by txId, so a
+/// once-revealed photo (from a contact whose photos are otherwise hidden by default) doesn't
+/// re-hide itself on the next launch. TxIds are unique chain-wide, so no per-wallet namespacing
+/// is needed.
+private enum PhotoRevealStore {
+    private static let key = "kachat.revealedPhotoTxIds"
+
+    static func isRevealed(_ txId: String) -> Bool {
+        revealedSet.contains(txId)
+    }
+
+    static func markRevealed(_ txId: String) {
+        var set = revealedSet
+        guard !set.contains(txId) else { return }
+        set.insert(txId)
+        UserDefaults.standard.set(Array(set), forKey: key)
+    }
+
+    private static var revealedSet: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+    }
+}
+
+private struct LazyImageBubble: View {
+    private static let thumbnailDisplaySize = CGSize(width: 220, height: 160)
+
+    let media: MediaFile
+    let txId: String
+    let shouldShowRetry: Bool
+    let photosBlocked: Bool
+    let senderDisplayName: String
+    let onCopy: ((String, ToastStyle) -> Void)?
+    let onRetry: (() -> Void)?
+    let onReply: (() -> Void)?
+
+    @State private var thumbnailState: (txId: String, image: UIImage)?
+    @State private var previewImage: UIImage?
+    @State private var sharePayload: MessageImageSharePayload?
+    @State private var isLoadingPreview = false
+    @State private var showImagePreview = false
+    @State private var isRevealed: Bool
+
+    init(
+        media: MediaFile,
+        txId: String,
+        shouldShowRetry: Bool,
+        photosBlocked: Bool,
+        senderDisplayName: String,
+        onCopy: ((String, ToastStyle) -> Void)?,
+        onRetry: (() -> Void)?,
+        onReply: (() -> Void)?
+    ) {
+        self.media = media
+        self.txId = txId
+        self.shouldShowRetry = shouldShowRetry
+        self.photosBlocked = photosBlocked
+        self.senderDisplayName = senderDisplayName
+        self.onCopy = onCopy
+        self.onRetry = onRetry
+        self.onReply = onReply
+        _isRevealed = State(initialValue: PhotoRevealStore.isRevealed(txId))
+    }
+
+    /// Still hidden behind a manual reveal - photos blocked for this contact that the user
+    /// hasn't tapped "Show Photo" on yet.
+    private var isHidden: Bool {
+        photosBlocked && !isRevealed
+    }
+
+    private func reveal() {
+        PhotoRevealStore.markRevealed(txId)
+        isRevealed = true
+    }
+
+    var body: some View {
+        if isHidden {
+            hiddenBubble
+        } else {
+            unlockedBubble
+        }
+    }
+
+    private var hiddenBubble: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "eye.slash")
+                .font(.system(size: 24, weight: .regular))
+                .foregroundColor(.secondary)
+            Text("\(senderDisplayName) sent a photo")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+            Button {
+                reveal()
+            } label: {
+                Text("Show Photo")
+                    .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(12)
+        .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var unlockedBubble: some View {
+        // Plain tappable view rather than `Button`: a Button's tap action fires immediately on
+        // the first touch-up, which always won the race against a double-tap-to-reply gesture
+        // attached to an ancestor view (opening the preview before "is this a double tap?" could
+        // even be decided) and aggressively claimed touches that were meant to start a
+        // swipe-to-reply drag. Attaching both tap counts directly to this same view lets SwiftUI
+        // properly wait to see whether a second tap follows before firing the single-tap action.
+        ZStack {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.secondarySystemBackground))
+
+            if let thumbnailState, thumbnailState.txId == txId {
+                Image(uiImage: thumbnailState.image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+            } else {
+                placeholder
+            }
+
+            if isLoadingPreview {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(8)
+                    .background(.regularMaterial)
+                    .clipShape(Circle())
+            }
+        }
+        .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            onReply?()
+        }
+        .onTapGesture(count: 1) {
+            openPreview()
+        }
+        .contextMenu {
+            Button {
+                handleCopy(media.name, toast: "File name copied.")
+            } label: {
+                Label("Copy File Name", systemImage: "doc.on.doc")
+            }
+
+            Button {
+                handleCopy(txId, toast: "Transaction ID copied.")
+            } label: {
+                Label("Copy Transaction ID", systemImage: "number")
+            }
+
+            if let onReply {
+                Button {
+                    onReply()
+                } label: {
+                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                }
+            }
+
+            if shouldShowRetry {
+                Button {
+                    onRetry?()
+                } label: {
+                    Label("Retry Send", systemImage: "arrow.clockwise")
+                }
+            }
+        }
+        .task(id: txId) {
+            guard thumbnailState?.txId != txId else { return }
+            guard let loadedThumbnail = await media.thumbnailImage(cacheKey: txId),
+                  !Task.isCancelled else {
+                return
+            }
+            thumbnailState = (txId, loadedThumbnail)
+        }
+        .fullScreenCover(isPresented: $showImagePreview) {
+            if let previewImage, let sharePayload {
+                ImagePreviewView(
+                    image: previewImage,
+                    title: media.name,
+                    sharePayload: sharePayload
+                )
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black.ignoresSafeArea())
+            }
+        }
+    }
+
+    private var placeholder: some View {
+        Image(systemName: "photo")
+            .font(.system(size: 28, weight: .regular))
+            .foregroundColor(.secondary)
+            .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+    }
+
+    private func openPreview() {
+        if previewImage != nil, sharePayload != nil {
+            showImagePreview = true
+            return
+        }
+
+        isLoadingPreview = true
+        Task {
+            let loaded = await media.previewImagePayload(cacheKey: txId)
+            isLoadingPreview = false
+            guard let loaded else { return }
+            previewImage = loaded.image
+            sharePayload = loaded.sharePayload
+            showImagePreview = true
+        }
+    }
+
+    private func handleCopy(_ value: String, toast: String) {
+        UIPasteboard.general.string = value
+        Haptics.success()
+        onCopy?(toast, .success)
+    }
+}
+
+/// Bounds how many thumbnail decodes run at once. Without this, opening a chat with many
+/// photos - especially jumping straight to the bottom of a long history, as happens when a
+/// lock-screen notification tap cold-launches straight into a photo-heavy chat - fired one
+/// `Task.detached(priority: .userInitiated)` base64-decode-and-downsample per bubble that
+/// appeared, all at once. That can saturate every core while the main thread is also trying to
+/// lay out/scroll the message list and, on a cold launch, while wallet unlock/node pool init are
+/// already competing for the same CPU time - reading as a multi-second freeze rather than a
+/// smooth scroll-in. Capping concurrency keeps CPU headroom free for that other work; each
+/// decode is still cheap individually (ImageIO's downsampled thumbnail path), so a small cap
+/// doesn't meaningfully slow down how soon photos appear.
+private actor ImageDecodeLimiter {
+    static let shared = ImageDecodeLimiter()
+
+    private var availablePermits = 3
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        if availablePermits > 0 {
+            availablePermits -= 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func signal() {
+        if waiters.isEmpty {
+            availablePermits += 1
+        } else {
+            waiters.removeFirst().resume()
         }
     }
 }
@@ -669,6 +1102,11 @@ private struct MediaFile: Codable {
     private static let imageCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.totalCostLimit = 50 * 1024 * 1024
+        return cache
+    }()
+    private static let thumbnailCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 24 * 1024 * 1024
         return cache
     }()
 
@@ -707,9 +1145,51 @@ private struct MediaFile: Codable {
             return nil
         }
         if let key = Self.cacheKey(from: cacheKey) {
-            Self.imageCache.setObject(image, forKey: key, cost: data.count)
+            Self.imageCache.setObject(image, forKey: key, cost: Self.cacheCost(for: image))
         }
         return image
+    }
+
+    func imageSharePayload(cacheKey: String?) -> MessageImageSharePayload? {
+        guard isImage, let data = fileData(cacheKey: cacheKey) else { return nil }
+        return MessageImageSharePayload(data: data, fileName: name, mimeType: mimeType)
+    }
+
+    func thumbnailImage(cacheKey: String?, maxPixelSize: CGFloat = 440) async -> UIImage? {
+        guard isImage else { return nil }
+        if let key = Self.thumbnailCacheKey(from: cacheKey, maxPixelSize: maxPixelSize),
+           let cached = Self.thumbnailCache.object(forKey: key) {
+            return cached
+        }
+
+        await ImageDecodeLimiter.shared.wait()
+        defer { Task { await ImageDecodeLimiter.shared.signal() } }
+
+        return await Task.detached(priority: .userInitiated) {
+            guard let data = fileData(cacheKey: cacheKey),
+                  let image = Self.downsampledImage(data: data, maxPixelSize: maxPixelSize) ?? UIImage(data: data) else {
+                return nil
+            }
+
+            if let key = Self.thumbnailCacheKey(from: cacheKey, maxPixelSize: maxPixelSize) {
+                Self.thumbnailCache.setObject(image, forKey: key, cost: Self.cacheCost(for: image))
+            }
+            return image
+        }.value
+    }
+
+    func previewImagePayload(cacheKey: String?) async -> (image: UIImage, sharePayload: MessageImageSharePayload)? {
+        guard isImage else { return nil }
+        return await Task.detached(priority: .userInitiated) {
+            guard let data = fileData(cacheKey: cacheKey),
+                  let image = image(cacheKey: cacheKey) else {
+                return nil
+            }
+            return (
+                image,
+                MessageImageSharePayload(data: data, fileName: name, mimeType: mimeType)
+            )
+        }.value
     }
 
     static func from(_ text: String, cacheKey cacheToken: String? = nil) -> MediaFile? {
@@ -746,10 +1226,44 @@ private struct MediaFile: Codable {
         return trimmed as NSString
     }
 
+    private static func thumbnailCacheKey(from value: String?, maxPixelSize: CGFloat) -> NSString? {
+        guard let base = cacheKey(from: value) else { return nil }
+        return "\(base)|thumb|\(Int(maxPixelSize.rounded()))" as NSString
+    }
+
     private static func dataFromDataURL(_ text: String) -> Data? {
         guard let prefixRange = text.range(of: "base64,") else { return nil }
         let base64 = text[prefixRange.upperBound...]
         return Data(base64Encoded: String(base64))
+    }
+
+    private static func downsampledImage(data: Data, maxPixelSize: CGFloat) -> UIImage? {
+        let sourceOptions = [
+            kCGImageSourceShouldCache: false
+        ] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
+            return nil
+        }
+
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(maxPixelSize.rounded(.up)))
+        ] as CFDictionary
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private static func cacheCost(for image: UIImage) -> Int {
+        if let cgImage = image.cgImage {
+            return cgImage.bytesPerRow * cgImage.height
+        }
+        let width = max(1, Int((image.size.width * image.scale).rounded(.up)))
+        let height = max(1, Int((image.size.height * image.scale).rounded(.up)))
+        return width * height * 4
     }
 }
 
@@ -963,6 +1477,7 @@ private struct LazyAudioBubble: View {
     let txId: String
     let onCopy: ((String, ToastStyle) -> Void)?
     let onRetry: (() -> Void)?
+    let onReply: (() -> Void)?
     @StateObject private var helper = AudioPlaybackHelper()
 
     var body: some View {
@@ -974,7 +1489,8 @@ private struct LazyAudioBubble: View {
             fileName: fileName,
             txId: txId,
             onCopy: onCopy,
-            onRetry: onRetry
+            onRetry: onRetry,
+            onReply: onReply
         )
     }
 }
@@ -988,6 +1504,7 @@ private struct AudioBubble: View {
     let txId: String
     let onCopy: ((String, ToastStyle) -> Void)?
     let onRetry: (() -> Void)?
+    let onReply: (() -> Void)?
     @State private var showShareSheet = false
 
     var body: some View {
@@ -1036,6 +1553,14 @@ private struct AudioBubble: View {
                 onCopy?("Transaction ID copied.", .success)
             } label: {
                 Label("Copy Transaction ID", systemImage: "number")
+            }
+
+            if let onReply {
+                Button {
+                    onReply()
+                } label: {
+                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                }
             }
 
             if let onRetry {
@@ -1129,7 +1654,6 @@ private enum WebMOpusDecodeError: LocalizedError {
     case invalidWebM(String)
     case missingOpusHead
     case invalidOpusHead
-    case unsupportedLacing
     case decoderInit(Int32)
     case decodeFailed(Int32)
     case noAudio
@@ -1142,8 +1666,6 @@ private enum WebMOpusDecodeError: LocalizedError {
             return "Missing Opus header."
         case .invalidOpusHead:
             return "Invalid Opus header."
-        case .unsupportedLacing:
-            return "Unsupported block lacing."
         case .decoderInit(let code):
             return "Opus decoder init failed (\(code))."
         case .decodeFailed(let code):
@@ -1262,7 +1784,10 @@ struct WebMOpusDecoder {
             0x1549A966, // Info
             0x1654AE6B, // Tracks
             0xAE,       // TrackEntry
-            0x1F43B675  // Cluster
+            0x1F43B675, // Cluster
+            0xA0        // BlockGroup - real WebM muxers (e.g. Android's AOSP MediaRecorder/
+                        // MediaMuxer) commonly wrap an Opus frame in BlockGroup > Block rather
+                        // than a bare SimpleBlock, unlike this app's own hand-rolled encoder.
         ]
 
         func parseElements(in range: Range<Int>) throws {
@@ -1289,7 +1814,9 @@ struct WebMOpusDecoder {
 
                 if id == 0x63A2 {
                     opusHead = data.subdata(in: payloadStart..<payloadEnd)
-                } else if id == 0xA3 {
+                } else if id == 0xA3 || id == 0xA1 {
+                    // SimpleBlock (0xA3) or Block (0xA1, inside a BlockGroup) - both share the
+                    // same track-number/timecode/flags header layout for our purposes.
                     let block = data.subdata(in: payloadStart..<payloadEnd)
                     if let packet = try parseSimpleBlock(block) {
                         packets.append(packet)
@@ -1315,7 +1842,11 @@ struct WebMOpusDecoder {
 
     private static func parseSimpleBlock(_ data: Data) throws -> Data? {
         var offset = 0
-        let (trackNumber, trackLen) = try readVIntValue(data, offset: offset)
+        // Track number isn't validated against a fixed value (e.g. this app's own encoder
+        // always uses track 1) - these files only ever contain a single audio track, and other
+        // real-world muxers (Android's AOSP MediaRecorder among them) aren't guaranteed to number
+        // it the same way, so any track number here is accepted.
+        let (_, trackLen) = try readVIntValue(data, offset: offset)
         offset += trackLen
         guard offset + 3 <= data.count else {
             throw WebMOpusDecodeError.invalidWebM("Short SimpleBlock.")
@@ -1327,9 +1858,8 @@ struct WebMOpusDecoder {
 
         let lacing = (flags >> 1) & 0x03
         if lacing != 0 {
-            throw WebMOpusDecodeError.unsupportedLacing
-        }
-        guard trackNumber == 1 else {
+            // Skip rather than abort the whole file - one oddly-laced block shouldn't lose every
+            // other valid packet already parsed.
             return nil
         }
         guard offset <= data.count else {
@@ -1721,11 +2251,18 @@ private struct OggOpusDecoder {
 private struct ImagePreviewView: View {
     let image: UIImage
     let title: String
+    let sharePayload: MessageImageSharePayload
     @Environment(\.dismiss) private var dismiss
+    @State private var isZoomed = false
+    @State private var dragOffset: CGFloat = 0
+
+    /// Past this translation (or a fast-enough flick, see `onEnded`), the swipe commits to
+    /// dismissing instead of springing back.
+    private let dismissThreshold: CGFloat = 120
 
     var body: some View {
         NavigationStack {
-            ZoomableImageView(image: image)
+            ZoomableImageView(image: image, isZoomed: $isZoomed)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1736,7 +2273,7 @@ private struct ImagePreviewView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     ShareLink(
-                        item: ShareableImage(image: image),
+                        item: ShareableImage(payload: sharePayload),
                         preview: SharePreview(title, image: Image(uiImage: image))
                     ) {
                         Image(systemName: "square.and.arrow.up")
@@ -1744,12 +2281,36 @@ private struct ImagePreviewView: View {
                 }
             }
         }
+        .offset(y: dragOffset)
+        .opacity(1 - min(abs(dragOffset) / 500, 0.4))
+        // `simultaneousGesture` rather than `gesture` so this never steals the scroll view's own
+        // pinch-zoom/pan recognizers; the `!isZoomed` guards below additionally make sure a swipe
+        // only dismisses when the image is at its default scale, matching how Photos/Messages
+        // handle swipe-to-dismiss on a zoomable image.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12)
+                .onChanged { value in
+                    guard !isZoomed, abs(value.translation.height) > abs(value.translation.width) else { return }
+                    dragOffset = value.translation.height
+                }
+                .onEnded { value in
+                    guard !isZoomed else { return }
+                    if abs(dragOffset) > dismissThreshold || abs(value.predictedEndTranslation.height) > dismissThreshold * 2 {
+                        dismiss()
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            dragOffset = 0
+                        }
+                    }
+                }
+        )
     }
 
 }
 
 private struct ZoomableImageView: UIViewRepresentable {
     let image: UIImage
+    @Binding var isZoomed: Bool
 
     func makeUIView(context: Context) -> UIScrollView {
         let scrollView = UIScrollView()
@@ -1781,30 +2342,37 @@ private struct ZoomableImageView: UIViewRepresentable {
     func updateUIView(_ uiView: UIScrollView, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(isZoomed: $isZoomed)
     }
 
     final class Coordinator: NSObject, UIScrollViewDelegate {
         weak var imageView: UIImageView?
+        @Binding var isZoomed: Bool
+
+        init(isZoomed: Binding<Bool>) {
+            _isZoomed = isZoomed
+        }
 
         func viewForZooming(in scrollView: UIScrollView) -> UIView? {
             return imageView
+        }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) {
+            let zoomed = scrollView.zoomScale > scrollView.minimumZoomScale + 0.01
+            if isZoomed != zoomed {
+                isZoomed = zoomed
+            }
         }
     }
 }
 
 private struct ShareableImage: Transferable {
-    let image: UIImage
+    let payload: MessageImageSharePayload
 
     static var transferRepresentation: some TransferRepresentation {
-        DataRepresentation(exportedContentType: .png) { item in
-            guard let data = item.image.pngData() else { throw TransferError.couldNotEncode }
-            return data
+        FileRepresentation(exportedContentType: .image) { item in
+            SentTransferredFile(try item.payload.writeTemporaryFile())
         }
-    }
-
-    enum TransferError: Error {
-        case couldNotEncode
     }
 }
 

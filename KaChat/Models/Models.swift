@@ -104,6 +104,20 @@ enum ContactNotificationMode: String, Codable, CaseIterable {
     }
 }
 
+enum PhotoAutoDisplayMode: String, Codable, CaseIterable {
+    case automatic
+    case alwaysShow
+    case alwaysHide
+
+    var displayName: String {
+        switch self {
+        case .automatic: return String(localized: "Automatic")
+        case .alwaysShow: return String(localized: "Always Show")
+        case .alwaysHide: return String(localized: "Always Hide")
+        }
+    }
+}
+
 struct Contact: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     var address: String
@@ -113,7 +127,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
     var isAutoAdded: Bool
     var notificationModeOverride: ContactNotificationMode?
     var realtimeUpdatesDisabled: Bool
-    var isArchived: Bool
+    var hasSentOutgoingMessage: Bool
+    var photoAutoDisplayOverride: PhotoAutoDisplayMode?
     // Local-only enrichment from iOS/macOS system contacts.
     var systemContactId: String?
     var systemDisplayNameSnapshot: String?
@@ -130,7 +145,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         isAutoAdded: Bool = false,
         notificationModeOverride: ContactNotificationMode? = nil,
         realtimeUpdatesDisabled: Bool = false,
-        isArchived: Bool = false,
+        hasSentOutgoingMessage: Bool = false,
+        photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil,
         systemContactId: String? = nil,
         systemDisplayNameSnapshot: String? = nil,
         systemContactLinkSource: SystemContactLinkSource? = nil,
@@ -145,7 +161,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         self.isAutoAdded = isAutoAdded
         self.notificationModeOverride = notificationModeOverride
         self.realtimeUpdatesDisabled = realtimeUpdatesDisabled
-        self.isArchived = isArchived
+        self.hasSentOutgoingMessage = hasSentOutgoingMessage
+        self.photoAutoDisplayOverride = photoAutoDisplayOverride
         self.systemContactId = systemContactId
         self.systemDisplayNameSnapshot = systemDisplayNameSnapshot
         self.systemContactLinkSource = systemContactLinkSource
@@ -163,7 +180,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         case notificationModeOverride
         case notificationsMuted // Legacy key migrated into notificationModeOverride
         case realtimeUpdatesDisabled
-        case isArchived
+        case hasSentOutgoingMessage
+        case photoAutoDisplayOverride
         case systemContactId
         case systemDisplayNameSnapshot
         case systemContactLinkSource
@@ -187,7 +205,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
             notificationModeOverride = legacyMuted ? .off : nil
         }
         realtimeUpdatesDisabled = try container.decodeIfPresent(Bool.self, forKey: .realtimeUpdatesDisabled) ?? false
-        isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        hasSentOutgoingMessage = try container.decodeIfPresent(Bool.self, forKey: .hasSentOutgoingMessage) ?? false
+        photoAutoDisplayOverride = try container.decodeIfPresent(PhotoAutoDisplayMode.self, forKey: .photoAutoDisplayOverride)
         systemContactId = try container.decodeIfPresent(String.self, forKey: .systemContactId)
         systemDisplayNameSnapshot = try container.decodeIfPresent(String.self, forKey: .systemDisplayNameSnapshot)
         systemContactLinkSource = try container.decodeIfPresent(SystemContactLinkSource.self, forKey: .systemContactLinkSource)
@@ -205,7 +224,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         try container.encode(isAutoAdded, forKey: .isAutoAdded)
         try container.encodeIfPresent(notificationModeOverride, forKey: .notificationModeOverride)
         try container.encode(realtimeUpdatesDisabled, forKey: .realtimeUpdatesDisabled)
-        try container.encode(isArchived, forKey: .isArchived)
+        try container.encode(hasSentOutgoingMessage, forKey: .hasSentOutgoingMessage)
+        try container.encodeIfPresent(photoAutoDisplayOverride, forKey: .photoAutoDisplayOverride)
         try container.encodeIfPresent(systemContactId, forKey: .systemContactId)
         try container.encodeIfPresent(systemDisplayNameSnapshot, forKey: .systemDisplayNameSnapshot)
         try container.encodeIfPresent(systemContactLinkSource, forKey: .systemContactLinkSource)
@@ -638,6 +658,127 @@ struct PaymentPayload: Codable {
     let version: Int
 }
 
+/// A message that replies to an earlier one - embedded as JSON directly in the same plaintext
+/// content used for plain text (no separate wire type), matching the Android client's
+/// `MessageReplyContent` field-for-field so a reply started on one platform renders correctly on
+/// the other. `replyToSender` is the original poster's address and `replyToPreview` is captured
+/// at reply-creation time (a short snippet, or "🎤 Audio message" for a voice note) so the quote
+/// still renders even if the original message has since been pruned or its sender hidden.
+struct MessageReplyContent: Codable, Equatable {
+    var type: String = "reply"
+    let replyToId: String
+    let replyToSender: String
+    let replyToPreview: String
+    let text: String
+}
+
+enum MessageReplyCodec {
+    static let previewMaxLength = 80
+
+    static func encode(replyToId: String, replyToSender: String, replyToPreview: String, text: String) -> String {
+        let content = MessageReplyContent(
+            replyToId: replyToId,
+            replyToSender: replyToSender,
+            replyToPreview: String(replyToPreview.prefix(previewMaxLength)),
+            text: text
+        )
+        guard let data = try? JSONEncoder().encode(content),
+              let json = String(data: data, encoding: .utf8) else {
+            return text
+        }
+        return json
+    }
+
+    /// Parses `text` as a reply if it looks like one, else returns nil - a plain text message
+    /// never accidentally renders as a reply just because it happens to start with `{`, since this
+    /// also requires the explicit "reply" type marker.
+    ///
+    /// This runs on every message row's body evaluation, for every visible/newly-appearing row,
+    /// uncached - so it's a hot path when scrolling. A reply envelope is always small (a short
+    /// reply-to preview plus the reply text itself), but a photo/file message's envelope is ALSO
+    /// valid JSON starting with `{` (see `MediaFile`) - without this size guard, every image
+    /// message's multi-KB-to-multi-MB base64 payload got a real `trimmingCharacters` copy,
+    /// UTF8 re-encode, and full `JSONDecoder` decode attempt here, just to fail the `type ==
+    /// "reply"` check afterward. Scrolling fast through a photo-heavy chat's history - revealing
+    /// many such messages at once - made that add up to a real multi-second freeze.
+    static func parse(_ text: String?) -> MessageReplyContent? {
+        guard let text, text.utf8.count < 100_000 else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
+        guard let parsed = try? JSONDecoder().decode(MessageReplyContent.self, from: data),
+              parsed.type == "reply" else { return nil }
+        return parsed
+    }
+
+    /// The actual message text for `content` - unwraps one level of reply envelope if present, so
+    /// replying to a message that is itself a reply quotes the original reply's own text instead
+    /// of embedding its raw JSON envelope as the preview.
+    static func unwrappedText(_ content: String) -> String {
+        parse(content)?.text ?? content
+    }
+
+    /// Human-readable one-line preview for `content` - unwraps a reply envelope first, then
+    /// recognizes the inline voice/image JSON envelopes `MediaFile`/`ChatService.sendAudio`/
+    /// `sendImage` use and substitutes a placeholder label for those (matching how a photo/voice
+    /// message itself renders), instead of showing their raw JSON. Used everywhere a reply's own
+    /// preview needs computing: embedding a new reply's quote, the "replying to" composer banner,
+    /// and notification bodies.
+    static func previewText(for content: String) -> String {
+        let unwrapped = unwrappedText(content)
+        if VoiceMessageSniff.isVoiceMessage(unwrapped) {
+            return "🎤 Audio message"
+        }
+        if InlineFileSniff.isImage(unwrapped) {
+            return "📷 Photo"
+        }
+        return unwrapped
+    }
+}
+
+/// Lightweight sniff for the same inline file-attachment JSON shape `MediaFile` parses in 1:1
+/// chats (`ChatService.sendImage`) - mirrors `VoiceMessageSniff`, just checking for an image
+/// `mimeType` instead of audio.
+enum InlineFileSniff {
+    static func isImage(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return false }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let mimeType = json["mimeType"] as? String else { return false }
+        return mimeType.lowercased().hasPrefix("image/")
+    }
+}
+
+/// Lightweight sniff for the same inline voice-message JSON shape `MediaFile` parses in 1:1 chats
+/// (`ChatService.sendAudio`/`MessageBubbleView.MediaFile`) - used where only a yes/no check and a
+/// placeholder label are needed (e.g. a broadcast bubble or a reply quote preview), without
+/// pulling in the full image/audio-player decoding path.
+enum VoiceMessageSniff {
+    struct Payload {
+        let mimeType: String
+        let data: Data
+    }
+
+    static func isVoiceMessage(_ text: String) -> Bool {
+        decode(text) != nil
+    }
+
+    /// Decodes the inline voice-message JSON into its mimeType and raw audio bytes, or nil if
+    /// `text` isn't a voice message.
+    static func decode(_ text: String) -> Payload? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let jsonData = trimmed.data(using: .utf8) else { return nil }
+        guard let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+              let mimeType = json["mimeType"] as? String,
+              let content = json["content"] as? String,
+              mimeType.lowercased().hasPrefix("audio/"),
+              content.hasPrefix("data:"),
+              let commaIndex = content.firstIndex(of: ",") else { return nil }
+        let base64 = String(content[content.index(after: commaIndex)...])
+        guard let data = Data(base64Encoded: base64) else { return nil }
+        return Payload(mimeType: mimeType, data: data)
+    }
+}
+
 // MARK: - Diagnostics Models
 
 struct ConnectionStatus: Equatable {
@@ -694,6 +835,51 @@ enum NotificationMode: String, Codable, CaseIterable {
 
 // MARK: - Settings Models
 
+enum ChatPhotoQualityPreset: String, Codable, CaseIterable {
+    case dataSaver
+    case balanced
+    case high
+    case best
+
+    static let `default`: ChatPhotoQualityPreset = .balanced
+
+    var displayName: String {
+        switch self {
+        case .dataSaver: return String(localized: "Data Saver")
+        case .balanced: return String(localized: "Balanced")
+        case .high: return String(localized: "High")
+        case .best: return String(localized: "Best")
+        }
+    }
+
+    var targetBytes: Int {
+        switch self {
+        case .dataSaver: return 10_000
+        case .balanced: return 15_000
+        case .high: return 31_000
+        case .best: return 50_000
+        }
+    }
+
+    var targetSizeText: String {
+        "~\(targetBytes / 1_000) KB"
+    }
+
+    var summaryText: String {
+        "\(displayName) · \(targetSizeText)"
+    }
+
+    var sliderValue: Double {
+        Double(Self.allCases.firstIndex(of: self) ?? 0)
+    }
+
+    init(sliderValue: Double) {
+        let index = Int(sliderValue.rounded())
+        let clamped = min(max(index, 0), Self.allCases.count - 1)
+        self = Self.allCases[clamped]
+    }
+}
+
 struct AppSettings: Codable {
     var storeMessagesInICloud: Bool
     var messageRetention: MessageRetention
@@ -710,6 +896,8 @@ struct AppSettings: Codable {
     var feeEstimationEnabled: Bool
     var hideAutoCreatedPaymentChats: Bool
     var showContactBalance: Bool
+    var chatPhotoQualityPreset: ChatPhotoQualityPreset
+    var requirePhotoApprovalForNewContacts: Bool
 
     // Connection settings
     var indexerURL: String
@@ -756,6 +944,8 @@ struct AppSettings: Codable {
             feeEstimationEnabled: false,
             hideAutoCreatedPaymentChats: false,
             showContactBalance: true,
+            chatPhotoQualityPreset: .default,
+            requirePhotoApprovalForNewContacts: true,
             indexerURL: defaultIndexerURL,
             pushIndexerURL: defaultPushIndexerURL,
             knsBaseURL: defaultKNSMainnetURL,
@@ -783,6 +973,8 @@ struct AppSettings: Codable {
         case feeEstimationEnabled
         case hideAutoCreatedPaymentChats
         case showContactBalance
+        case chatPhotoQualityPreset
+        case requirePhotoApprovalForNewContacts
         case indexerURL
         case pushIndexerURL
         case knsBaseURL
@@ -818,6 +1010,8 @@ struct AppSettings: Codable {
         feeEstimationEnabled: Bool = false,
         hideAutoCreatedPaymentChats: Bool = false,
         showContactBalance: Bool = true,
+        chatPhotoQualityPreset: ChatPhotoQualityPreset = .default,
+        requirePhotoApprovalForNewContacts: Bool = true,
         indexerURL: String,
         pushIndexerURL: String,
         knsBaseURL: String,
@@ -843,6 +1037,8 @@ struct AppSettings: Codable {
         self.feeEstimationEnabled = feeEstimationEnabled
         self.hideAutoCreatedPaymentChats = hideAutoCreatedPaymentChats
         self.showContactBalance = showContactBalance
+        self.chatPhotoQualityPreset = chatPhotoQualityPreset
+        self.requirePhotoApprovalForNewContacts = requirePhotoApprovalForNewContacts
         self.indexerURL = indexerURL
         self.pushIndexerURL = pushIndexerURL
         self.knsBaseURL = knsBaseURL
@@ -892,6 +1088,11 @@ struct AppSettings: Codable {
         feeEstimationEnabled = try container.decodeIfPresent(Bool.self, forKey: .feeEstimationEnabled) ?? false
         hideAutoCreatedPaymentChats = try container.decodeIfPresent(Bool.self, forKey: .hideAutoCreatedPaymentChats) ?? false
         showContactBalance = try container.decodeIfPresent(Bool.self, forKey: .showContactBalance) ?? true
+        chatPhotoQualityPreset = try container.decodeIfPresent(
+            ChatPhotoQualityPreset.self,
+            forKey: .chatPhotoQualityPreset
+        ) ?? .default
+        requirePhotoApprovalForNewContacts = try container.decodeIfPresent(Bool.self, forKey: .requirePhotoApprovalForNewContacts) ?? true
 
         // Handle migration from old settings
         if let customIndexer = try container.decodeIfPresent(String.self, forKey: .customIndexerURL), !customIndexer.isEmpty {
@@ -943,6 +1144,8 @@ struct AppSettings: Codable {
         try container.encode(feeEstimationEnabled, forKey: .feeEstimationEnabled)
         try container.encode(hideAutoCreatedPaymentChats, forKey: .hideAutoCreatedPaymentChats)
         try container.encode(showContactBalance, forKey: .showContactBalance)
+        try container.encode(chatPhotoQualityPreset, forKey: .chatPhotoQualityPreset)
+        try container.encode(requirePhotoApprovalForNewContacts, forKey: .requirePhotoApprovalForNewContacts)
         try container.encode(indexerURL, forKey: .indexerURL)
         try container.encode(pushIndexerURL, forKey: .pushIndexerURL)
         try container.encode(knsBaseURL, forKey: .knsBaseURL)

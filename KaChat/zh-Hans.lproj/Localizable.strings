@@ -450,3 +450,11 @@
 "Message" = "信息";
 
 "Bio" = "简介";
+
+"Photo quality" = "照片质量";
+"Data Saver" = "省流量";
+"Balanced" = "均衡";
+"High" = "高";
+"Best" = "最佳";
+"Photo" = "照片";
+"Sending…" = "正在发送…";
