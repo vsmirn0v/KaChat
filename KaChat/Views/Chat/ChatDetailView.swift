@@ -637,7 +637,9 @@ struct ChatDetailView: View {
             previousMessagesCount = messages.count
             // Mark conversation as read once when view appears
             if let conversation = conversation {
-                chatService.markConversationAsRead(conversation)
+                Task {
+                    await chatService.markConversationAsRead(conversation)
+                }
             }
             Task {
                 await contactsManager.refreshBalance(for: contact.address)
@@ -730,7 +732,9 @@ struct ChatDetailView: View {
             chatService.enterConversation(for: newContact.address)
             messageText = chatService.draft(for: newContact.address)
             if let conv = chatService.conversations.first(where: { $0.contact.address == newContact.address }) {
-                chatService.markConversationAsRead(conv)
+                Task {
+                    await chatService.markConversationAsRead(conv)
+                }
             }
             viewportResetTrigger = UUID()
             Task {

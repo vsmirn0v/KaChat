@@ -49,7 +49,7 @@ final class ReadStatusSyncManager: ObservableObject {
             queue: .main
         ) { [weak self] notification in
             Task { @MainActor in
-                self?.handleRemoteReadStatusChange(notification)
+                await self?.handleRemoteReadStatusChange(notification)
             }
         }
 
@@ -178,10 +178,10 @@ final class ReadStatusSyncManager: ObservableObject {
 
         // Refresh view context to pick up CloudKit changes
         // NSPersistentCloudKitContainer handles the actual sync - we just need to refresh
-        MessageStore.shared.refreshFromCloudKit()
+        await MessageStore.shared.refreshFromCloudKit()
 
         // Fetch all read statuses from local store (which includes CloudKit-synced data)
-        let readStatuses = MessageStore.shared.fetchAllReadStatuses()
+        let readStatuses = await MessageStore.shared.fetchAllReadStatuses()
 
         AppLog.log("[ReadStatusSync] Loaded %d read statuses from CloudKit-synced store", readStatuses.count)
     }
@@ -238,7 +238,7 @@ final class ReadStatusSyncManager: ObservableObject {
     }
 
     /// Handle remote read status change notification
-    private func handleRemoteReadStatusChange(_ notification: Notification) {
+    private func handleRemoteReadStatusChange(_ notification: Notification) async {
         guard let conversations = notification.userInfo?["conversations"] as? Set<String> else { return }
 
         AppLog.log("[ReadStatusSync] Remote read status changed for %d conversations", conversations.count)
@@ -246,7 +246,7 @@ final class ReadStatusSyncManager: ObservableObject {
         // Recompute effective read status for each affected conversation
         // The ChatService should listen for this and update unread counts
         for conversationId in conversations {
-            if let effective = MessageStore.shared.recomputeEffectiveReadStatus(conversationId: conversationId) {
+            if let effective = await MessageStore.shared.recomputeEffectiveReadStatus(conversationId: conversationId) {
                 AppLog.log("[ReadStatusSync] Effective read status for %@: blockTime=%lld (%d devices)",
                       String(conversationId.suffix(8)), effective.lastReadBlockTime, effective.deviceCount)
             }

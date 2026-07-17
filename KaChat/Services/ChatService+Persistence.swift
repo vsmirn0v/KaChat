@@ -98,40 +98,51 @@ extension ChatService {
         ChatListSnapshotStore.save(conversations, walletAddress: walletAddress)
     }
 
-    func loadMessagesFromStoreIfNeeded(onlyIfEmpty: Bool = true) {
+    // `async` because the actual fetch+decrypt in `_loadMessagesFromStoreIfNeeded` now runs on a
+    // background Core Data context (see `MessageStore.fetchAllMessages`) - this used to run
+    // synchronously on `viewContext` (main-queue-confined), so any routine trigger for a full
+    // reload (e.g. a handshake's self-stash transaction confirming, which fires on essentially
+    // every handshake sent) froze the UI for as long as decrypting the whole wallet's message
+    // history took. Coalesces concurrent callers within `messageStoreReloadMinInterval` onto the
+    // same pending Task instead of each doing its own separate reload.
+    func loadMessagesFromStoreIfNeeded(onlyIfEmpty: Bool = true) async {
         if onlyIfEmpty {
-            _loadMessagesFromStoreIfNeeded(onlyIfEmpty: true)
+            await _loadMessagesFromStoreIfNeeded(onlyIfEmpty: true)
+            return
+        }
+
+        if let pendingTask = messageStoreReloadTask {
+            await pendingTask.value
             return
         }
 
         let now = Date()
         let elapsed = now.timeIntervalSince(lastMessageStoreReloadAt)
         if elapsed < messageStoreReloadMinInterval {
-            guard !messageStoreReloadPending else { return }
-            messageStoreReloadPending = true
             let delay = messageStoreReloadMinInterval - elapsed
-            messageStoreReloadTask?.cancel()
-            messageStoreReloadTask = Task { @MainActor [weak self] in
+            let task = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(max(delay, 0) * 1_000_000_000))
                 guard let self else { return }
-                self.messageStoreReloadPending = false
                 self.lastMessageStoreReloadAt = Date()
-                self._loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+                await self._loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+                self.messageStoreReloadTask = nil
             }
+            messageStoreReloadTask = task
+            await task.value
             return
         }
 
         lastMessageStoreReloadAt = now
-        _loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+        await _loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
     }
 
-    func _loadMessagesFromStoreIfNeeded(onlyIfEmpty: Bool) {
+    func _loadMessagesFromStoreIfNeeded(onlyIfEmpty: Bool) async {
         if onlyIfEmpty && !conversations.isEmpty {
             return
         }
         guard let key = messageEncryptionKey() else { return }
-        let messages = messageStore.fetchAllMessages(decryptionKey: key)
-        let meta = messageStore.fetchConversationMeta()
+        let messages = await messageStore.fetchAllMessages(decryptionKey: key)
+        let meta = await messageStore.fetchConversationMeta()
         guard !messages.isEmpty || !meta.isEmpty else { return }
 
         // Debug: count messages with/without content
@@ -421,11 +432,9 @@ extension ChatService {
         AppLog.log("[ChatService] Processing remote store change")
 
         Task {
-            messageStore.refreshFromCloudKit()
+            await messageStore.refreshFromCloudKit()
             messageStore.processRemoteChanges()
-            await MainActor.run {
-                self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-            }
+            await self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
         }
     }
 
@@ -706,7 +715,7 @@ extension ChatService {
     }
 
     func handleCloudKitImportResult(txId: String, didImport: Bool) async {
-        guard messageStore.hasMessageWithContent(txId: txId) == false else {
+        guard await messageStore.hasMessageWithContent(txId: txId) == false else {
             cloudKitImportFirstAttemptAt.removeValue(forKey: txId)
             cloudKitImportLastObservedAt.removeValue(forKey: txId)
             cloudKitImportRetryTokenByTxId.removeValue(forKey: txId)
@@ -762,7 +771,7 @@ extension ChatService {
                 timeout: 12.0
             )
             guard self.cloudKitImportRetryTokenByTxId[txId] == retryToken else { return }
-            self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+            await self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
             await self.handleCloudKitImportResult(txId: txId, didImport: didRetryImport)
         }
     }

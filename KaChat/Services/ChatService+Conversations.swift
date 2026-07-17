@@ -12,17 +12,10 @@ extension ChatService {
         AppLog.log("[ChatService] Entered conversation for %@", String(address.suffix(12)))
     }
 
-    /// Returns total number of stored messages for a contact in current wallet scope.
-    func storedMessageCount(for contactAddress: String) -> Int {
-        messageStore.countMessages(contactAddress: contactAddress)
-    }
-
     /// Returns total number of stored messages using a background worker to avoid
     /// blocking the main actor during expensive Core Data count queries.
     func storedMessageCountAsync(for contactAddress: String) async -> Int {
-        await Task.detached(priority: .utility) {
-            MessageStore.shared.countMessages(contactAddress: contactAddress)
-        }.value
+        await messageStore.countMessages(contactAddress: contactAddress)
     }
 
     /// Loads the next older page of messages for a conversation from persistent store.
@@ -3010,14 +3003,14 @@ extension ChatService {
         return didUpdate
     }
 
-    func markConversationAsRead(_ conversation: Conversation) {
+    func markConversationAsRead(_ conversation: Conversation) async {
         if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
             // Use both in-memory window and persistent store cursor so pagination does not
             // block read marker advancement.
             let lastInMemoryIncoming = conversation.messages
                 .filter { !$0.isOutgoing }
                 .max(by: { $0.blockTime < $1.blockTime })
-            let storeCursor = messageStore.fetchLatestIncomingCursor(contactAddress: conversation.contact.address)
+            let storeCursor = await messageStore.fetchLatestIncomingCursor(contactAddress: conversation.contact.address)
             let inMemoryBlockTime = Int64(lastInMemoryIncoming?.blockTime ?? 0)
             let storeBlockTime = storeCursor?.blockTime ?? 0
 
@@ -3069,9 +3062,9 @@ extension ChatService {
     }
 
     /// Bulk "Mark as Read" for multi-selected conversations in the chat list.
-    func markConversationsAsRead(_ conversations: [Conversation]) {
+    func markConversationsAsRead(_ conversations: [Conversation]) async {
         for conversation in conversations where conversation.unreadCount > 0 {
-            markConversationAsRead(conversation)
+            await markConversationAsRead(conversation)
         }
     }
 

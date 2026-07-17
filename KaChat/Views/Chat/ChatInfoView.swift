@@ -495,7 +495,7 @@ struct ChatInfoView: View {
                 await contactsManager.refreshBalance(for: contact.address)
                 isLoadingBalance = false
 
-                let stats = MessageStore.shared.messageStats(contactAddress: contact.address)
+                let stats = await MessageStore.shared.messageStats(contactAddress: contact.address)
                 messageSent = stats.sent
                 messageReceived = stats.received
             }

@@ -391,7 +391,9 @@ struct ChatListView: View {
                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
                         Button {
                             if conversation.unreadCount > 0 {
-                                chatService.markConversationAsRead(conversation)
+                                Task {
+                                    await chatService.markConversationAsRead(conversation)
+                                }
                             } else {
                                 chatService.markConversationAsUnread(conversation)
                             }
@@ -440,7 +442,9 @@ struct ChatListView: View {
             HStack(spacing: 12) {
                 Button {
                     let targets = filteredConversationsCache.filter { selectedContactIDs.contains($0.contact.id) }
-                    chatService.markConversationsAsRead(targets)
+                    Task {
+                        await chatService.markConversationsAsRead(targets)
+                    }
                     editMode = .inactive
                 } label: {
                     Label("Mark as Read", systemImage: "envelope.open")
