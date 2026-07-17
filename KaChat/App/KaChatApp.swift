@@ -172,7 +172,7 @@ struct KaChatApp: App {
                         // Sync read statuses from CloudKit (picks up reads from other devices)
                         await ReadStatusSyncManager.shared.syncFromCloudKit()
                         // Load any CloudKit-synced messages before indexer sync
-                        ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+                        await ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                     }
                     // Run catch-up sync with push-reliability gating.
                     await ChatService.shared.maybeRunCatchUpSync(trigger: .appActive)

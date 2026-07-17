@@ -43,13 +43,13 @@ extension ChatService {
         }
     }
 
-    func exportChatHistoryArchive() throws -> URL {
+    func exportChatHistoryArchive() async throws -> URL {
         guard let key = messageEncryptionKey() else {
             throw ChatHistoryArchiveError.encryptionKeyUnavailable
         }
 
-        let storedMessages = messageStore.fetchAllMessages(decryptionKey: key)
-        let metaByAddress = messageStore.fetchConversationMeta()
+        let storedMessages = await messageStore.fetchAllMessages(decryptionKey: key)
+        let metaByAddress = await messageStore.fetchConversationMeta()
         var messagesByAddress: [String: [String: ChatMessage]] = [:]
 
         for stored in storedMessages {
@@ -123,7 +123,7 @@ extension ChatService {
             throw ChatHistoryArchiveError.unsupportedVersion(archive.schemaVersion)
         }
 
-        let existingBefore = messageStore.fetchAllMessages(decryptionKey: key)
+        let existingBefore = await messageStore.fetchAllMessages(decryptionKey: key)
         let existingOutgoingPlaceholderTxIds = Set(
             existingBefore.compactMap { stored -> String? in
                 guard stored.message.isOutgoing, isPlaceholderContent(stored.message.content) else { return nil }
@@ -201,7 +201,7 @@ extension ChatService {
             }
         }
 
-        loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+        await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
 
         let filledSentContentCount = existingOutgoingPlaceholderTxIds
             .intersection(importedOutgoingWithContentTxIds)
@@ -337,7 +337,7 @@ extension ChatService {
                 // This ensures we have any messages sent from other devices before
                 // the indexer creates placeholder entries for them
                 AppLog.log("[ChatService] Phase 3.5: Loading CloudKit-synced messages...")
-                loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+                await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
 
                 // Brief pause to allow any in-flight CloudKit syncs to complete
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s

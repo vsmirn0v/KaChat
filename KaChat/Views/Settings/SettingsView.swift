@@ -531,7 +531,7 @@ struct SettingsView: View {
         defer { isPreparingChatHistoryExport = false }
 
         do {
-            let fileURL = try chatService.exportChatHistoryArchive()
+            let fileURL = try await chatService.exportChatHistoryArchive()
             chatHistoryArchiveURL = fileURL
             showChatHistoryShareSheet = true
         } catch {

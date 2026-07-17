@@ -2405,7 +2405,7 @@ extension ChatService {
             await messageStore.waitForCloudKitSync(timeout: 5)
 
             // Reload messages from store (includes CloudKit-synced data)
-            loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+            await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
 
             // Brief pause for Core Data to merge
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -2504,7 +2504,7 @@ extension ChatService {
             try? await Task.sleep(nanoseconds: 5_000_000_000)
 
             // Reload from store
-            loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+            await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
 
             // Check if content arrived
             if let msg = findLocalMessage(txId: txId),
@@ -2515,7 +2515,7 @@ extension ChatService {
 
             // Try again after 15 seconds
             try? await Task.sleep(nanoseconds: 10_000_000_000)
-            loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+            await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
 
             if let msg = findLocalMessage(txId: txId),
                msg.content == "📤 Sent via another device" {

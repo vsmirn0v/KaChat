@@ -145,7 +145,6 @@ final class ChatService: ObservableObject {
     let messageStore = MessageStore.shared
     var messageSyncTask: Task<Void, Never>?
     var messageStoreReloadTask: Task<Void, Never>?
-    var messageStoreReloadPending = false
     var lastMessageStoreReloadAt: Date = .distantPast
 #if targetEnvironment(macCatalyst)
     let messageStoreReloadMinInterval: TimeInterval = 2.5
@@ -355,7 +354,7 @@ final class ChatService: ObservableObject {
         lastPollTime = UInt64(userDefaults.integer(forKey: lastPollTimeKey))
         migrateLegacyMessagesIfNeeded()
         Task { @MainActor [weak self] in
-            self?.loadMessagesFromStoreIfNeeded(onlyIfEmpty: true)
+            await self?.loadMessagesFromStoreIfNeeded(onlyIfEmpty: true)
         }
         loadMessageDrafts()
         loadConversationAliases()
@@ -377,7 +376,7 @@ final class ChatService: ObservableObject {
         messageStore.applyRetention(SettingsViewModel.loadSettings().messageRetention)
         cloudRefreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+                await self?.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
             }
         }
     }

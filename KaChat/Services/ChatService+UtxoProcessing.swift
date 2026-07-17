@@ -406,7 +406,7 @@ extension ChatService {
                                 after: importAfter,
                                 timeout: 12.0
                             )
-                            self?.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+                            await self?.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                             await self?.handleCloudKitImportResult(txId: txId, didImport: didImport)
                         }
                         continue
@@ -1062,9 +1062,7 @@ extension ChatService {
                     after: importAfter,
                     timeout: 12.0
                 )
-                await MainActor.run {
-                    self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-                }
+                await self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                 await handleCloudKitImportResult(txId: txId, didImport: didImport)
                 clearSelfStashRetryState(txId: txId)
                 return
@@ -1224,9 +1222,7 @@ extension ChatService {
                                 after: importAfter,
                                 timeout: 12.0
                             )
-                            await MainActor.run {
-                                self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-                            }
+                            await self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                             await handleCloudKitImportResult(txId: txId, didImport: didImport)
                         } else {
                             AppLog.log("[ChatService] Mempool resolved %@ as self-spend (inputs=ours, outputs=self) - ignoring",
@@ -1631,7 +1627,7 @@ extension ChatService {
 
             // Only load messages if store is ready (don't block on fresh imports)
             if messageStore.isStoreLoaded {
-                loadMessagesFromStoreIfNeeded(onlyIfEmpty: true)
+                await loadMessagesFromStoreIfNeeded(onlyIfEmpty: true)
             } else {
                 AppLog.log("[ChatService] Store not loaded yet, skipping message load from store")
             }

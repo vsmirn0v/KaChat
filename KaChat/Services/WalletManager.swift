@@ -107,7 +107,7 @@ final class WalletManager: ObservableObject {
                 // Switch MessageStore to this wallet's store and CloudKit zone
                 await MessageStore.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 BroadcastService.shared.setCurrentWallet(canonicalWallet.publicAddress)
-                ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+                await ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                 Task { _ = try? await refreshBalance() }
                 return
             }
