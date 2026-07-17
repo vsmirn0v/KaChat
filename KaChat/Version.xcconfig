@@ -7,7 +7,15 @@
 // validation with "The CFBundleVersion of an app extension must match that of its containing
 // parent app." Routing all three targets through this single file means any tool that bumps
 // the version only has to change it here for it to apply everywhere.
-CURRENT_PROJECT_VERSION = 20
+//
+// Must also stay higher than the highest CFBundleVersion Apple has already accepted for this
+// app - App Store Connect rejects any upload whose value isn't strictly greater than the last
+// one it received, regardless of what scheme produced that prior value. A previous upload (from
+// the old per-target `date +%Y%m%d%H%M` build scripts, since removed) already registered
+// 202607032342, so restarting from a small number like 20/21 gets rejected ("must contain a
+// higher version than that of the previously uploaded version"). Bumping past that recorded
+// high-water mark instead of restarting low.
+CURRENT_PROJECT_VERSION = 202607032343
 MARKETING_VERSION = 2.0
 
 // Required for `agvtool` (used by ci_scripts/ci_post_clone.sh) to be able to write
