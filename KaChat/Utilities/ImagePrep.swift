@@ -1,3 +1,4 @@
+import ImageIO
 import UIKit
 
 struct PreparedChatImage {
@@ -23,8 +24,9 @@ enum ImagePrep {
     private static let maxShrinkAttempts = 4
     private static let shrinkFactor: CGFloat = 0.7
 
-    /// Downsamples and JPEG-compresses, binary-searching quality to fit `targetBytes` and
-    /// shrinking dimensions further if quality reduction alone isn't enough.
+    /// Normalizes to a standard-range bitmap, downsamples, and JPEG-compresses, binary-searching
+    /// quality to fit `targetBytes` and shrinking dimensions further if quality reduction alone
+    /// isn't enough.
     ///
     /// AVIF was tried here previously (matching Android's approach for smaller on-chain payloads)
     /// but was removed: while iOS's own AVIF encode/decode is reliable (guaranteed by ImageIO
@@ -52,7 +54,7 @@ enum ImagePrep {
         targetBytes: Int,
         encoder: (UIImage, CGFloat) -> Data?
     ) throws -> Data {
-        var currentImage = downscaledIfNeeded(image, maxDimension: chatMaxDimension)
+        var currentImage = try normalizedAndDownscaled(image, maxDimension: chatMaxDimension)
 
         for _ in 0..<maxShrinkAttempts {
             if let data = compressToQualityBudget(
@@ -85,19 +87,41 @@ enum ImagePrep {
         Int(Double(targetBytes) * 1.33 * 1.33) + 150
     }
 
-    private static func downscaledIfNeeded(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
+    private static func normalizedAndDownscaled(
+        _ image: UIImage,
+        maxDimension: CGFloat
+    ) throws -> UIImage {
+        guard image.size.width.isFinite,
+              image.size.height.isFinite,
+              image.size.width > 0,
+              image.size.height > 0 else {
+            throw PrepError.invalidImage
+        }
+
         let longestEdge = max(image.size.width, image.size.height)
-        guard longestEdge > maxDimension, longestEdge > 0 else { return image }
-        let scale = maxDimension / longestEdge
+        let scale = min(1, maxDimension / longestEdge)
         let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         return resize(image, to: newSize)
     }
 
     private static func resize(_ image: UIImage, to size: CGSize) -> UIImage {
         guard size.width >= 1, size.height >= 1 else { return image }
-        let renderer = UIGraphicsImageRenderer(size: size)
-        return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: size))
+
+        // Photos can arrive as HDR/extended-sRGB images. Passing those directly to
+        // `UIImage.jpegData` makes ImageIO perform an accelerated extended-range conversion;
+        // on Mac Catalyst that conversion can abort inside QuartzCore while creating a Metal
+        // context. Render once into an explicitly standard-range bitmap so every later JPEG
+        // attempt works with ordinary 8-bit color data.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        format.preferredRange = .standard
+
+        let bounds = CGRect(origin: .zero, size: size)
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(bounds)
+            image.draw(in: bounds)
         }
     }
 
@@ -132,6 +156,23 @@ enum ImagePrep {
     }
 
     private static func jpegData(from image: UIImage, quality: CGFloat) -> Data? {
-        image.jpegData(compressionQuality: quality)
+        guard let cgImage = image.cgImage else { return nil }
+
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data,
+            "public.jpeg" as CFString,
+            1,
+            nil
+        ) else {
+            return nil
+        }
+
+        let options: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: quality
+        ]
+        CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
     }
 }
