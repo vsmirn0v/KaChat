@@ -546,6 +546,46 @@ struct KaspaFullTxOutput: Codable {
     }
 }
 
+extension KaspaFullTransactionResponse {
+    /// Direction + KAS amount relevant to `address`, for plain per-address transaction history
+    /// lists (not chat/contact resolution — no sender/receiver naming). Uses the same
+    /// input/output heuristics as ChatService's payment detection (see CLAUDE.md "Payment
+    /// detection logic"): outgoing if `address` appears among the inputs (it signed the tx),
+    /// incoming if it only appears among the outputs. Amount is the total sent to `address` for
+    /// incoming, or the smallest non-`address` output for outgoing (the non-change output is
+    /// usually the actual payment; change back to the sender is usually larger). Returns nil for
+    /// a transaction with no clear relevance to `address` at all (shouldn't normally occur for a
+    /// transaction that was fetched for this exact address in the first place).
+    func direction(for address: String) -> (isOutgoing: Bool, amountSompi: UInt64)? {
+        let weAreSender = (inputs ?? []).contains { $0.previousOutpointAddress == address }
+
+        var totalToUs: UInt64 = 0
+        var totalToOthers: UInt64 = 0
+        var recipientAmount: UInt64 = 0
+        var haveRecipient = false
+
+        for output in outputs {
+            guard let addr = output.scriptPublicKeyAddress, !addr.isEmpty else { continue }
+            if addr == address {
+                totalToUs += output.amount
+            } else {
+                totalToOthers += output.amount
+                if !haveRecipient || output.amount < recipientAmount {
+                    recipientAmount = output.amount
+                    haveRecipient = true
+                }
+            }
+        }
+
+        if weAreSender && totalToOthers > 0 {
+            return (isOutgoing: true, amountSompi: haveRecipient ? recipientAmount : totalToOthers)
+        } else if !weAreSender && totalToUs > 0 {
+            return (isOutgoing: false, amountSompi: totalToUs)
+        }
+        return nil
+    }
+}
+
 actor InFlightResolveTracker {
     var ids = Set<String>()
 

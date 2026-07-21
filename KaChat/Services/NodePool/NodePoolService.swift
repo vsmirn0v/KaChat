@@ -676,7 +676,7 @@ final class NodePoolService: ObservableObject {
 
         let hedgeDelay = epochMonitor.networkQuality.hedgeDelayMs * 1_000_000
 
-        let value = await withTaskGroup(of: T?.self, returning: T?.self) { group in
+        let value = await withTaskGroup(of: Result<T, Error>.self, returning: Result<T, Error>.self) { group in
             for (index, endpoint) in selectedEndpoints.enumerated() {
                 // Connected endpoints get no delay, unconnected get longer delays
                 let isConnected = connectedKeys.contains(endpoint.key)
@@ -694,7 +694,7 @@ final class NodePoolService: ObservableObject {
                     }
 
                     if Task.isCancelled {
-                        return nil
+                        return .failure(CancellationError())
                     }
 
                     let conn = await self.connectionPool.connection(for: endpoint)
@@ -716,7 +716,7 @@ final class NodePoolService: ObservableObject {
                             isError: false
                         )
 
-                        return result
+                        return .success(result)
                     } catch {
                         let isTimeout = error.localizedDescription.lowercased().contains("timeout")
                         await self.registry.recordResult(
@@ -727,26 +727,37 @@ final class NodePoolService: ObservableObject {
                             isError: true
                         )
                         AppLog.log("[NodePool] Hedged request failed on %@: %@", endpoint.key, error.localizedDescription)
-                        return nil
+                        return .failure(error)
                     }
                 }
             }
 
-            while let result = await group.next() {
-                if let value = result {
+            // Every node can reject a genuinely invalid transaction (bad fee, bad signature,
+            // mass over the limit) just as consistently as they'd all fail to connect - losing
+            // that real per-node error behind a generic "All hedged requests failed" made both
+            // cases look identical and impossible to tell apart from the error alone. Surface
+            // whichever real error came back last instead.
+            var lastError: Error = KasiaError.networkError("All hedged requests failed")
+            while let outcome = await group.next() {
+                switch outcome {
+                case .success(let value):
                     group.cancelAll()
-                    return value
+                    return .success(value)
+                case .failure(let error):
+                    lastError = error
                 }
             }
 
-            return nil
+            return .failure(lastError)
         }
 
         await updatePoolStats()
-        guard let value else {
-            throw KasiaError.networkError("All hedged requests failed")
+        switch value {
+        case .success(let result):
+            return result
+        case .failure(let error):
+            throw error
         }
-        return value
     }
 
     // MARK: - Pool Stats

@@ -13,6 +13,7 @@ struct KaChatApp: App {
     @StateObject private var pushManager = PushNotificationManager.shared
     @StateObject private var giftService = GiftService.shared
     @StateObject private var broadcastService = BroadcastService.shared
+    @StateObject private var groupChatService = GroupChatService.shared
     @State private var pendingOutboundShareId: String?
     @State private var isProcessingOutboundShare = false
     @State private var lastActiveResyncAt: Date?
@@ -46,6 +47,7 @@ struct KaChatApp: App {
                 .environmentObject(pushManager)
                 .environmentObject(giftService)
                 .environmentObject(broadcastService)
+                .environmentObject(groupChatService)
                 .onAppear {
                     ChatService.shared.settingsViewModel = settingsViewModel
                     if #available(iOS 16.0, macCatalyst 16.0, *) {
@@ -67,6 +69,7 @@ struct KaChatApp: App {
                 .onOpenURL { url in
                     handleIncomingURL(url)
                 }
+                .preferredColorScheme(settingsViewModel.settings.appearance.colorScheme)
         }
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(to: newPhase)

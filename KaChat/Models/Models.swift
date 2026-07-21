@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 // MARK: - Dynamic Coding Key (for dual camelCase/snake_case decode)
 
@@ -55,11 +56,58 @@ struct Wallet: Codable, Equatable {
     let createdAt: Date
     var balanceSompi: UInt64?
 
+    // Spending-chain state (see WalletManager's spending-address derivation). Optional so
+    // existing Keychain-stored Wallet JSON without these keys still decodes (synthesized
+    // Decodable treats a missing key on an Optional property as nil, not a decode failure).
+    var spendingAddressIndex: Int?
+    var maxSpendingAddressIndex: Int?
+
+    /// The spending-chain index currently active as the "primary" spending address.
+    var effectiveSpendingAddressIndex: Int { spendingAddressIndex ?? 0 }
+
+    /// The highest spending-chain index ever generated/shown in Manage Addresses.
+    var effectiveMaxSpendingAddressIndex: Int {
+        max(maxSpendingAddressIndex ?? 0, effectiveSpendingAddressIndex)
+    }
+
     var shortAddress: String {
         guard publicAddress.count > 16 else { return publicAddress }
         let prefix = String(publicAddress.prefix(10))
         let suffix = String(publicAddress.suffix(6))
         return "\(prefix)...\(suffix)"
+    }
+}
+
+/// A single derived spending-chain address as shown in Manage Addresses — always re-derived
+/// live from the seed + index rather than persisted, matching Android (only the index bounds
+/// are stored, never the address list itself).
+struct SpendingAddressEntry: Identifiable, Equatable {
+    let index: Int
+    let address: String
+    let balanceSompi: UInt64
+    let isCurrent: Bool
+    /// Whether this address has ever appeared in a transaction (independent of current
+    /// balance — swept-to-zero addresses still count as used). Defaults false until the
+    /// network history check completes.
+    var everUsed: Bool = false
+    /// User-assigned display name for this address, if any.
+    var label: String?
+    /// Whether this address is hidden from the main Manage Addresses list. Enforced
+    /// server-side (WalletManager.setSpendingAddressHidden refuses to hide the primary
+    /// address or one with a balance) — this flag alone should never be trusted to imply
+    /// "safe to hide."
+    var hidden: Bool = false
+
+    var id: Int { index }
+
+    var displayLabel: String {
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "Address #\(index)" : trimmed
+    }
+
+    var shortAddress: String {
+        guard address.count > 20 else { return address }
+        return "\(address.prefix(14))...\(address.suffix(6))"
     }
 }
 
@@ -233,9 +281,16 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         try container.encodeIfPresent(systemLastSyncedAt, forKey: .systemLastSyncedAt)
     }
 
+    /// Matches Android's `KaspaAddress.shortDisplay`: "prefix:xxxx....xxxx" — shown wherever a
+    /// contact has no alias/KNS domain set yet, instead of the old (and much less legible)
+    /// last-8-raw-characters fallback.
     static func generateDefaultAlias(from address: String) -> String {
-        guard address.count > 8 else { return address }
-        return String(address.suffix(8))
+        let parts = address.split(separator: ":", maxSplits: 1)
+        guard parts.count == 2 else { return address }
+        let prefix = parts[0]
+        let body = parts[1]
+        guard body.count > 12 else { return "\(prefix):\(body)" }
+        return "\(prefix):\(body.prefix(4))....\(body.suffix(4))"
     }
 }
 
@@ -817,6 +872,149 @@ enum NetworkType: String, Codable, CaseIterable {
     }
 }
 
+/// App-wide appearance override. "System" (the default) just follows the device's own Light/Dark
+/// Mode setting like any well-behaved app — Light/Dark force one specific appearance regardless
+/// of what the device is currently set to.
+enum AppAppearance: String, Codable, CaseIterable {
+    case system
+    case light
+    case dark
+
+    var displayName: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
+    /// nil tells SwiftUI's `.preferredColorScheme` to defer to the device setting.
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
+/// Every bottom-tab destination this app can show - drives both MainTabView's actual TabView and
+/// the reorderable preview strip on Settings > Customization > Menu. `tag` is a fixed identifier
+/// per case (not tied to display position) so the app's existing tag-based navigation (e.g.
+/// jumping to Chats on a notification tap) keeps working no matter what order the user picks.
+enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
+    case portfolio
+    case coldStorage
+    case chats
+    case swap
+    case profile
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .portfolio: return "Portfolio"
+        case .coldStorage: return "Storage"
+        case .chats: return "Chats"
+        case .swap: return "Swap"
+        case .profile: return "Profile"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .portfolio: return "chart.pie"
+        case .coldStorage: return "lock.shield"
+        case .chats: return "bubble.left.and.bubble.right"
+        case .swap: return "arrow.left.arrow.right"
+        case .profile: return "person.crop.circle"
+        }
+    }
+
+    var tag: Int {
+        switch self {
+        case .chats: return 1
+        case .profile: return 2
+        case .portfolio: return 3
+        case .coldStorage: return 4
+        case .swap: return 5
+        }
+    }
+
+    /// Chats/Profile stay mandatory (a wallet with no way back to its own chat list or profile
+    /// isn't useful) - everything else is user-hideable.
+    var canHide: Bool {
+        switch self {
+        case .chats, .profile: return false
+        case .portfolio, .coldStorage, .swap: return true
+        }
+    }
+
+    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .swap, .profile]
+
+    /// `settings.tabOrder`, resolved into real cases with any missing/unknown entries (a fresh
+    /// install, or a tab added after some users already saved a custom order) appended at the
+    /// end in default order, so nothing silently disappears from Menu Visibility or the tab bar.
+    static func resolvedOrder(from settings: AppSettings) -> [AppTab] {
+        var order = settings.tabOrder.compactMap { AppTab(rawValue: $0) }
+        for tab in defaultOrder where !order.contains(tab) {
+            order.append(tab)
+        }
+        return order
+    }
+
+    /// The resolved order, filtered down to only the tabs the user hasn't hidden - what
+    /// MainTabView actually renders and what the Menu Visibility preview strip shows.
+    static func visible(from settings: AppSettings) -> [AppTab] {
+        resolvedOrder(from: settings).filter { tab in
+            switch tab {
+            case .portfolio: return !settings.hidePortfolioTab
+            case .coldStorage: return !settings.hideColdStorageTab
+            case .swap: return !settings.hideSwapTab
+            case .chats, .profile: return true
+            }
+        }
+    }
+}
+
+/// Block explorer used for "view transaction" links, matching Android's KaspaExplorer enum.
+enum KaspaExplorer: String, Codable, CaseIterable {
+    case kaspaStream
+    case kaspaOrg
+
+    var displayName: String {
+        switch self {
+        case .kaspaStream: return "kaspa.stream"
+        case .kaspaOrg: return "explorer.kaspa.org"
+        }
+    }
+
+    private var txBaseURL: String {
+        switch self {
+        case .kaspaStream: return "https://kaspa.stream/transactions/"
+        case .kaspaOrg: return "https://explorer.kaspa.org/txs/"
+        }
+    }
+
+    private var addressBaseURL: String {
+        switch self {
+        case .kaspaStream: return "https://kaspa.stream/addresses/"
+        case .kaspaOrg: return "https://explorer.kaspa.org/addresses/"
+        }
+    }
+
+    func txURL(for txId: String) -> URL? {
+        URL(string: txBaseURL + txId)
+    }
+
+    func addressURL(for address: String) -> URL? {
+        guard let encoded = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return URL(string: addressBaseURL + encoded)
+    }
+
+    static let `default`: KaspaExplorer = .kaspaOrg
+}
+
 enum NotificationMode: String, Codable, CaseIterable {
     case disabled
     case remotePush
@@ -893,17 +1091,31 @@ struct AppSettings: Codable {
     var incomingNotificationVibrationEnabled: Bool
     var messagePollInterval: TimeInterval
     var liveUpdatesEnabled: Bool
-    var feeEstimationEnabled: Bool
-    var hideAutoCreatedPaymentChats: Bool
-    var showContactBalance: Bool
     var chatPhotoQualityPreset: ChatPhotoQualityPreset
     var requirePhotoApprovalForNewContacts: Bool
+
+    // Customization
+    var appearance: AppAppearance
+    var hidePortfolioTab: Bool
+    var hideSwapTab: Bool
+    var hideColdStorageTab: Bool
+    /// Raw values of `AppTab`, in display order - user-customizable via Settings > Customization
+    /// > Menu's drag-to-reorder preview strip.
+    var tabOrder: [String]
+
+    // Security
+    var biometricSeedPhraseEnabled: Bool
+    var biometricAccountLoginEnabled: Bool
+
+    // Swap (ChangeNOW)
+    var swapDisclaimerAgreed: Bool
 
     // Connection settings
     var indexerURL: String
     var pushIndexerURL: String
     var knsBaseURL: String
     var kaspaRestAPIURL: String
+    var kaspaExplorer: KaspaExplorer
 
     // gRPC endpoint pool settings
     var grpcEndpointPool: [GrpcEndpoint]
@@ -941,15 +1153,21 @@ struct AppSettings: Codable {
             incomingNotificationVibrationEnabled: true,
             messagePollInterval: 10.0,
             liveUpdatesEnabled: false,
-            feeEstimationEnabled: false,
-            hideAutoCreatedPaymentChats: false,
-            showContactBalance: true,
             chatPhotoQualityPreset: .default,
             requirePhotoApprovalForNewContacts: true,
+            appearance: .system,
+            hidePortfolioTab: false,
+            hideSwapTab: false,
+            hideColdStorageTab: false,
+            tabOrder: AppTab.defaultOrder.map { $0.rawValue },
+            biometricSeedPhraseEnabled: true,
+            biometricAccountLoginEnabled: true,
+            swapDisclaimerAgreed: false,
             indexerURL: defaultIndexerURL,
             pushIndexerURL: defaultPushIndexerURL,
             knsBaseURL: defaultKNSMainnetURL,
             kaspaRestAPIURL: defaultKaspaMainnetURL,
+            kaspaExplorer: .default,
             grpcEndpointPool: [],
             discoverNewPeers: true,
             grpcPoolNetworkType: nil,
@@ -970,15 +1188,21 @@ struct AppSettings: Codable {
         case incomingNotificationVibrationEnabled
         case messagePollInterval
         case liveUpdatesEnabled
-        case feeEstimationEnabled
-        case hideAutoCreatedPaymentChats
-        case showContactBalance
         case chatPhotoQualityPreset
         case requirePhotoApprovalForNewContacts
+        case appearance
+        case hidePortfolioTab
+        case hideSwapTab
+        case hideColdStorageTab
+        case tabOrder
+        case biometricSeedPhraseEnabled
+        case biometricAccountLoginEnabled
+        case swapDisclaimerAgreed
         case indexerURL
         case pushIndexerURL
         case knsBaseURL
         case kaspaRestAPIURL
+        case kaspaExplorer
         case grpcEndpointPool
         case discoverNewPeers
         case grpcPoolNetworkType
@@ -1007,15 +1231,21 @@ struct AppSettings: Codable {
         incomingNotificationVibrationEnabled: Bool = true,
         messagePollInterval: TimeInterval,
         liveUpdatesEnabled: Bool,
-        feeEstimationEnabled: Bool = false,
-        hideAutoCreatedPaymentChats: Bool = false,
-        showContactBalance: Bool = true,
         chatPhotoQualityPreset: ChatPhotoQualityPreset = .default,
         requirePhotoApprovalForNewContacts: Bool = true,
+        appearance: AppAppearance = .system,
+        hidePortfolioTab: Bool = false,
+        hideSwapTab: Bool = false,
+        hideColdStorageTab: Bool = false,
+        tabOrder: [String] = AppTab.defaultOrder.map { $0.rawValue },
+        biometricSeedPhraseEnabled: Bool = true,
+        biometricAccountLoginEnabled: Bool = true,
+        swapDisclaimerAgreed: Bool = false,
         indexerURL: String,
         pushIndexerURL: String,
         knsBaseURL: String,
         kaspaRestAPIURL: String,
+        kaspaExplorer: KaspaExplorer = .default,
         grpcEndpointPool: [GrpcEndpoint] = [],
         discoverNewPeers: Bool = true,
         grpcPoolNetworkType: NetworkType? = nil,
@@ -1034,15 +1264,21 @@ struct AppSettings: Codable {
         self.incomingNotificationVibrationEnabled = incomingNotificationVibrationEnabled
         self.messagePollInterval = messagePollInterval
         self.liveUpdatesEnabled = liveUpdatesEnabled
-        self.feeEstimationEnabled = feeEstimationEnabled
-        self.hideAutoCreatedPaymentChats = hideAutoCreatedPaymentChats
-        self.showContactBalance = showContactBalance
         self.chatPhotoQualityPreset = chatPhotoQualityPreset
         self.requirePhotoApprovalForNewContacts = requirePhotoApprovalForNewContacts
+        self.appearance = appearance
+        self.hidePortfolioTab = hidePortfolioTab
+        self.hideSwapTab = hideSwapTab
+        self.hideColdStorageTab = hideColdStorageTab
+        self.tabOrder = tabOrder
+        self.biometricSeedPhraseEnabled = biometricSeedPhraseEnabled
+        self.biometricAccountLoginEnabled = biometricAccountLoginEnabled
+        self.swapDisclaimerAgreed = swapDisclaimerAgreed
         self.indexerURL = indexerURL
         self.pushIndexerURL = pushIndexerURL
         self.knsBaseURL = knsBaseURL
         self.kaspaRestAPIURL = kaspaRestAPIURL
+        self.kaspaExplorer = kaspaExplorer
         self.grpcEndpointPool = grpcEndpointPool
         self.discoverNewPeers = discoverNewPeers
         self.grpcPoolNetworkType = grpcPoolNetworkType
@@ -1085,14 +1321,19 @@ struct AppSettings: Codable {
         incomingNotificationVibrationEnabled = try container.decodeIfPresent(Bool.self, forKey: .incomingNotificationVibrationEnabled) ?? true
         messagePollInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .messagePollInterval) ?? 10.0
         liveUpdatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .liveUpdatesEnabled) ?? false
-        feeEstimationEnabled = try container.decodeIfPresent(Bool.self, forKey: .feeEstimationEnabled) ?? false
-        hideAutoCreatedPaymentChats = try container.decodeIfPresent(Bool.self, forKey: .hideAutoCreatedPaymentChats) ?? false
-        showContactBalance = try container.decodeIfPresent(Bool.self, forKey: .showContactBalance) ?? true
         chatPhotoQualityPreset = try container.decodeIfPresent(
             ChatPhotoQualityPreset.self,
             forKey: .chatPhotoQualityPreset
         ) ?? .default
         requirePhotoApprovalForNewContacts = try container.decodeIfPresent(Bool.self, forKey: .requirePhotoApprovalForNewContacts) ?? true
+        appearance = try container.decodeIfPresent(AppAppearance.self, forKey: .appearance) ?? .system
+        hidePortfolioTab = try container.decodeIfPresent(Bool.self, forKey: .hidePortfolioTab) ?? false
+        hideSwapTab = try container.decodeIfPresent(Bool.self, forKey: .hideSwapTab) ?? false
+        hideColdStorageTab = try container.decodeIfPresent(Bool.self, forKey: .hideColdStorageTab) ?? false
+        tabOrder = try container.decodeIfPresent([String].self, forKey: .tabOrder) ?? AppTab.defaultOrder.map { $0.rawValue }
+        biometricSeedPhraseEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSeedPhraseEnabled) ?? true
+        biometricAccountLoginEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricAccountLoginEnabled) ?? true
+        swapDisclaimerAgreed = try container.decodeIfPresent(Bool.self, forKey: .swapDisclaimerAgreed) ?? false
 
         // Handle migration from old settings
         if let customIndexer = try container.decodeIfPresent(String.self, forKey: .customIndexerURL), !customIndexer.isEmpty {
@@ -1110,6 +1351,7 @@ struct AppSettings: Codable {
 
         knsBaseURL = try container.decodeIfPresent(String.self, forKey: .knsBaseURL) ?? AppSettings.defaultKNSURL(for: networkType)
         kaspaRestAPIURL = try container.decodeIfPresent(String.self, forKey: .kaspaRestAPIURL) ?? AppSettings.defaultKaspaRestURL(for: networkType)
+        kaspaExplorer = try container.decodeIfPresent(KaspaExplorer.self, forKey: .kaspaExplorer) ?? .default
 
         // gRPC pool settings
         grpcEndpointPool = try container.decodeIfPresent([GrpcEndpoint].self, forKey: .grpcEndpointPool) ?? []
@@ -1141,15 +1383,21 @@ struct AppSettings: Codable {
         try container.encode(incomingNotificationVibrationEnabled, forKey: .incomingNotificationVibrationEnabled)
         try container.encode(messagePollInterval, forKey: .messagePollInterval)
         try container.encode(liveUpdatesEnabled, forKey: .liveUpdatesEnabled)
-        try container.encode(feeEstimationEnabled, forKey: .feeEstimationEnabled)
-        try container.encode(hideAutoCreatedPaymentChats, forKey: .hideAutoCreatedPaymentChats)
-        try container.encode(showContactBalance, forKey: .showContactBalance)
         try container.encode(chatPhotoQualityPreset, forKey: .chatPhotoQualityPreset)
         try container.encode(requirePhotoApprovalForNewContacts, forKey: .requirePhotoApprovalForNewContacts)
+        try container.encode(appearance, forKey: .appearance)
+        try container.encode(hidePortfolioTab, forKey: .hidePortfolioTab)
+        try container.encode(hideSwapTab, forKey: .hideSwapTab)
+        try container.encode(hideColdStorageTab, forKey: .hideColdStorageTab)
+        try container.encode(tabOrder, forKey: .tabOrder)
+        try container.encode(biometricSeedPhraseEnabled, forKey: .biometricSeedPhraseEnabled)
+        try container.encode(biometricAccountLoginEnabled, forKey: .biometricAccountLoginEnabled)
+        try container.encode(swapDisclaimerAgreed, forKey: .swapDisclaimerAgreed)
         try container.encode(indexerURL, forKey: .indexerURL)
         try container.encode(pushIndexerURL, forKey: .pushIndexerURL)
         try container.encode(knsBaseURL, forKey: .knsBaseURL)
         try container.encode(kaspaRestAPIURL, forKey: .kaspaRestAPIURL)
+        try container.encode(kaspaExplorer, forKey: .kaspaExplorer)
         try container.encode(grpcEndpointPool, forKey: .grpcEndpointPool)
         try container.encode(discoverNewPeers, forKey: .discoverNewPeers)
         try container.encodeIfPresent(grpcPoolNetworkType, forKey: .grpcPoolNetworkType)
@@ -1449,4 +1697,78 @@ struct GrpcEndpoint: Codable, Identifiable, Equatable {
 
         coolingUntil = Date().addingTimeInterval((baseMinutes + Double.random(in: 0...randomRange)) * 60)
     }
+}
+
+// MARK: - Group Chat Models
+//
+// Single-admin, epoch-based group messaging - see GroupCipher.swift for the crypto and
+// GroupChatService for the orchestration layer. Secret key material (GroupBag) lives in
+// Keychain only (never CloudKit-synced); non-secret roster/message metadata lives in
+// GroupStore's local-only Core Data store (mirrors BroadcastStore's pattern).
+
+/// A member of a group chat.
+struct GroupMember: Codable, Identifiable, Equatable, Hashable {
+    var id: String { address }
+    let address: String
+    /// Hex-encoded 32-byte x-only secp256k1 pubkey, used for gcomm signature verification
+    /// and blinded_group_id derivation.
+    let xOnlyPubKeyHex: String
+    var isAdmin: Bool
+    var displayName: String?
+
+    /// SHA256(address) hex - matches the on-chain `sender_id` field, used to attribute
+    /// incoming gcomm messages to a roster entry.
+    var senderIdHex: String {
+        GroupCipher.deriveSenderId(senderAddress: address).hexString
+    }
+}
+
+/// Local secret+state bag for a group, persisted in Keychain (device-specific, SE-wrapped,
+/// never CloudKit-synced) - mirrors the reference implementation's `GroupBag` schema.
+struct GroupBag: Codable {
+    let groupId: String              // hex
+    var groupSeed: String?           // hex, admin-only, nil for non-admin members
+    var groupRootEpoch: String       // hex, current epoch's root key
+    var blindingKey: String          // hex
+    var currentEpoch: UInt64
+    var deviceId: String             // hex, 16 bytes
+    var msgCounter: UInt64           // monotonic per (group_id, epoch, device_id)
+}
+
+/// Non-secret group metadata - the in-memory/view-facing model backed by GroupStore.
+struct GroupChat: Identifiable, Equatable, Hashable {
+    let id: String                   // groupId, hex
+    var name: String
+    var adminAddress: String
+    var adminXOnlyPubKeyHex: String
+    var members: [GroupMember]
+    var currentEpoch: UInt64
+    var createdAt: Date
+    /// True if the local wallet is this group's admin (i.e. this device holds groupSeed).
+    var isAdmin: Bool
+}
+
+/// A decrypted group chat message (mirrors ChatMessage's shape for reuse in UI/bubble views).
+struct GroupMessage: Identifiable, Equatable {
+    let id: UUID
+    let groupId: String
+    let txId: String
+    /// Resolved from senderId against the roster; nil if the sender isn't a known member
+    /// (e.g. a stale roster mid-epoch-rotation).
+    let senderAddress: String?
+    let senderIdHex: String
+    let content: String
+    let timestamp: Date
+    let blockTime: Int64
+    let isOutgoing: Bool
+    var deliveryStatus: ChatMessage.DeliveryStatus
+}
+
+/// A shareable invite for deterministic, handshake-free group join (KaChat extension - see
+/// GroupCipher's invite-beacon derivations). The `inviteSeed` is the actual bearer secret;
+/// treat this like a capability token; anyone who has it can join the group.
+struct GroupInvite: Codable, Equatable {
+    let groupId: String
+    let inviteSeedHex: String
+    let createdAt: Date
 }

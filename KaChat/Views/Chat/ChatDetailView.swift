@@ -80,6 +80,7 @@ struct ChatDetailView: View {
     private let maxRevealOffset: CGFloat = 64
     @State private var inputMode: InputMode = .message
     @State private var amountText = ""
+    @State private var spendingBalanceSompi: UInt64?
     @State private var recordedAudioURL: URL?
     @State private var recordedAudioPreviewURL: URL?
     @State private var isRecording = false
@@ -96,6 +97,7 @@ struct ChatDetailView: View {
     @State private var isEncodingAudio = false
     @State private var recorderDelegate = AudioRecorderDelegate()
     @State private var photoPickerItem: PhotosPickerItem?
+    @State private var showPhotoPickerFromMenu = false
     @State private var pendingPhotoImage: UIImage?
     @State private var isCompressingPhoto = false
     @State private var hasPerformedInitialSetup = false
@@ -115,21 +117,6 @@ struct ChatDetailView: View {
 
     private var conversation: Conversation? {
         chatService.conversations.first { $0.contact.address == contact.address }
-    }
-
-    private var isFeeEstimationEnabled: Bool {
-        settingsViewModel.settings.feeEstimationEnabled
-    }
-
-    private var contactBalanceSompi: UInt64? {
-        if let wallet = walletManager.currentWallet, wallet.publicAddress == contact.address {
-            return wallet.balanceSompi
-        }
-        return contactsManager.balanceSompi(for: contact.address)
-    }
-
-    private var walletBalanceSompi: UInt64? {
-        walletManager.currentWallet?.balanceSompi
     }
 
     private var messages: [ChatMessage] {
@@ -525,33 +512,14 @@ struct ChatDetailView: View {
                 ConnectionStatusIndicator()
             }
             ToolbarItem(placement: .principal) {
-                VStack(spacing: 2) {
-                    Button {
-                        UIPasteboard.general.string = contact.address
-                        Haptics.success()
-                        showToast("Address copied to clipboard.")
-                    } label: {
-                        Text(contact.alias)
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                    }
-
-                    if settingsViewModel.settings.showContactBalance, let sompi = contactBalanceSompi {
-                        let exact = formatKaspaExact(sompi)
-                        let isWallet = walletManager.currentWallet?.publicAddress == contact.address
-                        ShimmeringText(
-                            text: "\(exact) KAS",
-                            font: .caption,
-                            color: .secondary,
-                            isShimmering: isWallet && walletManager.isBalanceRefreshing
-                        )
-                        .onTapGesture {
-                            UIPasteboard.general.string = exact
-                            Haptics.success()
-                            showToast("Balance copied to clipboard.")
-                            showChatInfo = true
-                        }
-                    }
+                Button {
+                    UIPasteboard.general.string = contact.address
+                    Haptics.success()
+                    showToast("Address copied to clipboard.")
+                } label: {
+                    Text(contact.alias)
+                        .font(.headline)
+                        .foregroundColor(.primary)
                 }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -592,20 +560,6 @@ struct ChatDetailView: View {
         }
         .onChange(of: amountText) { newValue in
             schedulePaymentFee(for: newValue)
-        }
-        .onChange(of: settingsViewModel.settings.feeEstimationEnabled) { enabled in
-            if enabled {
-                switch inputMode {
-                case .message:
-                    scheduleFeeEstimate(for: messageText)
-                case .payment:
-                    schedulePaymentFee(for: amountText)
-                case .audio:
-                    updateRecordingFee()
-                }
-            } else {
-                clearFeeEstimationState()
-            }
         }
         .onAppear {
             if !hasPerformedInitialSetup {
@@ -672,6 +626,13 @@ struct ChatDetailView: View {
             // messaged, since it's always needed for our own outgoing bubbles.
             guard let myAddress, knsService.profileCache[myAddress] == nil else { return }
             _ = await knsService.fetchProfile(for: myAddress)
+        }
+        .task(id: inputMode) {
+            // Payments spend from the current spending (primary) address, not the chatting
+            // address - the "Available" bubble shown while composing a payment should match,
+            // not the identity wallet's own balance.
+            guard inputMode == .payment else { return }
+            await loadSpendingBalance()
         }
         .task(id: contact.address) {
             guard knsService.profileCache[contact.address] == nil else { return }
@@ -1067,11 +1028,6 @@ struct ChatDetailView: View {
                         desktopEmojiButton
                     }
 
-                    if !isDeclined && inputMode == .message && pendingPhotoImage == nil
-                        && messageText.isEmpty {
-                        photoPickerButton
-                    }
-
                     sendButtonArea
                 }
 
@@ -1150,6 +1106,8 @@ struct ChatDetailView: View {
         Group {
             if isDeclined {
                 EmptyView()
+            } else if inputMode == .message && pendingPhotoImage == nil && messageText.isEmpty {
+                composerPlusMenu
             } else if shouldShowComposerQuickActions {
                 composerQuickActions
             } else if shouldShowAudioModeSwitchActions {
@@ -1169,16 +1127,51 @@ struct ChatDetailView: View {
         }
     }
 
-    private var photoPickerButton: some View {
-        PhotosPicker(selection: $photoPickerItem, matching: .images) {
-            Image(systemName: "photo")
+    /// Entry point for every "other than a plain text message" thing you can send — matches
+    /// Android 3.0's "+" composer menu (Pay in Kaspa / Photo / Audio Message / Send Handshake),
+    /// replacing the old row of always-visible quick-action pills + a separate standalone photo
+    /// button that used to clutter this same spot.
+    private var composerPlusMenu: some View {
+        Menu {
+            Button {
+                switchMode(.payment)
+            } label: {
+                Label {
+                    Text("Pay in Kaspa")
+                } icon: {
+                    Image("KaspaLogo")
+                        .resizable()
+                        .scaledToFit()
+                }
+            }
+            Button {
+                showPhotoPickerFromMenu = true
+            } label: {
+                Label("Photo", systemImage: "photo")
+            }
+            Button {
+                switchMode(.audio)
+                startRecording()
+            } label: {
+                Label("Audio Message", systemImage: "mic.circle.fill")
+            }
+            if canSendRequestToCommunicate {
+                Button {
+                    sendHandshake()
+                } label: {
+                    Label("Send Handshake", systemImage: "hand.wave")
+                }
+            }
+        } label: {
+            Image(systemName: "plus")
                 .font(.title3)
-                .foregroundColor(.primary)
+                .foregroundColor(.accentColor)
                 .frame(width: 44, height: 44)
                 .background(glassBackground(cornerRadius: 14))
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text("Attach photo"))
+        .tint(.accentColor)
+        .accessibilityLabel(Text("More options"))
+        .photosPicker(isPresented: $showPhotoPickerFromMenu, selection: $photoPickerItem, matching: .images)
         .onChange(of: photoPickerItem) { newItem in
             guard let newItem else { return }
             Task {
@@ -1242,43 +1235,21 @@ struct ChatDetailView: View {
         isRecording || isEncodingAudio || recordedAudioPreviewURL != nil || recordedAudioURL != nil
     }
 
+    /// Matches Android's own composer-menu gate (`contact.handshakeComplete != true`) — simpler
+    /// than this used to be: it only hides the option once the handshake exchange has actually
+    /// completed, rather than also hiding it the moment either side has sent one message of
+    /// their own (which was hiding it far more often than Android ever does).
     private var canSendRequestToCommunicate: Bool {
-        guard !hasOutgoingHandshakeMessage && !hasIncomingHandshakeMessage && !isRespondingHandshake else {
-            return false
-        }
-        // Already communicating successfully without ever using a formal handshake (e.g. an
-        // auto-added contact from a payment) - offering to send one at this point would be
-        // redundant, since both sides can clearly already reach each other.
-        let hasOutgoingMessage = normalizedMessages.contains { $0.isOutgoing && $0.deliveryStatus != .failed }
-        return !(hasAnyIncomingMessage && hasOutgoingMessage)
+        !handshakeComplete && !isRespondingHandshake
     }
 
+    /// Only ever reached for `.payment` now — the `.message` entry point moved to
+    /// composerPlusMenu, and `.audio` has nothing to show here (see shouldShowComposerQuickActions).
     private var composerQuickActions: some View {
         HStack(spacing: 8) {
             switch inputMode {
-            case .message:
-                composerQuickActionButton(
-                    title: "Send KAS",
-                    icon: "k.circle.fill"
-                ) {
-                    switchMode(.payment)
-                }
-
-                composerQuickActionButton(
-                    title: "Send audio",
-                    icon: "mic.circle.fill"
-                ) {
-                    switchMode(.audio)
-                }
-
-                if canSendRequestToCommunicate {
-                    composerQuickActionButton(
-                        title: "Request to communicate",
-                        icon: "hand.wave"
-                    ) {
-                        sendHandshake()
-                    }
-                }
+            case .message, .audio:
+                EmptyView()
             case .payment:
                 composerQuickActionButton(
                     title: "Send message",
@@ -1293,8 +1264,6 @@ struct ChatDetailView: View {
                 ) {
                     switchMode(.audio)
                 }
-            case .audio:
-                EmptyView()
             }
         }
     }
@@ -1310,7 +1279,8 @@ struct ChatDetailView: View {
 
             composerQuickActionButton(
                 title: "Send KAS",
-                icon: "k.circle.fill"
+                icon: "KaspaLogo",
+                isAssetImage: true
             ) {
                 switchMode(.payment)
             }
@@ -1320,14 +1290,24 @@ struct ChatDetailView: View {
     private func composerQuickActionButton(
         title: LocalizedStringKey,
         icon: String,
+        isAssetImage: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundColor(.accentColor)
-                .frame(width: 44, height: 44)
-                .background(glassBackground(cornerRadius: 14))
+            Group {
+                if isAssetImage {
+                    Image(icon)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(8)
+                } else {
+                    Image(systemName: icon)
+                        .font(.title3)
+                        .foregroundColor(.accentColor)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .background(glassBackground(cornerRadius: 14))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(title))
@@ -1349,6 +1329,11 @@ struct ChatDetailView: View {
             if isSendActionBusy {
                 ProgressView()
                     .font(.title)
+            } else if inputMode == .payment {
+                Image("KaspaLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .padding(9)
             } else {
                 Image(systemName: currentButtonIcon)
                     .font(.title)
@@ -1360,6 +1345,17 @@ struct ChatDetailView: View {
     private var currentButtonIcon: String {
         if inputMode == .payment {
             return "k.circle.fill"
+        }
+        if inputMode == .audio {
+            // While recording, this button's only job is "stop early" - in case the full
+            // ~10s auto-cutoff is more than the user wants. Once there's a finished preview,
+            // it's a real send action, so it should read as send, not still show a mic.
+            if isRecording {
+                return "stop.circle.fill"
+            }
+            if recordedAudioPreviewURL != nil {
+                return "arrow.up.circle.fill"
+            }
         }
         return inputMode.icon
     }
@@ -1650,7 +1646,7 @@ struct ChatDetailView: View {
 
     private var availableBalanceBubble: some View {
         HStack(spacing: 6) {
-            if let balanceSompi = walletBalanceSompi {
+            if let balanceSompi = spendingBalanceSompi {
                 Text(localizedAvailableBalanceText(balanceSompi))
             } else {
                 Text(localizedAvailableBalanceText(nil))
@@ -1800,6 +1796,9 @@ struct ChatDetailView: View {
                     feeEstimateSompi = nil
                     isEstimatingFee = false
                 }
+                // The active spending address rotates to a fresh one after a successful send -
+                // refresh so "Available" reflects that new address, not the one just spent from.
+                await loadSpendingBalance()
             } catch {
                 await MainActor.run {
                     self.error = displayErrorMessage(error)
@@ -1809,6 +1808,15 @@ struct ChatDetailView: View {
                 isSending = false
             }
         }
+    }
+
+    private func loadSpendingBalance() async {
+        guard let address = walletManager.currentSpendingAddress() else {
+            spendingBalanceSompi = nil
+            return
+        }
+        let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
+        spendingBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
     }
 
     private func pinToBottomThroughKeyboardTransition() {
@@ -1910,7 +1918,7 @@ struct ChatDetailView: View {
         if address == walletManager.currentWallet?.publicAddress {
             return "You"
         }
-        return contact.alias.isEmpty ? String(address.suffix(10)) : contact.alias
+        return contact.alias.isEmpty ? Contact.generateDefaultAlias(from: address) : contact.alias
     }
 
     private func replyBanner(for reply: ChatMessage) -> some View {
@@ -1985,7 +1993,6 @@ struct ChatDetailView: View {
     }
 
     private var shouldShowFeeBubble: Bool {
-        guard isFeeEstimationEnabled else { return false }
         switch inputMode {
         case .message:
             return pendingPhotoImage != nil || !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -2006,11 +2013,6 @@ struct ChatDetailView: View {
 
     private func scheduleFeeEstimate(for text: String) {
         feeEstimateTask?.cancel()
-        guard isFeeEstimationEnabled else {
-            feeEstimateSompi = nil
-            isEstimatingFee = false
-            return
-        }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -2046,11 +2048,6 @@ struct ChatDetailView: View {
     /// formula - the real send always measures the actual compressed bytes.
     private func schedulePhotoFeeEstimate() {
         feeEstimateTask?.cancel()
-        guard isFeeEstimationEnabled else {
-            feeEstimateSompi = nil
-            isEstimatingFee = false
-            return
-        }
         guard let wallet = walletManager.currentWallet,
               let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) else {
             feeEstimateSompi = nil
@@ -2072,11 +2069,6 @@ struct ChatDetailView: View {
 
     private func schedulePaymentFee(for text: String) {
         feeEstimateTask?.cancel()
-        guard isFeeEstimationEnabled else {
-            feeEstimateSompi = nil
-            isEstimatingFee = false
-            return
-        }
 
         let normalized = text.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespacesAndNewlines)
         guard inputMode == .payment else { return }
@@ -2180,7 +2172,7 @@ struct ChatDetailView: View {
                     self.recordingDuration = 0
                     self.feeEstimateSompi = nil
                     self.recordingFeeSompi = nil
-                    self.isEstimatingFee = self.isFeeEstimationEnabled
+                    self.isEstimatingFee = true
                     startRecordingTimer()
                     stopPreview()
                     previewLabel = "--:--"
@@ -2440,14 +2432,6 @@ struct ChatDetailView: View {
 
     private func updateRecordingFee() {
         recordingFeeTask?.cancel()
-        guard isFeeEstimationEnabled else {
-            recordingFeeSompi = nil
-            if inputMode == .audio {
-                feeEstimateSompi = nil
-            }
-            isEstimatingFee = false
-            return
-        }
 
         // During recording, estimate based on duration
         // After encoding, use actual file data
@@ -2522,7 +2506,7 @@ struct ChatDetailView: View {
 
     private func encodeRecording(from url: URL) async {
         await MainActor.run {
-            self.isEstimatingFee = self.isFeeEstimationEnabled
+            self.isEstimatingFee = true
             self.isEncodingAudio = true
         }
         await waitForRecordingFile(url)

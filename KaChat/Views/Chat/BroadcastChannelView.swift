@@ -155,10 +155,6 @@ struct BroadcastChannelView: View {
                                             UIPasteboard.general.string = displayContent(for: message).text
                                             showToast("Message copied.")
                                         },
-                                        onCopyTxId: {
-                                            UIPasteboard.general.string = message.id
-                                            showToast("Transaction ID copied.")
-                                        },
                                         onRetry: { broadcastService.retryBroadcast(message) },
                                         revealOffset: revealOffset,
                                         maxRevealOffset: maxRevealOffset
@@ -312,7 +308,7 @@ struct BroadcastChannelView: View {
         if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
             return knsName
         }
-        return String(address.suffix(10))
+        return Contact.generateDefaultAlias(from: address)
     }
 
     private var emptyState: some View {
@@ -686,6 +682,7 @@ struct BroadcastChannelView: View {
 }
 
 private struct BroadcastMessageRow: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
     let message: BroadcastMessage
     let isOwnMessage: Bool
     let avatarURLString: String?
@@ -699,7 +696,6 @@ private struct BroadcastMessageRow: View {
     let onHideSender: () -> Void
     let onReply: () -> Void
     let onCopyMessage: () -> Void
-    let onCopyTxId: () -> Void
     let onRetry: () -> Void
     let revealOffset: CGFloat
     let maxRevealOffset: CGFloat
@@ -790,7 +786,13 @@ private struct BroadcastMessageRow: View {
                 Button {
                     onPayInKaspa()
                 } label: {
-                    Label("Pay in Kaspa", systemImage: "k.circle.fill")
+                    Label {
+                        Text("Pay in Kaspa")
+                    } icon: {
+                        Image("KaspaLogo")
+                            .resizable()
+                            .scaledToFit()
+                    }
                 }
             }
             if !isOwnMessage {
@@ -803,6 +805,7 @@ private struct BroadcastMessageRow: View {
         } label: {
             KNSAvatarView(avatarURLString: avatarURLString, fallbackText: displayName, size: 32)
         }
+        .tint(.accentColor)
     }
 
     private func replyQuoteView(_ reply: MessageReplyContent) -> some View {
@@ -913,10 +916,10 @@ private struct BroadcastMessageRow: View {
                         Label("Copy Message", systemImage: "doc.on.doc")
                     }
                 }
-                Button {
-                    onCopyTxId()
-                } label: {
-                    Label("Copy Transaction ID", systemImage: "number")
+                if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.id) {
+                    Link(destination: url) {
+                        Label("View in Explorer", systemImage: "safari")
+                    }
                 }
                 if isOwnMessage && message.deliveryStatus == .failed {
                     Button {
@@ -926,6 +929,7 @@ private struct BroadcastMessageRow: View {
                     }
                 }
             }
+            .tint(.accentColor)
             // `.simultaneousGesture` rather than `.onTapGesture(count: 2)`: the latter is a
             // discrete, exclusive gesture that a Button descendant (the truncated-text preview's
             // "Show More" tap target) would always win the race against, since a Button's tap

@@ -3,7 +3,7 @@ import CryptoKit
 import P256K
 
 struct SavedAccountSummary: Identifiable, Equatable, Codable {
-    let alias: String
+    var alias: String
     let publicAddress: String
     let publicKey: String
 
@@ -83,6 +83,7 @@ final class WalletManager: ObservableObject {
                     ContactsManager.shared.setActiveWalletAddress(nil)
                     await MessageStore.shared.setCurrentWallet(nil)
                     BroadcastService.shared.setCurrentWallet(nil)
+                    GroupChatService.shared.setCurrentWallet(nil)
                     SharedDataManager.syncWalletAddressForExtension()
                     SharedDataManager.setPrivateKeyAvailable(false)
                     return
@@ -107,6 +108,7 @@ final class WalletManager: ObservableObject {
                 // Switch MessageStore to this wallet's store and CloudKit zone
                 await MessageStore.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 BroadcastService.shared.setCurrentWallet(canonicalWallet.publicAddress)
+                GroupChatService.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 await ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                 Task { _ = try? await refreshBalance() }
                 return
@@ -121,6 +123,7 @@ final class WalletManager: ObservableObject {
             ContactsManager.shared.setActiveWalletAddress(nil)
             await MessageStore.shared.setCurrentWallet(nil)
             BroadcastService.shared.setCurrentWallet(nil)
+            GroupChatService.shared.setCurrentWallet(nil)
             SharedDataManager.syncWalletAddressForExtension()
             SharedDataManager.setPrivateKeyAvailable(false)
         } catch {
@@ -180,6 +183,7 @@ final class WalletManager: ObservableObject {
         // This must happen before resetForNewWallet() to avoid clearing the wrong store
         await MessageStore.shared.setCurrentWallet(wallet.publicAddress)
         BroadcastService.shared.setCurrentWallet(wallet.publicAddress)
+        GroupChatService.shared.setCurrentWallet(wallet.publicAddress)
         SharedDataManager.syncWalletAddressForExtension()
         SharedDataManager.setPrivateKeyAvailable(true)
 
@@ -245,6 +249,7 @@ final class WalletManager: ObservableObject {
         // Switch MessageStore back to default store (no wallet)
         await MessageStore.shared.setCurrentWallet(nil)
         BroadcastService.shared.setCurrentWallet(nil)
+        GroupChatService.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
         SharedDataManager.setPrivateKeyAvailable(false)
     }
@@ -266,6 +271,7 @@ final class WalletManager: ObservableObject {
 
         await MessageStore.shared.setCurrentWallet(nil)
         BroadcastService.shared.setCurrentWallet(nil)
+        GroupChatService.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
         SharedDataManager.setPrivateKeyAvailable(false)
     }
@@ -354,6 +360,8 @@ final class WalletManager: ObservableObject {
         await MessageStore.shared.destroyLocalStoreFiles()
         BroadcastService.shared.setCurrentWallet(account.publicAddress)
         BroadcastStore.shared.clearAll()
+        GroupChatService.shared.setCurrentWallet(account.publicAddress)
+        GroupChatService.shared.clearAllLocalData()
 
         do {
             try keychainService.deleteAccountSnapshot(publicAddress: account.publicAddress)
@@ -372,6 +380,7 @@ final class WalletManager: ObservableObject {
 
         await MessageStore.shared.setCurrentWallet(nil)
         BroadcastService.shared.setCurrentWallet(nil)
+        GroupChatService.shared.setCurrentWallet(nil)
         ChatService.shared.resetForNewWallet(skipStoreClear: true)
         ContactsManager.shared.deleteAllContacts()
         ContactsManager.shared.setActiveWalletAddress(nil)
@@ -519,6 +528,20 @@ final class WalletManager: ObservableObject {
             persistSavedAccountsToStorage()
         }
         hasStoredWallet = !savedAccounts.isEmpty
+    }
+
+    /// Renames a saved account entry (Onboarding's saved-accounts list). If this account
+    /// happens to be the currently active wallet, keeps its alias in sync too.
+    func renameSavedAccount(_ account: SavedAccountSummary, to newAlias: String) {
+        guard let index = savedAccounts.firstIndex(where: { $0.publicAddress == account.publicAddress }) else { return }
+        let trimmed = newAlias.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        savedAccounts[index].alias = trimmed
+        persistSavedAccountsToStorage()
+
+        if currentWallet?.publicAddress == account.publicAddress {
+            currentWallet?.alias = trimmed
+        }
     }
 
     private func removeSavedAccountFromStorage(_ account: SavedAccountSummary) {
@@ -691,7 +714,7 @@ final class WalletManager: ObservableObject {
     }
 
     /// Derive master key from seed using BIP32
-    private func deriveMasterKey(from seed: Data) -> (key: Data, chainCode: Data) {
+    func deriveMasterKey(from seed: Data) -> (key: Data, chainCode: Data) {
         let key = SymmetricKey(data: "Bitcoin seed".data(using: .utf8)!)
         let hmac = HMAC<SHA512>.authenticationCode(for: seed, using: key)
         let hmacData = Data(hmac)
@@ -711,7 +734,7 @@ final class WalletManager: ObservableObject {
     ]
 
     /// Derive child key using BIP32
-    private func deriveChildKey(from parent: (key: Data, chainCode: Data), index: UInt32) -> (key: Data, chainCode: Data) {
+    func deriveChildKey(from parent: (key: Data, chainCode: Data), index: UInt32) -> (key: Data, chainCode: Data) {
         var data = Data()
 
         if index >= 0x80000000 {
@@ -826,7 +849,7 @@ final class WalletManager: ObservableObject {
     }
 
     /// Derive Schnorr public key (32 bytes, x-only) from private key using secp256k1
-    private func deriveSchnorrPublicKey(from privateKey: Data) throws -> Data {
+    func deriveSchnorrPublicKey(from privateKey: Data) throws -> Data {
         let privKey = try P256K.Schnorr.PrivateKey(dataRepresentation: privateKey)
         // Get the x-only public key for Schnorr (32 bytes)
         return Data(privKey.xonly.bytes)
@@ -843,7 +866,7 @@ final class WalletManager: ObservableObject {
         }
     }
 
-    private func saveWalletOnly(_ wallet: Wallet) async throws {
+    func saveWalletOnly(_ wallet: Wallet) async throws {
         try keychainService.saveWallet(wallet)
     }
 }

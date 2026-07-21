@@ -105,21 +105,19 @@ struct BroadcastListView: View {
     private var broadcastListContent: some View {
         VStack(spacing: 0) {
             if broadcastService.popularTabEnabled {
-                Picker("", selection: $selectedTab) {
-                    Text("Channels").tag(Tab.channels)
-                    Text("Popular").tag(Tab.popular)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.top, 8)
-            }
+                broadcastTabBar
 
-            if selectedTab == .popular && broadcastService.popularTabEnabled {
-                popularList
-            } else if broadcastService.channels.isEmpty {
-                emptyState
+                // Swipeable, not just tappable - matches Android's HorizontalPager, which pages
+                // between Channels/Popular on a drag same as tapping the tab bar.
+                TabView(selection: $selectedTab) {
+                    channelsPage
+                        .tag(Tab.channels)
+                    popularList
+                        .tag(Tab.popular)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
             } else {
-                channelsList
+                channelsPage
             }
         }
         .navigationTitle("Broadcasts")
@@ -188,6 +186,51 @@ struct BroadcastListView: View {
             }
             .presentationDetents([.large])
         }
+    }
+
+    /// Underline-style tab bar (bold labels, teal indicator bar under the selected tab) matching
+    /// Android's Material3 `TabRow` — replacing the earlier iOS-standard segmented-control pill,
+    /// which read as a different, less "Broadcasts-specific" control than Android's.
+    private var broadcastTabBar: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                broadcastTabButton("Channels", tab: .channels)
+                broadcastTabButton("Popular", tab: .popular)
+            }
+            Divider()
+        }
+    }
+
+    private var channelsPage: some View {
+        Group {
+            if broadcastService.channels.isEmpty {
+                emptyState
+            } else {
+                channelsList
+            }
+        }
+    }
+
+    private func broadcastTabButton(_ title: String, tab: Tab) -> some View {
+        let isSelected = selectedTab == tab
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedTab = tab
+            }
+        } label: {
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 12)
+
+                Rectangle()
+                    .fill(isSelected ? Color.accentColor : Color.clear)
+                    .frame(height: 2.5)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private func inlineChannelView(_ channel: String) -> some View {

@@ -1170,6 +1170,10 @@ final class KNSProfileWriteService: ObservableObject {
         guard let privateKey = WalletManager.shared.getPrivateKey() else {
             throw KasiaError.keychainError("Could not get private key")
         }
+        guard let fundingAddress = WalletManager.shared.currentSpendingAddress(),
+              let fundingPrivateKey = WalletManager.shared.currentSpendingPrivateKey() else {
+            throw KasiaError.keychainError("Could not derive your spending address")
+        }
 
         var operation = KNSProfileUpdateOperation(
             id: UUID(),
@@ -1200,17 +1204,18 @@ final class KNSProfileWriteService: ObservableObject {
             let payloadJSON = try JSONEncoder().encode(addProfilePayload)
             log("PAYLOAD field=\(key.rawValue) jsonBytes=\(payloadJSON.count)")
 
-            let fetchedUtxos = try await nodePool.getUtxosByAddresses([wallet.publicAddress])
+            let fetchedUtxos = try await nodePool.getUtxosByAddresses([fundingAddress])
             let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
             let totalSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
             log("UTXO field=\(key.rawValue) total=\(fetchedUtxos.count) spendable=\(utxos.count) sumSompi=\(totalSompi)")
             guard !utxos.isEmpty else {
-                throw KasiaError.networkError("No spendable UTXOs available for KNS update")
+                throw KasiaError.networkError("No spendable UTXOs available in your spending address for this KNS update")
             }
 
             let (commitTx, commitContext) = try KasiaTransactionBuilder.buildKNSAddProfileCommitTx(
-                from: wallet.publicAddress,
-                senderPrivateKey: privateKey,
+                ownerAddress: wallet.publicAddress,
+                fundingAddress: fundingAddress,
+                fundingPrivateKey: fundingPrivateKey,
                 payloadJSON: payloadJSON,
                 utxos: utxos
             )
@@ -1228,8 +1233,9 @@ final class KNSProfileWriteService: ObservableObject {
             inFlightOperation = operation
 
             let revealTx = try KasiaTransactionBuilder.buildKNSAddProfileRevealTx(
-                walletAddress: wallet.publicAddress,
-                senderPrivateKey: privateKey,
+                ownerAddress: wallet.publicAddress,
+                ownerPrivateKey: privateKey,
+                changeAddress: fundingAddress,
                 commitTxId: commitTxId,
                 commitContext: commitContext,
                 revealTargetAddress: wallet.publicAddress
@@ -1319,6 +1325,10 @@ final class KNSDomainInscribeService: ObservableObject {
         guard let privateKey = walletManager.getPrivateKey() else {
             throw KasiaError.keychainError("Could not get private key")
         }
+        guard let fundingAddress = walletManager.currentSpendingAddress(),
+              let fundingPrivateKey = walletManager.currentSpendingPrivateKey() else {
+            throw KasiaError.keychainError("Could not derive your spending address")
+        }
         guard let label = knsService.normalizeDomainLabel(rawLabel) else {
             throw KasiaError.apiError("Invalid domain label")
         }
@@ -1346,16 +1356,17 @@ final class KNSDomainInscribeService: ObservableObject {
         let payload = KNSCreateDomainPayload(op: "create", p: "domain", v: label)
         let payloadJSON = try JSONEncoder().encode(payload)
 
-        let fetchedUtxos = try await nodePool.getUtxosByAddresses([wallet.publicAddress])
+        let fetchedUtxos = try await nodePool.getUtxosByAddresses([fundingAddress])
         let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
         guard !utxos.isEmpty else {
-            throw KasiaError.networkError("No spendable UTXOs available for KNS inscription")
+            throw KasiaError.networkError("No spendable UTXOs available in your spending address for KNS inscription")
         }
         log("UTXO domain=\(fullDomain) total=\(fetchedUtxos.count) spendable=\(utxos.count)")
 
         let (commitTx, commitContext) = try KasiaTransactionBuilder.buildKNSAddProfileCommitTx(
-            from: wallet.publicAddress,
-            senderPrivateKey: privateKey,
+            ownerAddress: wallet.publicAddress,
+            fundingAddress: fundingAddress,
+            fundingPrivateKey: fundingPrivateKey,
             payloadJSON: payloadJSON,
             utxos: utxos,
             title: "kns",
@@ -1374,8 +1385,9 @@ final class KNSDomainInscribeService: ObservableObject {
             isReservedDomain: availability.isReservedDomain
         )
         let revealTx = try KasiaTransactionBuilder.buildKNSAddProfileRevealTx(
-            walletAddress: wallet.publicAddress,
-            senderPrivateKey: privateKey,
+            ownerAddress: wallet.publicAddress,
+            ownerPrivateKey: privateKey,
+            changeAddress: fundingAddress,
             commitTxId: commitTxId,
             commitContext: commitContext,
             revealTargetAddress: revealTarget
@@ -1529,6 +1541,10 @@ final class KNSDomainTransferService: ObservableObject {
         guard let privateKey = walletManager.getPrivateKey() else {
             throw KasiaError.keychainError("Could not get private key")
         }
+        guard let fundingAddress = walletManager.currentSpendingAddress(),
+              let fundingPrivateKey = walletManager.currentSpendingPrivateKey() else {
+            throw KasiaError.keychainError("Could not derive your spending address")
+        }
 
         let assetId = rawAssetId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !assetId.isEmpty else {
@@ -1561,10 +1577,10 @@ final class KNSDomainTransferService: ObservableObject {
         let payloadJSON = try JSONEncoder().encode(payload)
         log("PAYLOAD domain=\(domain) jsonBytes=\(payloadJSON.count)")
 
-        let fetchedUtxos = try await nodePool.getUtxosByAddresses([wallet.publicAddress])
+        let fetchedUtxos = try await nodePool.getUtxosByAddresses([fundingAddress])
         let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
         guard !utxos.isEmpty else {
-            throw KasiaError.networkError("No spendable UTXOs available for KNS transfer")
+            throw KasiaError.networkError("No spendable UTXOs available in your spending address for KNS transfer")
         }
         log("UTXO domain=\(domain) total=\(fetchedUtxos.count) spendable=\(utxos.count)")
 
@@ -1574,8 +1590,9 @@ final class KNSDomainTransferService: ObservableObject {
         log("AMOUNTS domain=\(domain) revealSompi=\(revealSompi) commitSompi=\(commitSompi)")
 
         let (commitTx, commitContext) = try KasiaTransactionBuilder.buildKNSAddProfileCommitTx(
-            from: wallet.publicAddress,
-            senderPrivateKey: privateKey,
+            ownerAddress: wallet.publicAddress,
+            fundingAddress: fundingAddress,
+            fundingPrivateKey: fundingPrivateKey,
             payloadJSON: payloadJSON,
             utxos: utxos,
             title: "kns",
@@ -1590,8 +1607,9 @@ final class KNSDomainTransferService: ObservableObject {
         )
 
         let revealTx = try KasiaTransactionBuilder.buildKNSAddProfileRevealTx(
-            walletAddress: wallet.publicAddress,
-            senderPrivateKey: privateKey,
+            ownerAddress: wallet.publicAddress,
+            ownerPrivateKey: privateKey,
+            changeAddress: fundingAddress,
             commitTxId: commitTxId,
             commitContext: commitContext,
             revealTargetAddress: wallet.publicAddress

@@ -23,6 +23,7 @@ final class KeychainService {
         case seedPhrase = "kachat_seed_phrase"
         case wallet = "kachat_wallet"
         case privateKey = "kachat_private_key"
+        case groupBag = "kachat_group_bag"
     }
 
     private enum SecureEnclaveAlgorithm: UInt8 {
@@ -260,6 +261,56 @@ final class KeychainService {
     func deleteAccountSnapshot(publicAddress: String) throws {
         try deleteSensitiveDataForAccount(baseKey: .seedPhrase, publicAddress: publicAddress)
         try deleteSensitiveDataForAccount(baseKey: .privateKey, publicAddress: publicAddress)
+    }
+
+    // MARK: - Group Chat Secrets (Device-specific, SE-wrapped, keyed by groupId)
+    //
+    // GroupBag holds a group's symmetric key material (groupSeed/groupRootEpoch/blindingKey) -
+    // deliberately Keychain-only, never CloudKit-synced, matching the seed-phrase precedent.
+    // A new device won't auto-restore group membership; the admin re-shares an invite, or the
+    // member re-joins via a previously saved invite link.
+
+    func saveGroupBag(_ bag: GroupBag) throws {
+        let data = try JSONEncoder().encode(bag)
+        try saveSensitiveDataForGroup(data, baseKey: .groupBag, groupId: bag.groupId)
+    }
+
+    func loadGroupBag(groupId: String) throws -> GroupBag? {
+        guard let data = try loadSensitiveDataForGroup(baseKey: .groupBag, groupId: groupId) else {
+            return nil
+        }
+        return try JSONDecoder().decode(GroupBag.self, from: data)
+    }
+
+    func deleteGroupBag(groupId: String) throws {
+        try deleteSensitiveDataForGroup(baseKey: .groupBag, groupId: groupId)
+    }
+
+    private func saveSensitiveDataForGroup(_ data: Data, baseKey: KeychainKey, groupId: String) throws {
+        let keyName = try groupScopedKeyName(baseKey: baseKey, groupId: groupId)
+        let wrapped = tryWrapPrivateKey(data) ?? data
+        try saveSensitiveDataRaw(wrapped, keyName: keyName)
+    }
+
+    private func loadSensitiveDataForGroup(baseKey: KeychainKey, groupId: String) throws -> Data? {
+        let keyName = try groupScopedKeyName(baseKey: baseKey, groupId: groupId)
+        guard let data = try loadSensitiveDataRaw(keyName: keyName) else {
+            return nil
+        }
+        if data.starts(with: secureEnclaveHeader) {
+            return try unwrapPrivateKey(data)
+        }
+        return data
+    }
+
+    private func deleteSensitiveDataForGroup(baseKey: KeychainKey, groupId: String) throws {
+        let keyName = try groupScopedKeyName(baseKey: baseKey, groupId: groupId)
+        try deleteSensitiveDataRaw(keyName: keyName)
+    }
+
+    private func groupScopedKeyName(baseKey: KeychainKey, groupId: String) throws -> String {
+        let deviceId = try deviceIdentifier()
+        return "\(baseKey.rawValue).\(deviceId).\(groupId)"
     }
 
     // MARK: - Device-Specific Sensitive Data Storage

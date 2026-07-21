@@ -9,7 +9,10 @@ struct SettingsView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var chatService: ChatService
+    @Environment(\.dismiss) private var dismiss
 
+    @State private var showSeedPhrase = false
+    @State private var showLogoutConfirmation = false
     @State private var showDeleteConfirmation = false
     @State private var showWipeIncomingConfirmation = false
     @State private var showWipeAccountConfirmation = false
@@ -25,7 +28,6 @@ struct SettingsView: View {
     @State private var chatHistoryArchiveURL: URL?
     @State private var showChatHistoryShareSheet = false
     @State private var showChatHistoryImporter = false
-    @State private var showAddContact = false
     @State private var isPreparingDiagnostics = false
     @State private var isPreparingChatHistoryExport = false
     @State private var isImportingChatHistory = false
@@ -38,22 +40,63 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Customization") {
+                    Picker("Appearance", selection: $settingsViewModel.settings.appearance) {
+                        ForEach(AppAppearance.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                    .onChange(of: settingsViewModel.settings.appearance) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+
+                    NavigationLink {
+                        MenuVisibilityView()
+                    } label: {
+                        Label("Menu", systemImage: "list.bullet")
+                    }
+                }
+
+                Section("Security") {
+                    Toggle("Biometrics for Seed Phrase", isOn: $settingsViewModel.settings.biometricSeedPhraseEnabled)
+                        .onChange(of: settingsViewModel.settings.biometricSeedPhraseEnabled) { _ in
+                            settingsViewModel.saveSettings()
+                        }
+
+                    Toggle("Biometrics for Account Login", isOn: $settingsViewModel.settings.biometricAccountLoginEnabled)
+                        .onChange(of: settingsViewModel.settings.biometricAccountLoginEnabled) { _ in
+                            settingsViewModel.saveSettings()
+                        }
+                }
+
+                // Connection Section
+                Section("Connection") {
+                    NavigationLink {
+                        ConnectionSettingsView()
+                    } label: {
+                        HStack {
+                            Label("Connection Settings", systemImage: "network")
+                            Spacer()
+                            Text(settingsViewModel.settings.networkType.displayName)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    NavigationLink {
+                        KaspaExplorerSettingsView()
+                    } label: {
+                        HStack {
+                            Label("Kaspa Explorer", systemImage: "safari")
+                            Spacer()
+                            Text(settingsViewModel.settings.kaspaExplorer.displayName)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
                 Section("Chats") {
-                    Toggle("Estimate fees while composing", isOn: $settingsViewModel.settings.feeEstimationEnabled)
-                        .onChange(of: settingsViewModel.settings.feeEstimationEnabled) { _ in
-                            settingsViewModel.saveSettings()
-                        }
-
-                    Toggle("Hide auto-created payment chats", isOn: $settingsViewModel.settings.hideAutoCreatedPaymentChats)
-                        .onChange(of: settingsViewModel.settings.hideAutoCreatedPaymentChats) { _ in
-                            settingsViewModel.saveSettings()
-                        }
-
-                    Toggle("Show contact balance", isOn: $settingsViewModel.settings.showContactBalance)
-                        .onChange(of: settingsViewModel.settings.showContactBalance) { _ in
-                            settingsViewModel.saveSettings()
-                        }
-
                     Toggle("Require approval for photos from new contacts", isOn: $settingsViewModel.settings.requirePhotoApprovalForNewContacts)
                         .onChange(of: settingsViewModel.settings.requirePhotoApprovalForNewContacts) { _ in
                             settingsViewModel.saveSettings()
@@ -183,67 +226,6 @@ struct SettingsView: View {
                     .disabled(isPreparingChatHistoryExport || isImportingChatHistory)
                 }
 
-                // Connection Section
-                Section("Connection") {
-                    NavigationLink {
-                        ConnectionSettingsView()
-                    } label: {
-                        HStack {
-                            Label("Connection Settings", systemImage: "network")
-                            Spacer()
-                            Text(settingsViewModel.settings.networkType.displayName)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
-                // About Section
-                Section("About") {
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text(appVersionDisplay)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Link(destination: websiteURL) {
-                        HStack {
-                            Text("Website")
-                            Spacer()
-                            Text("linktr.ee/Kachat_")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Link(destination: supportEmailURL) {
-                        HStack {
-                            Text("Support Email")
-                            Spacer()
-                            Text("kaspasilver@gmail.com")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Button {
-                        Task {
-                            await donate()
-                        }
-                    } label: {
-                        HStack {
-                            Text("Donate")
-                            Spacer()
-                            if isResolvingDonateAddress {
-                                ProgressView()
-                            } else {
-                                Text("kachat.kas")
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    .disabled(isResolvingDonateAddress)
-                }
-
                 Section("Diagnostics") {
                     Button {
                         Task {
@@ -273,6 +255,26 @@ struct SettingsView: View {
                 }
 
                 // Danger Zone
+                Section("Actions") {
+                    Button {
+                        if settingsViewModel.settings.biometricSeedPhraseEnabled {
+                            DeviceAuth.authenticate(reason: "Unlock to view your seed phrase") {
+                                showSeedPhrase = true
+                            }
+                        } else {
+                            showSeedPhrase = true
+                        }
+                    } label: {
+                        Label("View Seed Phrase", systemImage: "key")
+                    }
+
+                    Button(role: .destructive) {
+                        showLogoutConfirmation = true
+                    } label: {
+                        Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                }
+
                 Section("Danger Zone") {
                     if dpiWarningActive {
                         VStack(alignment: .leading, spacing: 8) {
@@ -352,6 +354,51 @@ struct SettingsView: View {
                         Text("This deletes all local data and CloudKit message records. This cannot be undone.")
                     }
                 }
+
+                Section("About") {
+                    HStack {
+                        Text("Version")
+                        Spacer()
+                        Text(appVersionDisplay)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Link(destination: websiteURL) {
+                        HStack {
+                            Text("Website")
+                            Spacer()
+                            Text("linktr.ee/Kachat_")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Link(destination: supportEmailURL) {
+                        HStack {
+                            Text("Support Email")
+                            Spacer()
+                            Text("kaspasilver@gmail.com")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Button {
+                        Task {
+                            await donate()
+                        }
+                    } label: {
+                        HStack {
+                            Text("Donate")
+                            Spacer()
+                            if isResolvingDonateAddress {
+                                ProgressView()
+                            } else {
+                                Text("kachat.kas")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .disabled(isResolvingDonateAddress)
+                }
             }
             .toast(message: toastMessage, style: toastStyle)
             .toolbar {
@@ -362,12 +409,27 @@ struct SettingsView: View {
                     balanceToolbarView
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showAddContact = true
-                    } label: {
-                        Image(systemName: "person.badge.plus")
+                    Button("Done") {
+                        dismiss()
                     }
                 }
+            }
+            .sheet(isPresented: $showSeedPhrase) {
+                SeedPhraseView()
+            }
+            .confirmationDialog(
+                "Log Out",
+                isPresented: $showLogoutConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Log Out", role: .destructive) {
+                    Task {
+                        await walletManager.logout()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This signs out of your account, but keeps local wallet and message data on this device.")
             }
             .sheet(isPresented: $showDiagnosticsShareSheet) {
                 if let diagnosticsArchiveURL {
@@ -388,14 +450,6 @@ struct SettingsView: View {
             ) { result in
                 Task {
                     await importChatHistoryArchive(result: result)
-                }
-            }
-            .sheet(isPresented: $showAddContact) {
-                AddContactView { contact in
-                    _ = chatService.getOrCreateConversation(for: contact)
-                    showAddContact = false
-                    // Navigate to the new chat via the Chats tab
-                    NotificationCenter.default.post(name: .openChat, object: nil, userInfo: ["contactAddress": contact.address])
                 }
             }
             .confirmationDialog(
@@ -1214,6 +1268,7 @@ struct SeedPhraseView: View {
     @EnvironmentObject var walletManager: WalletManager
     @State private var seedPhrase: SeedPhrase?
     @State private var isRevealed = false
+    @State private var revealToken = UUID()
     @State private var error: String?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
@@ -1287,6 +1342,13 @@ struct SeedPhraseView: View {
                     } else {
                         Button {
                             isRevealed = true
+                            let token = UUID()
+                            revealToken = token
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 7) {
+                                if revealToken == token {
+                                    isRevealed = false
+                                }
+                            }
                         } label: {
                             VStack(spacing: 12) {
                                 Image(systemName: "eye.slash.fill")
@@ -1359,6 +1421,38 @@ struct SeedPhraseView: View {
                 }
             }
         }
+    }
+}
+
+struct KaspaExplorerSettingsView: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(KaspaExplorer.allCases, id: \.self) { explorer in
+                    Button {
+                        settingsViewModel.kaspaExplorer = explorer
+                    } label: {
+                        HStack {
+                            Text(explorer.displayName)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            if settingsViewModel.settings.kaspaExplorer == explorer {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.accentColor)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("Explorer")
+            } footer: {
+                Text("Used to build \"view transaction\" links throughout the app.")
+            }
+        }
+        .navigationTitle("Kaspa Explorer")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

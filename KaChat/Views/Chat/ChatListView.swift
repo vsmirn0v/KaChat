@@ -8,10 +8,12 @@ struct ChatListView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var broadcastService: BroadcastService
+    @EnvironmentObject var groupChatService: GroupChatService
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var searchText = ""
     @State private var selectedContact: Contact?
+    @State private var selectedGroup: GroupChat?
     @State private var selectedContactStartInPaymentMode = false
     @State private var showAddContact = false
     @State private var showBroadcastList = false
@@ -59,6 +61,7 @@ struct ChatListView: View {
                             selectedContact: $selectedContact,
                             startInPaymentMode: selectedContactStartInPaymentMode
                         ))
+                        .modifier(GroupChatDetailNavigationDestination(selectedGroup: $selectedGroup))
                 }
             }
         }
@@ -84,21 +87,13 @@ struct ChatListView: View {
                                 selectedContactIDs = Set(filteredConversationsCache.map { $0.contact.id })
                             }
                         }
-                    } else {
-                        Button {
-                            showAddContact = true
-                        } label: {
-                            Image(systemName: "person.badge.plus")
-                        }
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
+                    Button(editMode == .active ? "Cancel" : "Select") {
                         withAnimation {
                             editMode = editMode == .active ? .inactive : .active
                         }
-                    } label: {
-                        Image(systemName: editMode == .active ? "xmark" : "pencil")
                     }
                 }
             }
@@ -113,9 +108,18 @@ struct ChatListView: View {
                     selectedContactStartInPaymentMode = false
                     pendingBroadcastChannel = nil
                     showBroadcastList = false
+                    selectedGroup = nil
                     selectedContact = contact
                     showAddContact = false
+                } onCreateGroup: { group in
+                    selectedContactStartInPaymentMode = false
+                    pendingBroadcastChannel = nil
+                    showBroadcastList = false
+                    selectedContact = nil
+                    selectedGroup = group
+                    showAddContact = false
                 }
+                .presentationDetents([.large])
             }
             .alert(
                 "Delete Chat with \(contactPendingDelete?.alias ?? "")",
@@ -149,6 +153,9 @@ struct ChatListView: View {
         if showBroadcastList {
             BroadcastListView(initialChannel: pendingBroadcastChannel)
                 .id(pendingBroadcastChannel ?? "__broadcasts")
+        } else if let group = selectedGroup {
+            GroupChatDetailView(group: group)
+                .id(group.id)
         } else if let contact = selectedContact {
             ChatDetailView(contact: contact, startInPaymentMode: selectedContactStartInPaymentMode)
                 .id(contact.id)
@@ -163,6 +170,11 @@ struct ChatListView: View {
         .safeAreaInset(edge: .bottom) {
             if editMode == .active {
                 selectionActionBar
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if editMode != .active {
+                createChatButton
             }
         }
         .onChange(of: editMode) { newValue in
@@ -197,9 +209,6 @@ struct ChatListView: View {
             scheduleAvatarPrefetch()
         }
         .onChange(of: contactsManager.contacts) { _ in
-            scheduleFilteredConversationsRefresh(debounce: false)
-        }
-        .onChange(of: settingsViewModel.settings.hideAutoCreatedPaymentChats) { _ in
             scheduleFilteredConversationsRefresh(debounce: false)
         }
         .onDisappear {
@@ -283,6 +292,26 @@ struct ChatListView: View {
         }
     }
 
+    private var createChatButton: some View {
+        Button {
+            Haptics.impact(.light)
+            showAddContact = true
+        } label: {
+            Image(systemName: "person.badge.plus")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundColor(.accentColor)
+                .frame(width: 56, height: 56)
+                .background(
+                    Circle()
+                        .fill(.regularMaterial)
+                        .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+                        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+                )
+        }
+        .padding(.trailing, 20)
+        .padding(.bottom, 16)
+    }
+
     private var emptyStateView: some View {
         VStack(spacing: 20) {
             Image(systemName: "bubble.left.and.bubble.right")
@@ -298,17 +327,6 @@ struct ChatListView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
-
-            Button {
-                showAddContact = true
-            } label: {
-                Label("Add Contact", systemImage: "person.badge.plus")
-                    .padding()
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-            .padding(.top)
         }
         .padding()
     }
@@ -349,6 +367,7 @@ struct ChatListView: View {
                 Button {
                     pendingBroadcastChannel = nil
                     selectedContact = nil
+                    selectedGroup = nil
                     showBroadcastList = true
                 } label: {
                     BroadcastEntryRow()
@@ -358,6 +377,25 @@ struct ChatListView: View {
                         ? Color.accentColor.opacity(0.14)
                         : Color.clear
                 )
+
+                if !groupChatService.groups.isEmpty {
+                    ForEach(groupChatService.groups) { group in
+                        Button {
+                            pendingBroadcastChannel = nil
+                            showBroadcastList = false
+                            selectedContact = nil
+                            selectedGroup = group
+                        } label: {
+                            GroupChatRow(group: group)
+                        }
+                        .buttonStyle(ChatRowPressStyle())
+                        .listRowBackground(
+                            shouldUseSplitLayout && selectedGroup?.id == group.id
+                                ? Color.accentColor.opacity(0.14)
+                                : Color.clear
+                        )
+                    }
+                }
             }
 
             if !displayed.isEmpty {
@@ -376,6 +414,7 @@ struct ChatListView: View {
                             selectedContactStartInPaymentMode = false
                             pendingBroadcastChannel = nil
                             showBroadcastList = false
+                            selectedGroup = nil
                             selectedContact = conversation.contact
                         }
                     } label: {
@@ -412,6 +451,7 @@ struct ChatListView: View {
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
+                        .tint(.red)
                     }
                     .onAppear {
                         maybeLoadMoreConversations(
@@ -677,6 +717,33 @@ private struct ChatDetailNavigationDestination: ViewModifier {
             )) {
                 if let contact = selectedContact {
                     ChatDetailView(contact: contact, startInPaymentMode: startInPaymentMode)
+                } else {
+                    EmptyView()
+                }
+            }
+        }
+    }
+}
+
+private struct GroupChatDetailNavigationDestination: ViewModifier {
+    @Binding var selectedGroup: GroupChat?
+
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.navigationDestination(item: $selectedGroup) { group in
+                GroupChatDetailView(group: group)
+            }
+        } else {
+            content.navigationDestination(isPresented: Binding(
+                get: { selectedGroup != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        selectedGroup = nil
+                    }
+                }
+            )) {
+                if let group = selectedGroup {
+                    GroupChatDetailView(group: group)
                 } else {
                     EmptyView()
                 }
@@ -994,6 +1061,69 @@ struct BroadcastEntryRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+}
+
+struct GroupChatRow: View {
+    let group: GroupChat
+    @EnvironmentObject var groupChatService: GroupChatService
+
+    private var lastMessage: GroupMessage? {
+        groupChatService.groupMessages[group.id]?.max { $0.timestamp < $1.timestamp }
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(Color.accentColor.opacity(0.2))
+                .frame(width: 50, height: 50)
+                .overlay(
+                    Image(systemName: "person.3.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.accentColor)
+                )
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(group.name)
+                        .font(.headline)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    if let lastMessage {
+                        Text(formatDate(lastMessage.timestamp))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if let lastMessage {
+                    Text(lastMessage.content)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text("\(group.members.count) member\(group.members.count == 1 ? "" : "s")")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .italic()
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return SharedFormatting.chatTime.string(from: date)
+        } else if calendar.isDateInYesterday(date) {
+            return "Yesterday"
+        } else {
+            return SharedFormatting.chatDay.string(from: date)
+        }
     }
 }
 

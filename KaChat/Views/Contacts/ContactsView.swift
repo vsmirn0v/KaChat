@@ -13,9 +13,6 @@ struct ProfileView: View {
 
     @State private var editedAlias = ""
     @State private var aliasSaveTask: Task<Void, Never>?
-    @State private var showSeedPhrase = false
-    @State private var showAddContact = false
-    @State private var showLogoutConfirmation = false
     @State private var qrImage: UIImage?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
@@ -25,52 +22,42 @@ struct ProfileView: View {
     @State private var knsDomains: [KNSDomain] = []
     @State private var knsPrimaryDomain: String?
     @State private var knsProfileInfo: KNSAddressProfileInfo?
+    @State private var showMoreProfileInfo = false
+    @State private var showChattingAddressOptions = false
+    @State private var showWithdrawSheet = false
+    @State private var spendingAddressBalanceSompi: UInt64?
+    @State private var isLoadingSpendingBalance = false
     @State private var showAvatarPreview = false
     @State private var showKNSEditor = false
-    @State private var inscribeSheetContext: KNSDomainInscribeSheetContext?
-    @State private var transferSheetContext: KNSDomainTransferSheetContext?
     @State private var settingPrimaryDomainId: String?
     @State private var isSavingKNSProfile = false
     @State private var knsSaveProgressText: String?
     @State private var failedKNSUpdates: [KNSProfileFieldKey: String] = [:]
+    @State private var showSettings = false
 
     static func preloadQRCode(for address: String) {
         ProfileQRCodeCache.preload(address: address, completion: nil)
     }
 
-    private struct KNSDomainInscribeSheetContext: Identifiable {
-        let id = UUID()
-        let walletAddress: String
-    }
-
-    private struct KNSDomainTransferSheetContext: Identifiable {
-        let id = UUID()
-        let walletAddress: String
-        let domain: KNSDomain
-    }
-
     var body: some View {
         NavigationStack {
-            List {
-                if let wallet = walletManager.currentWallet {
-                    accountNameSection(wallet)
-                    knsDomainSection
-                    knsProfileSection
-                    accountAddressSection(wallet)
-                    accountBalanceSection(wallet)
-                    if shouldShowGiftSection(wallet) {
-                        giftSection
-                    }
-                    accountInfoSection(wallet)
-                    accountActionsSection
-                } else {
-                    Section("Account") {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let wallet = walletManager.currentWallet {
+                        knsProfileSection
+                        qrButtonsSection(wallet)
+                        addressDropdownsSection(wallet)
+                        accountInfoSection(wallet)
+                        if shouldShowGiftSection(wallet) {
+                            giftSection
+                        }
+                    } else {
                         Text("No active account")
                             .foregroundColor(.secondary)
                     }
                 }
+                .padding()
             }
-            .listStyle(.insetGrouped)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     ConnectionStatusIndicator()
@@ -80,27 +67,47 @@ struct ProfileView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
-                        showAddContact = true
+                        showSettings = true
                     } label: {
-                        Image(systemName: "person.badge.plus")
+                        Image(systemName: "gear")
                     }
+                    .accessibilityLabel(Text("Settings"))
                 }
             }
             .toast(message: toastMessage, style: toastStyle)
-            .sheet(isPresented: $showSeedPhrase) {
-                SeedPhraseView()
-            }
-            .sheet(isPresented: $showAddContact) {
-                AddContactView { contact in
-                    _ = chatService.getOrCreateConversation(for: contact)
-                    showAddContact = false
-                    // Navigate to the new chat via the Chats tab
-                    NotificationCenter.default.post(name: .openChat, object: nil, userInfo: ["contactAddress": contact.address])
-                }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
             }
             .sheet(isPresented: $showKNSEditor) {
                 if let profileInfo = knsProfileInfo, profileInfo.assetId != nil {
-                    KNSProfileEditorSheet(profileInfo: profileInfo) { submission in
+                    KNSProfileEditorSheet(
+                        profileInfo: profileInfo,
+                        domains: knsDomains,
+                        primaryDomain: knsPrimaryDomain,
+                        settingPrimaryDomainId: settingPrimaryDomainId,
+                        onSetPrimary: { domain in
+                            Task {
+                                await setPrimaryDomain(domain)
+                            }
+                        },
+                        onInscribeComplete: { result in
+                            Haptics.success()
+                            showToast(localizedFormat("Inscribe submitted for %@.", result.domain))
+                            Task {
+                                await refreshKNSData(for: profileInfo.address)
+                            }
+                        },
+                        onTransferComplete: { result in
+                            Haptics.success()
+                            let message = result.verified
+                                ? localizedFormat("%@ transferred to %@.", result.domain, result.recipientAddress)
+                                : localizedFormat("Transfer submitted for %@.", result.domain)
+                            showToast(message)
+                            Task {
+                                await refreshKNSData(for: profileInfo.address)
+                            }
+                        }
+                    ) { submission in
                         showKNSEditor = false
                         Task {
                             await saveKNSProfile(submission: submission, profileInfo: profileInfo)
@@ -119,28 +126,9 @@ struct ProfileView: View {
                     }
                 }
             }
-            .sheet(item: $inscribeSheetContext) { context in
-                KNSDomainInscribeSheet(walletAddress: context.walletAddress) { result in
-                    Haptics.success()
-                    showToast(localizedFormat("Inscribe submitted for %@.", result.domain))
-                    Task {
-                        await refreshKNSData(for: context.walletAddress)
-                    }
-                }
-            }
-            .sheet(item: $transferSheetContext) { context in
-                KNSDomainTransferSheet(
-                    walletAddress: context.walletAddress,
-                    domain: context.domain
-                ) { result in
-                    Haptics.success()
-                    let message = result.verified
-                        ? localizedFormat("%@ transferred to %@.", result.domain, result.recipientAddress)
-                        : localizedFormat("Transfer submitted for %@.", result.domain)
-                    showToast(message)
-                    Task {
-                        await refreshKNSData(for: context.walletAddress)
-                    }
+            .sheet(isPresented: $showWithdrawSheet) {
+                if let wallet = walletManager.currentWallet {
+                    WithdrawKaspaView(fromAddress: wallet.publicAddress, availableBalanceSompi: wallet.balanceSompi)
                 }
             }
             .fullScreenCover(isPresented: $showAvatarPreview) {
@@ -149,20 +137,6 @@ struct ProfileView: View {
                     fallbackText: editedAlias,
                     title: knsProfileInfo?.domainName ?? editedAlias
                 )
-            }
-            .confirmationDialog(
-                "Log Out",
-                isPresented: $showLogoutConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Log Out", role: .destructive) {
-                    Task {
-                        await walletManager.logout()
-                    }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This signs out of your account, but keeps local wallet and message data on this device.")
             }
             .onAppear {
                 if let wallet = walletManager.currentWallet {
@@ -173,6 +147,10 @@ struct ProfileView: View {
                     }
                 }
                 Task { _ = try? await walletManager.refreshBalance() }
+                Task { await loadSpendingAddressBalance() }
+                if let spendingAddress = walletManager.currentSpendingAddress() {
+                    ProfileQRCodeCache.preload(address: spendingAddress, completion: nil)
+                }
             }
             .task {
                 guard let address = walletManager.currentWallet?.publicAddress else { return }
@@ -240,129 +218,6 @@ struct ProfileView: View {
                     scheduleAliasSave(newValue, previousAlias: wallet.alias)
                 }
         }
-    }
-
-    @ViewBuilder
-    private var knsDomainSection: some View {
-        Section("KNS Domains") {
-            if isLoadingKNS {
-                HStack {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                    Text("Loading domains...")
-                        .foregroundColor(.secondary)
-                }
-            }
-            if !isLoadingKNS && knsDomains.isEmpty {
-                Text("No domains yet.")
-                    .foregroundColor(.secondary)
-            }
-            if !knsDomains.isEmpty {
-                ForEach(knsDomains, id: \.inscriptionId) { domain in
-                    HStack(spacing: 10) {
-                        Button {
-                            applyDomainAsAccountName(domain.fullName)
-                        } label: {
-                            HStack {
-                                Text(domain.fullName)
-                                    .font(.body)
-                                    .foregroundColor(.primary)
-                                if isPrimaryDomain(domain.fullName) {
-                                    Spacer()
-                                    Text("Primary")
-                                        .font(.caption)
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 2)
-                                        .background(Color.accentColor)
-                                        .clipShape(Capsule())
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-
-                        if isSetPrimaryAllowed(domain) {
-                            Button {
-                                Task {
-                                    await setPrimaryDomain(domain)
-                                }
-                            } label: {
-                                if settingPrimaryDomainId == domain.inscriptionId {
-                                    ProgressView()
-                                        .scaleEffect(0.75)
-                                } else {
-                                    Image(systemName: "star")
-                                        .foregroundColor(.accentColor)
-                                }
-                            }
-                            .buttonStyle(.borderless)
-                            .disabled(settingPrimaryDomainId != nil)
-                            .accessibilityLabel(localizedFormat("Set %@ as primary", domain.fullName))
-                        }
-
-                        if isDomainTransferAllowed(domain) {
-                            Button {
-                                startDomainTransfer(domain)
-                            } label: {
-                                Image(systemName: "arrowshape.turn.up.right")
-                                    .foregroundColor(.accentColor)
-                            }
-                            .buttonStyle(.borderless)
-                            .accessibilityLabel(localizedFormat("Transfer %@", domain.fullName))
-                        } else if domain.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "listed" {
-                            Text("Listed")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-            }
-
-            Button {
-                guard let walletAddress = walletManager.currentWallet?.publicAddress else {
-                    showToast(localized("Wallet not available."), style: .error)
-                    return
-                }
-                inscribeSheetContext = KNSDomainInscribeSheetContext(walletAddress: walletAddress)
-            } label: {
-                Label("Inscribe New Domain", systemImage: "plus.circle")
-            }
-        }
-    }
-
-    private func applyDomainAsAccountName(_ domain: String) {
-        editedAlias = domain
-        Haptics.success()
-        Task {
-            try? await walletManager.updateAlias(domain)
-            showToast(localizedFormat("Name set to %@.", domain))
-        }
-    }
-
-    private func isPrimaryDomain(_ domainName: String) -> Bool {
-        let normalizedDomain = domainName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let normalizedPrimary = (knsPrimaryDomain ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalizedDomain == normalizedPrimary
-    }
-
-    private func isSetPrimaryAllowed(_ domain: KNSDomain) -> Bool {
-        let hasAssetId = !domain.inscriptionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return hasAssetId && !isPrimaryDomain(domain.fullName)
-    }
-
-    private func isDomainTransferAllowed(_ domain: KNSDomain) -> Bool {
-        let status = domain.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let hasAssetId = !domain.inscriptionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return hasAssetId && status != "listed"
-    }
-
-    private func startDomainTransfer(_ domain: KNSDomain) {
-        guard let walletAddress = walletManager.currentWallet?.publicAddress else {
-            showToast(localized("Wallet not available."), style: .error)
-            return
-        }
-        transferSheetContext = KNSDomainTransferSheetContext(walletAddress: walletAddress, domain: domain)
     }
 
     private func setPrimaryDomain(_ domain: KNSDomain) async {
@@ -433,7 +288,8 @@ struct ProfileView: View {
     @ViewBuilder
     private var knsProfileSection: some View {
         if isLoadingKNS && knsProfileInfo == nil {
-            Section("KNS Profile") {
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("KNS Profile")
                 HStack {
                     ProgressView().scaleEffect(0.8)
                     Text("Loading profile...")
@@ -441,167 +297,360 @@ struct ProfileView: View {
                 }
             }
         } else if let profileInfo = knsProfileInfo {
-            Section("KNS Profile") {
-                HStack(spacing: 12) {
-                    Button {
-                        showAvatarPreview = true
-                    } label: {
-                        KNSAvatarView(
-                            avatarURLString: profileInfo.avatarURL,
-                            fallbackText: editedAlias,
-                            size: 64
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let domainName = profileInfo.domainName, !domainName.isEmpty {
-                            Text(domainName)
-                                .font(.headline)
-                        }
-                        Text(profileInfo.profile?.hasAnyField == true
-                             ? "On-chain profile data available."
-                             : "No on-chain profile fields set.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("KNS Profile")
+                knsProfileCard(profileInfo)
+            }
+        }
+    }
 
-                if let assetId = profileInfo.assetId, !assetId.isEmpty {
-                    Button {
-                        showKNSEditor = true
-                    } label: {
-                        Label("Edit KNS Profile", systemImage: "pencil")
-                    }
-                }
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.footnote)
+            .fontWeight(.medium)
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 4)
+    }
 
-                if isSavingKNSProfile, let progress = knsSaveProgressText {
-                    HStack(spacing: 10) {
-                        ProgressView().scaleEffect(0.8)
-                        Text(progress)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.vertical, 2)
-                }
+    private func knsProfileCard(_ profileInfo: KNSAddressProfileInfo) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if KNSProfileLinkBuilder.websiteURL(from: profileInfo.profile?.bannerUrl) != nil {
+                KNSBannerImageView(
+                    bannerURLString: profileInfo.profile?.bannerUrl,
+                    height: 140,
+                    cornerRadius: 0
+                )
+            }
 
-                if let assetId = profileInfo.assetId,
-                   !assetId.isEmpty,
-                   !failedKNSUpdates.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Failed updates")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        ForEach(failedKNSUpdates.keys.sorted(by: { $0.displayName < $1.displayName }), id: \.self) { key in
-                            let value = failedKNSUpdates[key] ?? ""
-                            Button {
-                                Task {
-                                    await retryFailedKNSField(
-                                        key: key,
-                                        value: value,
-                                        assetId: assetId,
-                                        domainName: profileInfo.domainName
-                                    )
-                                }
-                            } label: {
-                                HStack {
-                                    Text(localizedFormat("Retry %@", key.displayName))
-                                    Spacer()
-                                    Image(systemName: "arrow.clockwise")
-                                        .foregroundColor(.accentColor)
-                                }
+            knsProfileHeaderRow(profileInfo)
+
+            if isSavingKNSProfile, let progress = knsSaveProgressText {
+                HStack(spacing: 10) {
+                    ProgressView().scaleEffect(0.8)
+                    Text(progress)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+            }
+
+            if let assetId = profileInfo.assetId,
+               !assetId.isEmpty,
+               !failedKNSUpdates.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Failed updates")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    ForEach(failedKNSUpdates.keys.sorted(by: { $0.displayName < $1.displayName }), id: \.self) { key in
+                        let value = failedKNSUpdates[key] ?? ""
+                        Button {
+                            Task {
+                                await retryFailedKNSField(
+                                    key: key,
+                                    value: value,
+                                    assetId: assetId,
+                                    domainName: profileInfo.domainName
+                                )
                             }
-                            .disabled(isSavingKNSProfile)
+                        } label: {
+                            HStack {
+                                Text(localizedFormat("Retry %@", key.displayName))
+                                Spacer()
+                                Image(systemName: "arrow.clockwise")
+                                    .foregroundColor(.accentColor)
+                            }
                         }
+                        .disabled(isSavingKNSProfile)
                     }
-                    .padding(.vertical, 2)
                 }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+            }
 
-                if KNSProfileLinkBuilder.websiteURL(from: profileInfo.profile?.bannerUrl) != nil {
-                    KNSBannerImageView(
-                        bannerURLString: profileInfo.profile?.bannerUrl,
-                        height: 120,
-                        cornerRadius: 10
-                    )
+            if hasMoreProfileInfo(profileInfo) {
+                Divider()
+                    .padding(.leading, 16)
+
+                DisclosureGroup(isExpanded: $showMoreProfileInfo) {
+                    moreInfoRows(profileInfo)
+                        .padding(.top, 8)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 14)
+                } label: {
+                    Text("More Info")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.accentColor)
                 }
+                .tint(.accentColor)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.regularMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+                )
+        )
+        // Clip after background (not before) so the banner's square image corners are
+        // trimmed to match the card's rounded top corners, then apply the shadow last so
+        // it isn't clipped away along with the banner overflow.
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+    }
 
-                if let bio = profileInfo.profile?.bio {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Bio")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+    private func knsProfileHeaderRow(_ profileInfo: KNSAddressProfileInfo) -> some View {
+        Button {
+            showKNSEditor = true
+        } label: {
+            HStack(spacing: 12) {
+                KNSAvatarView(
+                    avatarURLString: profileInfo.avatarURL,
+                    fallbackText: editedAlias,
+                    size: 44
+                )
+                VStack(alignment: .leading, spacing: 2) {
+                    if let domainName = profileInfo.domainName, !domainName.isEmpty {
+                        Text(domainName)
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                    }
+                    if let bio = profileInfo.profile?.bio, !bio.isEmpty {
                         Text(bio)
-                            .font(.body)
-                    }
-                    .padding(.vertical, 2)
-                    .onLongPressGesture(minimumDuration: 0.45) {
-                        copyProfileFieldValue(bio, fieldName: "Bio")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
                     }
                 }
-                if let x = profileInfo.profile?.x {
-                    LabeledContent("X") {
-                        profileLinkView(
-                            text: x,
-                            url: KNSProfileLinkBuilder.xURL(from: x),
-                            fieldName: "X"
-                        )
-                    }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Narrow gate for the collapsible "More Info" section — deliberately excludes
+    /// avatarUrl/bannerUrl since those are already shown elsewhere in the card.
+    private func hasMoreProfileInfo(_ profileInfo: KNSAddressProfileInfo) -> Bool {
+        guard let profile = profileInfo.profile else { return false }
+        return [profile.x, profile.website, profile.telegram, profile.discord, profile.contactEmail, profile.github, profile.redirectUrl]
+            .contains { !($0 ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    @ViewBuilder
+    private func moreInfoRows(_ profileInfo: KNSAddressProfileInfo) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let x = profileInfo.profile?.x, !x.isEmpty {
+                LabeledContent("X") {
+                    profileLinkView(text: x, url: KNSProfileLinkBuilder.xURL(from: x), fieldName: "X")
                 }
-                if let website = profileInfo.profile?.website {
-                    LabeledContent("Website") {
-                        profileLinkView(
-                            text: website,
-                            url: KNSProfileLinkBuilder.websiteURL(from: website),
-                            fieldName: "Website"
-                        )
-                    }
+            }
+            if let website = profileInfo.profile?.website, !website.isEmpty {
+                LabeledContent("Website") {
+                    profileLinkView(text: website, url: KNSProfileLinkBuilder.websiteURL(from: website), fieldName: "Website")
                 }
-                if let telegram = profileInfo.profile?.telegram {
-                    LabeledContent("Telegram") {
-                        profileLinkView(
-                            text: telegram,
-                            url: KNSProfileLinkBuilder.telegramURL(from: telegram),
-                            fieldName: "Telegram"
-                        )
-                    }
+            }
+            if let telegram = profileInfo.profile?.telegram, !telegram.isEmpty {
+                LabeledContent("Telegram") {
+                    profileLinkView(text: telegram, url: KNSProfileLinkBuilder.telegramURL(from: telegram), fieldName: "Telegram")
                 }
-                if let discord = profileInfo.profile?.discord {
-                    LabeledContent("Discord") {
-                        profileLinkView(
-                            text: discord,
-                            url: KNSProfileLinkBuilder.discordURL(from: discord),
-                            fieldName: "Discord"
-                        )
-                    }
+            }
+            if let discord = profileInfo.profile?.discord, !discord.isEmpty {
+                LabeledContent("Discord") {
+                    profileLinkView(text: discord, url: KNSProfileLinkBuilder.discordURL(from: discord), fieldName: "Discord")
                 }
-                if let contactEmail = profileInfo.profile?.contactEmail {
-                    LabeledContent("Email") {
-                        profileLinkView(
-                            text: contactEmail,
-                            url: KNSProfileLinkBuilder.emailURL(from: contactEmail),
-                            fieldName: "Email"
-                        )
-                    }
+            }
+            if let contactEmail = profileInfo.profile?.contactEmail, !contactEmail.isEmpty {
+                LabeledContent("Email") {
+                    profileLinkView(text: contactEmail, url: KNSProfileLinkBuilder.emailURL(from: contactEmail), fieldName: "Email")
                 }
-                if let github = profileInfo.profile?.github {
-                    LabeledContent("GitHub") {
-                        profileLinkView(
-                            text: github,
-                            url: KNSProfileLinkBuilder.githubURL(from: github),
-                            fieldName: "GitHub"
-                        )
-                    }
+            }
+            if let github = profileInfo.profile?.github, !github.isEmpty {
+                LabeledContent("GitHub") {
+                    profileLinkView(text: github, url: KNSProfileLinkBuilder.githubURL(from: github), fieldName: "GitHub")
                 }
-                if let redirectUrl = profileInfo.profile?.redirectUrl {
-                    LabeledContent("Redirect") {
-                        profileLinkView(
-                            text: redirectUrl,
-                            url: KNSProfileLinkBuilder.websiteURL(from: redirectUrl),
-                            fieldName: "Redirect"
-                        )
-                    }
+            }
+            if let redirectUrl = profileInfo.profile?.redirectUrl, !redirectUrl.isEmpty {
+                LabeledContent("Redirect") {
+                    profileLinkView(text: redirectUrl, url: KNSProfileLinkBuilder.websiteURL(from: redirectUrl), fieldName: "Redirect")
                 }
             }
         }
+    }
+
+    // MARK: - QR buttons row (Accept Kaspa / Chatting Address)
+
+    private func qrButtonsSection(_ wallet: Wallet) -> some View {
+        HStack(spacing: 24) {
+            Spacer()
+            NavigationLink {
+                ChattingAddressQRView(
+                    address: walletManager.currentSpendingAddress() ?? wallet.publicAddress,
+                    balanceSompi: spendingAddressBalanceSompi,
+                    subtitle: "Share this address to receive Kaspa payments."
+                )
+            } label: {
+                VStack(spacing: 8) {
+                    qrCircleIcon
+                    Text("Accept Kaspa")
+                        .font(.subheadline)
+                        .foregroundColor(.primary)
+                }
+            }
+            .buttonStyle(.plain)
+            Spacer()
+            NavigationLink {
+                ChattingAddressQRView(address: wallet.publicAddress, balanceSompi: wallet.balanceSompi)
+            } label: {
+                VStack(spacing: 8) {
+                    qrCircleIcon
+                    Text("Chatting Address")
+                        .font(.subheadline)
+                        .foregroundColor(.primary)
+                }
+            }
+            .buttonStyle(.plain)
+            Spacer()
+        }
+    }
+
+    private var qrCircleIcon: some View {
+        Image(systemName: "qrcode")
+            .font(.system(size: 26, weight: .medium))
+            .foregroundColor(.black)
+            .frame(width: 80, height: 80)
+            .background(Circle().fill(Color.accentColor))
+    }
+
+    // MARK: - Address dropdown rows (Chatting Address / Spending Address)
+
+    private func addressDropdownsSection(_ wallet: Wallet) -> some View {
+        VStack(spacing: 12) {
+            chattingAddressDropdown(wallet)
+            spendingAddressRow()
+        }
+    }
+
+    private func spendingAddressRow() -> some View {
+        NavigationLink {
+            ManageAddressesView()
+        } label: {
+            HStack {
+                Text("Spending Address")
+                    .font(.body)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                Spacer()
+                if isLoadingSpendingBalance {
+                    ProgressView().scaleEffect(0.75)
+                } else {
+                    Text(spendingAddressBalanceSompi.map { "\(formatKaspaExact($0)) KAS" } ?? "—")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.accentColor)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(glassBackground(cornerRadius: 18))
+    }
+
+    private func loadSpendingAddressBalance() async {
+        guard let address = walletManager.currentSpendingAddress() else { return }
+        isLoadingSpendingBalance = true
+        let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
+        spendingAddressBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+        isLoadingSpendingBalance = false
+    }
+
+    private func chattingAddressDropdown(_ wallet: Wallet) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                Haptics.impact(.light)
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showChattingAddressOptions.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("Chatting Address")
+                        .font(.body)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Text(wallet.balanceSompi.map { "\(formatKaspaExact($0)) KAS" } ?? "—")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.accentColor)
+                    Image(systemName: showChattingAddressOptions ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                        .foregroundColor(.accentColor)
+                }
+                .padding(16)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if showChattingAddressOptions {
+                Divider()
+                    .padding(.leading, 16)
+                Button {
+                    showWithdrawSheet = true
+                } label: {
+                    HStack {
+                        Text("Withdraw Kaspa")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Divider()
+                    .padding(.leading, 16)
+                NavigationLink {
+                    ChattingAddressTransactionHistoryView(address: wallet.publicAddress)
+                } label: {
+                    HStack {
+                        Text("Transaction History")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(glassBackground(cornerRadius: 18))
+    }
+
+    private func glassBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.regularMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
     }
 
     private func shouldShowGiftSection(_ wallet: Wallet) -> Bool {
@@ -612,7 +661,7 @@ struct ProfileView: View {
     private var giftSection: some View {
         switch giftService.claimState {
         case .checking:
-            Section("Gift") {
+            giftCard {
                 HStack {
                     ProgressView()
                         .controlSize(.small)
@@ -621,7 +670,7 @@ struct ProfileView: View {
                 }
             }
         case .eligible:
-            Section("Gift") {
+            giftCard {
                 Button {
                     guard let address = walletManager.currentWallet?.publicAddress else { return }
                     Task { await giftService.claimGift(walletAddress: address) }
@@ -630,7 +679,7 @@ struct ProfileView: View {
                 }
             }
         case .claiming:
-            Section("Gift") {
+            giftCard {
                 HStack {
                     ProgressView()
                         .controlSize(.small)
@@ -639,12 +688,12 @@ struct ProfileView: View {
                 }
             }
         case .claimed:
-            Section("Gift") {
+            giftCard {
                 Label("Gift claimed", systemImage: "checkmark.circle.fill")
                     .foregroundColor(.green)
             }
         case .alreadyClaimed:
-            Section("Gift") {
+            giftCard {
                 Label("Gift already claimed", systemImage: "checkmark.seal.fill")
                     .foregroundColor(.secondary)
                     .contentShape(Rectangle())
@@ -662,19 +711,12 @@ struct ProfileView: View {
         }
     }
 
-    private var accountActionsSection: some View {
-        Section("Actions") {
-            Button {
-                showSeedPhrase = true
-            } label: {
-                Label("View Seed Phrase", systemImage: "key")
-            }
-
-            Button(role: .destructive) {
-                showLogoutConfirmation = true
-            } label: {
-                Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
-            }
+    private func giftCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Gift")
+            content()
+                .padding(16)
+                .background(glassBackground(cornerRadius: 18))
         }
     }
 
@@ -740,13 +782,16 @@ struct ProfileView: View {
     }
 
     private func accountInfoSection(_ wallet: Wallet) -> some View {
-        Section("Info") {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader("Info")
             HStack {
                 Text("Created")
                 Spacer()
                 Text(formatDate(wallet.createdAt))
                     .foregroundColor(.secondary)
             }
+            .padding(16)
+            .background(glassBackground(cornerRadius: 18))
         }
     }
 
@@ -1348,6 +1393,12 @@ private struct KNSProfileEditorSubmission {
 private struct KNSProfileEditorSheet: View {
     let profileInfo: KNSAddressProfileInfo
     let onSave: (KNSProfileEditorSubmission) -> Void
+    let domains: [KNSDomain]
+    let primaryDomain: String?
+    let settingPrimaryDomainId: String?
+    let onSetPrimary: (KNSDomain) -> Void
+    let onInscribeComplete: (KNSDomainInscribeResult) -> Void
+    let onTransferComplete: (KNSDomainTransferResult) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -1377,9 +1428,21 @@ private struct KNSProfileEditorSheet: View {
 
     init(
         profileInfo: KNSAddressProfileInfo,
+        domains: [KNSDomain],
+        primaryDomain: String?,
+        settingPrimaryDomainId: String?,
+        onSetPrimary: @escaping (KNSDomain) -> Void,
+        onInscribeComplete: @escaping (KNSDomainInscribeResult) -> Void,
+        onTransferComplete: @escaping (KNSDomainTransferResult) -> Void,
         onSave: @escaping (KNSProfileEditorSubmission) -> Void
     ) {
         self.profileInfo = profileInfo
+        self.domains = domains
+        self.primaryDomain = primaryDomain
+        self.settingPrimaryDomainId = settingPrimaryDomainId
+        self.onSetPrimary = onSetPrimary
+        self.onInscribeComplete = onInscribeComplete
+        self.onTransferComplete = onTransferComplete
         self.onSave = onSave
 
         let profile = profileInfo.profile ?? .empty
@@ -1423,6 +1486,27 @@ private struct KNSProfileEditorSheet: View {
                                 .font(.system(.caption, design: .monospaced))
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
+                        }
+                    }
+                }
+
+                Section {
+                    NavigationLink {
+                        KNSDomainsListView(
+                            walletAddress: profileInfo.address,
+                            domains: domains,
+                            primaryDomain: primaryDomain,
+                            settingPrimaryDomainId: settingPrimaryDomainId,
+                            onSetPrimary: onSetPrimary,
+                            onInscribeComplete: onInscribeComplete,
+                            onTransferComplete: onTransferComplete
+                        )
+                    } label: {
+                        HStack {
+                            Text("Domains")
+                            Spacer()
+                            Text("\(domains.count)")
+                                .foregroundColor(.secondary)
                         }
                     }
                 }
@@ -1700,6 +1784,151 @@ private struct KNSProfileEditorSheet: View {
         }
 
         return (previewImage, outputData as Data, "image/png")
+    }
+}
+
+private struct KNSDomainsListView: View {
+    let walletAddress: String
+    let domains: [KNSDomain]
+    let primaryDomain: String?
+    let settingPrimaryDomainId: String?
+    let onSetPrimary: (KNSDomain) -> Void
+    let onInscribeComplete: (KNSDomainInscribeResult) -> Void
+    let onTransferComplete: (KNSDomainTransferResult) -> Void
+
+    @State private var showInscribeSheet = false
+    @State private var transferTarget: TransferTarget?
+
+    private struct TransferTarget: Identifiable {
+        let id = UUID()
+        let domain: KNSDomain
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                if domains.isEmpty {
+                    Text("No domains yet.")
+                        .foregroundColor(.secondary)
+                        .padding(16)
+                } else {
+                    ForEach(Array(domains.enumerated()), id: \.element.inscriptionId) { index, domain in
+                        domainRow(domain)
+                        if index < domains.count - 1 {
+                            Divider()
+                                .padding(.leading, 16)
+                        }
+                    }
+                }
+            }
+            .background(glassBackground(cornerRadius: 18))
+            .padding()
+        }
+        .safeAreaInset(edge: .bottom) {
+            Button {
+                showInscribeSheet = true
+            } label: {
+                Text("Inscribe New Domain")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(Capsule().fill(Color.accentColor))
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 16)
+        }
+        .navigationTitle("Domains")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showInscribeSheet) {
+            KNSDomainInscribeSheet(walletAddress: walletAddress) { result in
+                showInscribeSheet = false
+                onInscribeComplete(result)
+            }
+        }
+        .sheet(item: $transferTarget) { target in
+            KNSDomainTransferSheet(walletAddress: walletAddress, domain: target.domain) { result in
+                transferTarget = nil
+                onTransferComplete(result)
+            }
+        }
+    }
+
+    private func domainRow(_ domain: KNSDomain) -> some View {
+        HStack(spacing: 10) {
+            Text(domain.fullName)
+                .font(.body)
+                .foregroundColor(.primary)
+            Spacer()
+            if isPrimaryDomain(domain.fullName) {
+                Text("Primary")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.accentColor))
+            } else if isSetPrimaryAllowed(domain) {
+                Button {
+                    onSetPrimary(domain)
+                } label: {
+                    if settingPrimaryDomainId == domain.inscriptionId {
+                        ProgressView()
+                            .scaleEffect(0.75)
+                    } else {
+                        Image(systemName: "star")
+                            .foregroundColor(.accentColor)
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(settingPrimaryDomainId != nil)
+                .accessibilityLabel("Set \(domain.fullName) as primary")
+            }
+
+            if isDomainTransferAllowed(domain) {
+                Button {
+                    transferTarget = TransferTarget(domain: domain)
+                } label: {
+                    Image(systemName: "arrowshape.turn.up.right")
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Transfer \(domain.fullName)")
+            } else if domain.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "listed" {
+                Text("Listed")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(16)
+    }
+
+    private func isPrimaryDomain(_ domainName: String) -> Bool {
+        let normalizedDomain = domainName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedPrimary = (primaryDomain ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalizedDomain == normalizedPrimary
+    }
+
+    private func isSetPrimaryAllowed(_ domain: KNSDomain) -> Bool {
+        let hasAssetId = !domain.inscriptionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return hasAssetId && !isPrimaryDomain(domain.fullName)
+    }
+
+    private func isDomainTransferAllowed(_ domain: KNSDomain) -> Bool {
+        let status = domain.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasAssetId = !domain.inscriptionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return hasAssetId && status != "listed"
+    }
+
+    private func glassBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.regularMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
     }
 }
 
@@ -2080,6 +2309,714 @@ private struct KNSDomainTransferSheet: View {
                 }
             }
         }
+    }
+}
+
+/// Transaction history for the chatting (identity) address, reached from its dropdown in
+/// Profile. Same pattern as ManageAddressesView's SpendingAddressTransactionHistoryView: tapping
+/// a transaction opens it directly on whichever block explorer is selected in Settings >
+/// Connection > Kaspa Explorer, rather than showing an in-app detail screen.
+private struct ChattingAddressTransactionHistoryView: View {
+    let address: String
+
+    @EnvironmentObject var chatService: ChatService
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+
+    @State private var transactions: [KaspaFullTransactionResponse] = []
+    @State private var isLoading = false
+
+    var body: some View {
+        List {
+            if isLoading && transactions.isEmpty {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+            } else if transactions.isEmpty {
+                Text("No transactions yet.")
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(transactions, id: \.transactionId) { tx in
+                    Button {
+                        openInExplorer(tx)
+                    } label: {
+                        transactionRow(tx)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Chatting Address")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            await loadTransactions()
+        }
+        .refreshable {
+            await loadTransactions()
+        }
+    }
+
+    private func transactionRow(_ tx: KaspaFullTransactionResponse) -> some View {
+        let info = tx.direction(for: address)
+        return HStack(spacing: 12) {
+            Image(systemName: info?.isOutgoing == true ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
+                .font(.title2)
+                .foregroundColor(info == nil ? .secondary : (info!.isOutgoing ? .red : .green))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(info == nil ? "Transaction" : (info!.isOutgoing ? "Sent" : "Received"))
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(info == nil ? .secondary : (info!.isOutgoing ? .red : .green))
+                Text(tx.transactionId)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let blockTime = tx.blockTime {
+                    Text(Date(timeIntervalSince1970: Double(blockTime) / 1000).formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                if let info {
+                    Text("\(info.isOutgoing ? "-" : "+")\(formatKasExact(info.amountSompi)) KAS")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(info.isOutgoing ? .red : .green)
+                }
+                Image(systemName: "arrow.up.right.square")
+                    .font(.caption)
+                    .foregroundColor(.accentColor)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func formatKasExact(_ sompi: UInt64) -> String {
+        String(format: "%.8f", Double(sompi) / 100_000_000.0)
+    }
+
+    private func loadTransactions() async {
+        isLoading = true
+        transactions = await chatService.fetchFullTransactionsPaginated(for: address, pageSize: 50, maxTransactions: 200)
+        isLoading = false
+    }
+
+    private func openInExplorer(_ tx: KaspaFullTransactionResponse) {
+        guard let url = settingsViewModel.settings.kaspaExplorer.txURL(for: tx.transactionId) else { return }
+        UIApplication.shared.open(url)
+    }
+}
+
+/// Dedicated white-background QR display, matching Android's "Accept Kaspa"/"Chatting Address"
+/// QR screen — deliberately uses literal black/white colors rather than adaptive .primary/
+/// .secondary, since forcing a white content area regardless of system dark/light mode would
+/// otherwise leave semantic text colors resolved for dark mode (and invisible on the white
+/// background) unless the whole screen's color scheme were overridden too.
+private struct ChattingAddressQRView: View {
+    let address: String
+    let balanceSompi: UInt64?
+    var subtitle: String = "Just send 5-10 KAS at a time, that's plenty to cover chat fees for a while (about 500 messages per KAS)"
+
+    @State private var qrImage: UIImage?
+    @State private var toastMessage: String?
+    @State private var toastToken = UUID()
+
+    var body: some View {
+        Color.white
+            .ignoresSafeArea()
+            .overlay(
+                VStack(spacing: 28) {
+                    Spacer()
+                    Group {
+                        if let qrImage {
+                            Image(uiImage: qrImage)
+                                .interpolation(.none)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 240, height: 240)
+                        } else {
+                            ProgressView()
+                                .frame(width: 240, height: 240)
+                        }
+                    }
+                    .padding(20)
+                    .background(Color.white)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(Color.accentColor, lineWidth: 3)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundColor(Color.black.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+
+                    Button {
+                        UIPasteboard.general.string = address
+                        Haptics.success()
+                        showToast("Address copied to clipboard.")
+                    } label: {
+                        Label("Copy Address", systemImage: "doc.on.doc")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.accentColor)
+                    }
+
+                    Spacer()
+                    Spacer()
+                }
+            )
+            .toast(message: toastMessage)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(balanceSompi.map { "\(formatKaspaExact($0)) KAS" } ?? "—")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .monospacedDigit()
+                        .foregroundColor(.primary)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                qrImage = ProfileQRCodeCache.cachedImage(for: address)
+                ProfileQRCodeCache.preload(address: address) { image in
+                    qrImage = image
+                }
+            }
+    }
+
+    private func showToast(_ message: String) {
+        let token = UUID()
+        toastToken = token
+        withAnimation(.easeOut(duration: 0.2)) {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    toastMessage = nil
+                }
+            }
+        }
+    }
+
+    private func formatKaspaExact(_ sompi: UInt64) -> String {
+        let kas = Double(sompi) / 100_000_000.0
+        return String(format: "%.8f", kas)
+    }
+}
+
+/// Fee-priority tiers for the Withdraw Kaspa flow — each tier is a multiplier applied to the
+/// already-estimated base (Normal) fee, letting the user pay extra during network congestion
+/// without a second network round-trip per tier.
+enum WithdrawFeeTier: String, CaseIterable, Identifiable, Hashable {
+    case normal = "Normal"
+    case fast = "Fast"
+    case priority = "Priority"
+
+    var id: String { rawValue }
+
+    var multiplier: UInt64 {
+        switch self {
+        case .normal: return 1
+        case .fast: return 2
+        case .priority: return 5
+        }
+    }
+}
+
+/// Custom success card replacing a plain alert so the transaction id can be a real tappable
+/// link (native SwiftUI alerts can't embed interactive text in their message) - shared by every
+/// "you just sent Kaspa" flow (chatting-address withdraw, Manage Addresses' per-address send).
+struct WithdrawalSuccessCard: View {
+    let txId: String
+    let explorerURL: URL?
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 44))
+                .foregroundColor(.green)
+
+            Text("Sent")
+                .font(.headline)
+                .fontWeight(.bold)
+
+            if let explorerURL {
+                Link(destination: explorerURL) {
+                    Text(txId)
+                        .font(.system(.footnote, design: .monospaced))
+                        .foregroundColor(.accentColor)
+                        .underline()
+                        .multilineTextAlignment(.center)
+                }
+            } else {
+                Text(txId)
+                    .font(.system(.footnote, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button {
+                onDismiss()
+            } label: {
+                Text("OK")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.accentColor)
+        }
+        .padding(24)
+        .frame(maxWidth: 300)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.regularMaterial)
+        )
+        .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 10)
+    }
+}
+
+/// Sends a plain KAS transfer from the wallet's chatting (identity) address to an arbitrary
+/// recipient address. Reuses AddContactView's address-entry conventions (paste/QR scan,
+/// live validation) but with an amount field instead of a contact-name field, since this
+/// isn't creating a contact.
+private struct WithdrawKaspaView: View {
+    let fromAddress: String
+    let availableBalanceSompi: UInt64?
+
+    @EnvironmentObject var chatService: ChatService
+    @EnvironmentObject var contactsManager: ContactsManager
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var addressInput = ""
+    @State private var isValidAddress = false
+    @State private var amountInput = ""
+    @State private var showQRScanner = false
+    @State private var isSending = false
+    @State private var errorMessage: String?
+    @State private var successTxId: String?
+
+    @State private var isResolvingKNS = false
+    @State private var resolvedAddress: String?
+    @State private var resolvedDomain: String?
+    @State private var knsError: String?
+
+    @State private var feeTier: WithdrawFeeTier = .normal
+    @State private var normalFeeSompi: UInt64?
+    @State private var isEstimatingFee = false
+    @State private var isEstimatingMax = false
+    @State private var customExtraFeeSompi: UInt64?
+    @State private var isEditingFee = false
+    @State private var customFeeText = ""
+
+    private let knsService = KNSService.shared
+
+    /// The actual address to use (resolved from a KNS domain, or the direct input).
+    private var effectiveAddress: String {
+        resolvedAddress ?? addressInput
+    }
+
+    private var amountSompi: UInt64? {
+        guard let kas = Double(amountInput), kas > 0 else { return nil }
+        return UInt64((kas * 100_000_000).rounded())
+    }
+
+    /// True once we have a usable recipient — either a resolved KNS domain or a directly
+    /// valid Kaspa address (mirrors AddContactView.canAdd's precedence).
+    private var hasValidRecipient: Bool {
+        if resolvedAddress != nil { return true }
+        return isValidAddress && !isResolvingKNS
+    }
+
+    private var canSend: Bool {
+        hasValidRecipient && amountSompi != nil && !isSending
+    }
+
+    /// Extra priority tip on top of the base (Normal-tier) fee, for network congestion.
+    /// A manually-entered custom fee (tapped on the Network Fee row) overrides the tier
+    /// multiplier until a tier is tapped again.
+    private var extraFeeSompi: UInt64 {
+        guard let normalFeeSompi else { return 0 }
+        if let customExtraFeeSompi { return customExtraFeeSompi }
+        return normalFeeSompi * (feeTier.multiplier - 1)
+    }
+
+    private var totalFeeSompi: UInt64? {
+        guard let normalFeeSompi else { return nil }
+        return normalFeeSompi + extraFeeSompi
+    }
+
+    /// Debounce/cancellation key: only re-estimate when the resolved address or amount
+    /// actually changes, not on every fee-tier tap (the tier is applied client-side as a
+    /// multiplier of the already-fetched base fee, no extra network round-trip needed).
+    private var feeEstimationKey: String {
+        "\(hasValidRecipient ? effectiveAddress : "")|\(amountSompi ?? 0)"
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("kaspa:qr... or name.kas", text: $addressInput)
+                        .font(.system(.body, design: .monospaced))
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .onChange(of: addressInput) { handleInputChange($0) }
+
+                    if !addressInput.isEmpty {
+                        if isResolvingKNS {
+                            HStack {
+                                ProgressView().scaleEffect(0.8)
+                                Text("Resolving KNS domain...")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        } else if let knsError {
+                            HStack {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.red)
+                                Text(knsError)
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                        } else if let resolvedAddress {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.green)
+                                    Text("Resolved: \(resolvedDomain ?? "")")
+                                        .font(.caption)
+                                        .foregroundColor(.green)
+                                }
+                                Text(resolvedAddress)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                        } else {
+                            HStack {
+                                Image(systemName: isValidAddress ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .foregroundColor(isValidAddress ? .green : .red)
+                                Text(isValidAddress ? "Valid address" : "Invalid address format")
+                                    .font(.caption)
+                                    .foregroundColor(isValidAddress ? .green : .red)
+                            }
+                        }
+                    }
+
+                    HStack {
+                        Button {
+                            if let pasted = UIPasteboard.general.string {
+                                addressInput = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                                handleInputChange(addressInput)
+                            }
+                        } label: {
+                            Label("Paste", systemImage: "doc.on.clipboard")
+                        }
+                        Spacer()
+                        Button {
+                            showQRScanner = true
+                        } label: {
+                            Label("Scan QR", systemImage: "qrcode.viewfinder")
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                } header: {
+                    Text("Recipient Address")
+                } footer: {
+                    Text("Enter a Kaspa address (kaspa:...)")
+                }
+
+                Section {
+                    HStack {
+                        TextField("0.00", text: $amountInput)
+                            .keyboardType(.decimalPad)
+                        if isEstimatingMax {
+                            ProgressView().scaleEffect(0.75)
+                        } else {
+                            Button("Max") {
+                                setMaxAmount()
+                            }
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .buttonStyle(.borderless)
+                            .disabled(!hasValidRecipient)
+                        }
+                        Text("KAS")
+                            .foregroundColor(.secondary)
+                    }
+                } header: {
+                    Text("Amount")
+                } footer: {
+                    if let availableBalanceSompi {
+                        Text("Available: \(trimmedKas(availableBalanceSompi)) KAS")
+                    }
+                }
+
+                Section {
+                    Picker("Fee", selection: $feeTier) {
+                        ForEach(WithdrawFeeTier.allCases) { tier in
+                            Text(tier.rawValue).tag(tier)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: feeTier) { _ in
+                        customExtraFeeSompi = nil
+                        isEditingFee = false
+                    }
+
+                    HStack {
+                        Text("Network Fee")
+                        Spacer()
+                        if isEditingFee {
+                            TextField("0.00", text: $customFeeText)
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(maxWidth: 100)
+                                .onSubmit { commitCustomFee() }
+                            Button {
+                                commitCustomFee()
+                            } label: {
+                                Image(systemName: "checkmark.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                        } else if isEstimatingFee {
+                            ProgressView().scaleEffect(0.75)
+                        } else if let totalFeeSompi {
+                            Button {
+                                startEditingFee()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("\(trimmedKas(totalFeeSompi)) KAS")
+                                        .underline()
+                                    Image(systemName: "pencil")
+                                        .font(.caption2)
+                                }
+                                .foregroundColor(.accentColor)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            Text("—")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Fee")
+                } footer: {
+                    Text("If the network is busy, Fast or Priority pays a higher fee to help your withdrawal confirm sooner. Tap the fee amount to set a custom fee.")
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .font(.caption)
+                    }
+                }
+            }
+            .navigationTitle("Withdraw Kaspa")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if isSending {
+                        ProgressView()
+                    } else {
+                        Button("Send") {
+                            send()
+                        }
+                        .disabled(!canSend)
+                    }
+                }
+            }
+            .sheet(isPresented: $showQRScanner) {
+                QRScannerView { code in
+                    handleScannedQRCode(code)
+                }
+            }
+            .overlay {
+                if let successTxId {
+                    ZStack {
+                        Color.black.opacity(0.45)
+                            .ignoresSafeArea()
+                            .onTapGesture { dismiss() }
+                        WithdrawalSuccessCard(
+                            txId: successTxId,
+                            explorerURL: settingsViewModel.settings.kaspaExplorer.txURL(for: successTxId)
+                        ) {
+                            dismiss()
+                        }
+                    }
+                    .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: successTxId)
+            .task(id: feeEstimationKey) {
+                guard hasValidRecipient, let amountSompi else {
+                    normalFeeSompi = nil
+                    return
+                }
+                isEstimatingFee = true
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                guard !Task.isCancelled else { return }
+                do {
+                    let fee = try await chatService.estimateWithdrawalFee(toAddress: effectiveAddress, amountSompi: amountSompi)
+                    guard !Task.isCancelled else { return }
+                    normalFeeSompi = fee
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    normalFeeSompi = nil
+                }
+                isEstimatingFee = false
+            }
+        }
+    }
+
+    private func handleInputChange(_ input: String) {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        resolvedAddress = nil
+        resolvedDomain = nil
+        knsError = nil
+        isResolvingKNS = false
+
+        guard !trimmed.isEmpty else {
+            isValidAddress = false
+            return
+        }
+
+        if trimmed.hasPrefix("kaspa:") || trimmed.hasPrefix("kaspatest:") {
+            isValidAddress = contactsManager.isValidKaspaAddress(trimmed)
+            return
+        }
+
+        if KNSService.looksLikeDomain(trimmed) {
+            isValidAddress = false
+            resolveKNSDomain(trimmed)
+        } else {
+            isValidAddress = false
+        }
+    }
+
+    private func resolveKNSDomain(_ domain: String) {
+        isResolvingKNS = true
+
+        Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+
+            guard addressInput.trimmingCharacters(in: .whitespacesAndNewlines) == domain ||
+                  addressInput.trimmingCharacters(in: .whitespacesAndNewlines) + ".kas" == domain + ".kas" else {
+                return
+            }
+
+            if let resolution = await knsService.resolveDomain(domain) {
+                await MainActor.run {
+                    resolvedAddress = resolution.ownerAddress
+                    resolvedDomain = resolution.domain
+                    knsError = nil
+                    isResolvingKNS = false
+                }
+            } else {
+                await MainActor.run {
+                    resolvedAddress = nil
+                    resolvedDomain = nil
+                    knsError = "KNS domain not found"
+                    isResolvingKNS = false
+                }
+            }
+        }
+    }
+
+    private func handleScannedQRCode(_ code: String) {
+        var address = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        if address.lowercased().hasPrefix("kaspa:") || address.lowercased().hasPrefix("kaspatest:") {
+            if let queryIndex = address.firstIndex(of: "?") {
+                address = String(address[..<queryIndex])
+            }
+        }
+        addressInput = address
+        handleInputChange(address)
+    }
+
+    private func setMaxAmount() {
+        guard hasValidRecipient else { return }
+        isEstimatingMax = true
+        errorMessage = nil
+        let recipient = effectiveAddress
+        let tipSompi = extraFeeSompi
+        Task {
+            do {
+                let maxSompi = try await chatService.estimateMaxWithdrawalAmount(toAddress: recipient, extraFeeSompi: tipSompi)
+                await MainActor.run {
+                    amountInput = trimmedKas(maxSompi)
+                    isEstimatingMax = false
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    isEstimatingMax = false
+                }
+            }
+        }
+    }
+
+    private func startEditingFee() {
+        guard let totalFeeSompi else { return }
+        customFeeText = trimmedKas(totalFeeSompi)
+        isEditingFee = true
+    }
+
+    /// Commits the manually-typed total fee. Values below the network-computed minimum are
+    /// clamped up to that minimum rather than rejected outright — a transaction can't
+    /// actually be submitted under the minimum, so silently flooring it is friendlier than
+    /// an error for a value the user almost certainly meant as "as low as possible."
+    private func commitCustomFee() {
+        defer { isEditingFee = false }
+        guard let normalFeeSompi, let kas = Double(customFeeText), kas >= 0 else { return }
+        let totalSompi = UInt64((kas * 100_000_000).rounded())
+        customExtraFeeSompi = totalSompi > normalFeeSompi ? totalSompi - normalFeeSompi : 0
+    }
+
+    private func send() {
+        guard let amountSompi else { return }
+        isSending = true
+        errorMessage = nil
+        let recipient = effectiveAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tipSompi = extraFeeSompi
+        Task {
+            do {
+                let txId = try await chatService.sendWithdrawal(toAddress: recipient, amountSompi: amountSompi, extraFeeSompi: tipSompi)
+                await MainActor.run {
+                    isSending = false
+                    successTxId = txId
+                }
+            } catch {
+                await MainActor.run {
+                    isSending = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func trimmedKas(_ sompi: UInt64) -> String {
+        var text = String(format: "%.8f", Double(sompi) / 100_000_000.0)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text
     }
 }
 

@@ -269,15 +269,16 @@ final class ContactsManager: ObservableObject {
 
         if let scopedData = userDefaults.data(forKey: contactsKey),
            let decodedContacts = try? JSONDecoder().decode([Contact].self, from: scopedData) {
-            contacts = sortContacts(decodedContacts)
+            contacts = sortContacts(migrateLegacyDefaultAliases(decodedContacts, contactsKey: contactsKey))
             return
         }
 
         // One-time migration from legacy single-account key to active wallet-scoped key.
         if let legacyData = userDefaults.data(forKey: legacyContactsKey),
            let decodedLegacy = try? JSONDecoder().decode([Contact].self, from: legacyData) {
-            contacts = sortContacts(decodedLegacy)
-            if let migratedData = try? JSONEncoder().encode(decodedLegacy) {
+            let migrated = migrateLegacyDefaultAliases(decodedLegacy, contactsKey: nil)
+            contacts = sortContacts(migrated)
+            if let migratedData = try? JSONEncoder().encode(migrated) {
                 userDefaults.set(migratedData, forKey: contactsKey)
                 userDefaults.removeObject(forKey: legacyContactsKey)
             }
@@ -285,6 +286,28 @@ final class ContactsManager: ObservableObject {
         }
 
         contacts = []
+    }
+
+    /// One-time upgrade for contacts created before the default-alias format changed from a raw
+    /// last-8-characters fallback (e.g. "a1b2c3d4") to Android's "kaspa:xxxx....xxxx" style —
+    /// only touches aliases that still exactly match the OLD auto-generated value, leaving
+    /// anything the user typed or a resolved KNS domain set alone. Persists the rewrite back to
+    /// `contactsKey` (when given) so this only actually runs once per device.
+    private func migrateLegacyDefaultAliases(_ input: [Contact], contactsKey: String?) -> [Contact] {
+        var didMigrate = false
+        let migrated = input.map { contact -> Contact in
+            guard contact.address.count > 8, contact.alias == String(contact.address.suffix(8)) else {
+                return contact
+            }
+            var updated = contact
+            updated.alias = Contact.generateDefaultAlias(from: contact.address)
+            didMigrate = true
+            return updated
+        }
+        if didMigrate, let contactsKey, let data = try? JSONEncoder().encode(migrated) {
+            userDefaults.set(data, forKey: contactsKey)
+        }
+        return migrated
     }
 
     func addContact(address: String, alias: String = "", isAutoAdded: Bool = false) throws -> Contact {

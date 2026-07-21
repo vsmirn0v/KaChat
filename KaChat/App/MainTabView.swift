@@ -8,26 +8,17 @@ struct MainTabView: View {
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var giftService: GiftService
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
 
     var body: some View {
         TabView(selection: tabSelection) {
-            SettingsView()
-                .tabItem {
-                    Label("Settings", systemImage: "gear")
-                }
-                .tag(0)
-
-            ChatListView()
-                .tabItem {
-                    Label("Chats", systemImage: "bubble.left.and.bubble.right")
-                }
-                .tag(1)
-
-            ProfileView()
-                .tabItem {
-                    Label("Profile", systemImage: "person.crop.circle")
-                }
-                .tag(2)
+            ForEach(AppTab.visible(from: settingsViewModel.settings)) { tab in
+                tabContent(for: tab)
+                    .tabItem {
+                        Label(tab.label, systemImage: tab.icon)
+                    }
+                    .tag(tab.tag)
+            }
         }
         .tint(.accentColor)
         .onAppear {
@@ -83,6 +74,24 @@ struct MainTabView: View {
             }
         } message: { warning in
             Text("\(warning.contactAlias) has produced \(warning.txCount) transactions in the last minute that are not relevant to you. This consumes battery and network resources.\n\nDisable real-time updates for this contact? Messages will still be fetched periodically.")
+        }
+    }
+
+    @ViewBuilder
+    private func tabContent(for tab: AppTab) -> some View {
+        switch tab {
+        case .portfolio:
+            PortfolioView()
+        case .coldStorage:
+            NavigationStack {
+                ColdStorageListView()
+            }
+        case .chats:
+            ChatListView()
+        case .swap:
+            SwapView()
+        case .profile:
+            ProfileView()
         }
     }
 

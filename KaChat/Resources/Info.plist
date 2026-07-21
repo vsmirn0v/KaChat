@@ -4,6 +4,8 @@
 <dict>
 	<key>AppIdentifierPrefix</key>
 	<string>$(AppIdentifierPrefix)</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID is used to unlock your seed phrase and sign back in, when enabled in Settings.</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.kachat.app.messageFetch</string>

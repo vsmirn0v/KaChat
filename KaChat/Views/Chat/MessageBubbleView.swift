@@ -10,6 +10,7 @@ import YbridOpus
 private let kaspaBubbleColor = Color(red: 112.0 / 255.0, green: 199.0 / 255.0, blue: 186.0 / 255.0)
 
 struct MessageBubbleView: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
     let message: ChatMessage
     let onCopy: ((String, ToastStyle) -> Void)?
     let onRetry: ((ChatMessage) -> Void)?
@@ -301,10 +302,10 @@ struct MessageBubbleView: View {
                     Label("Copy Message", systemImage: "doc.on.doc")
                 }
 
-                Button {
-                    handleCopy(message.txId, toast: "Transaction ID copied.")
-                } label: {
-                    Label("Copy Transaction ID", systemImage: "number")
+                if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
+                    Link(destination: url) {
+                        Label("View in Explorer", systemImage: "safari")
+                    }
                 }
 
                 if let onReply {
@@ -323,6 +324,7 @@ struct MessageBubbleView: View {
                     }
                 }
             }
+            .tint(.accentColor)
     }
 
     private func replyQuoteView(_ reply: MessageReplyContent) -> some View {
@@ -853,6 +855,7 @@ private enum PhotoRevealStore {
 }
 
 private struct LazyImageBubble: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
     private static let thumbnailDisplaySize = CGSize(width: 220, height: 160)
 
     let media: MediaFile
@@ -979,10 +982,10 @@ private struct LazyImageBubble: View {
                 Label("Copy File Name", systemImage: "doc.on.doc")
             }
 
-            Button {
-                handleCopy(txId, toast: "Transaction ID copied.")
-            } label: {
-                Label("Copy Transaction ID", systemImage: "number")
+            if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
+                Link(destination: url) {
+                    Label("View in Explorer", systemImage: "safari")
+                }
             }
 
             if let onReply {
@@ -1001,6 +1004,7 @@ private struct LazyImageBubble: View {
                 }
             }
         }
+        .tint(.accentColor)
         .task(id: txId) {
             guard thumbnailState?.txId != txId else { return }
             guard let loadedThumbnail = await media.thumbnailImage(cacheKey: txId),
@@ -1510,6 +1514,7 @@ private struct LazyAudioBubble: View {
 }
 
 private struct AudioBubble: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
     @ObservedObject var helper: AudioPlaybackHelper
     let data: Data
     let mimeType: String
@@ -1561,12 +1566,10 @@ private struct AudioBubble: View {
                 Label("Save Audio", systemImage: "square.and.arrow.down")
             }
 
-            Button {
-                UIPasteboard.general.string = txId
-                Haptics.success()
-                onCopy?("Transaction ID copied.", .success)
-            } label: {
-                Label("Copy Transaction ID", systemImage: "number")
+            if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
+                Link(destination: url) {
+                    Label("View in Explorer", systemImage: "safari")
+                }
             }
 
             if let onReply {
@@ -1585,6 +1588,7 @@ private struct AudioBubble: View {
                 }
             }
         }
+        .tint(.accentColor)
         .sheet(isPresented: $showShareSheet) {
             AudioShareSheet(data: data, fileName: fileName, mimeType: mimeType)
         }

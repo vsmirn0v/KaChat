@@ -1,0 +1,363 @@
+import Foundation
+import CoreData
+import CryptoKit
+
+/// Local-only, per-wallet store for group chat metadata and messages.
+/// Like `BroadcastStore`, this is intentionally NOT synced via CloudKit - group secrets
+/// (GroupBag) live in Keychain only, and message content here is stored as raw gcomm
+/// ciphertext (not plaintext), decrypted on read using the Keychain-held keys. Compromising
+/// this database alone does not reveal message content, matching MessageStore's posture for
+/// 1:1 messages.
+final class GroupStore {
+    static let shared = GroupStore()
+
+    private let container: NSPersistentContainer
+    private(set) var currentWalletAddress: String?
+    private var isLoaded = false
+
+    private init() {
+        container = NSPersistentContainer(name: "KaChatGroups", managedObjectModel: Self.makeModel())
+        container.persistentStoreDescriptions = []
+    }
+
+    private func storeURL(forWallet walletAddress: String) -> URL {
+        let hash = SHA256.hash(data: walletAddress.data(using: .utf8) ?? Data())
+        let hashPrefix = hash.prefix(8).map { String(format: "%02x", $0) }.joined()
+        return NSPersistentContainer.defaultDirectoryURL()
+            .appendingPathComponent("KaChatGroups-\(hashPrefix).sqlite")
+    }
+
+    func setCurrentWallet(_ walletAddress: String?) {
+        guard walletAddress != currentWalletAddress else { return }
+
+        let coordinator = container.persistentStoreCoordinator
+        for store in coordinator.persistentStores {
+            try? coordinator.remove(store)
+        }
+
+        currentWalletAddress = walletAddress
+        isLoaded = false
+
+        guard let walletAddress else { return }
+
+        let description = NSPersistentStoreDescription(url: storeURL(forWallet: walletAddress))
+        description.shouldMigrateStoreAutomatically = true
+        description.shouldInferMappingModelAutomatically = true
+        container.persistentStoreDescriptions = [description]
+        container.loadPersistentStores { [weak self] _, error in
+            guard let self else { return }
+            if let error {
+                AppLog.log("[GroupStore] Failed to load store: %@", error.localizedDescription)
+                return
+            }
+            self.isLoaded = true
+            self.container.viewContext.automaticallyMergesChangesFromParent = true
+            self.container.viewContext.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+        }
+    }
+
+    private var viewContext: NSManagedObjectContext { container.viewContext }
+
+    // MARK: - Groups
+
+    @discardableResult
+    func upsertGroup(_ group: GroupChat) -> Bool {
+        guard isLoaded else { return false }
+        let context = viewContext
+        var ok = false
+        context.performAndWait {
+            let row = fetchGroup(id: group.id, in: context) ?? CDGroup(context: context)
+            row.groupId = group.id
+            row.name = group.name
+            row.adminAddress = group.adminAddress
+            row.adminXOnlyPubKeyHex = group.adminXOnlyPubKeyHex
+            row.currentEpoch = Int64(group.currentEpoch)
+            row.createdAt = group.createdAt
+            row.isAdmin = group.isAdmin
+            row.membersJSON = (try? JSONEncoder().encode(group.members)) ?? Data()
+            save(context)
+            ok = true
+        }
+        return ok
+    }
+
+    func deleteGroup(id: String) {
+        let context = viewContext
+        context.performAndWait {
+            guard let row = fetchGroup(id: id, in: context) else { return }
+            context.delete(row)
+            let messageRequest = NSFetchRequest<NSFetchRequestResult>(entityName: CDGroupMessage.entityName)
+            messageRequest.predicate = NSPredicate(format: "groupId == %@", id)
+            let deleteRequest = NSBatchDeleteRequest(fetchRequest: messageRequest)
+            _ = try? context.execute(deleteRequest)
+            save(context)
+        }
+    }
+
+    func group(id: String) -> GroupChat? {
+        guard isLoaded else { return nil }
+        var result: GroupChat?
+        let context = viewContext
+        context.performAndWait {
+            guard let row = fetchGroup(id: id, in: context) else { return }
+            result = Self.makeGroup(from: row)
+        }
+        return result
+    }
+
+    func allGroups() -> [GroupChat] {
+        guard isLoaded else { return [] }
+        var result: [GroupChat] = []
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDGroup>(entityName: CDGroup.entityName)
+            request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
+            let rows = (try? context.fetch(request)) ?? []
+            result = rows.map(Self.makeGroup)
+        }
+        return result
+    }
+
+    private func fetchGroup(id: String, in context: NSManagedObjectContext) -> CDGroup? {
+        let request = NSFetchRequest<CDGroup>(entityName: CDGroup.entityName)
+        request.predicate = NSPredicate(format: "groupId == %@", id)
+        request.fetchLimit = 1
+        return (try? context.fetch(request))?.first
+    }
+
+    private static func makeGroup(from row: CDGroup) -> GroupChat {
+        let members = (try? JSONDecoder().decode([GroupMember].self, from: row.membersJSON ?? Data())) ?? []
+        return GroupChat(
+            id: row.groupId,
+            name: row.name,
+            adminAddress: row.adminAddress,
+            adminXOnlyPubKeyHex: row.adminXOnlyPubKeyHex,
+            members: members,
+            currentEpoch: UInt64(row.currentEpoch),
+            createdAt: row.createdAt ?? Date(),
+            isAdmin: row.isAdmin
+        )
+    }
+
+    // MARK: - Messages
+    //
+    // `contentEncrypted` stores the raw gcomm ciphertext+tag (not plaintext) - matches
+    // MessageStore's CDMessage.contentEncrypted posture. Callers decrypt via GroupCipher using
+    // the epoch/senderId/msgId columns plus the Keychain-held GroupBag root key.
+
+    /// Insert a message if its txId isn't already present. Returns false if it was a duplicate.
+    @discardableResult
+    func insertMessage(
+        txId: String,
+        groupId: String,
+        senderAddress: String?,
+        senderIdHex: String,
+        epoch: UInt64,
+        msgIdHex: String,
+        contentEncrypted: Data,
+        blockTime: Int64,
+        isOutgoing: Bool,
+        deliveryStatus: ChatMessage.DeliveryStatus
+    ) -> Bool {
+        guard isLoaded else { return false }
+        let context = viewContext
+        var inserted = false
+        context.performAndWait {
+            let request = NSFetchRequest<CDGroupMessage>(entityName: CDGroupMessage.entityName)
+            request.predicate = NSPredicate(format: "txId == %@", txId)
+            request.fetchLimit = 1
+            guard (try? context.fetch(request))?.first == nil else { return }
+
+            let message = CDGroupMessage(context: context)
+            message.txId = txId
+            message.groupId = groupId
+            message.senderAddress = senderAddress
+            message.senderIdHex = senderIdHex
+            message.epoch = Int64(epoch)
+            message.msgIdHex = msgIdHex
+            message.contentEncrypted = contentEncrypted
+            message.blockTime = blockTime
+            message.isOutgoing = isOutgoing
+            message.deliveryStatus = deliveryStatus.rawValue
+            save(context)
+            inserted = true
+        }
+        return inserted
+    }
+
+    /// Replace an optimistic `pending_<uuid>` row with the real confirmed txId.
+    func resolvePendingMessage(pendingId: String, realId: String, blockTime: Int64) {
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDGroupMessage>(entityName: CDGroupMessage.entityName)
+            request.predicate = NSPredicate(format: "txId == %@", pendingId)
+            request.fetchLimit = 1
+            guard let message = (try? context.fetch(request))?.first else { return }
+            message.txId = realId
+            message.blockTime = blockTime
+            message.deliveryStatus = ChatMessage.DeliveryStatus.sent.rawValue
+            save(context)
+        }
+    }
+
+    func markMessageFailed(pendingId: String) {
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDGroupMessage>(entityName: CDGroupMessage.entityName)
+            request.predicate = NSPredicate(format: "txId == %@", pendingId)
+            request.fetchLimit = 1
+            guard let message = (try? context.fetch(request))?.first else { return }
+            message.deliveryStatus = ChatMessage.DeliveryStatus.failed.rawValue
+            save(context)
+        }
+    }
+
+    /// Raw rows for a group, oldest first - callers decrypt via GroupCipher using the group's
+    /// per-epoch root key(s) held in Keychain.
+    func messageRows(forGroup groupId: String) -> [CDGroupMessageSnapshot] {
+        guard isLoaded else { return [] }
+        var result: [CDGroupMessageSnapshot] = []
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDGroupMessage>(entityName: CDGroupMessage.entityName)
+            request.predicate = NSPredicate(format: "groupId == %@", groupId)
+            request.sortDescriptors = [NSSortDescriptor(key: "blockTime", ascending: true)]
+            let rows = (try? context.fetch(request)) ?? []
+            result = rows.map { row in
+                CDGroupMessageSnapshot(
+                    txId: row.txId,
+                    groupId: row.groupId,
+                    senderAddress: row.senderAddress,
+                    senderIdHex: row.senderIdHex,
+                    epoch: UInt64(row.epoch),
+                    msgIdHex: row.msgIdHex,
+                    contentEncrypted: row.contentEncrypted ?? Data(),
+                    blockTime: row.blockTime,
+                    isOutgoing: row.isOutgoing,
+                    deliveryStatus: ChatMessage.DeliveryStatus(rawValue: row.deliveryStatus ?? "") ?? .sent
+                )
+            }
+        }
+        return result
+    }
+
+    /// Clear all local group data for the current wallet (e.g. on wallet reset/logout).
+    /// Does NOT touch Keychain-held GroupBags - callers must separately delete those per group.
+    func clearAll() {
+        guard isLoaded else { return }
+        let context = viewContext
+        context.performAndWait {
+            for entityName in [CDGroupMessage.entityName, CDGroup.entityName] {
+                let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
+                let deleteRequest = NSBatchDeleteRequest(fetchRequest: request)
+                _ = try? context.execute(deleteRequest)
+            }
+            save(context)
+        }
+    }
+
+    private func save(_ context: NSManagedObjectContext) {
+        guard context.hasChanges else { return }
+        do {
+            try context.save()
+        } catch {
+            AppLog.log("[GroupStore] Save failed: %@", error.localizedDescription)
+        }
+    }
+
+    private static func makeModel() -> NSManagedObjectModel {
+        let model = NSManagedObjectModel()
+
+        let groupEntity = NSEntityDescription()
+        groupEntity.name = CDGroup.entityName
+        groupEntity.managedObjectClassName = NSStringFromClass(CDGroup.self)
+        groupEntity.properties = [
+            makeAttribute(name: "groupId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "name", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "adminAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "adminXOnlyPubKeyHex", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "currentEpoch", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            makeAttribute(name: "createdAt", type: .dateAttributeType, optional: true),
+            makeAttribute(name: "isAdmin", type: .booleanAttributeType, optional: false, defaultValue: false),
+            makeAttribute(name: "membersJSON", type: .binaryDataAttributeType, optional: true)
+        ]
+
+        let messageEntity = NSEntityDescription()
+        messageEntity.name = CDGroupMessage.entityName
+        messageEntity.managedObjectClassName = NSStringFromClass(CDGroupMessage.self)
+        messageEntity.properties = [
+            makeAttribute(name: "txId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "groupId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "senderAddress", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "senderIdHex", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "epoch", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            makeAttribute(name: "msgIdHex", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "contentEncrypted", type: .binaryDataAttributeType, optional: true),
+            makeAttribute(name: "blockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            makeAttribute(name: "isOutgoing", type: .booleanAttributeType, optional: false, defaultValue: false),
+            makeAttribute(name: "deliveryStatus", type: .stringAttributeType, optional: true)
+        ]
+
+        model.entities = [groupEntity, messageEntity]
+        return model
+    }
+
+    private static func makeAttribute(name: String, type: NSAttributeType, optional: Bool, defaultValue: Any? = nil) -> NSAttributeDescription {
+        let attribute = NSAttributeDescription()
+        attribute.name = name
+        attribute.attributeType = type
+        attribute.isOptional = optional
+        if let defaultValue {
+            attribute.defaultValue = defaultValue
+        }
+        return attribute
+    }
+}
+
+/// Plain snapshot of a `CDGroupMessage` row, safe to pass across contexts/actors.
+struct CDGroupMessageSnapshot {
+    let txId: String
+    let groupId: String
+    let senderAddress: String?
+    let senderIdHex: String
+    let epoch: UInt64
+    let msgIdHex: String
+    let contentEncrypted: Data
+    let blockTime: Int64
+    let isOutgoing: Bool
+    let deliveryStatus: ChatMessage.DeliveryStatus
+}
+
+// GroupStore only touches Core Data via context.performAndWait on its own contexts;
+// treat as Sendable for structured concurrency usage (matches BroadcastStore's convention).
+extension GroupStore: @unchecked Sendable {}
+
+@objc(CDGroup)
+final class CDGroup: NSManagedObject {
+    static let entityName = "CDGroup"
+
+    @NSManaged var groupId: String
+    @NSManaged var name: String
+    @NSManaged var adminAddress: String
+    @NSManaged var adminXOnlyPubKeyHex: String
+    @NSManaged var currentEpoch: Int64
+    @NSManaged var createdAt: Date?
+    @NSManaged var isAdmin: Bool
+    @NSManaged var membersJSON: Data?
+}
+
+@objc(CDGroupMessage)
+final class CDGroupMessage: NSManagedObject {
+    static let entityName = "CDGroupMessage"
+
+    @NSManaged var txId: String
+    @NSManaged var groupId: String
+    @NSManaged var senderAddress: String?
+    @NSManaged var senderIdHex: String
+    @NSManaged var epoch: Int64
+    @NSManaged var msgIdHex: String
+    @NSManaged var contentEncrypted: Data?
+    @NSManaged var blockTime: Int64
+    @NSManaged var isOutgoing: Bool
+    @NSManaged var deliveryStatus: String?
+}

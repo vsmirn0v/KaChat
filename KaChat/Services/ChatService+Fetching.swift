@@ -2114,7 +2114,6 @@ extension ChatService {
     ) async {
         let direction = isOutgoing ? "outgoing" : "incoming"
         AppLog.log("[ChatService] === PROCESSING %d %@ PAYMENTS ===", payments.count, direction)
-        let hideAutoCreatedPaymentChats = SettingsViewModel.loadSettings().hideAutoCreatedPaymentChats
 
         var needsFullSync = false
 
@@ -2285,18 +2284,6 @@ extension ChatService {
                     AppLog.log("[ChatService] Payment %@ has self-stash payload - skipping", String(payment.txId.prefix(16)))
                     continue
                 }
-            }
-
-            let existingContact = contactsManager.getContact(byAddress: contactAddress)
-            let hasExistingConversation = conversations.contains { $0.contact.address == contactAddress }
-            if hideAutoCreatedPaymentChats && existingContact == nil && !hasExistingConversation {
-                AppLog.log("[ChatService] Skipping payment %@ - auto-created payment chats disabled for %@",
-                      String(payment.txId.prefix(16)),
-                      String(contactAddress.suffix(20)))
-                if let blockTime = payment.blockTime, blockTime > lastPollTime {
-                    updateLastPollTime(blockTime)
-                }
-                continue
             }
 
             // Decode payment message

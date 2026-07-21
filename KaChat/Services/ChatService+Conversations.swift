@@ -1806,9 +1806,22 @@ extension ChatService {
         guard let wallet = WalletManager.shared.currentWallet else {
             throw KasiaError.walletNotFound
         }
-        guard let privateKey = WalletManager.shared.getPrivateKey() else {
-            throw KasiaError.keychainError("Could not get private key")
+        // Payments spend from the spending chain (not the chatting/identity address) - same
+        // "Pay in Kaspa" balance already shown elsewhere in the app - with change always routed
+        // to a genuinely never-used address rather than back to the address just spent from,
+        // then that fresh index becomes active once the send actually succeeds. This mirrors
+        // ManageAddressesView/Swap's own spending-address model instead of paying straight out
+        // of the identity address every time.
+        let spendingIndex = WalletManager.shared.currentSpendingAddressIndex
+        guard let spendingAddress = WalletManager.shared.spendingAddress(at: spendingIndex),
+              let spendingPrivateKey = WalletManager.shared.spendingPrivateKey(at: spendingIndex) else {
+            throw KasiaError.keychainError("Could not derive spending address")
         }
+        // One past the highest index this wallet has EVER revealed/used (not just spendingIndex
+        // + 1) - guarantees change never lands on an address that's already been used before,
+        // even if the active spending index was manually set backward via Manage Addresses.
+        let freshChangeIndex = max(WalletManager.shared.maxSpendingAddressIndex, spendingIndex) + 1
+        let nextSpendingAddress = WalletManager.shared.spendingAddress(at: freshChangeIndex)
 
         if pendingTxId == nil {
             do {
@@ -1816,8 +1829,8 @@ extension ChatService {
                     to: contact,
                     amountSompi: amountSompi,
                     note: note,
-                    walletAddress: wallet.publicAddress,
-                    privateKey: privateKey
+                    walletAddress: spendingAddress,
+                    privateKey: spendingPrivateKey
                 )
             } catch {
                 if isInsufficientBalancePopupError(error) {
@@ -1878,8 +1891,7 @@ extension ChatService {
                 try await rpcManager.connect(network: settings.networkType)
             }
 
-            let utxos = try await rpcManager.getUtxosByAddresses([wallet.publicAddress])
-            updateWalletBalanceIfNeeded(address: wallet.publicAddress, utxos: utxos)
+            let utxos = try await rpcManager.getUtxosByAddresses([spendingAddress])
             let spendable = utxos.filter { $0.blockDaaScore > 0 && !$0.isCoinbase }
             guard !spendable.isEmpty else {
                 throw KasiaError.networkError("No spendable UTXOs available")
@@ -1890,13 +1902,14 @@ extension ChatService {
             }
 
             let tx = try KasiaTransactionBuilder.buildPaymentTx(
-                from: wallet.publicAddress,
+                from: spendingAddress,
                 to: contact.address,
                 amount: amountSompi,
                 note: note,
-                senderPrivateKey: privateKey,
+                senderPrivateKey: spendingPrivateKey,
                 recipientPublicKey: recipientPublicKey,
-                utxos: spendable
+                utxos: spendable,
+                changeAddress: nextSpendingAddress
             )
 
             // Submit via RPC manager
@@ -1913,6 +1926,7 @@ extension ChatService {
             )
             clearNoInputRetryState(for: activePendingTxId)
             saveMessages(triggerExport: true)
+            await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
         } catch {
             if let acceptedTxId = acceptedTransactionId(from: error) {
                 AppLog.log("[ChatService] Payment already accepted by consensus for %@ -> promoting pending to %@",
@@ -1928,6 +1942,7 @@ extension ChatService {
                 )
                 clearNoInputRetryState(for: activePendingTxId)
                 saveMessages(triggerExport: true)
+                await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
                 return
             }
 
@@ -1956,6 +1971,234 @@ extension ChatService {
             saveMessages()
             throw error
         }
+    }
+
+    /// Sends a plain KAS transfer from the wallet's identity address to an arbitrary
+    /// recipient address (Profile > Chatting Address > Withdraw Kaspa). Unlike sendPayment,
+    /// this carries no KaChat protocol payload and has no chat/conversation bookkeeping
+    /// (pending message, delivery status, etc.) since the recipient isn't necessarily a
+    /// contact. Returns the submitted transaction id.
+    func sendWithdrawal(toAddress: String, amountSompi: UInt64, extraFeeSompi: UInt64 = 0) async throws -> String {
+        guard amountSompi > 0 else {
+            throw KasiaError.networkError("Amount must be greater than zero")
+        }
+        guard KaspaAddress.scriptPublicKey(from: toAddress) != nil else {
+            throw KasiaError.invalidAddress
+        }
+        guard let wallet = WalletManager.shared.currentWallet else {
+            throw KasiaError.walletNotFound
+        }
+        guard let privateKey = WalletManager.shared.getPrivateKey() else {
+            throw KasiaError.keychainError("Could not get private key")
+        }
+
+        return try await enqueueOutgoingTxOperation {
+            let rpcManager = NodePoolService.shared
+            let settings = self.currentSettings
+
+            if !rpcManager.isConnected {
+                try await rpcManager.connect(network: settings.networkType)
+            }
+
+            let utxos = try await rpcManager.getUtxosByAddresses([wallet.publicAddress])
+            self.updateWalletBalanceIfNeeded(address: wallet.publicAddress, utxos: utxos)
+            let spendable = utxos.filter { $0.blockDaaScore > 0 && !$0.isCoinbase }
+            guard !spendable.isEmpty else {
+                throw KasiaError.networkError("No spendable UTXOs available")
+            }
+
+            let tx = try KasiaTransactionBuilder.buildPlainTransferTx(
+                from: wallet.publicAddress,
+                to: toAddress,
+                amount: amountSompi,
+                senderPrivateKey: privateKey,
+                utxos: spendable,
+                extraFeeSompi: extraFeeSompi
+            )
+
+            AppLog.log("[ChatService] Submitting withdrawal via RPC manager...")
+            let (txId, endpoint) = try await rpcManager.submitTransaction(tx, allowOrphan: false)
+            AppLog.log("[ChatService] Withdrawal submitted: \(txId) via \(endpoint)")
+            return txId
+        }
+    }
+
+    /// Estimates the total fee (base + optional priority tip) for a withdrawal, without
+    /// requiring a gRPC connection (uses the same REST-fallback UTXO fetch as other fee
+    /// previews, since this only needs read access for the estimate).
+    func estimateWithdrawalFee(toAddress: String, amountSompi: UInt64, extraFeeSompi: UInt64 = 0) async throws -> UInt64 {
+        guard amountSompi > 0 else { throw KasiaError.networkError("Amount is zero") }
+        guard let wallet = WalletManager.shared.currentWallet else { throw KasiaError.walletNotFound }
+        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress),
+              let recipientScriptPubKey = KaspaAddress.scriptPublicKey(from: toAddress) else {
+            throw KasiaError.invalidAddress
+        }
+
+        let utxos = try await fetchUtxosWithFallback(for: wallet.publicAddress)
+        let spendable = utxos.filter { !$0.isCoinbase }
+        guard !spendable.isEmpty else {
+            throw KasiaError.networkError("No spendable UTXOs")
+        }
+
+        return try KasiaTransactionBuilder.estimatePlainTransferFee(
+            utxos: spendable,
+            amount: amountSompi,
+            recipientScriptPubKey: recipientScriptPubKey,
+            senderScriptPubKey: senderScriptPubKey,
+            extraFeeSompi: extraFeeSompi
+        )
+    }
+
+    /// Maximum sendable amount for a withdrawal (balance minus the send-all fee, no change
+    /// output). Mirrors estimateMaxPaymentAmount's approach for in-chat payments.
+    func estimateMaxWithdrawalAmount(toAddress: String, extraFeeSompi: UInt64 = 0) async throws -> UInt64 {
+        guard let wallet = WalletManager.shared.currentWallet else { throw KasiaError.walletNotFound }
+        guard let recipientScriptPubKey = KaspaAddress.scriptPublicKey(from: toAddress),
+              let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) else {
+            throw KasiaError.invalidAddress
+        }
+
+        let utxos = try await fetchUtxosWithFallback(for: wallet.publicAddress)
+        let spendable = utxos.filter { !$0.isCoinbase }
+        guard !spendable.isEmpty else {
+            throw KasiaError.networkError("No spendable UTXOs")
+        }
+
+        let totalBalance = spendable.reduce(0) { $0 + $1.amount }
+
+        let fee = KasiaTransactionBuilder.estimateSendAllFee(
+            utxos: spendable,
+            payload: Data(),
+            recipientScriptPubKey: recipientScriptPubKey,
+            senderScriptPubKey: senderScriptPubKey,
+            extraFeeSompi: extraFeeSompi
+        )
+
+        guard totalBalance > fee else {
+            throw KasiaError.networkError("Balance too low to cover fee")
+        }
+
+        return totalBalance - fee
+    }
+
+    /// Sends a plain KAS transfer from a specific spending-chain address (Manage Addresses'
+    /// per-row Withdraw action). Change stays on the *same* spending address — unlike
+    /// advanceSpendingAddressIndex-driven sends, this is a scoped, explicit single-address
+    /// operation and doesn't rotate which address is "primary."
+    func sendFromSpendingAddress(index: Int, toAddress: String, amountSompi: UInt64, extraFeeSompi: UInt64 = 0) async throws -> String {
+        guard amountSompi > 0 else {
+            throw KasiaError.networkError("Amount must be greater than zero")
+        }
+        guard KaspaAddress.scriptPublicKey(from: toAddress) != nil else {
+            throw KasiaError.invalidAddress
+        }
+        guard let fromAddress = WalletManager.shared.spendingAddress(at: index),
+              let privateKey = WalletManager.shared.spendingPrivateKey(at: index) else {
+            throw KasiaError.keychainError("Could not derive this spending address")
+        }
+
+        return try await enqueueOutgoingTxOperation {
+            let rpcManager = NodePoolService.shared
+            let settings = self.currentSettings
+
+            if !rpcManager.isConnected {
+                try await rpcManager.connect(network: settings.networkType)
+            }
+
+            let utxos = try await rpcManager.getUtxosByAddresses([fromAddress])
+            let spendable = utxos.filter { $0.blockDaaScore > 0 && !$0.isCoinbase }
+            guard !spendable.isEmpty else {
+                throw KasiaError.networkError("No spendable UTXOs available")
+            }
+
+            let tx = try KasiaTransactionBuilder.buildPlainTransferTx(
+                from: fromAddress,
+                to: toAddress,
+                amount: amountSompi,
+                senderPrivateKey: privateKey,
+                utxos: spendable,
+                extraFeeSompi: extraFeeSompi
+            )
+
+            AppLog.log("[ChatService] Submitting spending-address withdrawal via RPC manager...")
+            let (txId, endpoint) = try await rpcManager.submitTransaction(tx, allowOrphan: false)
+            AppLog.log("[ChatService] Spending-address withdrawal submitted: \(txId) via \(endpoint)")
+            return txId
+        }
+    }
+
+    /// Estimates the total fee for a spending-address withdrawal. Calls NodePoolService
+    /// directly rather than fetchUtxosWithFallback, whose single-address UTXO cache would
+    /// return the wrong address's data when estimating for anything but the identity address.
+    func estimateSpendingAddressWithdrawalFee(index: Int, toAddress: String, amountSompi: UInt64, extraFeeSompi: UInt64 = 0) async throws -> UInt64 {
+        guard amountSompi > 0 else { throw KasiaError.networkError("Amount is zero") }
+        guard let fromAddress = WalletManager.shared.spendingAddress(at: index) else {
+            throw KasiaError.keychainError("Could not derive this spending address")
+        }
+        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: fromAddress),
+              let recipientScriptPubKey = KaspaAddress.scriptPublicKey(from: toAddress) else {
+            throw KasiaError.invalidAddress
+        }
+
+        let utxos = try await NodePoolService.shared.getUtxosByAddresses([fromAddress])
+        let spendable = utxos.filter { !$0.isCoinbase }
+        guard !spendable.isEmpty else {
+            throw KasiaError.networkError("No spendable UTXOs")
+        }
+
+        return try KasiaTransactionBuilder.estimatePlainTransferFee(
+            utxos: spendable,
+            amount: amountSompi,
+            recipientScriptPubKey: recipientScriptPubKey,
+            senderScriptPubKey: senderScriptPubKey,
+            extraFeeSompi: extraFeeSompi
+        )
+    }
+
+    /// Maximum sendable amount from a specific spending address (balance minus the send-all
+    /// fee, no change output).
+    func estimateMaxSpendingAddressAmount(index: Int, toAddress: String, extraFeeSompi: UInt64 = 0) async throws -> UInt64 {
+        guard let fromAddress = WalletManager.shared.spendingAddress(at: index) else {
+            throw KasiaError.keychainError("Could not derive this spending address")
+        }
+        guard let recipientScriptPubKey = KaspaAddress.scriptPublicKey(from: toAddress),
+              let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: fromAddress) else {
+            throw KasiaError.invalidAddress
+        }
+
+        let utxos = try await NodePoolService.shared.getUtxosByAddresses([fromAddress])
+        let spendable = utxos.filter { !$0.isCoinbase }
+        guard !spendable.isEmpty else {
+            throw KasiaError.networkError("No spendable UTXOs")
+        }
+
+        let totalBalance = spendable.reduce(UInt64(0)) { $0 + $1.amount }
+
+        let fee = KasiaTransactionBuilder.estimateSendAllFee(
+            utxos: spendable,
+            payload: Data(),
+            recipientScriptPubKey: recipientScriptPubKey,
+            senderScriptPubKey: senderScriptPubKey,
+            extraFeeSompi: extraFeeSompi
+        )
+
+        guard totalBalance > fee else {
+            throw KasiaError.networkError("Balance too low to cover fee")
+        }
+
+        return totalBalance - fee
+    }
+
+    /// Whether an address has ever appeared in a transaction, independent of its current
+    /// balance (a swept-to-zero address still counts as used) — powers the "Used"/"Unused"
+    /// badge in Manage Addresses. A single-item history lookup, not a balance check.
+    func hasSpendingAddressBeenUsed(_ address: String) async -> Bool {
+        // Delegates to the already-proven paginated fetch (same resolve_previous_outpoints
+        // value it uses elsewhere in the app) instead of a hand-rolled one-off request —
+        // pageSize/maxTransactions of 1 makes this a single round-trip either way (the
+        // paginator breaks immediately on an empty first page).
+        let transactions = await fetchFullTransactionsPaginated(for: address, pageSize: 1, maxTransactions: 1)
+        return !transactions.isEmpty
     }
 
     func estimateMessageFee(to contact: Contact, content: String) async throws -> UInt64 {
@@ -2411,19 +2654,7 @@ extension ChatService {
     }
 
     func isConversationVisibleInChatList(_ conversation: Conversation, settings: AppSettings? = nil) -> Bool {
-        let settings = settings ?? currentSettings
-        let address = conversation.contact.address
-        guard !isConversationDeclined(address) else { return false }
-
-        let effectiveContact = contactsManager.getContact(byAddress: address) ?? conversation.contact
-
-        if settings.hideAutoCreatedPaymentChats &&
-            effectiveContact.isAutoAdded &&
-            !conversation.messages.contains(where: { $0.messageType != .payment }) {
-            return false
-        }
-
-        return true
+        !isConversationDeclined(conversation.contact.address)
     }
 
     func pushEligibleConversationAddresses(settings: AppSettings? = nil) -> [String] {

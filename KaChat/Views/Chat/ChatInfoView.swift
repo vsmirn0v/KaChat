@@ -17,10 +17,8 @@ struct ChatInfoView: View {
     @State private var notificationModeOverride: ContactNotificationMode? = nil
     @State private var realtimeUpdatesDisabled: Bool = false
     @State private var photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil
-    @State private var isLoadingKNS = false
-    @State private var isLoadingBalance = false
-    @State private var showQR = false
     @State private var showAvatarPreview = false
+    @State private var moreInfoExpanded = false
     @State private var showSystemContactLinkPicker = false
     @State private var linkedSystemContactId: String?
     @State private var linkedSystemContactName: String?
@@ -76,13 +74,6 @@ struct ChatInfoView: View {
             || profile.redirectUrl != nil
     }
 
-    private var contactBalanceSompi: UInt64? {
-        if let wallet = WalletManager.shared.currentWallet, wallet.publicAddress == contact.address {
-            return wallet.balanceSompi
-        }
-        return contactsManager.balanceSompi(for: contact.address)
-    }
-
     var body: some View {
         NavigationStack {
             Form {
@@ -103,10 +94,26 @@ struct ChatInfoView: View {
                             TextField("Name", text: $editedAlias)
                                 .font(.headline)
                                 .focused($isEditing)
-                            Text(formatAddress(contact.address))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
+
+                            // Matches Android: the plain contact-name card shows the address as a
+                            // fallback caption; once the contact owns any KNS domain, the fancier
+                            // profile card below takes over that spot with the bio instead.
+                            if knsDomains.isEmpty {
+                                Text(formatAddress(contact.address))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            } else if let bio = knsProfile?.bio {
+                                Text(bio)
+                                    .font(.subheadline)
+                                    .onLongPressGesture(minimumDuration: 0.45) {
+                                        copyProfileFieldValue(bio, fieldName: "Bio")
+                                    }
+                            } else {
+                                Text(hasProfileDetailFields ? "On-chain profile data available." : "No on-chain profile data yet.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                         }
                         .padding(.leading, 8)
                     }
@@ -119,173 +126,112 @@ struct ChatInfoView: View {
                             cornerRadius: 10
                         )
                     }
-                }
 
-                if let profile = knsProfile, hasProfileDetailFields {
-                    Section("KNS Profile") {
-                        if let bio = profile.bio {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Bio")
-                                    .font(.caption)
+                    if !knsDomains.isEmpty {
+                        // Same DisclosureGroup used by the user's own Profile view's KNS card
+                        // (ContactsView.knsProfileCard) - native chevron/expand behavior, teal
+                        // label, LabeledContent rows with no dividers between them.
+                        if hasProfileDetailFields, let profile = knsProfile {
+                            DisclosureGroup(isExpanded: $moreInfoExpanded) {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    if let x = profile.x {
+                                        LabeledContent("X") {
+                                            profileLinkView(text: x, url: KNSProfileLinkBuilder.xURL(from: x), fieldName: "X")
+                                        }
+                                    }
+                                    if let website = profile.website {
+                                        LabeledContent("Website") {
+                                            profileLinkView(text: website, url: KNSProfileLinkBuilder.websiteURL(from: website), fieldName: "Website")
+                                        }
+                                    }
+                                    if let telegram = profile.telegram {
+                                        LabeledContent("Telegram") {
+                                            profileLinkView(text: telegram, url: KNSProfileLinkBuilder.telegramURL(from: telegram), fieldName: "Telegram")
+                                        }
+                                    }
+                                    if let discord = profile.discord {
+                                        LabeledContent("Discord") {
+                                            profileLinkView(text: discord, url: KNSProfileLinkBuilder.discordURL(from: discord), fieldName: "Discord")
+                                        }
+                                    }
+                                    if let contactEmail = profile.contactEmail {
+                                        LabeledContent("Email") {
+                                            profileLinkView(text: contactEmail, url: KNSProfileLinkBuilder.emailURL(from: contactEmail), fieldName: "Email")
+                                        }
+                                    }
+                                    if let github = profile.github {
+                                        LabeledContent("GitHub") {
+                                            profileLinkView(text: github, url: KNSProfileLinkBuilder.githubURL(from: github), fieldName: "GitHub")
+                                        }
+                                    }
+                                    if let redirectUrl = profile.redirectUrl {
+                                        LabeledContent("Redirect") {
+                                            profileLinkView(text: redirectUrl, url: KNSProfileLinkBuilder.websiteURL(from: redirectUrl), fieldName: "Redirect")
+                                        }
+                                    }
+                                }
+                                .padding(.top, 4)
+                            } label: {
+                                Text("More Info")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.accentColor)
+                            }
+                            .tint(.accentColor)
+                        }
+
+                        NavigationLink {
+                            domainsListView
+                        } label: {
+                            HStack {
+                                Text("Domains")
+                                Spacer()
+                                Text(knsInfo?.primaryDomain ?? "")
                                     .foregroundColor(.secondary)
-                                Text(bio)
-                                    .font(.body)
-                            }
-                            .padding(.vertical, 2)
-                            .onLongPressGesture(minimumDuration: 0.45) {
-                                copyProfileFieldValue(bio, fieldName: "Bio")
                             }
                         }
-                        if let x = profile.x {
-                            LabeledContent("X") {
-                                profileLinkView(
-                                    text: x,
-                                    url: KNSProfileLinkBuilder.xURL(from: x),
-                                    fieldName: "X"
-                                )
-                            }
-                        }
-                        if let website = profile.website {
-                            LabeledContent("Website") {
-                                profileLinkView(
-                                    text: website,
-                                    url: KNSProfileLinkBuilder.websiteURL(from: website),
-                                    fieldName: "Website"
-                                )
-                            }
-                        }
-                        if let telegram = profile.telegram {
-                            LabeledContent("Telegram") {
-                                profileLinkView(
-                                    text: telegram,
-                                    url: KNSProfileLinkBuilder.telegramURL(from: telegram),
-                                    fieldName: "Telegram"
-                                )
-                            }
-                        }
-                        if let discord = profile.discord {
-                            LabeledContent("Discord") {
-                                profileLinkView(
-                                    text: discord,
-                                    url: KNSProfileLinkBuilder.discordURL(from: discord),
-                                    fieldName: "Discord"
-                                )
-                            }
-                        }
-                        if let contactEmail = profile.contactEmail {
-                            LabeledContent("Email") {
-                                profileLinkView(
-                                    text: contactEmail,
-                                    url: KNSProfileLinkBuilder.emailURL(from: contactEmail),
-                                    fieldName: "Email"
-                                )
-                            }
-                        }
-                        if let github = profile.github {
-                            LabeledContent("GitHub") {
-                                profileLinkView(
-                                    text: github,
-                                    url: KNSProfileLinkBuilder.githubURL(from: github),
-                                    fieldName: "GitHub"
-                                )
-                            }
-                        }
-                        if let redirectUrl = profile.redirectUrl {
-                            LabeledContent("Redirect") {
-                                profileLinkView(
-                                    text: redirectUrl,
-                                    url: KNSProfileLinkBuilder.websiteURL(from: redirectUrl),
-                                    fieldName: "Redirect"
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if showsNotificationSettings {
-                    Section {
-                        Picker("Incoming Notifications", selection: $notificationModeOverride) {
-                            Text("Default (\(settingsViewModel.settings.defaultIncomingNotificationMode.displayName))")
-                                .tag(ContactNotificationMode?.none)
-                            Text("Off").tag(ContactNotificationMode?.some(.off))
-                            Text("No Sound").tag(ContactNotificationMode?.some(.noSound))
-                            Text("Sound").tag(ContactNotificationMode?.some(.sound))
-                        }
-                        .pickerStyle(.menu)
-                    } footer: {
-                        Text("Default follows Settings > Notifications. Off disables notifications for this contact.")
                     }
                 }
 
                 Section {
-                    Picker("Photos", selection: $photoAutoDisplayOverride) {
-                        Text("Automatic (\(automaticPhotoDisplayDescription))")
-                            .tag(PhotoAutoDisplayMode?.none)
-                        Text("Always Show").tag(PhotoAutoDisplayMode?.some(.alwaysShow))
-                        Text("Always Hide").tag(PhotoAutoDisplayMode?.some(.alwaysHide))
-                    }
-                    .pickerStyle(.menu)
-                } footer: {
-                    Text("Automatic hides photos from contacts you haven't added or messaged yet, until you tap to reveal them.")
-                }
-
-                // TODO: Fix realtimeUpdatesDisabled feature - currently broken, hidden until fixed
-                // Section {
-                //     Toggle(isOn: $realtimeUpdatesDisabled) {
-                //         Label("Disable Real-Time Updates", systemImage: realtimeUpdatesDisabled ? "bolt.slash.fill" : "bolt.fill")
-                //     }
-                // } footer: {
-                //     Text("When disabled, messages from this contact will be fetched periodically instead of in real-time. Use this for contacts with high transaction volume to save battery and network usage.")
-                // }
-
-                Section("Address") {
                     Button {
                         UIPasteboard.general.string = contact.address
                         Haptics.success()
                         showToast(localized("Address copied to clipboard."))
                     } label: {
-                        HStack {
+                        VStack(spacing: 12) {
+                            if let qrImage = makeQRCodeImage(from: contact.address) {
+                                Image(uiImage: qrImage)
+                                    .interpolation(.none)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 180, height: 180)
+                                    .padding(12)
+                                    .background(Color.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(Color.accentColor, lineWidth: 2)
+                                    )
+                            }
                             Text(contact.address)
                                 .font(.system(.caption, design: .monospaced))
-                                .foregroundColor(.primary)
-                                .lineLimit(2)
-                            Spacer()
-                            Image(systemName: "doc.on.doc")
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                } header: {
+                    HStack {
+                        Text("Address")
+                        Spacer()
+                        if let url = settingsViewModel.settings.kaspaExplorer.addressURL(for: contact.address) {
+                            Link("View in Explorer", destination: url)
+                                .font(.caption)
                                 .foregroundColor(.accentColor)
                         }
-                    }
-
-                    Button {
-                        showQR = true
-                    } label: {
-                        Label("Show QR", systemImage: "qrcode")
-                    }
-                }
-
-                Section("Balance") {
-                    if isLoadingBalance && contactBalanceSompi == nil {
-                        HStack {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text("Loading balance...")
-                                .foregroundColor(.secondary)
-                        }
-                    } else {
-                        Button {
-                            guard let sompi = contactBalanceSompi else { return }
-                            UIPasteboard.general.string = formatKaspaExact(sompi)
-                            Haptics.success()
-                            showToast(localized("Balance copied to clipboard."))
-                        } label: {
-                            HStack {
-                                Text(contactBalanceSompi.map { "\(formatKaspaExact($0)) KAS" } ?? "—")
-                                    .font(.system(.body, design: .monospaced))
-                                Spacer()
-                                Image(systemName: "doc.on.doc")
-                                    .foregroundColor(.accentColor)
-                            }
-                        }
-                        .disabled(contactBalanceSompi == nil)
                     }
                 }
 
@@ -326,42 +272,41 @@ struct ChatInfoView: View {
                     }
                 }
 
-                // KNS Domains section
-                if isLoadingKNS {
-                    Section("KNS Domains") {
-                        HStack {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text("Loading domains...")
-                                .foregroundColor(.secondary)
+                if showsNotificationSettings {
+                    Section {
+                        Picker("Incoming Notifications", selection: $notificationModeOverride) {
+                            Text("Default (\(settingsViewModel.settings.defaultIncomingNotificationMode.displayName))")
+                                .tag(ContactNotificationMode?.none)
+                            Text("Off").tag(ContactNotificationMode?.some(.off))
+                            Text("No Sound").tag(ContactNotificationMode?.some(.noSound))
+                            Text("Sound").tag(ContactNotificationMode?.some(.sound))
                         }
-                    }
-                } else if !knsDomains.isEmpty {
-                    Section("KNS Domains") {
-                        ForEach(knsDomains, id: \.inscriptionId) { domain in
-                            Button {
-                                applyDomainAsAlias(domain.fullName)
-                            } label: {
-                                HStack {
-                                    Text(domain.fullName)
-                                        .font(.body)
-                                        .foregroundColor(.primary)
-                                    if domain.fullName == knsInfo?.primaryDomain {
-                                        Spacer()
-                                        Text("Primary")
-                                            .font(.caption)
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 2)
-                                            .background(Color.accentColor)
-                                            .clipShape(Capsule())
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
+                        .pickerStyle(.menu)
+                    } footer: {
+                        Text("Default follows Settings > Notifications. Off disables notifications for this contact.")
                     }
                 }
+
+                Section {
+                    Picker("Photos", selection: $photoAutoDisplayOverride) {
+                        Text("Automatic (\(automaticPhotoDisplayDescription))")
+                            .tag(PhotoAutoDisplayMode?.none)
+                        Text("Always Show").tag(PhotoAutoDisplayMode?.some(.alwaysShow))
+                        Text("Always Hide").tag(PhotoAutoDisplayMode?.some(.alwaysHide))
+                    }
+                    .pickerStyle(.menu)
+                } footer: {
+                    Text("Automatic hides photos from contacts you haven't added or messaged yet, until you tap to reveal them.")
+                }
+
+                // TODO: Fix realtimeUpdatesDisabled feature - currently broken, hidden until fixed
+                // Section {
+                //     Toggle(isOn: $realtimeUpdatesDisabled) {
+                //         Label("Disable Real-Time Updates", systemImage: realtimeUpdatesDisabled ? "bolt.slash.fill" : "bolt.fill")
+                //     }
+                // } footer: {
+                //     Text("When disabled, messages from this contact will be fetched periodically instead of in real-time. Use this for contacts with high transaction volume to save battery and network usage.")
+                // }
 
                 Section("Info") {
                     LabeledContent("Added") {
@@ -385,42 +330,6 @@ struct ChatInfoView: View {
             .toast(message: toastMessage, style: toastStyle)
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showQR) {
-                NavigationStack {
-                    VStack(spacing: 16) {
-                        if let qrImage = makeQRCodeImage(from: contact.address) {
-                            Image(uiImage: qrImage)
-                                .interpolation(.none)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxWidth: 260, maxHeight: 260)
-                                .padding(.top, 24)
-                        }
-                        Text(contact.address)
-                            .font(.system(.footnote, design: .monospaced))
-                            .multilineTextAlignment(.center)
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal)
-
-                        Button {
-                            UIPasteboard.general.string = contact.address
-                            Haptics.success()
-                            showToast(localized("Address copied to clipboard."))
-                        } label: {
-                            Label("Copy Address", systemImage: "doc.on.doc")
-                        }
-                        .padding(.bottom, 24)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .navigationTitle("Share QR")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Done") { showQR = false }
-                        }
-                    }
-                }
-            }
             .fullScreenCover(isPresented: $showAvatarPreview) {
                 KNSAvatarFullscreenView(
                     avatarURLString: knsProfileInfo?.avatarURL,
@@ -486,14 +395,8 @@ struct ChatInfoView: View {
             .task {
                 // Always force-refresh selected contact KNS info and profile when opening chat info.
                 // This ensures profile selection is anchored to the latest primary domain metadata.
-                isLoadingKNS = true
                 _ = await contactsManager.fetchKNSInfo(for: contact)
                 _ = await contactsManager.fetchKNSProfile(for: contact)
-                isLoadingKNS = false
-
-                isLoadingBalance = true
-                await contactsManager.refreshBalance(for: contact.address)
-                isLoadingBalance = false
 
                 let stats = await MessageStore.shared.messageStats(contactAddress: contact.address)
                 messageSent = stats.sent
@@ -533,11 +436,6 @@ struct ChatInfoView: View {
         String(format: NSLocalizedString(key, comment: ""), locale: Locale.current, arguments: args)
     }
 
-    private func formatKaspaExact(_ sompi: UInt64) -> String {
-        let kas = Double(sompi) / 100_000_000.0
-        return String(format: "%.8f", kas)
-    }
-
     private func saveChanges() {
         var updatedContact = contact
         let trimmedAlias = editedAlias.trimmingCharacters(in: .whitespaces)
@@ -575,6 +473,38 @@ struct ChatInfoView: View {
         editedAlias = domain
         Haptics.success()
         showToast(localizedFormat("Name set to %@. Tap Save to apply.", domain))
+    }
+
+    /// Pushed from the header card's "Domains" row - matches Android's dedicated domain-picker
+    /// screen (SettingsNavigationItem -> onNavigateToDomainSettings) rather than the flat,
+    /// always-visible list this used to be.
+    private var domainsListView: some View {
+        List {
+            ForEach(knsDomains, id: \.inscriptionId) { domain in
+                Button {
+                    applyDomainAsAlias(domain.fullName)
+                } label: {
+                    HStack {
+                        Text(domain.fullName)
+                            .font(.body)
+                            .foregroundColor(.primary)
+                        if domain.fullName == knsInfo?.primaryDomain {
+                            Spacer()
+                            Text("Primary")
+                                .font(.caption)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(Color.accentColor)
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .navigationTitle("Domains")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     @ViewBuilder

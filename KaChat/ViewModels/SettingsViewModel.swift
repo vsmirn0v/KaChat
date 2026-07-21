@@ -12,6 +12,15 @@ extension AppSettings {
         }
         return settings
     }
+
+    /// Symmetric write path for services that don't hold a `SettingsViewModel` reference (e.g.
+    /// SwapService persisting the swap disclaimer flag) - same storage key/notification as
+    /// `SettingsViewModel.saveSettings()`, just callable without an instance.
+    static func save(_ settings: AppSettings) {
+        guard let data = try? JSONEncoder().encode(settings) else { return }
+        UserDefaults.standard.set(data, forKey: "kachat_app_settings")
+        NotificationCenter.default.post(name: .settingsDidChange, object: settings)
+    }
 }
 
 @MainActor
@@ -113,6 +122,14 @@ final class SettingsViewModel: ObservableObject {
         get { settings.kaspaRestAPIURL }
         set {
             settings.kaspaRestAPIURL = newValue
+            saveSettings()
+        }
+    }
+
+    var kaspaExplorer: KaspaExplorer {
+        get { settings.kaspaExplorer }
+        set {
+            settings.kaspaExplorer = newValue
             saveSettings()
         }
     }
