@@ -2,28 +2,29 @@ import Foundation
 import CryptoKit
 import P256K
 
-/// Spending-chain address system: a second BIP44 derivation branch (change=1) off the same
-/// wallet seed, distinct from the identity/chatting address (change=0, index=0, see
-/// `WalletManager.deriveKeysFromSeed`). Addresses are always re-derived live from the seed +
-/// index rather than persisted - only the index bounds are stored, directly on `Wallet`
-/// (`spendingAddressIndex`/`maxSpendingAddressIndex`, persisted via Keychain alongside the
-/// rest of the wallet - see `Wallet.effectiveSpendingAddressIndex` in Models.swift). Hidden-set
-/// and per-address labels aren't part of `Wallet`, so those stay in UserDefaults, scoped per
-/// wallet address.
+/// Spending-chain address system: a second BIP44 *account* branch off the same wallet seed,
+/// distinct from the identity/chatting address's account (see `WalletManager.deriveKeysFromSeed`,
+/// account 0). Addresses are always re-derived live from the seed + index rather than persisted -
+/// only the index bounds are stored, directly on `Wallet` (`spendingAddressIndex`/
+/// `maxSpendingAddressIndex`, persisted via Keychain alongside the rest of the wallet - see
+/// `Wallet.effectiveSpendingAddressIndex` in Models.swift). Hidden-set and per-address labels
+/// aren't part of `Wallet`, so those stay in UserDefaults, scoped per wallet address.
 ///
-/// Path: m/44'/111111'/0'/1/<index> (the identity address uses m/44'/111111'/0'/0/0 - same
-/// account, "internal" change branch instead of "external", the standard BIP44 convention for
-/// a second address chain on the same account).
+/// Path: m/44'/111111'/1'/0/<index> (the identity address uses m/44'/111111'/0'/0/0 - same
+/// purpose/coin type, a separate account index so it can't collide with the identity address,
+/// same external/receive chain shape so gap-limit discovery behaves like normal BIP44 wallet
+/// recovery).
 ///
 /// Reconstructed after this file's original implementation was accidentally lost to an
 /// uncommitted-work-discarding `git checkout` earlier in development (see conversation) -
 /// rebuilt from every call site's exact usage, cross-checked against `Wallet`'s own
 /// `spendingAddressIndex`/`maxSpendingAddressIndex`/`effective*` fields (which survived, since
 /// they live in Models.swift, a file the bad checkout never touched) rather than guessed from
-/// scratch. If any spending-chain address was funded before this reconstruction, verify its
-/// address still matches after rebuilding (the derivation path chosen here is the standard
-/// BIP44 convention, but is a reconstruction, not guaranteed byte-for-byte identical to what
-/// generated the original addresses).
+/// scratch. An initial guess (a change=1 branch under account 0) didn't match - this account-1
+/// variant is the second attempt. If any spending-chain address was funded before this
+/// reconstruction, verify its address still matches after rebuilding (the derivation path
+/// chosen here is a standard-shaped BIP44 branch, but is a reconstruction, not guaranteed
+/// byte-for-byte identical to what generated the original addresses).
 extension WalletManager {
 
     // MARK: - Persisted bounds (on Wallet itself, Keychain-backed)
@@ -99,8 +100,8 @@ extension WalletManager {
         let masterKey = deriveMasterKey(from: seed)
         let purpose = deriveChildKey(from: masterKey, index: 44 | 0x80000000)
         let coinType = deriveChildKey(from: purpose, index: 111111 | 0x80000000)
-        let account = deriveChildKey(from: coinType, index: 0 | 0x80000000)
-        let change = deriveChildKey(from: account, index: 1) // internal/spending chain
+        let account = deriveChildKey(from: coinType, index: 1 | 0x80000000) // separate account branch, not the identity's account 0
+        let change = deriveChildKey(from: account, index: 0) // external/receive chain, same as identity's own chain
         let addressIndex = deriveChildKey(from: change, index: UInt32(index))
         return addressIndex.key
     }
