@@ -43,6 +43,13 @@ final class GroupChatService: ObservableObject {
     private var hasActiveWallet = false
     private var cancellables = Set<AnyCancellable>()
 
+    /// Per-sync-object opaque catch-up cursors (`gcomm|groupId|blindedId`, `gctl|adminAddress`,
+    /// `gctl-recipient|walletAddress`) - lossless, unlike a plain `block_time` (which can collide
+    /// across items sharing a timestamp), so unlike ChatService's UInt64 cursor store this is kept
+    /// separately here rather than reused. See docs/GROUP_CHAT_API.md.
+    private var groupCatchUpCursors: [String: String] = [:]
+    private let groupCatchUpCursorsKey = "kachat_group_catchup_cursors"
+
     private static let gcommPrefix = "ciph_msg:1:gcomm:"
     private static let gctlPrefix = "ciph_msg:1:gctl:"
     private static let gcommPrefixHex = hexPrefix(gcommPrefix)
@@ -62,6 +69,18 @@ final class GroupChatService: ObservableObject {
                 self?.updateScanningStateIfNeeded()
             }
             .store(in: &cancellables)
+        loadGroupCatchUpCursors()
+    }
+
+    private func loadGroupCatchUpCursors() {
+        guard let data = UserDefaults.standard.data(forKey: groupCatchUpCursorsKey),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else { return }
+        groupCatchUpCursors = decoded
+    }
+
+    private func saveGroupCatchUpCursors() {
+        guard let data = try? JSONEncoder().encode(groupCatchUpCursors) else { return }
+        UserDefaults.standard.set(data, forKey: groupCatchUpCursorsKey)
     }
 
     // MARK: - Wallet lifecycle
@@ -86,6 +105,8 @@ final class GroupChatService: ObservableObject {
         store.clearAll()
         groups = []
         groupMessages.removeAll()
+        groupCatchUpCursors = [:]
+        UserDefaults.standard.removeObject(forKey: groupCatchUpCursorsKey)
         updateScanningStateIfNeeded()
     }
 
@@ -487,10 +508,17 @@ final class GroupChatService: ObservableObject {
         try await sendControlPayload(json, to: recipientPublicKey, from: wallet.publicAddress, privateKey: adminPrivateKey)
     }
 
+    /// `recipientPublicKey` here is the recipient's x-only pubkey (`KaspaAddress.publicKey(from:)`
+    /// returns x-only, not the full compressed key ECIES itself needs internally - `KasiaCipher`
+    /// derives that). Wire format is recipient-addressed (`ciph_msg:1:gctl:{recipient_xonly}:
+    /// {encrypted}`), not the legacy unaddressed shape - see docs/GROUP_CHAT_API.md. This lets a
+    /// brand-new member discover a "you were added" control via `GET /group-control/by-recipient`
+    /// before it knows the admin's address at all, and lets push route it to their device even
+    /// with zero locally-known groups (no more indexer-side fan-out-to-everyone fallback).
     private func sendControlPayload(_ json: Data, to recipientPublicKey: Data, from senderAddress: String, privateKey: Data) async throws {
         let jsonString = String(data: json, encoding: .utf8) ?? "{}"
         let encrypted = try KasiaCipher.encrypt(jsonString, recipientPublicKey: recipientPublicKey)
-        let payloadString = Self.gctlPrefix + encrypted.toHex()
+        let payloadString = Self.gctlPrefix + recipientPublicKey.hexString + ":" + encrypted.toHex()
         try await ChatService.shared.enqueueOutgoingTxOperation { [weak self] in
             _ = try await self?.sendSelfStashPayload(payloadString, from: senderAddress, privateKey: privateKey)
         }
@@ -596,7 +624,7 @@ final class GroupChatService: ObservableObject {
                 guard let firstOutput = tx.outputs.first,
                       let scriptData = CryptoUtils.hexToData(firstOutput.scriptPublicKey.scriptPublicKey),
                       let senderAddress = KaspaAddress.address(fromScriptPublicKey: scriptData, hrp: hrp) else { continue }
-                handleIncomingControlMessage(payloadString, senderAddress: senderAddress)
+                handleIncomingControlMessage(Self.normalizeControlPayload(payloadString), senderAddress: senderAddress)
             }
         }
     }
@@ -662,6 +690,24 @@ final class GroupChatService: ObservableObject {
         if !matchedAnyGroup {
             AppLog.log("[GroupChatService] Rejected gcomm: no local group matched blindedGroupId %@", parsed.blindedGroupId.hexString)
         }
+    }
+
+    /// Recipient-addressed gctl (`ciph_msg:1:gctl:{recipient_xonly_pubkey}:{encrypted}`) is only
+    /// relevant to the live block-scan path here - the indexer already strips this routing prefix
+    /// from `message_payload` in REST catch-up responses (see docs/GROUP_CHAT_API.md), so catch-up
+    /// never needs this. Detects and strips an addressed-format recipient prefix, if present, so
+    /// the rest of the parse/decrypt path (shared with legacy gctl) always sees the uniform
+    /// `ciph_msg:1:gctl:{encrypted}` shape. No recipient-address filtering happens here - same as
+    /// legacy gctl already relied on, a mismatched recipient's ECIES decrypt just fails silently.
+    private static func normalizeControlPayload(_ payloadString: String) -> String {
+        guard payloadString.hasPrefix(gctlPrefix) else { return payloadString }
+        let rest = payloadString.dropFirst(gctlPrefix.count)
+        let parts = rest.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0].count == 64,
+              parts[0].allSatisfy({ $0.isHexDigit }) else {
+            return payloadString
+        }
+        return gctlPrefix + parts[1]
     }
 
     private func handleIncomingControlMessage(_ payloadString: String, senderAddress: String) {
@@ -742,20 +788,23 @@ final class GroupChatService: ObservableObject {
 
     // MARK: - Catch-up Sync
 
-    /// Fetches missed `gcomm`/`gctl` history from the indexer for every local group, so a device
-    /// that wasn't actively block-scanning while away (backgrounded, killed, or just closed)
-    /// still catches up. Mirrors ChatService's "adaptive per-object cursor" pattern (see
-    /// CLAUDE.md) and reuses its cursor storage directly (keyed by disjoint `gcomm|`/`gctl|`
-    /// prefixes so entries never collide with 1:1's `hs|`/`ctx|` keys).
-    ///
-    /// `blinded_group_id` is per-sender, not per-group, so `gcomm` catch-up queries once per
-    /// known member (their blinded id is cheap to recompute locally from the group's shared
-    /// blindingKey). `gctl` catch-up queries by the group's admin address - only meaningful for
-    /// groups already joined, since a brand-new invite has no admin address to key off yet
-    /// locally (that case depends on push or being online at the right moment instead).
+    /// Fetches missed `gcomm`/`gctl` history from the indexer, so a device that wasn't actively
+    /// block-scanning while away (backgrounded, killed, or just closed) still catches up. Runs
+    /// three kinds of sync object, each with its own persisted opaque cursor (see
+    /// `groupCatchUpCursors`):
+    ///  - `gcomm` per known group member (`blinded_group_id` is per-sender, not per-group, so
+    ///    this queries once per member, using their blinded id recomputed from the group's shared
+    ///    blindingKey).
+    ///  - `gctl` by admin address, for groups already joined.
+    ///  - `gctl` by our own wallet address (recipient-addressed) - runs unconditionally, even with
+    ///    zero local groups, since this is what actually discovers "you were added to a group"
+    ///    without needing to already know the admin. This replaced the indexer's old
+    ///    fan-out-to-every-device push fallback for that same case.
     func performCatchUpSync() async {
         guard hasActiveWallet else { return }
-        let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
+        guard let wallet = WalletManager.shared.currentWallet else { return }
+
+        await catchUpGroupControlByRecipient(recipientAddress: wallet.publicAddress)
 
         for group in groups {
             guard let bag = try? keychain.loadGroupBag(groupId: group.id),
@@ -764,23 +813,22 @@ final class GroupChatService: ObservableObject {
             for member in group.members {
                 guard let memberPubKey = Data(hexString: member.xOnlyPubKeyHex) else { continue }
                 let blindedGroupId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: memberPubKey)
-                await catchUpGroupMessages(groupId: group.id, blindedGroupIdHex: blindedGroupId.hexString, nowMs: nowMs)
+                await catchUpGroupMessages(groupId: group.id, blindedGroupIdHex: blindedGroupId.hexString)
             }
 
             if !group.adminAddress.isEmpty {
-                await catchUpGroupControl(adminAddress: group.adminAddress, nowMs: nowMs)
+                await catchUpGroupControl(adminAddress: group.adminAddress)
             }
         }
     }
 
-    private func catchUpGroupMessages(groupId: String, blindedGroupIdHex: String, nowMs: UInt64) async {
+    private func catchUpGroupMessages(groupId: String, blindedGroupIdHex: String) async {
         let syncKey = "gcomm|\(groupId)|\(blindedGroupIdHex)"
-        let startBlockTime = ChatService.shared.syncStartBlockTime(for: syncKey, fallbackBlockTime: 0, nowMs: nowMs)
         do {
             let messages = try await KasiaAPIClient.shared.getGroupMessages(
-                blindedGroupId: blindedGroupIdHex, limit: 50, blockTime: startBlockTime
+                blindedGroupId: blindedGroupIdHex, limit: 50, cursor: groupCatchUpCursors[syncKey]
             )
-            ChatService.shared.advanceSyncCursor(for: syncKey, maxBlockTime: messages.map { $0.blockTime }.max())
+            advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
             for msg in messages {
                 guard let payloadString = Self.reconstructPayloadString(prefix: Self.gcommPrefix, messagePayloadHex: msg.messagePayload),
                       let parsed = GroupCipher.parseGroupMessagePayload(payloadString) else { continue }
@@ -792,22 +840,45 @@ final class GroupChatService: ObservableObject {
         }
     }
 
-    private func catchUpGroupControl(adminAddress: String, nowMs: UInt64) async {
+    private func catchUpGroupControl(adminAddress: String) async {
         let syncKey = "gctl|\(adminAddress.lowercased())"
-        let startBlockTime = ChatService.shared.syncStartBlockTime(for: syncKey, fallbackBlockTime: 0, nowMs: nowMs)
         do {
             let messages = try await KasiaAPIClient.shared.getGroupControl(
-                sender: adminAddress, limit: 50, blockTime: startBlockTime
+                sender: adminAddress, limit: 50, cursor: groupCatchUpCursors[syncKey]
             )
-            ChatService.shared.advanceSyncCursor(for: syncKey, maxBlockTime: messages.map { $0.blockTime }.max())
+            advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
             for msg in messages {
                 guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
                 handleIncomingControlMessage(payloadString, senderAddress: msg.sender)
             }
         } catch {
-            AppLog.log("[GroupChatService] Catch-up gctl fetch failed for admin %@: %@",
+            AppLog.log("[GroupChatService] Catch-up gctl-by-sender fetch failed for admin %@: %@",
                        String(adminAddress.suffix(10)), error.localizedDescription)
         }
+    }
+
+    /// Discovers "you were added to a group" via recipient-addressed `gctl` - the only catch-up
+    /// path that works before this device knows any group exists at all. See `performCatchUpSync`.
+    private func catchUpGroupControlByRecipient(recipientAddress: String) async {
+        let syncKey = "gctl-recipient|\(recipientAddress.lowercased())"
+        do {
+            let messages = try await KasiaAPIClient.shared.getGroupControlByRecipient(
+                recipient: recipientAddress, limit: 50, cursor: groupCatchUpCursors[syncKey]
+            )
+            advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
+            for msg in messages {
+                guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
+                handleIncomingControlMessage(payloadString, senderAddress: msg.sender)
+            }
+        } catch {
+            AppLog.log("[GroupChatService] Catch-up gctl-by-recipient fetch failed: %@", error.localizedDescription)
+        }
+    }
+
+    private func advanceGroupCatchUpCursor(for syncKey: String, from cursor: String?) {
+        guard let cursor else { return }
+        groupCatchUpCursors[syncKey] = cursor
+        saveGroupCatchUpCursors()
     }
 
     /// Reverses the indexer's double-hex-encoding of `message_payload` (it hex-encodes the raw

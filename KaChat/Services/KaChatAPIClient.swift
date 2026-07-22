@@ -256,27 +256,44 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
 
     /// `blindedGroupId` is the sender-specific blinded group id (hex-encoded 32 bytes) - callers
     /// must query once per known group member, since each member sends under their own blinded id.
-    func getGroupMessages(blindedGroupId: String, limit: Int = 50, blockTime: UInt64 = 0) async throws -> [GroupMessageResponse] {
-        try await getPaginated(
+    /// Pass `cursor` from a previous response's last item to resume losslessly (`block_time` alone
+    /// can collide across items) - omit only for a first-ever sync. See docs/GROUP_CHAT_API.md.
+    func getGroupMessages(blindedGroupId: String, limit: Int = 50, cursor: String? = nil) async throws -> [GroupMessageResponse] {
+        try await getPaginatedByCursor(
             endpoint: "/group-messages/by-blinded-group-id",
             params: ["blinded_group_id": blindedGroupId],
             limit: limit,
-            startBlockTime: blockTime,
-            getBlockTime: { $0.blockTime }
+            startCursor: cursor,
+            getCursor: { $0.cursor }
         )
     }
 
     // MARK: - Group Control
 
     /// `sender` is the admin's Kaspa address - `gctl` messages are always sent as a self-stash
-    /// transaction from the group admin's own address.
-    func getGroupControl(sender: String, limit: Int = 50, blockTime: UInt64 = 0) async throws -> [GroupControlResponse] {
-        try await getPaginated(
+    /// transaction from the group admin's own address. Only meaningful for a group already
+    /// known locally - see `getGroupControlByRecipient` for first-invite discovery.
+    func getGroupControl(sender: String, limit: Int = 50, cursor: String? = nil) async throws -> [GroupControlResponse] {
+        try await getPaginatedByCursor(
             endpoint: "/group-control/by-sender",
             params: ["sender": sender],
             limit: limit,
-            startBlockTime: blockTime,
-            getBlockTime: { $0.blockTime }
+            startCursor: cursor,
+            getCursor: { $0.cursor }
+        )
+    }
+
+    /// `recipient` is our own wallet address. Recipient-addressed `gctl` controls carry the
+    /// recipient's x-only pubkey on-chain, so this discovers "you were added to a group" before
+    /// the device knows any admin address at all - the fix for first-invite catch-up/push that a
+    /// global device-fanout fallback used to paper over. See docs/GROUP_CHAT_API.md.
+    func getGroupControlByRecipient(recipient: String, limit: Int = 50, cursor: String? = nil) async throws -> [GroupControlResponse] {
+        try await getPaginatedByCursor(
+            endpoint: "/group-control/by-recipient",
+            params: ["recipient": recipient],
+            limit: limit,
+            startCursor: cursor,
+            getCursor: { $0.cursor }
         )
     }
 
@@ -374,6 +391,79 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
 
         if pageCount >= maxPages {
             AppLog.log("[KasiaAPI] Pagination: reached max pages (%d) for %@, total items: %d",
+                  maxPages, endpoint, allResults.count)
+        }
+
+        return allResults
+    }
+
+    /// Cursor-based counterpart to `getPaginated` - group endpoints return an opaque `cursor`
+    /// alongside `block_time` since multiple items can share the same block_time (see
+    /// docs/GROUP_CHAT_API.md). A first-ever sync (no stored cursor) omits the param entirely,
+    /// which the indexer treats as "from the beginning" - once any page comes back, every
+    /// subsequent page (within this call, and future calls once the caller persists it) resumes
+    /// from the last item's cursor instead.
+    private func getPaginatedByCursor<T: Decodable>(
+        endpoint: String,
+        params: [String: String],
+        limit: Int,
+        startCursor: String?,
+        maxPages: Int = 20,
+        getCursor: (T) -> String?
+    ) async throws -> [T] {
+        var allResults: [T] = []
+        var currentCursor = startCursor
+        var pageCount = 0
+        let baseLimit = limit
+        var currentLimit = baseLimit
+
+        while pageCount < maxPages {
+            var pageParams = params
+            pageParams["limit"] = String(currentLimit)
+            if let currentCursor {
+                pageParams["cursor"] = currentCursor
+            }
+
+            let results: [T]
+            do {
+                results = try await get(endpoint: endpoint, params: pageParams)
+            } catch {
+                if await shouldScaleDownPagination(error) {
+                    let nextLimit = nextDpiLimit(after: currentLimit, fallbackBase: baseLimit)
+                    if nextLimit < currentLimit {
+                        AppLog.log("[KasiaAPI] DPI pagination: reducing limit from %d to %d for %@", currentLimit, nextLimit, endpoint)
+                        currentLimit = nextLimit
+                        continue
+                    }
+                    if currentLimit <= 1 {
+                        AppLog.log("[KasiaAPI] DPI pagination: limit=1 failed for %@", endpoint)
+                        throw KasiaAPIClientError.dpiPaginationExhausted(endpoint: endpoint)
+                    }
+                }
+                throw error
+            }
+            allResults.append(contentsOf: results)
+
+            if results.count < currentLimit {
+                break
+            }
+
+            guard let nextCursor = results.last.flatMap(getCursor), nextCursor != currentCursor else {
+                // No cursor on the last item, or no progress - stop pagination rather than loop.
+                break
+            }
+
+            currentCursor = nextCursor
+            pageCount += 1
+
+            if pageCount > 1 {
+                AppLog.log("[KasiaAPI] Cursor pagination: fetched page %d for %@, total items: %d",
+                      pageCount, endpoint, allResults.count)
+            }
+        }
+
+        if pageCount >= maxPages {
+            AppLog.log("[KasiaAPI] Cursor pagination: reached max pages (%d) for %@, total items: %d",
                   maxPages, endpoint, allResults.count)
         }
 

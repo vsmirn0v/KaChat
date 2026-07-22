@@ -575,6 +575,10 @@ struct GroupMessageResponse: Codable {
     let sender: String?
     let blindedGroupId: String
     let blockTime: UInt64
+    /// Opaque lossless pagination cursor - `block_time` alone can collide across items, so
+    /// catch-up sync should persist and resume from this instead. Optional for source
+    /// compatibility with an older indexer that doesn't send it yet. See docs/GROUP_CHAT_API.md.
+    let cursor: String?
     let acceptingBlock: String?
     let acceptingDaaScore: UInt64?
     let messagePayload: String
@@ -584,6 +588,7 @@ struct GroupMessageResponse: Codable {
         case sender
         case blindedGroupId = "blinded_group_id"
         case blockTime = "block_time"
+        case cursor
         case acceptingBlock = "accepting_block"
         case acceptingDaaScore = "accepting_daa_score"
         case messagePayload = "message_payload"
@@ -593,7 +598,12 @@ struct GroupMessageResponse: Codable {
 struct GroupControlResponse: Codable {
     let txId: String
     let sender: String
+    /// Present for recipient-addressed controls (`GET /group-control/by-recipient`); nil for
+    /// legacy unaddressed ones. See docs/GROUP_CHAT_API.md.
+    let recipient: String?
     let blockTime: UInt64
+    /// Opaque lossless pagination cursor - see [GroupMessageResponse.cursor].
+    let cursor: String?
     let acceptingBlock: String?
     let acceptingDaaScore: UInt64?
     let messagePayload: String
@@ -601,7 +611,9 @@ struct GroupControlResponse: Codable {
     enum CodingKeys: String, CodingKey {
         case txId = "tx_id"
         case sender
+        case recipient
         case blockTime = "block_time"
+        case cursor
         case acceptingBlock = "accepting_block"
         case acceptingDaaScore = "accepting_daa_score"
         case messagePayload = "message_payload"
