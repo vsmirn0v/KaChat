@@ -570,6 +570,44 @@ struct SelfStashResponse: Codable {
     }
 }
 
+struct GroupMessageResponse: Codable {
+    let txId: String
+    let sender: String?
+    let blindedGroupId: String
+    let blockTime: UInt64
+    let acceptingBlock: String?
+    let acceptingDaaScore: UInt64?
+    let messagePayload: String
+
+    enum CodingKeys: String, CodingKey {
+        case txId = "tx_id"
+        case sender
+        case blindedGroupId = "blinded_group_id"
+        case blockTime = "block_time"
+        case acceptingBlock = "accepting_block"
+        case acceptingDaaScore = "accepting_daa_score"
+        case messagePayload = "message_payload"
+    }
+}
+
+struct GroupControlResponse: Codable {
+    let txId: String
+    let sender: String
+    let blockTime: UInt64
+    let acceptingBlock: String?
+    let acceptingDaaScore: UInt64?
+    let messagePayload: String
+
+    enum CodingKeys: String, CodingKey {
+        case txId = "tx_id"
+        case sender
+        case blockTime = "block_time"
+        case acceptingBlock = "accepting_block"
+        case acceptingDaaScore = "accepting_daa_score"
+        case messagePayload = "message_payload"
+    }
+}
+
 /// Decrypted saved handshake data from self-stash
 /// Format from Kasia web: { type, alias, timestamp, version, theirAlias, partnerAddress, recipientAddress, isResponse }
 struct SavedHandshakeData: Codable {
@@ -1762,13 +1800,4 @@ struct GroupMessage: Identifiable, Equatable {
     let blockTime: Int64
     let isOutgoing: Bool
     var deliveryStatus: ChatMessage.DeliveryStatus
-}
-
-/// A shareable invite for deterministic, handshake-free group join (KaChat extension - see
-/// GroupCipher's invite-beacon derivations). The `inviteSeed` is the actual bearer secret;
-/// treat this like a capability token; anyone who has it can join the group.
-struct GroupInvite: Codable, Equatable {
-    let groupId: String
-    let inviteSeedHex: String
-    let createdAt: Date
 }

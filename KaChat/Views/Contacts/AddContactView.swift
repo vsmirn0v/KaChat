@@ -26,9 +26,31 @@ struct AddContactView: View {
     // Group chat mode
     @State private var isGroupMode = false
     @State private var groupName = ""
-    @State private var groupAddressInputs: [String] = [""]
+    @State private var groupAddressEntries: [GroupAddressEntry] = [GroupAddressEntry()]
     @State private var isCreatingGroup = false
+    @State private var scanningGroupRowID: UUID?
     private static let maxGroupMembers = 10
+
+    /// One row in the group-member address list - supports both a raw Kaspa address and a KNS
+    /// domain (resolved the same way the single-contact flow resolves `addressInput`).
+    @MainActor
+    private struct GroupAddressEntry: Identifiable {
+        let id = UUID()
+        var text = ""
+        var isResolvingKNS = false
+        var resolvedAddress: String?
+        var resolvedDomain: String?
+        var knsError: String?
+
+        var trimmedText: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+        var looksLikeDomain: Bool { KNSService.looksLikeDomain(trimmedText) }
+
+        /// The actual address this row resolves to (resolved KNS owner address, or the raw
+        /// typed/scanned address) - nil while a domain hasn't resolved yet.
+        var effectiveAddress: String? {
+            looksLikeDomain ? resolvedAddress : (trimmedText.isEmpty ? nil : trimmedText)
+        }
+    }
 
     private let knsService = KNSService.shared
 
@@ -203,6 +225,29 @@ struct AddContactView: View {
                     handleScannedQRCode(scannedCode)
                 }
             }
+            .sheet(isPresented: Binding(
+                get: { scanningGroupRowID != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        // Scanner dismissed without a scan (e.g. Cancel) - drop the row it was
+                        // pre-appended for if the user never filled it in.
+                        if let rowID = scanningGroupRowID,
+                           let entry = groupAddressEntries.first(where: { $0.id == rowID }),
+                           entry.trimmedText.isEmpty,
+                           groupAddressEntries.count > 1 {
+                            groupAddressEntries.removeAll { $0.id == rowID }
+                        }
+                        scanningGroupRowID = nil
+                    }
+                }
+            )) {
+                if let rowID = scanningGroupRowID {
+                    QRScannerView { scannedCode in
+                        handleScannedGroupQRCode(scannedCode, rowID: rowID)
+                        scanningGroupRowID = nil
+                    }
+                }
+            }
             .sheet(isPresented: $showSystemContactPicker) {
                 SystemContactPickerSheet(
                     title: "Import from Contacts",
@@ -366,63 +411,178 @@ struct AddContactView: View {
         }
 
         Section {
-            ForEach(groupAddressInputs.indices, id: \.self) { index in
-                HStack {
-                    TextField("kaspa:qr... address \(index + 1)", text: $groupAddressInputs[index])
-                        .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
+            ForEach($groupAddressEntries) { $entry in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        TextField("kaspa:qr... or name.kas", text: $entry.text)
+                            .font(.system(.body, design: .monospaced))
+                            .autocapitalization(.none)
+                            .autocorrectionDisabled()
+                            .onChange(of: entry.text) { newValue in
+                                resolveGroupAddress(id: entry.id, input: newValue)
+                            }
 
-                    if groupAddressInputs.count > 1 {
-                        Button {
-                            groupAddressInputs.remove(at: index)
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                                .foregroundColor(.red)
+                        if groupAddressEntries.count > 1 {
+                            Button {
+                                groupAddressEntries.removeAll { $0.id == entry.id }
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.borderless)
                         }
-                        .buttonStyle(.borderless)
                     }
+
+                    groupAddressStatus(for: entry)
                 }
             }
 
-            if groupAddressInputs.count < Self.maxGroupMembers {
+            HStack {
                 Button {
-                    groupAddressInputs.append("")
+                    groupAddressEntries.append(GroupAddressEntry())
                 } label: {
                     Label("Add Address", systemImage: "plus.circle")
                 }
+                .disabled(groupAddressEntries.count >= Self.maxGroupMembers)
+
+                Spacer()
+
+                Button {
+                    if groupAddressEntries.count >= Self.maxGroupMembers {
+                        return
+                    }
+                    let newEntry = GroupAddressEntry()
+                    groupAddressEntries.append(newEntry)
+                    scanningGroupRowID = newEntry.id
+                } label: {
+                    Label("Scan QR Code", systemImage: "qrcode.viewfinder")
+                }
+                .disabled(groupAddressEntries.count >= Self.maxGroupMembers)
             }
+            .buttonStyle(.borderless)
         } header: {
             Text("Members")
         } footer: {
-            Text("Up to \(Self.maxGroupMembers) addresses. Anyone not already a contact will be added automatically.")
+            Text("Up to \(Self.maxGroupMembers) addresses or KNS domains. Anyone not already a contact will be added automatically.")
         }
+    }
+
+    @ViewBuilder
+    private func groupAddressStatus(for entry: GroupAddressEntry) -> some View {
+        if entry.trimmedText.isEmpty {
+            EmptyView()
+        } else if entry.isResolvingKNS {
+            HStack {
+                ProgressView().scaleEffect(0.8)
+                Text("Resolving KNS domain...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        } else if let knsError = entry.knsError {
+            HStack {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundColor(.red)
+                Text(knsError)
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+        } else if entry.looksLikeDomain, let resolved = entry.resolvedAddress {
+            HStack {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("Resolved: \(resolved.suffix(12))")
+                    .font(.caption)
+                    .foregroundColor(.green)
+                    .lineLimit(1)
+            }
+        } else if !entry.looksLikeDomain {
+            let isValid = contactsManager.isValidKaspaAddress(entry.trimmedText)
+            HStack {
+                Image(systemName: isValid ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundColor(isValid ? .green : .red)
+                Text(isValid ? "Valid address" : "Invalid address format")
+                    .font(.caption)
+                    .foregroundColor(isValid ? .green : .red)
+            }
+        }
+    }
+
+    private func resolveGroupAddress(id: UUID, input: String) {
+        guard let index = groupAddressEntries.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        groupAddressEntries[index].resolvedAddress = nil
+        groupAddressEntries[index].resolvedDomain = nil
+        groupAddressEntries[index].knsError = nil
+        groupAddressEntries[index].isResolvingKNS = false
+
+        guard !trimmed.isEmpty, KNSService.looksLikeDomain(trimmed) else { return }
+
+        groupAddressEntries[index].isResolvingKNS = true
+        Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard let currentIndex = groupAddressEntries.firstIndex(where: { $0.id == id }),
+                  groupAddressEntries[currentIndex].trimmedText == trimmed else {
+                return
+            }
+            if let resolution = await knsService.resolveDomain(trimmed) {
+                await MainActor.run {
+                    guard let i = groupAddressEntries.firstIndex(where: { $0.id == id }) else { return }
+                    groupAddressEntries[i].resolvedAddress = resolution.ownerAddress
+                    groupAddressEntries[i].resolvedDomain = resolution.domain
+                    groupAddressEntries[i].isResolvingKNS = false
+                }
+            } else {
+                await MainActor.run {
+                    guard let i = groupAddressEntries.firstIndex(where: { $0.id == id }) else { return }
+                    groupAddressEntries[i].knsError = "KNS domain not found"
+                    groupAddressEntries[i].isResolvingKNS = false
+                }
+            }
+        }
+    }
+
+    private func handleScannedGroupQRCode(_ code: String, rowID: UUID) {
+        var scannedAddress = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        if scannedAddress.lowercased().hasPrefix("kaspa:") || scannedAddress.lowercased().hasPrefix("kaspatest:") {
+            if let queryIndex = scannedAddress.firstIndex(of: "?") {
+                scannedAddress = String(scannedAddress[..<queryIndex])
+            }
+        }
+        guard let index = groupAddressEntries.firstIndex(where: { $0.id == rowID }) else { return }
+        groupAddressEntries[index].text = scannedAddress
+        resolveGroupAddress(id: rowID, input: scannedAddress)
     }
 
     private var canCreateGroup: Bool {
         guard !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        let addresses = groupAddressInputs.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        guard !addresses.isEmpty else { return false }
-        return addresses.allSatisfy { contactsManager.isValidKaspaAddress($0) }
+        let nonEmptyEntries = groupAddressEntries.filter { !$0.trimmedText.isEmpty }
+        guard !nonEmptyEntries.isEmpty else { return false }
+        return nonEmptyEntries.allSatisfy { entry in
+            guard let address = entry.effectiveAddress else { return false }
+            return contactsManager.isValidKaspaAddress(address)
+        }
     }
 
     private func createGroupChat() {
         let trimmedName = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let addresses = groupAddressInputs
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        let nonEmptyEntries = groupAddressEntries.filter { !$0.trimmedText.isEmpty }
 
         guard !trimmedName.isEmpty else {
             error = "Enter a group name."
             return
         }
-        guard !addresses.isEmpty else {
+        guard !nonEmptyEntries.isEmpty else {
             error = "Add at least one address."
             return
         }
-        for address in addresses where !contactsManager.isValidKaspaAddress(address) {
-            error = "Invalid address: \(address)"
-            return
+        var addresses: [String] = []
+        for entry in nonEmptyEntries {
+            guard let address = entry.effectiveAddress, contactsManager.isValidKaspaAddress(address) else {
+                error = entry.looksLikeDomain ? "Could not resolve \(entry.trimmedText)" : "Invalid address: \(entry.trimmedText)"
+                return
+            }
+            addresses.append(address)
         }
 
         isCreatingGroup = true

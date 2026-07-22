@@ -252,6 +252,34 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
         )
     }
 
+    // MARK: - Group Messages
+
+    /// `blindedGroupId` is the sender-specific blinded group id (hex-encoded 32 bytes) - callers
+    /// must query once per known group member, since each member sends under their own blinded id.
+    func getGroupMessages(blindedGroupId: String, limit: Int = 50, blockTime: UInt64 = 0) async throws -> [GroupMessageResponse] {
+        try await getPaginated(
+            endpoint: "/group-messages/by-blinded-group-id",
+            params: ["blinded_group_id": blindedGroupId],
+            limit: limit,
+            startBlockTime: blockTime,
+            getBlockTime: { $0.blockTime }
+        )
+    }
+
+    // MARK: - Group Control
+
+    /// `sender` is the admin's Kaspa address - `gctl` messages are always sent as a self-stash
+    /// transaction from the group admin's own address.
+    func getGroupControl(sender: String, limit: Int = 50, blockTime: UInt64 = 0) async throws -> [GroupControlResponse] {
+        try await getPaginated(
+            endpoint: "/group-control/by-sender",
+            params: ["sender": sender],
+            limit: limit,
+            startBlockTime: blockTime,
+            getBlockTime: { $0.blockTime }
+        )
+    }
+
     // MARK: - Metrics
 
     func getMetrics() async throws -> IndexerMetrics {

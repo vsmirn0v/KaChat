@@ -28,6 +28,7 @@ struct ChatListView: View {
     @State private var avatarPrefetchTask: Task<Void, Never>?
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var contactPendingDelete: Contact?
+    @State private var groupPendingDelete: GroupChat?
     @State private var editMode: EditMode = .inactive
     @State private var selectedContactIDs: Set<UUID> = []
 
@@ -140,6 +141,26 @@ struct ChatListView: View {
             } message: {
                 Text("This permanently deletes every message with them, including from iCloud, so it's removed from your other devices too. This cannot be undone.")
             }
+            .alert(
+                "Delete \"\(groupPendingDelete?.name ?? "")\"",
+                isPresented: Binding(
+                    get: { groupPendingDelete != nil },
+                    set: { if !$0 { groupPendingDelete = nil } }
+                )
+            ) {
+                Button("Delete", role: .destructive) {
+                    if let group = groupPendingDelete {
+                        if selectedGroup?.id == group.id { selectedGroup = nil }
+                        groupChatService.deleteGroup(group.id)
+                    }
+                    groupPendingDelete = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    groupPendingDelete = nil
+                }
+            } message: {
+                Text("This removes the group and its messages from this device. This cannot be undone, and other members won't be notified.")
+            }
             .modifier(BroadcastListNavigationDestination(
                 mode: BroadcastNavigationPolicy.listPresentationMode(usesSplitLayout: shouldUseSplitLayout),
                 showBroadcastList: $showBroadcastList,
@@ -154,7 +175,7 @@ struct ChatListView: View {
             BroadcastListView(initialChannel: pendingBroadcastChannel)
                 .id(pendingBroadcastChannel ?? "__broadcasts")
         } else if let group = selectedGroup {
-            GroupChatDetailView(group: group)
+            GroupChatDetailView(group: group, onDeleted: { selectedGroup = nil })
                 .id(group.id)
         } else if let contact = selectedContact {
             ChatDetailView(contact: contact, startInPaymentMode: selectedContactStartInPaymentMode)
@@ -394,6 +415,14 @@ struct ChatListView: View {
                                 ? Color.accentColor.opacity(0.14)
                                 : Color.clear
                         )
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                groupPendingDelete = group
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            .tint(.red)
+                        }
                     }
                 }
             }
@@ -731,7 +760,7 @@ private struct GroupChatDetailNavigationDestination: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 17.0, *) {
             content.navigationDestination(item: $selectedGroup) { group in
-                GroupChatDetailView(group: group)
+                GroupChatDetailView(group: group, onDeleted: { selectedGroup = nil })
             }
         } else {
             content.navigationDestination(isPresented: Binding(
@@ -743,7 +772,7 @@ private struct GroupChatDetailNavigationDestination: ViewModifier {
                 }
             )) {
                 if let group = selectedGroup {
-                    GroupChatDetailView(group: group)
+                    GroupChatDetailView(group: group, onDeleted: { selectedGroup = nil })
                 } else {
                     EmptyView()
                 }

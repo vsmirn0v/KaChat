@@ -3,8 +3,8 @@ import Combine
 import CryptoKit
 import P256K
 
-/// Orchestrates KaChat's group chat feature: group lifecycle (create/add/remove member,
-/// epoch rotation), sending/receiving `gcomm` group messages, and the invite-beacon join flow.
+/// Orchestrates KaChat's group chat feature: group lifecycle (create/add/remove member, epoch
+/// rotation) and sending/receiving `gcomm` group messages.
 ///
 /// Architecturally self-contained, like `BroadcastService`: owns its own block-scan discovery
 /// (`NodePoolService.shared.subscribeBlockAdded()`) rather than threading group state through
@@ -13,15 +13,21 @@ import P256K
 /// (`prepareMessageUtxos`/`enqueueOutgoingTxOperation`/etc.) since that's shared, correctness-
 /// critical state across every service that spends the wallet's UTXOs.
 ///
-/// Three on-chain payload types, all self-stash (sender spends their own UTXOs, output returns
-/// to their own address), all discovered via the same block-scan:
+/// Two on-chain payload types, both self-stash (sender spends their own UTXOs, output returns
+/// to their own address), both discovered via the same block-scan:
 ///  - `ciph_msg:1:gcomm:...` - a group message (see GroupCipher, protocol spec).
-///  - `ciph_msg:1:ginv:...` - an invite beacon (KaChat extension, see GroupCipher).
 ///  - `ciph_msg:1:gctl:...` - a control message (`gctl_root`/`gctl_epoch`), ECIES-encrypted
 ///    (via KasiaCipher, the same crypto 1:1 contextual messages use) to one specific recipient.
 ///    The spec describes this as riding "the existing 1:1 encrypted COMM channel" - here that
 ///    means reusing the same ECIES scheme and self-stash shape, not literally routing through
 ///    ChatService's contact/conversation UI, so control payloads never leak into a 1:1 chat.
+///
+/// Deliberately no invite-link/beacon join path: every member is added directly by the admin,
+/// who already knows who they are (see `addMember`/`createGroup`). A prior revision had a
+/// publicly-joinable invite beacon (KaChat extension, not in the reference spec) - removed once
+/// group chats route through indexers, since a way for anyone to discover and join a group's
+/// *encrypted* chat is exactly the kind of thing that could be used to infer something bad is
+/// happening inside it and pressure an indexer operator into censoring it.
 @MainActor
 final class GroupChatService: ObservableObject {
     static let shared = GroupChatService()
@@ -32,30 +38,37 @@ final class GroupChatService: ObservableObject {
     private let store = GroupStore.shared
     private let keychain = KeychainService.shared
 
-    /// Pending invite seeds this device is scanning for, keyed by invite_tag.
-    private var pendingInvites: [Data: Data] = [:]
-
     private var blockNotificationHandlerId: UUID?
     private var isScanningActive = false
+    private var hasActiveWallet = false
+    private var cancellables = Set<AnyCancellable>()
 
     private static let gcommPrefix = "ciph_msg:1:gcomm:"
-    private static let ginvPrefix = "ciph_msg:1:ginv:"
     private static let gctlPrefix = "ciph_msg:1:gctl:"
     private static let gcommPrefixHex = hexPrefix(gcommPrefix)
-    private static let ginvPrefixHex = hexPrefix(ginvPrefix)
     private static let gctlPrefixHex = hexPrefix(gctlPrefix)
 
     private static func hexPrefix(_ string: String) -> String {
         string.utf8.map { String(format: "%02x", $0) }.joined()
     }
 
-    private init() {}
+    private init() {
+        // Re-evaluate scanning as the node pool warms up - see updateScanningStateIfNeeded's
+        // gating on activeNodeCount for why this needs to be reactive, not just re-checked at
+        // wallet-load time (activeNodeCount is almost always still 0 right then, at cold start).
+        NodePoolService.shared.$activeNodeCount
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateScanningStateIfNeeded()
+            }
+            .store(in: &cancellables)
+    }
 
     // MARK: - Wallet lifecycle
 
     func setCurrentWallet(_ walletAddress: String?) {
+        hasActiveWallet = walletAddress != nil
         store.setCurrentWallet(walletAddress)
-        pendingInvites.removeAll()
         groups = walletAddress == nil ? [] : store.allGroups()
         groupMessages.removeAll()
         for group in groups {
@@ -73,7 +86,6 @@ final class GroupChatService: ObservableObject {
         store.clearAll()
         groups = []
         groupMessages.removeAll()
-        pendingInvites.removeAll()
         updateScanningStateIfNeeded()
     }
 
@@ -123,12 +135,13 @@ final class GroupChatService: ObservableObject {
         )
         store.upsertGroup(group)
         groups = store.allGroups()
+        SharedDataManager.syncGroupsForExtension()
         groupMessages[group.id] = []
         updateScanningStateIfNeeded()
 
-        // Distribute gctl_root to each initial member directly (they must already be 1:1
-        // contacts, i.e. their pubkey is resolvable from their address). Members added later
-        // via invite link don't need this - they bootstrap from the invite beacon instead.
+        // Distribute gctl_root to each initial member directly - they must already be 1:1
+        // contacts, i.e. their pubkey is resolvable from their address (every member is added
+        // this way; there's no invite-link bootstrap path, see file doc).
         var sendErrors: [Error] = []
         for member in roster where !member.isAdmin {
             do {
@@ -167,6 +180,20 @@ final class GroupChatService: ObservableObject {
         }
     }
 
+    /// Deletes a group locally: its message history, Keychain-held secrets (root/seed/blinding
+    /// key), and roster. Local-only, like leaving/deleting a broadcast channel - there's no
+    /// server-side group record to delete, and other members aren't notified (the trust model
+    /// is single-admin push, not a shared membership ledger, so this device simply stops
+    /// tracking the group and can no longer decrypt or send to it).
+    func deleteGroup(_ groupId: String) {
+        try? keychain.deleteGroupBag(groupId: groupId)
+        store.deleteGroup(id: groupId)
+        groups.removeAll { $0.id == groupId }
+        groupMessages.removeValue(forKey: groupId)
+        SharedDataManager.syncGroupsForExtension()
+        updateScanningStateIfNeeded()
+    }
+
     private func rotateEpoch(groupId: String, reason: GroupCipher.EpochChangeReason, mutateRoster: (inout [GroupMember]) throws -> Void) async throws {
         guard var group = store.group(id: groupId), group.isAdmin else {
             throw KasiaError.networkError("Only the group admin can change membership.")
@@ -192,6 +219,7 @@ final class GroupChatService: ObservableObject {
         group.currentEpoch = newEpoch
         store.upsertGroup(group)
         groups = store.allGroups()
+        SharedDataManager.syncGroupsForExtension()
 
         var sendErrors: [Error] = []
         for member in roster where member.address != wallet.publicAddress {
@@ -209,70 +237,120 @@ final class GroupChatService: ObservableObject {
         }
     }
 
-    // MARK: - Invite beacon (KaChat extension)
+    // MARK: - Sending group messages
 
-    /// Builds a shareable invite link for a group. The admin still needs to call
-    /// `publishInvite` (at least once) for scanning devices to actually discover it on-chain.
-    func createInvite(for groupId: String) throws -> GroupInvite {
-        let inviteSeed = GroupCipher.generateInviteSeed()
-        return GroupInvite(groupId: groupId, inviteSeedHex: inviteSeed.hexString, createdAt: Date())
-    }
-
-    static func inviteLink(_ invite: GroupInvite) -> String {
-        "kachat-group-invite:v1:\(invite.inviteSeedHex)"
-    }
-
-    static func parseInviteLink(_ link: String) -> Data? {
-        let prefix = "kachat-group-invite:v1:"
-        guard link.hasPrefix(prefix) else { return nil }
-        return Data(hexString: String(link.dropFirst(prefix.count)))
-    }
-
-    /// Publishes (or republishes) the invite beacon on-chain so scanning devices can find it.
-    func publishInvite(_ invite: GroupInvite) async throws {
-        guard let group = store.group(id: invite.groupId), group.isAdmin else {
-            throw KasiaError.networkError("Only the group admin can publish an invite.")
+    /// Sends a photo to the group - same inline JSON envelope 1:1 chat's `ChatService.sendImage`
+    /// uses (`{"type":"file","name","size","mimeType","content":"data:...;base64,..."}`), just
+    /// carried as a `gcomm` message's plaintext instead of a 1:1 contextual message. Reusing the
+    /// exact envelope shape means `MediaFile`/`LazyImageBubble` (`MessageBubbleView.swift`) render
+    /// it with no changes.
+    func sendGroupImage(_ imageData: Data, to groupId: String, fileName: String = "photo.jpg", mimeType: String = "image/jpeg") async throws {
+        guard !imageData.isEmpty else {
+            throw KasiaError.networkError("Image is empty")
         }
-        guard let bag = try keychain.loadGroupBag(groupId: invite.groupId),
-              let gid = Data(hexString: invite.groupId),
+        let base64 = imageData.base64EncodedString()
+        let payload: [String: Any] = [
+            "type": "file",
+            "name": fileName,
+            "size": imageData.count,
+            "mimeType": mimeType,
+            "content": "data:\(mimeType);base64,\(base64)"
+        ]
+        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
+        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+            throw KasiaError.networkError("Failed to prepare image payload")
+        }
+        try await sendGroupMessage(jsonString, to: groupId)
+    }
+
+    /// Sends a voice message to the group - same envelope/reuse rationale as `sendGroupImage`.
+    func sendGroupAudio(_ audioData: Data, to groupId: String, fileName: String = "voice.webm", mimeType: String = "audio/webm") async throws {
+        guard !audioData.isEmpty else {
+            throw KasiaError.networkError("Audio file is empty")
+        }
+        let base64 = audioData.base64EncodedString()
+        let payload: [String: Any] = [
+            "type": "file",
+            "name": fileName,
+            "size": audioData.count,
+            "mimeType": mimeType,
+            "content": "data:\(mimeType);base64,\(base64)"
+        ]
+        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
+        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+            throw KasiaError.networkError("Failed to prepare audio payload")
+        }
+        try await sendGroupMessage(jsonString, to: groupId)
+    }
+
+    // MARK: - Fee estimation
+
+    /// Live "fee: N KAS" preview while composing a group text message - builds the exact real
+    /// `gcomm` payload (same crypto as an actual send) rather than a size heuristic, matching
+    /// `BroadcastService.estimateBroadcastFee(channel:content:)`. Read-only: doesn't touch
+    /// `msgCounter` (a throwaway counter value is fine for sizing, since msg_id is a fixed 24
+    /// bytes regardless of the counter's value).
+    func estimateGroupMessageFee(_ text: String, for groupId: String) async throws -> UInt64 {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw KasiaError.networkError("Message is empty")
+        }
+        guard let bag = try keychain.loadGroupBag(groupId: groupId),
+              let gid = Data(hexString: groupId),
               let groupRootEpoch = Data(hexString: bag.groupRootEpoch),
               let blindingKey = Data(hexString: bag.blindingKey),
-              let adminXOnlyPub = Data(hexString: group.adminXOnlyPubKeyHex),
-              let inviteSeed = Data(hexString: invite.inviteSeedHex) else {
-            throw KasiaError.networkError("Missing group secrets.")
+              let deviceId = Data(hexString: bag.deviceId) else {
+            throw KasiaError.networkError("Missing group secrets - try rejoining this group.")
         }
-        guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey() else {
+        guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey(),
+              let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) else {
             throw KasiaError.walletNotFound
         }
-
-        let rootPayload = try GroupCipher.buildSignedRootPayload(
-            groupId: gid, epoch: bag.currentEpoch, groupRootEpoch: groupRootEpoch, blindingKey: blindingKey,
-            adminSigningPub: adminXOnlyPub, members: group.members.map { $0.address }, name: group.name,
-            adminPrivateKey: privateKey
+        let senderXOnlyPub = try schnorrXOnlyPublicKey(from: privateKey)
+        let senderId = GroupCipher.deriveSenderId(senderAddress: wallet.publicAddress)
+        let msgId = GroupCipher.buildMsgId(deviceId: deviceId, counter: bag.msgCounter + 1)
+        let ciphertext = try GroupCipher.encryptMessage(
+            plaintext: trimmed, groupRootEpoch: groupRootEpoch, groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId
         )
-        let innerJSON = try JSONEncoder().encode(rootPayload)
-        let encrypted = try GroupCipher.encryptInvitePayload(innerJSON, inviteSeed: inviteSeed)
-        let inviteTag = GroupCipher.deriveInviteTag(inviteSeed: inviteSeed)
-        let payloadString = GroupCipher.buildGroupInvitePayload(inviteTag: inviteTag, encryptedPayload: encrypted)
+        let aad = GroupCipher.buildMessageAAD(groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId)
+        let signature = try GroupCipher.sign(
+            GroupCipher.buildMessageSigningPayload(aad: aad, ciphertextWithTag: ciphertext), privateKey: privateKey
+        )
+        let blindedGroupId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: senderXOnlyPub)
+        let payloadString = GroupCipher.buildGroupMessagePayload(
+            blindedGroupId: blindedGroupId, epoch: bag.currentEpoch, senderId: senderId, senderPubKey: senderXOnlyPub,
+            msgId: msgId, ciphertext: ciphertext, signature: signature
+        )
+        return KasiaTransactionBuilder.estimateBroadcastFee(
+            payload: Data(payloadString.utf8), inputCount: 1, senderScriptPubKey: senderScriptPubKey
+        )
+    }
 
-        _ = try await ChatService.shared.enqueueOutgoingTxOperation { [weak self] in
-            try await self?.sendSelfStashPayload(payloadString, from: wallet.publicAddress, privateKey: privateKey)
+    /// Heuristic fee preview for a not-yet-sent photo/audio message (final bytes aren't known
+    /// until compression/encoding finishes) - same shape as `ImagePrep.estimatedWirePayloadSize`,
+    /// but sized for `gcomm`'s wire format: raw bytes -> base64 (1.33x) in the JSON envelope ->
+    /// ChaCha20-Poly1305 (+16 byte tag) -> hex (2x) for the ciphertext field, plus ~370 bytes of
+    /// fixed hex-encoded overhead (blinded_group_id/sender_id/sender_pub/msg_id/signature) that
+    /// 1:1's ECIES-only envelope doesn't carry.
+    func estimatedGroupWirePayloadSize(rawBytes: Int) -> Int {
+        let jsonEnvelopeBytes = Int(Double(rawBytes) * 1.33) + 150
+        let ciphertextHexBytes = (jsonEnvelopeBytes + 16) * 2
+        return ciphertextHexBytes + 370
+    }
+
+    /// Fee preview for a staged/in-progress photo or audio message, from an estimated raw byte
+    /// count - mirrors `estimateGroupMessageFee`'s real-payload version but for content that
+    /// doesn't exist yet.
+    func estimateGroupMediaFee(rawBytes: Int) -> UInt64? {
+        guard let wallet = WalletManager.shared.currentWallet,
+              let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) else {
+            return nil
         }
+        let dummyPayload = Data(count: estimatedGroupWirePayloadSize(rawBytes: rawBytes))
+        return KasiaTransactionBuilder.estimateBroadcastFee(
+            payload: dummyPayload, inputCount: 1, senderScriptPubKey: senderScriptPubKey
+        )
     }
-
-    /// Registers an invite link for background scanning. The actual join completes
-    /// asynchronously once (if) a matching beacon is seen on-chain - call `publishInvite`
-    /// on the sharer's side to make sure one is actually being broadcast.
-    @discardableResult
-    func joinFromInvite(_ inviteLink: String) -> Bool {
-        guard let inviteSeed = Self.parseInviteLink(inviteLink) else { return false }
-        let inviteTag = GroupCipher.deriveInviteTag(inviteSeed: inviteSeed)
-        pendingInvites[inviteTag] = inviteSeed
-        updateScanningStateIfNeeded()
-        return true
-    }
-
-    // MARK: - Sending group messages
 
     func sendGroupMessage(_ text: String, to groupId: String) async throws {
         guard store.group(id: groupId) != nil else {
@@ -347,7 +425,7 @@ final class GroupChatService: ObservableObject {
         }
     }
 
-    /// Shared self-stash send primitive for gcomm/ginv/gctl payloads - mirrors
+    /// Shared self-stash send primitive for gcomm/gctl payloads - mirrors
     /// `BroadcastService.sendBroadcastInternal`'s UTXO fetch/reserve/submit sequence exactly,
     /// reusing `ChatService`'s shared UTXO reservation state so group sends can't race with
     /// 1:1/broadcast sends for the same UTXOs.
@@ -460,7 +538,20 @@ final class GroupChatService: ObservableObject {
     // MARK: - Block-scan discovery lifecycle
 
     private func updateScanningStateIfNeeded() {
-        let shouldScan = !groups.isEmpty || !pendingInvites.isEmpty
+        // Must scan whenever a wallet is loaded, not just when we already know about a group -
+        // a `gctl_root` direct-add (createGroup/addMember) is a push from an admin who may be
+        // adding us to a group we've never heard of before, so there's no local state to gate
+        // discovery on until group-chat support lands in the indexer (deferred, see plan Phase
+        // 4). gcomm matches are still cheap no-ops when irrelevant, since they're filtered
+        // against `groups` downstream regardless.
+        //
+        // Also gated on activeNodeCount > 0: starting the instant the wallet loads (right at cold
+        // app launch, before the pool has found any healthy node yet) forced subscribeBlockAdded
+        // to compete with the pool's own cold-start discovery/probing for connection resources -
+        // real contention that visibly delayed the app connecting to any nodes at all (found via
+        // the same issue on Android's mirrored GroupScanningService). Waiting for at least one
+        // active node means this only starts once there's already a healthy connection to piggyback on.
+        let shouldScan = hasActiveWallet && NodePoolService.shared.activeNodeCount > 0
         guard shouldScan != isScanningActive else { return }
         isScanningActive = shouldScan
         if shouldScan {
@@ -486,9 +577,8 @@ final class GroupChatService: ObservableObject {
         for tx in notification.block.transactions {
             let payloadHex = tx.payload
             let matchesGcomm = payloadHex.hasPrefix(Self.gcommPrefixHex)
-            let matchesGinv = payloadHex.hasPrefix(Self.ginvPrefixHex)
             let matchesGctl = payloadHex.hasPrefix(Self.gctlPrefixHex)
-            guard matchesGcomm || matchesGinv || matchesGctl else { continue }
+            guard matchesGcomm || matchesGctl else { continue }
             guard let payloadData = CryptoUtils.hexToData(payloadHex),
                   let payloadString = String(data: payloadData, encoding: .utf8) else { continue }
 
@@ -496,10 +586,12 @@ final class GroupChatService: ObservableObject {
             guard !txId.isEmpty else { continue }
             let blockTime = Int64(tx.verboseData.blockTime)
 
-            if matchesGcomm, let parsed = GroupCipher.parseGroupMessagePayload(payloadString) {
+            if matchesGcomm {
+                guard let parsed = GroupCipher.parseGroupMessagePayload(payloadString) else {
+                    AppLog.log("[GroupChatService] Failed to parse gcomm payload for tx %@", txId)
+                    continue
+                }
                 handleIncomingGroupMessage(parsed, txId: txId, blockTime: blockTime)
-            } else if matchesGinv, let parsed = GroupCipher.parseGroupInvitePayload(payloadString) {
-                handleIncomingInvite(parsed)
             } else if matchesGctl {
                 guard let firstOutput = tx.outputs.first,
                       let scriptData = CryptoUtils.hexToData(firstOutput.scriptPublicKey.scriptPublicKey),
@@ -510,6 +602,7 @@ final class GroupChatService: ObservableObject {
     }
 
     private func handleIncomingGroupMessage(_ parsed: GroupCipher.ParsedGroupMessage, txId: String, blockTime: Int64) {
+        var matchedAnyGroup = false
         for group in groups {
             guard let bag = try? keychain.loadGroupBag(groupId: group.id),
                   let blindingKey = Data(hexString: bag.blindingKey),
@@ -517,27 +610,36 @@ final class GroupChatService: ObservableObject {
 
             let candidateBlindedId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: parsed.senderPubKey)
             guard candidateBlindedId == parsed.blindedGroupId else { continue }
+            matchedAnyGroup = true
 
             // Found the group. Verify sender identity: pubkey -> address -> in roster -> hashes to senderId.
             let hrp = AppSettings.load().networkType == .mainnet ? "kaspa" : "kaspatest"
             let senderAddress = KaspaAddress(hrp: hrp, type: .pubKey, payload: parsed.senderPubKey).address
-            guard !senderAddress.isEmpty,
-                  group.members.contains(where: { $0.address == senderAddress }),
-                  GroupCipher.deriveSenderId(senderAddress: senderAddress) == parsed.senderId else {
-                AppLog.log("[GroupChatService] Rejected gcomm: sender not a known member of group %@", String(group.id.prefix(12)))
+            guard !senderAddress.isEmpty, group.members.contains(where: { $0.address == senderAddress }) else {
+                AppLog.log("[GroupChatService] Rejected gcomm for group %@: sender %@ not in roster %@",
+                           String(group.id.prefix(12)), senderAddress, group.members.map { $0.address }.joined(separator: ","))
+                return
+            }
+            guard GroupCipher.deriveSenderId(senderAddress: senderAddress) == parsed.senderId else {
+                AppLog.log("[GroupChatService] Rejected gcomm for group %@: senderId mismatch for %@", String(group.id.prefix(12)), senderAddress)
                 return
             }
 
             let aad = GroupCipher.buildMessageAAD(groupId: gid, epoch: parsed.epoch, senderId: parsed.senderId, msgId: parsed.msgId)
             guard GroupCipher.verify(parsed.signature, message: GroupCipher.buildMessageSigningPayload(aad: aad, ciphertextWithTag: parsed.ciphertext), xOnlyPublicKey: parsed.senderPubKey) else {
-                AppLog.log("[GroupChatService] Rejected gcomm: bad signature for group %@", String(group.id.prefix(12)))
+                AppLog.log("[GroupChatService] Rejected gcomm for group %@: bad signature from %@", String(group.id.prefix(12)), senderAddress)
                 return
             }
 
-            guard let root = groupRootEpoch(for: parsed.epoch, bag: bag, groupId: gid),
-                  let plaintext = try? GroupCipher.decryptMessage(
-                      ciphertextWithTag: parsed.ciphertext, groupRootEpoch: root, groupId: gid, epoch: parsed.epoch, senderId: parsed.senderId, msgId: parsed.msgId
-                  ) else {
+            guard let root = groupRootEpoch(for: parsed.epoch, bag: bag, groupId: gid) else {
+                AppLog.log("[GroupChatService] Rejected gcomm for group %@: no root for epoch %llu (local currentEpoch=%llu)",
+                           String(group.id.prefix(12)), parsed.epoch, bag.currentEpoch)
+                return
+            }
+            guard let plaintext = try? GroupCipher.decryptMessage(
+                ciphertextWithTag: parsed.ciphertext, groupRootEpoch: root, groupId: gid, epoch: parsed.epoch, senderId: parsed.senderId, msgId: parsed.msgId
+            ) else {
+                AppLog.log("[GroupChatService] Rejected gcomm for group %@: decrypt failed from %@", String(group.id.prefix(12)), senderAddress)
                 return
             }
 
@@ -557,18 +659,9 @@ final class GroupChatService: ObservableObject {
             groupMessages[group.id, default: []].append(message)
             return
         }
-    }
-
-    private func handleIncomingInvite(_ parsed: GroupCipher.ParsedGroupInvite) {
-        guard let inviteSeed = pendingInvites[parsed.inviteTag] else { return }
-        guard let decrypted = try? GroupCipher.decryptInvitePayload(parsed.encryptedPayload, inviteSeed: inviteSeed),
-              let rootPayload = try? JSONDecoder().decode(GroupCipher.GroupRootPayload.self, from: decrypted),
-              GroupCipher.verifyRootPayload(rootPayload) else {
-            return
+        if !matchedAnyGroup {
+            AppLog.log("[GroupChatService] Rejected gcomm: no local group matched blindedGroupId %@", parsed.blindedGroupId.hexString)
         }
-        completeJoin(from: rootPayload)
-        pendingInvites.removeValue(forKey: parsed.inviteTag)
-        updateScanningStateIfNeeded()
     }
 
     private func handleIncomingControlMessage(_ payloadString: String, senderAddress: String) {
@@ -639,11 +732,92 @@ final class GroupChatService: ObservableObject {
         )
         store.upsertGroup(group)
         groups = store.allGroups()
+        SharedDataManager.syncGroupsForExtension()
         if groupMessages[group.id] == nil {
             groupMessages[group.id] = []
         }
         loadMessages(for: group.id)
         updateScanningStateIfNeeded()
+    }
+
+    // MARK: - Catch-up Sync
+
+    /// Fetches missed `gcomm`/`gctl` history from the indexer for every local group, so a device
+    /// that wasn't actively block-scanning while away (backgrounded, killed, or just closed)
+    /// still catches up. Mirrors ChatService's "adaptive per-object cursor" pattern (see
+    /// CLAUDE.md) and reuses its cursor storage directly (keyed by disjoint `gcomm|`/`gctl|`
+    /// prefixes so entries never collide with 1:1's `hs|`/`ctx|` keys).
+    ///
+    /// `blinded_group_id` is per-sender, not per-group, so `gcomm` catch-up queries once per
+    /// known member (their blinded id is cheap to recompute locally from the group's shared
+    /// blindingKey). `gctl` catch-up queries by the group's admin address - only meaningful for
+    /// groups already joined, since a brand-new invite has no admin address to key off yet
+    /// locally (that case depends on push or being online at the right moment instead).
+    func performCatchUpSync() async {
+        guard hasActiveWallet else { return }
+        let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        for group in groups {
+            guard let bag = try? keychain.loadGroupBag(groupId: group.id),
+                  let blindingKey = Data(hexString: bag.blindingKey) else { continue }
+
+            for member in group.members {
+                guard let memberPubKey = Data(hexString: member.xOnlyPubKeyHex) else { continue }
+                let blindedGroupId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: memberPubKey)
+                await catchUpGroupMessages(groupId: group.id, blindedGroupIdHex: blindedGroupId.hexString, nowMs: nowMs)
+            }
+
+            if !group.adminAddress.isEmpty {
+                await catchUpGroupControl(adminAddress: group.adminAddress, nowMs: nowMs)
+            }
+        }
+    }
+
+    private func catchUpGroupMessages(groupId: String, blindedGroupIdHex: String, nowMs: UInt64) async {
+        let syncKey = "gcomm|\(groupId)|\(blindedGroupIdHex)"
+        let startBlockTime = ChatService.shared.syncStartBlockTime(for: syncKey, fallbackBlockTime: 0, nowMs: nowMs)
+        do {
+            let messages = try await KasiaAPIClient.shared.getGroupMessages(
+                blindedGroupId: blindedGroupIdHex, limit: 50, blockTime: startBlockTime
+            )
+            ChatService.shared.advanceSyncCursor(for: syncKey, maxBlockTime: messages.map { $0.blockTime }.max())
+            for msg in messages {
+                guard let payloadString = Self.reconstructPayloadString(prefix: Self.gcommPrefix, messagePayloadHex: msg.messagePayload),
+                      let parsed = GroupCipher.parseGroupMessagePayload(payloadString) else { continue }
+                handleIncomingGroupMessage(parsed, txId: msg.txId, blockTime: Int64(msg.blockTime))
+            }
+        } catch {
+            AppLog.log("[GroupChatService] Catch-up gcomm fetch failed for group %@: %@",
+                       String(groupId.prefix(12)), error.localizedDescription)
+        }
+    }
+
+    private func catchUpGroupControl(adminAddress: String, nowMs: UInt64) async {
+        let syncKey = "gctl|\(adminAddress.lowercased())"
+        let startBlockTime = ChatService.shared.syncStartBlockTime(for: syncKey, fallbackBlockTime: 0, nowMs: nowMs)
+        do {
+            let messages = try await KasiaAPIClient.shared.getGroupControl(
+                sender: adminAddress, limit: 50, blockTime: startBlockTime
+            )
+            ChatService.shared.advanceSyncCursor(for: syncKey, maxBlockTime: messages.map { $0.blockTime }.max())
+            for msg in messages {
+                guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
+                handleIncomingControlMessage(payloadString, senderAddress: msg.sender)
+            }
+        } catch {
+            AppLog.log("[GroupChatService] Catch-up gctl fetch failed for admin %@: %@",
+                       String(adminAddress.suffix(10)), error.localizedDescription)
+        }
+    }
+
+    /// Reverses the indexer's double-hex-encoding of `message_payload` (it hex-encodes the raw
+    /// on-chain sealed hex text as stored) back into the original `ciph_msg:1:<type>:<hex>`
+    /// on-chain payload string, so it can feed straight into the same parse/decrypt path the
+    /// live block-scan uses.
+    private static func reconstructPayloadString(prefix: String, messagePayloadHex: String) -> String? {
+        guard let asciiBytes = CryptoUtils.hexToData(messagePayloadHex),
+              let hexText = String(data: asciiBytes, encoding: .utf8) else { return nil }
+        return prefix + hexText
     }
 
     // MARK: - Helpers

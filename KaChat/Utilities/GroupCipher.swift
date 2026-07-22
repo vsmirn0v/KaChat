@@ -5,10 +5,13 @@ import P256K
 /// Group messaging crypto for KaChat's group chat feature.
 ///
 /// Protocol ported from the Kasia web client's `spike/groupchats` reference implementation
-/// (see GROUP_MESSAGING_SPEC.md at github.com/K-Kluster/Kasia, branch `spike/groupchats`),
-/// plus a KaChat-specific addition (the invite-beacon derivations/payload below) that lets a
-/// device discover and join a group deterministically from a shared invite code, without
-/// first needing a 1:1 handshake with the admin.
+/// (see GROUP_MESSAGING_SPEC.md at github.com/K-Kluster/Kasia, branch `spike/groupchats`).
+/// A prior revision of this file also had a KaChat-specific invite-beacon extension (join a
+/// group deterministically from a shared code, no prior 1:1 handshake needed) - removed once
+/// group chats route through indexers: a publicly-joinable beacon would let anyone discover and
+/// join a group's *encrypted* chat, which is exactly the kind of thing that could be used to
+/// infer something bad is happening inside it and pressure an indexer operator into censoring.
+/// Every member now has to be added directly by the admin, who already knows who they are.
 ///
 /// Trust model: a single admin controls membership and key rotation. All members share a
 /// symmetric epoch root key; forward secrecy is at epoch granularity (bumped on membership
@@ -74,23 +77,6 @@ enum GroupCipher {
         return MessageKeys(senderKey: senderKey, nonce: nonce)
     }
 
-    // MARK: - Invite beacon derivation (KaChat extension, not in the reference spec)
-    //
-    // Lets a device that only holds a shared `invite_seed` (from a deep link / QR code)
-    // discover the group's `gctl_root`-equivalent payload on-chain, without the admin needing
-    // a prior 1:1 handshake with them. `invite_tag` is derivable from the invite alone (no
-    // group knowledge needed), so there's no chicken-and-egg problem for the scanning device.
-
-    /// invite_tag = HKDF(invite_seed, salt = "kasia:invite:tag", info = "")[0:16]
-    static func deriveInviteTag(inviteSeed: Data) -> Data {
-        hkdf(ikm: inviteSeed, salt: Data("kasia:invite:tag".utf8), info: Data(), outputByteCount: 16)
-    }
-
-    /// invite_enc_key = HKDF(invite_seed, salt = "kasia:invite:key", info = "")
-    static func deriveInviteEncKey(inviteSeed: Data) -> Data {
-        hkdf(ikm: inviteSeed, salt: Data("kasia:invite:key".utf8), info: Data())
-    }
-
     // MARK: - Message AEAD (gcomm)
 
     /// AAD = version(1) || "gcomm" || group_id || epoch_le(8) || sender_id || msg_id
@@ -151,42 +137,6 @@ enum GroupCipher {
                 throw CipherError.invalidPlaintext
             }
             return result
-        } catch {
-            throw CipherError.decryptionFailed
-        }
-    }
-
-    // MARK: - Invite beacon payload AEAD (ginv)
-    //
-    // Self-contained (random nonce prefixed to the wire format), unlike gcomm's deterministic
-    // nonce, since there's no per-message counter for a beacon that may be republished verbatim.
-
-    static func encryptInvitePayload(_ plaintext: Data, inviteSeed: Data) throws -> Data {
-        let key = SymmetricKey(data: deriveInviteEncKey(inviteSeed: inviteSeed))
-        var nonceBytes = [UInt8](repeating: 0, count: 12)
-        guard SecRandomCopyBytes(kSecRandomDefault, nonceBytes.count, &nonceBytes) == errSecSuccess else {
-            throw CipherError.encryptionFailed
-        }
-        let nonce = try ChaChaPoly.Nonce(data: Data(nonceBytes))
-        let sealedBox = try ChaChaPoly.seal(plaintext, using: key, nonce: nonce)
-        var combined = Data(nonceBytes)
-        combined.append(sealedBox.ciphertext)
-        combined.append(sealedBox.tag)
-        return combined
-    }
-
-    static func decryptInvitePayload(_ combined: Data, inviteSeed: Data) throws -> Data {
-        guard combined.count >= 12 + 16 else {
-            throw CipherError.invalidEncryptedMessage
-        }
-        let key = SymmetricKey(data: deriveInviteEncKey(inviteSeed: inviteSeed))
-        let nonce = try ChaChaPoly.Nonce(data: combined.prefix(12))
-        let rest = combined.dropFirst(12)
-        let tag = rest.suffix(16)
-        let ciphertext = rest.dropLast(16)
-        do {
-            let sealedBox = try ChaChaPoly.SealedBox(nonce: nonce, ciphertext: ciphertext, tag: tag)
-            return try ChaChaPoly.open(sealedBox, using: key)
         } catch {
             throw CipherError.decryptionFailed
         }
@@ -413,33 +363,9 @@ enum GroupCipher {
         )
     }
 
-    struct ParsedGroupInvite {
-        let inviteTag: Data
-        let encryptedPayload: Data
-    }
-
-    /// ciph_msg:1:ginv:{invite_tag}:{encrypted_payload}
-    static func buildGroupInvitePayload(inviteTag: Data, encryptedPayload: Data) -> String {
-        "ciph_msg:1:ginv:\(inviteTag.hexString):\(encryptedPayload.hexString)"
-    }
-
-    static func parseGroupInvitePayload(_ payloadString: String) -> ParsedGroupInvite? {
-        let prefix = "ciph_msg:1:ginv:"
-        guard payloadString.hasPrefix(prefix) else { return nil }
-        let rest = payloadString.dropFirst(prefix.count)
-        guard let colonIndex = rest.firstIndex(of: ":") else { return nil }
-        let tagHex = String(rest[rest.startIndex..<colonIndex])
-        let payloadHex = String(rest[rest.index(after: colonIndex)...])
-        guard let inviteTag = Data(hexString: tagHex), let encryptedPayload = Data(hexString: payloadHex) else {
-            return nil
-        }
-        return ParsedGroupInvite(inviteTag: inviteTag, encryptedPayload: encryptedPayload)
-    }
-
     // MARK: - Random generation
 
     static func generateGroupSeed() -> Data { randomBytes(32) }
-    static func generateInviteSeed() -> Data { randomBytes(32) }
     static func generateDeviceId() -> Data { randomBytes(16) }
 
     /// msg_id = device_id (16 bytes) || msgCounter_le (u64) -> 24 bytes

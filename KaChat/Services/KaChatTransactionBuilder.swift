@@ -182,9 +182,9 @@ struct KasiaTransactionBuilder {
         Data("ciph_msg:1:bcast:\(channel):\(content)".utf8)
     }
 
-    /// Build a group chat message transaction (`gcomm`) or invite beacon transaction (`ginv`).
-    /// Same self-stash shape as a broadcast/contextual message - the payload string is fully
-    /// built ahead of time by GroupChatService/GroupCipher, this just wraps it in a signed tx.
+    /// Build a group chat message (`gcomm`) or control (`gctl`) transaction. Same self-stash
+    /// shape as a broadcast/contextual message - the payload string is fully built ahead of time
+    /// by GroupChatService/GroupCipher, this just wraps it in a signed tx.
     static func buildGroupPayloadTx(
         from senderAddress: String,
         payloadString: String,
@@ -230,7 +230,7 @@ struct KasiaTransactionBuilder {
         return try signTransaction(unsignedTx, privateKey: senderPrivateKey, utxos: selectedUtxos)
     }
 
-    /// Estimate fee for a group message/invite (compose-bar fee preview)
+    /// Estimate fee for a group message (compose-bar fee preview)
     static func estimateGroupPayloadFee(payload: Data, inputCount: Int, senderScriptPubKey: Data) -> UInt64 {
         let output = KaspaRpcTransactionOutput(
             value: 0,

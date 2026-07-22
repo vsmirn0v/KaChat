@@ -69,6 +69,15 @@ class NotificationService: UNNotificationServiceExtension {
 
         NSLog("[NotificationService] Processing push: type=%@, sender=%@", messageType, senderAddress)
 
+        // Group pushes have no reliable on-chain sender/receiver address to key the usual
+        // contact-lookup/self-suppression/thread-grouping logic off (see PushEventKind's doc
+        // comments on the indexer side), so they're handled by a dedicated path that builds its
+        // own content from scratch rather than falling through the per-contact pipeline below.
+        if messageType == "group_message" || messageType == "group_control" {
+            handleGroupPush(messageType: messageType, content: content, userInfo: userInfo, txId: txId)
+            return
+        }
+
         // Get sender display name from shared contacts
         if let walletAddress = getWalletAddress(), walletAddress == senderAddress {
             content.title = ""
@@ -186,6 +195,152 @@ class NotificationService: UNNotificationServiceExtension {
         } else {
             content.body = NSLocalizedString("Received payment", comment: "Push body for incoming payment")
         }
+    }
+
+    // MARK: - Group Push Handling
+
+    private func handleGroupPush(
+        messageType: String,
+        content: UNMutableNotificationContent,
+        userInfo: [AnyHashable: Any],
+        txId: String
+    ) {
+        let defaults = UserDefaults(suiteName: appGroupIdentifier)
+        let defaultSoundEnabled = (defaults?.object(forKey: incomingNotificationSoundEnabledKey) as? Bool) ?? true
+        let shouldIncrementUnread = defaults.map { !hasStoredTxId(txId: txId, defaults: $0) } ?? false
+
+        content.threadIdentifier = "group"
+
+        if messageType == "group_message" {
+            guard let blindedGroupIdHex = userInfo["blinded_group_id"] as? String,
+                  let payloadHex = userInfo["payload"] as? String,
+                  let match = decryptGroupMessage(blindedGroupIdHex: blindedGroupIdHex, payloadHex: payloadHex) else {
+                // Can't identify/decrypt this one locally (e.g. just added to the group and the
+                // roster hasn't synced to the App Group yet) - suppress rather than show a
+                // content-free notification, the main app's catch-up sync will pick it up.
+                suppressGroupNotification(content)
+                return
+            }
+            content.title = match.groupName
+            content.body = unwrapReplyText(match.plaintext)
+            content.threadIdentifier = "group:\(match.groupId)"
+            content.sound = defaultSoundEnabled ? .default : nil
+        } else {
+            guard let payloadHex = userInfo["payload"] as? String,
+                  let groupName = decryptGroupControlForName(payloadHex: payloadHex) else {
+                suppressGroupNotification(content)
+                return
+            }
+            content.title = ""
+            let format = NSLocalizedString("You were added to \"%@\"", comment: "Push body for being added to a group")
+            content.body = String(format: format, groupName)
+            content.sound = defaultSoundEnabled ? .default : nil
+        }
+
+        if shouldIncrementUnread, let badge = incrementUnreadCountIfNeeded() {
+            content.badge = NSNumber(value: badge)
+        }
+        addPendingMessage(txId: txId, sender: "group", type: messageType)
+        contentHandler?(content)
+    }
+
+    private func suppressGroupNotification(_ content: UNMutableNotificationContent) {
+        content.title = ""
+        content.body = ""
+        content.sound = nil
+        content.badge = nil
+        content.interruptionLevel = .passive
+        contentHandler?(content)
+    }
+
+    private struct GroupMessageMatch {
+        let groupId: String
+        let groupName: String
+        let plaintext: String
+    }
+
+    private func decryptGroupMessage(blindedGroupIdHex: String, payloadHex: String) -> GroupMessageMatch? {
+        guard let targetBlindedId = Data(hexString: blindedGroupIdHex) else { return nil }
+        let payloadString = "ciph_msg:1:gcomm:" + payloadHex
+        guard let parsed = NotificationGroupCipher.parseGroupMessagePayload(payloadString),
+              parsed.blindedGroupId == targetBlindedId else { return nil }
+
+        for group in getSharedGroups() {
+            guard let bag = loadGroupBag(groupId: group.groupId),
+                  let blindingKey = Data(hexString: bag.blindingKey),
+                  let groupIdData = Data(hexString: group.groupId) else { continue }
+
+            for member in group.members {
+                guard let memberPubKey = Data(hexString: member.xOnlyPubKeyHex),
+                      memberPubKey == parsed.senderPubKey else { continue }
+                let candidate = NotificationGroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: memberPubKey)
+                guard candidate == parsed.blindedGroupId else { continue }
+                guard NotificationGroupCipher.deriveSenderId(senderAddress: member.address) == parsed.senderId else { continue }
+
+                let aad = NotificationGroupCipher.buildMessageAAD(
+                    groupId: groupIdData, epoch: parsed.epoch, senderId: parsed.senderId, msgId: parsed.msgId
+                )
+                guard NotificationGroupCipher.verify(
+                    parsed.signature, message: aad + parsed.ciphertext, xOnlyPublicKey: parsed.senderPubKey
+                ) else { return nil }
+
+                guard let root = groupRootEpoch(epoch: parsed.epoch, bag: bag, groupId: groupIdData),
+                      let plaintext = try? NotificationGroupCipher.decryptMessage(
+                        ciphertextWithTag: parsed.ciphertext, groupRootEpoch: root, groupId: groupIdData,
+                        epoch: parsed.epoch, senderId: parsed.senderId, msgId: parsed.msgId
+                      ) else { return nil }
+
+                return GroupMessageMatch(groupId: group.groupId, groupName: group.name, plaintext: plaintext)
+            }
+        }
+        return nil
+    }
+
+    /// Attempts an ECIES decrypt of a `gctl_root` control payload with the wallet's own private
+    /// key (only the intended recipient's key succeeds - every other device's attempt fails
+    /// silently, exactly like the main app's `handleIncomingControlMessage`). Deliberately does
+    /// NOT persist the resulting group/roster locally (this target has no Core Data access) -
+    /// the main app's catch-up sync re-fetches and applies the same `gctl_root` next time it
+    /// runs, so this only needs to recover the group name for the notification body.
+    private func decryptGroupControlForName(payloadHex: String) -> String? {
+        guard let privateKey = loadPrivateKey() else { return nil }
+        guard let plaintext = try? NotificationCipher.decryptHex(payloadHex, privateKey: privateKey),
+              let jsonData = plaintext.data(using: .utf8) else { return nil }
+        guard let rootPayload = try? JSONDecoder().decode(NotificationGroupCipher.GroupRootPayload.self, from: jsonData),
+              rootPayload.type == "gctl_root",
+              NotificationGroupCipher.verifyRootPayload(rootPayload) else { return nil }
+        return rootPayload.name
+    }
+
+    /// Mirrors `GroupChatService.groupRootEpoch` - admins can derive any past epoch's root on
+    /// demand (they hold groupSeed); non-admins only retain the current epoch's root.
+    private func groupRootEpoch(epoch: UInt64, bag: SharedGroupBag, groupId: Data) -> Data? {
+        if epoch == bag.currentEpoch, let root = Data(hexString: bag.groupRootEpoch) {
+            return root
+        }
+        if let seedHex = bag.groupSeed, let seed = Data(hexString: seedHex) {
+            return NotificationGroupCipher.deriveGroupRootEpoch(groupSeed: seed, groupId: groupId, epoch: epoch)
+        }
+        return nil
+    }
+
+    private func getSharedGroups() -> [SharedGroup] {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
+              let data = defaults.data(forKey: "shared_groups"),
+              let groups = try? JSONDecoder().decode([SharedGroup].self, from: data) else {
+            return []
+        }
+        return groups
+    }
+
+    /// Loads a `GroupBag` from the Keychain access group shared with the main app, mirroring
+    /// `KeychainService.loadGroupBag`'s exact storage scheme (device-scoped key name, optional
+    /// Secure Enclave wrapping) so this target can read it independently.
+    private func loadGroupBag(groupId: String) -> SharedGroupBag? {
+        guard let deviceId = deviceIdentifier() else { return nil }
+        let keyName = "kachat_group_bag.\(deviceId).\(groupId)"
+        guard let data = loadPrivateKeyWithAccount(account: keyName) else { return nil }
+        return try? JSONDecoder().decode(SharedGroupBag.self, from: data)
     }
 
     // MARK: - Shared Data Access
@@ -748,6 +903,203 @@ private struct NotificationCipher {
         case invalidPrivateKey
         case decryptionFailed
         case invalidPlaintext
+    }
+}
+
+// MARK: - Group Chat Models (Notification Extension)
+
+/// Mirrors `SharedGroup`/`SharedGroupMember` in the main app's `SharedDataManager.swift` - this
+/// target doesn't compile that file, so the shape is duplicated (same JSON keys, since both
+/// sides use default `Codable` synthesis with no custom `CodingKeys`).
+private struct SharedGroup: Codable {
+    let groupId: String
+    let name: String
+    let adminAddress: String
+    let members: [SharedGroupMember]
+}
+
+private struct SharedGroupMember: Codable {
+    let address: String
+    let xOnlyPubKeyHex: String
+}
+
+/// Mirrors `GroupBag` in the main app's `Models.swift` - same JSON keys (default `Codable`
+/// synthesis, no custom `CodingKeys`), read from the same shared Keychain access group.
+private struct SharedGroupBag: Codable {
+    let groupId: String
+    let groupSeed: String?
+    let groupRootEpoch: String
+    let blindingKey: String
+    let currentEpoch: UInt64
+    let deviceId: String
+    let msgCounter: UInt64
+}
+
+// MARK: - Group Chat Cipher (Notification Extension)
+
+/// Minimal duplicated port of the main app's `GroupCipher.swift` - just enough to verify and
+/// decrypt an incoming `gcomm` message and verify/parse a `gctl_root` control payload. Same
+/// duplication rationale as `NotificationCipher` above (this target doesn't compile the main
+/// app's sources). Keep in sync with `GroupCipher.swift` if the protocol ever changes.
+private struct NotificationGroupCipher {
+    struct ParsedGroupMessage {
+        let blindedGroupId: Data
+        let epoch: UInt64
+        let senderId: Data
+        let senderPubKey: Data
+        let msgId: Data
+        let ciphertext: Data
+        let signature: Data
+    }
+
+    static func parseGroupMessagePayload(_ payloadString: String) -> ParsedGroupMessage? {
+        let prefix = "ciph_msg:1:gcomm:"
+        guard payloadString.hasPrefix(prefix) else { return nil }
+        let rest = payloadString.dropFirst(prefix.count)
+        let parts = rest.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 7 else { return nil }
+        guard let blindedGroupId = Data(hexString: String(parts[0])),
+              let epoch = UInt64(parts[1]),
+              let senderId = Data(hexString: String(parts[2])),
+              let senderPubKey = Data(hexString: String(parts[3])),
+              let msgId = Data(hexString: String(parts[4])),
+              let ciphertext = Data(hexString: String(parts[5])),
+              let signature = Data(hexString: String(parts[6])) else {
+            return nil
+        }
+        return ParsedGroupMessage(
+            blindedGroupId: blindedGroupId, epoch: epoch, senderId: senderId,
+            senderPubKey: senderPubKey, msgId: msgId, ciphertext: ciphertext, signature: signature
+        )
+    }
+
+    struct GroupRootPayload: Codable {
+        var type = "gctl_root"
+        var v: UInt8 = 1
+        var groupId: String
+        var epoch: UInt64
+        var groupRootEpoch: String
+        var blindingKey: String
+        var adminSigningPub: String
+        var members: [String]
+        var name: String
+        var sig: String
+
+        enum CodingKeys: String, CodingKey {
+            case type, v
+            case groupId = "group_id"
+            case epoch
+            case groupRootEpoch = "group_root_epoch"
+            case blindingKey = "blinding_key"
+            case adminSigningPub = "admin_signing_pub"
+            case members, name, sig
+        }
+    }
+
+    static func verifyRootPayload(_ payload: GroupRootPayload) -> Bool {
+        guard let groupId = Data(hexString: payload.groupId),
+              let groupRootEpoch = Data(hexString: payload.groupRootEpoch),
+              let blindingKey = Data(hexString: payload.blindingKey),
+              let adminSigningPub = Data(hexString: payload.adminSigningPub),
+              let sig = Data(hexString: payload.sig) else {
+            return false
+        }
+        var signingPayload = Data([payload.v])
+        signingPayload.append(Data("gctl_root".utf8))
+        signingPayload.append(groupId)
+        signingPayload.append(leBytes(payload.epoch))
+        signingPayload.append(groupRootEpoch)
+        signingPayload.append(blindingKey)
+        signingPayload.append(adminSigningPub)
+        return verify(sig, message: signingPayload, xOnlyPublicKey: adminSigningPub)
+    }
+
+    static func deriveBlindedGroupId(blindingKey: Data, memberXOnlyPubKey: Data) -> Data {
+        hkdf(ikm: blindingKey, salt: memberXOnlyPubKey, info: Data("kasia:blinded_gid".utf8))
+    }
+
+    static func deriveSenderId(senderAddress: String) -> Data {
+        Data(CryptoKit.SHA256.hash(data: Data(senderAddress.utf8)))
+    }
+
+    static func deriveGroupRootEpoch(groupSeed: Data, groupId: Data, epoch: UInt64) -> Data {
+        hkdf(ikm: groupSeed, salt: groupId + leBytes(epoch), info: Data("kasia:groot".utf8))
+    }
+
+    static func deriveSenderKey(groupRootEpoch: Data, groupId: Data, epoch: UInt64, senderId: Data) -> Data {
+        hkdf(ikm: groupRootEpoch, salt: groupId + leBytes(epoch), info: Data("kasia:gcomm:key".utf8) + senderId)
+    }
+
+    static func deriveSenderNonceKey(groupRootEpoch: Data, groupId: Data, epoch: UInt64, senderId: Data) -> Data {
+        hkdf(ikm: groupRootEpoch, salt: groupId + leBytes(epoch), info: Data("kasia:gcomm:nonce".utf8) + senderId)
+    }
+
+    static func deriveNonce(senderNonceKey: Data, msgId: Data) -> Data {
+        hkdf(ikm: senderNonceKey, salt: msgId, info: Data("kasia:gcomm:nonce".utf8), outputByteCount: 12)
+    }
+
+    static func buildMessageAAD(groupId: Data, epoch: UInt64, senderId: Data, msgId: Data) -> Data {
+        var aad = Data([0x01])
+        aad.append(Data("gcomm".utf8))
+        aad.append(groupId)
+        aad.append(leBytes(epoch))
+        aad.append(senderId)
+        aad.append(msgId)
+        return aad
+    }
+
+    static func decryptMessage(
+        ciphertextWithTag: Data,
+        groupRootEpoch: Data,
+        groupId: Data,
+        epoch: UInt64,
+        senderId: Data,
+        msgId: Data
+    ) throws -> String {
+        guard ciphertextWithTag.count >= 16 else {
+            throw NotificationCipher.CipherError.invalidEncryptedMessage
+        }
+        let senderKey = deriveSenderKey(groupRootEpoch: groupRootEpoch, groupId: groupId, epoch: epoch, senderId: senderId)
+        let senderNonceKey = deriveSenderNonceKey(groupRootEpoch: groupRootEpoch, groupId: groupId, epoch: epoch, senderId: senderId)
+        let nonceBytes = deriveNonce(senderNonceKey: senderNonceKey, msgId: msgId)
+        let aad = buildMessageAAD(groupId: groupId, epoch: epoch, senderId: senderId, msgId: msgId)
+        let tag = ciphertextWithTag.suffix(16)
+        let ciphertext = ciphertextWithTag.dropLast(16)
+        let nonce = try ChaChaPoly.Nonce(data: nonceBytes)
+        let sealedBox = try ChaChaPoly.SealedBox(nonce: nonce, ciphertext: ciphertext, tag: tag)
+        let key = SymmetricKey(data: senderKey)
+        let plaintext = try ChaChaPoly.open(sealedBox, using: key, authenticating: aad)
+        guard let result = String(data: plaintext, encoding: .utf8) else {
+            throw NotificationCipher.CipherError.invalidPlaintext
+        }
+        return result
+    }
+
+    static func verify(_ signature: Data, message: Data, xOnlyPublicKey: Data) -> Bool {
+        guard let schnorrSig = try? P256K.Schnorr.SchnorrSignature(dataRepresentation: signature) else {
+            return false
+        }
+        let xonlyKey = P256K.Schnorr.XonlyKey(dataRepresentation: xOnlyPublicKey)
+        var messageBytes = [UInt8](message)
+        let isValid = xonlyKey.isValid(schnorrSig, for: &messageBytes)
+        for index in messageBytes.indices { messageBytes[index] = 0 }
+        return isValid
+    }
+
+    private static func leBytes(_ value: UInt64) -> Data {
+        var le = value.littleEndian
+        return Data(bytes: &le, count: 8)
+    }
+
+    private static func hkdf(ikm: Data, salt: Data, info: Data, outputByteCount: Int = 32) -> Data {
+        let inputKey = SymmetricKey(data: ikm)
+        let derived = HKDF<CryptoKit.SHA256>.deriveKey(
+            inputKeyMaterial: inputKey,
+            salt: salt,
+            info: info,
+            outputByteCount: outputByteCount
+        )
+        return derived.withUnsafeBytes { Data(Array($0)) }
     }
 }
 

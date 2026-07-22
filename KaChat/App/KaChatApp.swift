@@ -179,6 +179,7 @@ struct KaChatApp: App {
                     }
                     // Run catch-up sync with push-reliability gating.
                     await ChatService.shared.maybeRunCatchUpSync(trigger: .appActive)
+                    await GroupChatService.shared.performCatchUpSync()
 
                     // One-time migration to per-device read markers (only when store is ready)
                     if MessageStore.shared.isStoreLoaded && MessageStore.shared.currentWalletAddress != nil {
@@ -194,6 +195,7 @@ struct KaChatApp: App {
             }
             SharedDataManager.syncWalletAddressForExtension()
             SharedDataManager.syncNotificationSettingsForExtension()
+            SharedDataManager.syncGroupsForExtension()
         case .inactive:
             break
         @unknown default:

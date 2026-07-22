@@ -267,8 +267,7 @@ final class KeychainService {
     //
     // GroupBag holds a group's symmetric key material (groupSeed/groupRootEpoch/blindingKey) -
     // deliberately Keychain-only, never CloudKit-synced, matching the seed-phrase precedent.
-    // A new device won't auto-restore group membership; the admin re-shares an invite, or the
-    // member re-joins via a previously saved invite link.
+    // A new device won't auto-restore group membership - the admin has to re-add it directly.
 
     func saveGroupBag(_ bag: GroupBag) throws {
         let data = try JSONEncoder().encode(bag)

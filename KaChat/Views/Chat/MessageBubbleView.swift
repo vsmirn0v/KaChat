@@ -854,7 +854,9 @@ private enum PhotoRevealStore {
     }
 }
 
-private struct LazyImageBubble: View {
+/// Not `private` - reused by `GroupChatDetailView` so group photo messages render identically
+/// to 1:1 ones instead of duplicating this (thumbnail caching, reveal-gating, share sheet) logic.
+struct LazyImageBubble: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     private static let thumbnailDisplaySize = CGSize(width: 220, height: 160)
 
@@ -1094,7 +1096,8 @@ private actor ImageDecodeLimiter {
     }
 }
 
-private struct MediaFile: Codable {
+/// Not `private` - reused by `GroupChatDetailView` for group photo/audio message rendering.
+struct MediaFile: Codable {
     let type: String
     let name: String
     let size: Int?
@@ -1487,7 +1490,8 @@ private final class AudioPlaybackHelper: NSObject, ObservableObject, AVAudioPlay
 }
 
 /// Wrapper that lazily creates AudioPlaybackHelper only when needed
-private struct LazyAudioBubble: View {
+/// Not `private` - reused by `GroupChatDetailView` for group audio message rendering.
+struct LazyAudioBubble: View {
     let data: Data
     let mimeType: String
     let isOutgoing: Bool

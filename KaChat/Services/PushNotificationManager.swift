@@ -56,6 +56,7 @@ final class PushNotificationManager: ObservableObject {
     private var settingsObserver: NSObjectProtocol?
     private var conversationsCancellable: AnyCancellable?
     private var declinedContactsCancellable: AnyCancellable?
+    private var groupsCancellable: AnyCancellable?
 
     // MARK: - Constants
 
@@ -84,6 +85,7 @@ final class PushNotificationManager: ObservableObject {
         }
         conversationsCancellable?.cancel()
         declinedContactsCancellable?.cancel()
+        groupsCancellable?.cancel()
     }
 
     // MARK: - Public API
@@ -284,6 +286,7 @@ final class PushNotificationManager: ObservableObject {
 
         let settings = AppSettings.load()
         let watchedAddresses = collectWatchedAddresses()
+        let watchedGroupIds = collectWatchedGroupIds()
         let aliases = collectAliases(forWatchedAddresses: watchedAddresses)
         let primaryAddress = collectPrimaryAddress()
 
@@ -296,12 +299,14 @@ final class PushNotificationManager: ObservableObject {
                 settings: settings,
                 token: token,
                 watchedAddresses: watchedAddresses,
+                watchedGroupIds: watchedGroupIds,
                 aliases: aliases,
                 primaryAddress: primaryAddress
             )
             if statusCode == 200 {
                 applySuccessfulRegistration(
                     watchedAddresses: watchedAddresses,
+                    watchedGroupIds: watchedGroupIds,
                     aliases: aliases,
                     primaryAddress: primaryAddress
                 )
@@ -328,6 +333,7 @@ final class PushNotificationManager: ObservableObject {
         settings: AppSettings,
         token: String,
         watchedAddresses: [String],
+        watchedGroupIds: [String],
         aliases: [String],
         primaryAddress: String?
     ) async throws -> (Int, String?) {
@@ -337,6 +343,7 @@ final class PushNotificationManager: ObservableObject {
             path: registrationEndpoint,
             deviceToken: token,
             watchedAddresses: watchedAddresses,
+            watchedGroupIds: watchedGroupIds,
             primaryAddress: primaryAddress,
             aliases: aliases
         )
@@ -351,6 +358,7 @@ final class PushNotificationManager: ObservableObject {
             deviceToken: token,
             platform: platform,
             watchedAddresses: watchedAddresses,
+            watchedGroupIds: watchedGroupIds,
             primaryAddress: primaryAddress,
             aliases: aliases,
             auth: auth
@@ -372,6 +380,7 @@ final class PushNotificationManager: ObservableObject {
 
     private func applySuccessfulRegistration(
         watchedAddresses: [String],
+        watchedGroupIds: [String],
         aliases: [String],
         primaryAddress: String?
     ) {
@@ -381,6 +390,7 @@ final class PushNotificationManager: ObservableObject {
         clearWalletBindingConflictCooldown()
         lastWatchedSignature = buildWatchedSignature(
             watchedAddresses: watchedAddresses,
+            watchedGroupIds: watchedGroupIds,
             aliases: aliases,
             primaryAddress: primaryAddress
         )
@@ -413,6 +423,7 @@ final class PushNotificationManager: ObservableObject {
                 path: unregisterEndpoint,
                 deviceToken: token,
                 watchedAddresses: watchedAddresses,
+                watchedGroupIds: [],
                 primaryAddress: nil,
                 aliases: aliases
             )
@@ -560,6 +571,7 @@ final class PushNotificationManager: ObservableObject {
 
         let settings = AppSettings.load()
         let watchedAddresses = collectWatchedAddresses()
+        let watchedGroupIds = collectWatchedGroupIds()
         let aliases = collectAliases(forWatchedAddresses: watchedAddresses)
         let primaryAddress = collectPrimaryAddress()
         if watchedAddresses.isEmpty {
@@ -572,7 +584,12 @@ final class PushNotificationManager: ObservableObject {
             updateWatchedPending = false
             return
         }
-        let signature = buildWatchedSignature(watchedAddresses: watchedAddresses, aliases: aliases, primaryAddress: primaryAddress)
+        let signature = buildWatchedSignature(
+            watchedAddresses: watchedAddresses,
+            watchedGroupIds: watchedGroupIds,
+            aliases: aliases,
+            primaryAddress: primaryAddress
+        )
         inFlightWatchedSignature = signature
 
         let auth: PushAuthRequest
@@ -582,6 +599,7 @@ final class PushNotificationManager: ObservableObject {
                 path: updateEndpoint,
                 deviceToken: token,
                 watchedAddresses: watchedAddresses,
+                watchedGroupIds: watchedGroupIds,
                 primaryAddress: primaryAddress,
                 aliases: aliases
             )
@@ -594,6 +612,7 @@ final class PushNotificationManager: ObservableObject {
         let request = PushUpdateRequest(
             deviceToken: token,
             watchedAddresses: watchedAddresses,
+            watchedGroupIds: watchedGroupIds,
             primaryAddress: primaryAddress,
             aliases: aliases,
             auth: auth
@@ -661,13 +680,15 @@ final class PushNotificationManager: ObservableObject {
 
     private func buildWatchedSignature(
         watchedAddresses: [String]? = nil,
+        watchedGroupIds: [String]? = nil,
         aliases: [String]? = nil,
         primaryAddress: String? = nil
     ) -> String {
         let addrs = (watchedAddresses ?? collectWatchedAddresses()).sorted()
+        let groupIds = (watchedGroupIds ?? collectWatchedGroupIds()).sorted()
         let aliasList = (aliases ?? collectAliases(forWatchedAddresses: addrs)).sorted()
         let primary = primaryAddress ?? collectPrimaryAddress() ?? ""
-        return (addrs + ["|"] + aliasList + ["|", primary]).joined(separator: ",")
+        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary]).joined(separator: ",")
     }
 
     /// Unregister device (call on logout/wallet delete)
@@ -685,6 +706,7 @@ final class PushNotificationManager: ObservableObject {
                     path: unregisterEndpoint,
                     deviceToken: token,
                     watchedAddresses: [],
+                    watchedGroupIds: [],
                     primaryAddress: nil,
                     aliases: []
                 )
@@ -1065,11 +1087,38 @@ final class PushNotificationManager: ObservableObject {
                 guard settings.notificationMode == .remotePush else { return }
                 Task { await self.updateWatchedAddresses() }
             }
+
+        groupsCancellable = GroupChatService.shared.$groups
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let settings = AppSettings.load()
+                guard settings.notificationMode == .remotePush else { return }
+                Task { await self.updateWatchedAddresses() }
+            }
     }
 
     private func collectWatchedAddresses() -> [String] {
         let settings = AppSettings.load()
         return ChatService.shared.pushEligibleConversationAddresses(settings: settings)
+    }
+
+    /// `blinded_group_id` is per-sender, not per-group, so for each local group we watch every
+    /// OTHER member's blinded id (never our own - we don't need a push for messages we sent).
+    private func collectWatchedGroupIds() -> [String] {
+        let myAddress = WalletManager.shared.currentWallet?.publicAddress
+        var ids = Set<String>()
+        for group in GroupChatService.shared.groups {
+            guard let bag = try? KeychainService.shared.loadGroupBag(groupId: group.id),
+                  let blindingKey = Data(hexString: bag.blindingKey) else { continue }
+            for member in group.members {
+                guard member.address != myAddress,
+                      let memberPubKey = Data(hexString: member.xOnlyPubKeyHex) else { continue }
+                let blindedGroupId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: memberPubKey)
+                ids.insert(blindedGroupId.hexString)
+            }
+        }
+        return Array(ids)
     }
 
     private func collectAliases(forWatchedAddresses watchedAddresses: [String]? = nil) -> [String] {
@@ -1090,6 +1139,7 @@ final class PushNotificationManager: ObservableObject {
         path: String,
         deviceToken: String,
         watchedAddresses: [String],
+        watchedGroupIds: [String],
         primaryAddress: String?,
         aliases: [String]
     ) async throws -> PushAuthRequest {
@@ -1129,6 +1179,7 @@ final class PushNotificationManager: ObservableObject {
             path: path,
             deviceToken: normalizedDeviceToken,
             watchedAddresses: watchedAddresses,
+            watchedGroupIds: watchedGroupIds,
             primaryAddress: normalizedPrimaryAddress,
             aliases: aliases,
             walletPubkey: walletPubkey,
@@ -1226,6 +1277,7 @@ final class PushNotificationManager: ObservableObject {
         path: String,
         deviceToken: String,
         watchedAddresses: [String],
+        watchedGroupIds: [String],
         primaryAddress: String,
         aliases: [String],
         walletPubkey: String,
@@ -1234,6 +1286,7 @@ final class PushNotificationManager: ObservableObject {
         expiresAtMs: UInt64
     ) -> String {
         let watchedHash = sha256Hex(canonicalizeWatchedAddressesForAuth(watchedAddresses).joined(separator: "\n"))
+        let watchedGroupIdsHash = sha256Hex(canonicalizeWatchedGroupIdsForAuth(watchedGroupIds).joined(separator: "\n"))
         let aliasesHash = sha256Hex(canonicalizeAliasesForAuth(aliases).joined(separator: "\n"))
         let deviceTokenHash = sha256Hex(deviceToken)
 
@@ -1244,6 +1297,7 @@ final class PushNotificationManager: ObservableObject {
             "path=\(path)",
             "device_token_hash=\(deviceTokenHash)",
             "watched_addresses_hash=\(watchedHash)",
+            "watched_group_ids_hash=\(watchedGroupIdsHash)",
             "primary_address=\(primaryAddress)",
             "aliases_hash=\(aliasesHash)",
             "wallet_pubkey=\(walletPubkey)",
@@ -1364,6 +1418,19 @@ final class PushNotificationManager: ObservableObject {
         var set = Set<String>()
         for address in addresses {
             let normalized = address
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            if !normalized.isEmpty {
+                set.insert(normalized)
+            }
+        }
+        return set.sorted()
+    }
+
+    private func canonicalizeWatchedGroupIdsForAuth(_ groupIds: [String]) -> [String] {
+        var set = Set<String>()
+        for groupId in groupIds {
+            let normalized = groupId
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased()
             if !normalized.isEmpty {
@@ -1634,6 +1701,7 @@ struct PushRegistrationRequest: Codable {
     let deviceToken: String
     let platform: String
     let watchedAddresses: [String]
+    let watchedGroupIds: [String]
     let primaryAddress: String?
     let aliases: [String]
     let auth: PushAuthRequest?
@@ -1642,6 +1710,7 @@ struct PushRegistrationRequest: Codable {
         case deviceToken = "device_token"
         case platform
         case watchedAddresses = "watched_addresses"
+        case watchedGroupIds = "watched_group_ids"
         case primaryAddress = "primary_address"
         case aliases
         case auth
@@ -1651,6 +1720,7 @@ struct PushRegistrationRequest: Codable {
 struct PushUpdateRequest: Codable {
     let deviceToken: String
     let watchedAddresses: [String]
+    let watchedGroupIds: [String]
     let primaryAddress: String?
     let aliases: [String]
     let auth: PushAuthRequest?
@@ -1658,6 +1728,7 @@ struct PushUpdateRequest: Codable {
     enum CodingKeys: String, CodingKey {
         case deviceToken = "device_token"
         case watchedAddresses = "watched_addresses"
+        case watchedGroupIds = "watched_group_ids"
         case primaryAddress = "primary_address"
         case aliases
         case auth

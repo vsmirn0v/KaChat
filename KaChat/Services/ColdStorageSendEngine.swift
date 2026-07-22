@@ -68,7 +68,7 @@ final class ColdStorageSendEngine {
     /// Standard Schnorr signature script size (0x41 push + 64-byte sig + 0x01 sighash) — used to
     /// price the eventual *signed* transaction even though the unsigned one built here carries no
     /// real signature bytes yet. Matches Android's SCHNORR_SIG_SCRIPT_LEN.
-    private static let schnorrSigScriptLen: UInt64 = 66
+    private nonisolated static let schnorrSigScriptLen: UInt64 = 66
 
     /// Change-output dust threshold. Android's own Cold Storage engine uses 500 sompi here, but
     /// that value predates any KIP-9 storage-mass accounting on either platform: below this,
@@ -307,7 +307,7 @@ final class ColdStorageSendEngine {
 
     /// KSPT-encodes `tx` for display as an (animated) QR sequence — see `QrFrameChunker`.
     func toKspt(_ tx: UnsignedColdTx) throws -> Data {
-        let inputs = try tx.transaction.inputs.enumerated().map { index, input -> KsptCodec.UnsignedInput in
+        let inputs = tx.transaction.inputs.enumerated().map { index, input -> KsptCodec.UnsignedInput in
             let utxo = tx.inputUtxos[index]
             return KsptCodec.UnsignedInput(
                 prevTxId: input.previousOutpoint.transactionId,
