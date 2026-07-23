@@ -24,6 +24,7 @@ final class PortfolioViewModel: ObservableObject {
     private var priceHistoryCache: [Int: [PricePoint]] = [:]
     private var priceHistoryTask: Task<Void, Never>?
     private let coinGecko: CoinGeckoService
+    private var activeWalletAddress: String?
 
     var transactionsDescending: [PortfolioTransaction] {
         transactions.sorted { $0.timestamp > $1.timestamp }
@@ -39,8 +40,25 @@ final class PortfolioViewModel: ObservableObject {
 
     init(coinGecko: CoinGeckoService = .shared) {
         self.coinGecko = coinGecko
-        transactions = PortfolioLedgerStore.load()
         refreshPrice()
+    }
+
+    /// Portfolio entries are scoped per wallet — otherwise switching wallets on this
+    /// device would leak one wallet's buy/sell ledger into another's view. Mirrors
+    /// ColdStorageManager.setCurrentWallet's key-per-wallet pattern.
+    func setCurrentWallet(_ walletAddress: String?) {
+        let normalizedAddress = normalizeWalletAddress(walletAddress)
+        guard activeWalletAddress != normalizedAddress else { return }
+        activeWalletAddress = normalizedAddress
+        transactions = PortfolioLedgerStore.load(walletAddress: normalizedAddress)
+    }
+
+    private func normalizeWalletAddress(_ walletAddress: String?) -> String? {
+        guard let walletAddress = walletAddress?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !walletAddress.isEmpty else {
+            return nil
+        }
+        return walletAddress.lowercased()
     }
 
     /// Explicit "get current data" action: refetches the live price and clears the price
@@ -163,7 +181,14 @@ final class PortfolioViewModel: ObservableObject {
     }
 
     private func persist() {
-        PortfolioLedgerStore.save(transactions)
+        PortfolioLedgerStore.save(transactions, walletAddress: activeWalletAddress)
+    }
+
+    /// Permanently deletes this wallet's portfolio ledger, used when a saved account is
+    /// removed from the device entirely. Mirrors ColdStorageManager.clearAllLocalData.
+    func clearAllLocalData() {
+        PortfolioLedgerStore.save([], walletAddress: activeWalletAddress)
+        transactions = []
     }
 
     // MARK: - CSV (CoinMarketCap "Transaction History" format)

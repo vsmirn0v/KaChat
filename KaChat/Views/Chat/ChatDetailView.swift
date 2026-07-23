@@ -85,6 +85,12 @@ struct ChatDetailView: View {
     @State private var feeEditorText = ""
     @State private var revealOffset: CGFloat = 0
     private let maxRevealOffset: CGFloat = 64
+    /// Tap-a-reply-quote-to-jump-to-original - mirrors `GroupChatDetailView`/
+    /// `BroadcastChannelView`'s identical pair. `pendingJumpToTxId` is set from inside a message
+    /// row (no `ScrollViewProxy` in scope there) and consumed by an `.onChange` inside the
+    /// `ScrollViewReader` closure, which does have the proxy.
+    @State private var pendingJumpToTxId: String?
+    @State private var highlightedMessageID: UUID?
     @State private var inputMode: InputMode = .message
     @State private var amountText = ""
     @State private var spendingBalanceSompi: UInt64?
@@ -335,6 +341,10 @@ struct ChatDetailView: View {
                                 case .message(let index, let message):
                                     messageRow(message)
                                         .id(message.id)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .fill(highlightedMessageID == message.id ? Color.accentColor.opacity(0.18) : Color.clear)
+                                        )
                                         .onAppear {
                                             if index == 0 {
                                                 topVisibleMessageId = message.id
@@ -435,6 +445,11 @@ struct ChatDetailView: View {
                         }
                     }
                     .scrollDismissesKeyboard(.interactively)
+                    .onChange(of: pendingJumpToTxId) { txId in
+                        guard let txId else { return }
+                        jumpToReplyOriginal(txId: txId, using: proxy)
+                        pendingJumpToTxId = nil
+                    }
                     .onAppear {
                         positionInitialViewport(using: proxy)
                     }
@@ -453,11 +468,20 @@ struct ChatDetailView: View {
                             didInitialScroll = true
                             return
                         }
-                        if isBottomAnchorVisible && !isUserInteractingWithScroll {
+                        if messages.last?.isOutgoing == true {
+                            // A message *you* just sent should always land smoothly at the
+                            // bottom, unconditionally - matching group chat/broadcast rooms'
+                            // identical unconditional scroll-on-new-message. The
+                            // isBottomAnchorVisible/isUserInteractingWithScroll/throttle gates
+                            // below exist to avoid yanking your position for an *incoming*
+                            // message while you're reading up top; they don't apply to your own.
+                            lastAutoBottomScrollAt = Date()
+                            scrollToBottom(using: proxy, animated: true)
+                        } else if isBottomAnchorVisible && !isUserInteractingWithScroll {
                             let now = Date()
                             if now.timeIntervalSince(lastAutoBottomScrollAt) > 0.12 {
                                 lastAutoBottomScrollAt = now
-                                scrollToBottom(using: proxy, animated: false)
+                                scrollToBottom(using: proxy, animated: true)
                             }
                         } else {
                             newMessagesWhileScrolledUp += 1
@@ -1064,11 +1088,11 @@ struct ChatDetailView: View {
                         }
                         if shouldShowAvailableBalanceBubble {
                             availableBalanceBubble
+                                .allowsHitTesting(false)
                         }
                     }
                     .offset(x: 32, y: -26)
                     .transition(.opacity)
-                    .allowsHitTesting(false)
                 }
             }
         }
@@ -1895,6 +1919,39 @@ struct ChatDetailView: View {
         tick()
     }
 
+    /// Tap-a-reply-quote-to-jump-to-original. `displayedMessages` is a suffix window of `messages`
+    /// (see `loadedMessageCount`) - if the target isn't currently windowed in, grow the window to
+    /// include it before scrolling, rather than requiring the user to manually paginate up first.
+    private func jumpToReplyOriginal(txId: String, using proxy: ScrollViewProxy) {
+        if let target = displayedMessages.first(where: { $0.txId == txId }) {
+            scrollAndHighlight(target.id, using: proxy)
+            return
+        }
+        guard let targetIndex = messages.firstIndex(where: { $0.txId == txId }) else {
+            showToast("Original message not available.", style: .error)
+            return
+        }
+        let target = messages[targetIndex]
+        loadedMessageCount = max(loadedMessageCount, messages.count - targetIndex)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            scrollAndHighlight(target.id, using: proxy)
+        }
+    }
+
+    private func scrollAndHighlight(_ id: UUID, using proxy: ScrollViewProxy) {
+        withAnimation {
+            proxy.scrollTo(id, anchor: .center)
+        }
+        highlightedMessageID = id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            withAnimation(.easeOut(duration: 0.5)) {
+                if highlightedMessageID == id {
+                    highlightedMessageID = nil
+                }
+            }
+        }
+    }
+
     private func scrollToBottom(
         using proxy: ScrollViewProxy,
         animated: Bool,
@@ -1939,6 +1996,7 @@ struct ChatDetailView: View {
             replyQuote: replyQuote,
             replySenderDisplayName: replyQuote.map { replyDisplayName(for: $0.replyToSender) },
             onReply: { chatService.startReplyTo(message) },
+            onJumpToReply: replyQuote != nil ? { pendingJumpToTxId = replyQuote?.replyToId } : nil,
             avatarURLString: senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
             avatarDisplayName: replyDisplayName(for: senderAddress ?? contact.address),
             revealOffset: revealOffset,

@@ -54,10 +54,39 @@ final class ColdStorageManager: ObservableObject {
 
     @Published private(set) var accounts: [ColdStorageAccount] = []
 
-    private let storageKey = "kachat_cold_storage_accounts"
+    private let legacyStorageKey = "kachat_cold_storage_accounts"
+    private let storageKeyPrefix = "kachat_cold_storage_accounts_"
+    private var activeWalletAddress: String?
 
     private init() {
-        accounts = loadAccounts()
+        // No wallet set yet at app launch; setCurrentWallet(_:) is called once the
+        // active wallet is known, which loads (and migrates, if needed) the real list.
+        accounts = []
+    }
+
+    /// Cold storage accounts are watch-only imports, but they must still be scoped per
+    /// spending wallet — otherwise switching accounts on this device leaks one wallet's
+    /// imported kpubs/labels/hidden-address state into another's view. Mirrors
+    /// ContactsManager.setActiveWalletAddress's key-per-wallet pattern.
+    func setCurrentWallet(_ walletAddress: String?) {
+        let normalizedAddress = normalizeWalletAddress(walletAddress)
+        guard activeWalletAddress != normalizedAddress else { return }
+        activeWalletAddress = normalizedAddress
+        accounts = normalizedAddress == nil ? [] : loadAccounts()
+    }
+
+    private func normalizeWalletAddress(_ walletAddress: String?) -> String? {
+        guard let walletAddress = walletAddress?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !walletAddress.isEmpty else {
+            return nil
+        }
+        return walletAddress.lowercased()
+    }
+
+    private var storageKey: String? {
+        guard let activeWalletAddress else { return nil }
+        let sanitized = activeWalletAddress.replacingOccurrences(of: ":", with: "_")
+        return "\(storageKeyPrefix)\(sanitized)"
     }
 
     // MARK: - Import / management
@@ -247,15 +276,40 @@ final class ColdStorageManager: ObservableObject {
     // MARK: - Persistence
 
     private func loadAccounts() -> [ColdStorageAccount] {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
-              let decoded = try? JSONDecoder().decode([ColdStorageAccount].self, from: data) else {
-            return []
+        guard let storageKey else { return [] }
+        if let data = UserDefaults.standard.data(forKey: storageKey),
+           let decoded = try? JSONDecoder().decode([ColdStorageAccount].self, from: data) {
+            return decoded
         }
-        return decoded
+        // One-time migration: this key predates per-wallet scoping. Claim it for the
+        // first wallet that loads after the update, then remove it so no other wallet
+        // can also claim it.
+        if let legacyData = UserDefaults.standard.data(forKey: legacyStorageKey),
+           let legacyDecoded = try? JSONDecoder().decode([ColdStorageAccount].self, from: legacyData) {
+            UserDefaults.standard.removeObject(forKey: legacyStorageKey)
+            UserDefaults.standard.set(legacyData, forKey: storageKey)
+            return legacyDecoded
+        }
+        return []
     }
 
     private func saveAccounts() {
-        guard let data = try? JSONEncoder().encode(accounts) else { return }
+        guard let storageKey, let data = try? JSONEncoder().encode(accounts) else { return }
         UserDefaults.standard.set(data, forKey: storageKey)
+    }
+
+    /// Permanently deletes this wallet's cold storage data (accounts list plus each
+    /// account's labels/hidden-address state), used when a saved account is removed
+    /// from the device entirely. Mirrors GroupChatService.clearAllLocalData().
+    func clearAllLocalData() {
+        let idsToClear = accounts.map { $0.id }
+        if let storageKey {
+            UserDefaults.standard.removeObject(forKey: storageKey)
+        }
+        for id in idsToClear {
+            UserDefaults.standard.removeObject(forKey: addressLabelsKey(for: id))
+            UserDefaults.standard.removeObject(forKey: hiddenIndicesKey(for: id))
+        }
+        accounts = []
     }
 }

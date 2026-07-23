@@ -34,6 +34,7 @@ final class SharedDataManager {
         static let unreadCount = "shared_unread_count"
         static let incomingNotificationSoundEnabled = "incoming_notification_sound_enabled"
         static let incomingNotificationVibrationEnabled = "incoming_notification_vibration_enabled"
+        static let groupMentionsOnlyNotifications = "shared_group_mentions_only"
     }
 
     // MARK: - Contact Sync
@@ -84,6 +85,13 @@ final class SharedDataManager {
 
         sharedDefaults?.set(data, forKey: Keys.groups)
         AppLog.log("[SharedData] Synced %d groups to shared container", groups.count)
+
+        // Groups with "Only Notify if I'm Mentioned" on - the NSE checks this after decrypting a
+        // group_message push, to decide whether to suppress it when the text doesn't mention the
+        // wallet's own address (already shared separately via `syncWalletAddressForExtension`).
+        if let mentionsData = try? JSONEncoder().encode(GroupChatService.shared.groupMentionsOnlyNotifications) {
+            sharedDefaults?.set(mentionsData, forKey: Keys.groupMentionsOnlyNotifications)
+        }
     }
 
     /// Get all groups from shared container (called from notification extension)

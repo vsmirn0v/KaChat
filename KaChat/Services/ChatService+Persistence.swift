@@ -1069,6 +1069,7 @@ extension ChatService {
 
     func updateAppBadge() {
         let totalUnread = conversations.reduce(0) { $0 + max(0, $1.unreadCount) }
+            + GroupChatService.shared.totalGroupUnreadCount
         SharedDataManager.setUnreadCount(totalUnread)
         if #available(iOS 16.0, *) {
             UNUserNotificationCenter.current().setBadgeCount(totalUnread)

@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import CryptoKit
 import P256K
+import UIKit
 
 /// Orchestrates KaChat's group chat feature: group lifecycle (create/add/remove member, epoch
 /// rotation) and sending/receiving `gcomm` group messages.
@@ -34,10 +35,19 @@ final class GroupChatService: ObservableObject {
 
     @Published private(set) var groups: [GroupChat] = []
     @Published var groupMessages: [String: [GroupMessage]] = [:]
+    /// Mirrors `ChatService.replyingTo`/`BroadcastService.replyingTo` - set via a message's
+    /// "Reply" action, consumed (wrapped into the outgoing payload, then cleared) by
+    /// `sendGroupMessage`.
+    @Published var replyingTo: GroupMessage?
 
     /// Set when a group-chat push notification is tapped before `ChatListView` exists yet
     /// (cold start) - consumed and cleared by `ChatListView.checkPendingGroupNavigation()`.
     @Published var pendingGroupNavigation: String?
+
+    /// The group currently on-screen, if any - mirrors `ChatService.activeConversationAddress`.
+    /// Checked when a new incoming message arrives so it doesn't bump the unread badge for a
+    /// group the user is already actively reading (see `handleIncomingGroupMessage`).
+    @Published var activeGroupId: String?
 
     private let store = GroupStore.shared
     private let keychain = KeychainService.shared
@@ -60,6 +70,27 @@ final class GroupChatService: ObservableObject {
     @Published private(set) var groupLastReadAt: [String: Date] = [:]
     private let groupLastReadAtKey = "kachat_group_last_read_at"
 
+    /// Per-group set of hidden member addresses (their messages are filtered out of the thread,
+    /// same idea as `BroadcastService`'s hidden senders, but scoped per-group rather than
+    /// globally - a member hidden in one group shouldn't affect how they show up in another),
+    /// persisted the same way as `groupCatchUpCursors`/`groupLastReadAt`.
+    @Published private(set) var groupHiddenMembers: [String: Set<String>] = [:]
+    private let groupHiddenMembersKey = "kachat_group_hidden_members"
+
+    /// Per-group set of muted member addresses - unlike hiding, their messages still show up in
+    /// the thread, they just stop generating notifications (enforced by excluding their blinded
+    /// group id from push registration - see `PushNotificationManager.collectWatchedGroupIds`).
+    @Published private(set) var groupMutedMembers: [String: Set<String>] = [:]
+    private let groupMutedMembersKey = "kachat_group_muted_members"
+
+    /// Groups where "Only notify if I am mentioned" is on - enforced in the Notification Service
+    /// Extension (`NotificationService.handleGroupPush`), which decrypts the payload anyway to
+    /// show its banner, so it can cheaply check for an `@{myAddress}` mention before deciding
+    /// whether to actually present it. Synced to the shared App Group container so that
+    /// extension (a separate process) can read it - see `SharedDataManager.syncGroupsForExtension`.
+    @Published private(set) var groupMentionsOnlyNotifications: Set<String> = []
+    private let groupMentionsOnlyNotificationsKey = "kachat_group_mentions_only"
+
     private static let gcommPrefix = "ciph_msg:1:gcomm:"
     private static let gctlPrefix = "ciph_msg:1:gctl:"
     private static let gcommPrefixHex = hexPrefix(gcommPrefix)
@@ -81,6 +112,9 @@ final class GroupChatService: ObservableObject {
             .store(in: &cancellables)
         loadGroupCatchUpCursors()
         loadGroupLastReadAt()
+        loadGroupHiddenMembers()
+        loadGroupMutedMembers()
+        loadGroupMentionsOnlyNotifications()
     }
 
     private func loadGroupCatchUpCursors() {
@@ -105,10 +139,100 @@ final class GroupChatService: ObservableObject {
         UserDefaults.standard.set(data, forKey: groupLastReadAtKey)
     }
 
+    private func loadGroupHiddenMembers() {
+        guard let data = UserDefaults.standard.data(forKey: groupHiddenMembersKey),
+              let decoded = try? JSONDecoder().decode([String: Set<String>].self, from: data) else { return }
+        groupHiddenMembers = decoded
+    }
+
+    private func saveGroupHiddenMembers() {
+        guard let data = try? JSONEncoder().encode(groupHiddenMembers) else { return }
+        UserDefaults.standard.set(data, forKey: groupHiddenMembersKey)
+    }
+
+    /// Hides a member's messages in one group's thread - their messages stay stored (recoverable
+    /// via `unhideMember`), just filtered out of what's displayed.
+    func hideMember(_ address: String, in groupId: String) {
+        groupHiddenMembers[groupId, default: []].insert(address)
+        saveGroupHiddenMembers()
+    }
+
+    func unhideMember(_ address: String, in groupId: String) {
+        groupHiddenMembers[groupId]?.remove(address)
+        saveGroupHiddenMembers()
+    }
+
+    func hiddenMemberAddresses(for groupId: String) -> Set<String> {
+        groupHiddenMembers[groupId] ?? []
+    }
+
+    private func loadGroupMutedMembers() {
+        guard let data = UserDefaults.standard.data(forKey: groupMutedMembersKey),
+              let decoded = try? JSONDecoder().decode([String: Set<String>].self, from: data) else { return }
+        groupMutedMembers = decoded
+    }
+
+    private func saveGroupMutedMembers() {
+        guard let data = try? JSONEncoder().encode(groupMutedMembers) else { return }
+        UserDefaults.standard.set(data, forKey: groupMutedMembersKey)
+    }
+
+    /// Mutes a member's notifications in one group - their messages still show up in the thread
+    /// (unlike `hideMember`), they just stop triggering push notifications.
+    func muteMember(_ address: String, in groupId: String) {
+        groupMutedMembers[groupId, default: []].insert(address)
+        saveGroupMutedMembers()
+    }
+
+    func unmuteMember(_ address: String, in groupId: String) {
+        groupMutedMembers[groupId]?.remove(address)
+        saveGroupMutedMembers()
+    }
+
+    func mutedMemberAddresses(for groupId: String) -> Set<String> {
+        groupMutedMembers[groupId] ?? []
+    }
+
+    private func loadGroupMentionsOnlyNotifications() {
+        guard let data = UserDefaults.standard.data(forKey: groupMentionsOnlyNotificationsKey),
+              let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) else { return }
+        groupMentionsOnlyNotifications = decoded
+    }
+
+    private func saveGroupMentionsOnlyNotifications() {
+        guard let data = try? JSONEncoder().encode(groupMentionsOnlyNotifications) else { return }
+        UserDefaults.standard.set(data, forKey: groupMentionsOnlyNotificationsKey)
+        SharedDataManager.syncGroupsForExtension()
+    }
+
+    func mentionsOnlyNotifications(for groupId: String) -> Bool {
+        groupMentionsOnlyNotifications.contains(groupId)
+    }
+
+    func setMentionsOnlyNotifications(_ enabled: Bool, for groupId: String) {
+        if enabled {
+            groupMentionsOnlyNotifications.insert(groupId)
+        } else {
+            groupMentionsOnlyNotifications.remove(groupId)
+        }
+        saveGroupMentionsOnlyNotifications()
+    }
+
     /// Marks a group as opened, clearing its unread badge contribution.
     func markGroupAsRead(_ groupId: String) {
         groupLastReadAt[groupId] = Date()
         saveGroupLastReadAt()
+        ChatService.shared.scheduleBadgeUpdate()
+    }
+
+    /// Forces a group back to "unread" - clears the last-read timestamp entirely rather than
+    /// setting it to some sentinel in the past, so this is exactly the same state (and reuses
+    /// the same counting logic in `unreadCount(for:)`) as "never opened," matching how a freshly
+    /// invited member's group looks before they've opened it.
+    func markGroupAsUnread(_ groupId: String) {
+        groupLastReadAt.removeValue(forKey: groupId)
+        saveGroupLastReadAt()
+        ChatService.shared.scheduleBadgeUpdate()
     }
 
     /// Unread count for one group's tab-badge contribution: messages newer than this group's
@@ -128,6 +252,44 @@ final class GroupChatService: ObservableObject {
         groups.reduce(0) { $0 + unreadCount(for: $1) }
     }
 
+    /// Bulk "Mark as Read" for multi-selected groups in the chat list - mirrors
+    /// `ChatService.markConversationsAsRead`'s shape.
+    func markGroupsAsRead(_ groups: [GroupChat]) {
+        for group in groups where unreadCount(for: group) > 0 {
+            markGroupAsRead(group.id)
+        }
+    }
+
+    /// Bulk "Mark as Unread" for multi-selected groups in the chat list - mirrors
+    /// `ChatService.markConversationsAsUnread`'s shape.
+    func markGroupsAsUnread(_ groups: [GroupChat]) {
+        for group in groups where unreadCount(for: group) == 0 {
+            markGroupAsUnread(group.id)
+        }
+    }
+
+    // MARK: - Reply
+
+    func startReplyTo(_ message: GroupMessage) {
+        replyingTo = message
+    }
+
+    func cancelReply() {
+        replyingTo = nil
+    }
+
+    // MARK: - Active group tracking (unread suppression while viewing)
+
+    /// Mirrors `ChatService.enterConversation(for:)` - call from the group thread's `.onAppear`.
+    func enterGroup(_ groupId: String) {
+        activeGroupId = groupId
+    }
+
+    /// Mirrors `ChatService.leaveConversation()` - call from the group thread's `.onDisappear`.
+    func exitGroup() {
+        activeGroupId = nil
+    }
+
     // MARK: - Wallet lifecycle
 
     func setCurrentWallet(_ walletAddress: String?) {
@@ -135,10 +297,12 @@ final class GroupChatService: ObservableObject {
         store.setCurrentWallet(walletAddress)
         groups = walletAddress == nil ? [] : store.allGroups()
         groupMessages.removeAll()
+        replyingTo = nil
         for group in groups {
             loadMessages(for: group.id)
         }
         updateScanningStateIfNeeded()
+        ChatService.shared.scheduleBadgeUpdate()
     }
 
     /// Clears all local group data for the current wallet (Core Data + Keychain bags).
@@ -154,7 +318,14 @@ final class GroupChatService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: groupCatchUpCursorsKey)
         groupLastReadAt = [:]
         UserDefaults.standard.removeObject(forKey: groupLastReadAtKey)
+        groupHiddenMembers = [:]
+        UserDefaults.standard.removeObject(forKey: groupHiddenMembersKey)
+        groupMutedMembers = [:]
+        UserDefaults.standard.removeObject(forKey: groupMutedMembersKey)
+        groupMentionsOnlyNotifications = []
+        UserDefaults.standard.removeObject(forKey: groupMentionsOnlyNotificationsKey)
         updateScanningStateIfNeeded()
+        ChatService.shared.scheduleBadgeUpdate()
     }
 
     // MARK: - GroupChat creation & membership
@@ -245,6 +416,43 @@ final class GroupChatService: ObservableObject {
     func removeMember(_ member: GroupMember, from groupId: String) async throws {
         try await rotateEpoch(groupId: groupId, reason: .remove) { roster in
             roster.removeAll { $0.address == member.address }
+        }
+    }
+
+    /// Renames a group and redistributes the updated `gctl_root` to every member so they all see
+    /// the new name - unlike `addMember`/`removeMember`, this does NOT rotate the epoch (a name
+    /// change isn't a forward-secrecy event), so it re-signs and re-sends the root at the
+    /// *current* epoch. `applyRootPayload`'s replay guard only rejects a strictly older epoch
+    /// than what's already stored, so a same-epoch re-send like this is accepted and simply
+    /// updates the locally-cached name/roster.
+    func renameGroup(_ groupId: String, to newName: String) async throws {
+        guard var group = store.group(id: groupId), group.isAdmin else {
+            throw KasiaError.networkError("Only the group admin can rename the group.")
+        }
+        guard let bag = try keychain.loadGroupBag(groupId: groupId) else {
+            throw KasiaError.networkError("Missing admin group secrets.")
+        }
+        guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey() else {
+            throw KasiaError.walletNotFound
+        }
+
+        group.name = newName
+        store.upsertGroup(group)
+        groups = store.allGroups()
+        SharedDataManager.syncGroupsForExtension()
+
+        var sendErrors: [Error] = []
+        for member in group.members where member.address != wallet.publicAddress {
+            do {
+                try await sendRootControlMessage(group: group, bag: bag, to: member.address, privateKey: privateKey)
+            } catch {
+                sendErrors.append(error)
+            }
+        }
+        if !sendErrors.isEmpty {
+            AppLog.log("[GroupChatService] %d member(s) failed to receive the renamed gctl_root for group %@",
+                       sendErrors.count, String(groupId.prefix(12)))
+            throw KasiaError.networkError("Renamed, but \(sendErrors.count) member(s) may not have received the update yet.")
         }
     }
 
@@ -380,8 +588,18 @@ final class GroupChatService: ObservableObject {
         let senderXOnlyPub = try schnorrXOnlyPublicKey(from: privateKey)
         let senderId = GroupCipher.deriveSenderId(senderAddress: wallet.publicAddress)
         let msgId = GroupCipher.buildMsgId(deviceId: deviceId, counter: bag.msgCounter + 1)
+        // Account for the reply envelope's extra bytes, matching the wrapping `sendGroupMessage` does.
+        let estimatedPlaintext: String
+        if let reply = replyingTo {
+            estimatedPlaintext = MessageReplyCodec.encode(
+                replyToId: reply.txId, replyToSender: reply.senderAddress ?? "",
+                replyToPreview: MessageReplyCodec.previewText(for: reply.content), text: trimmed
+            )
+        } else {
+            estimatedPlaintext = trimmed
+        }
         let ciphertext = try GroupCipher.encryptMessage(
-            plaintext: trimmed, groupRootEpoch: groupRootEpoch, groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId
+            plaintext: estimatedPlaintext, groupRootEpoch: groupRootEpoch, groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId
         )
         let aad = GroupCipher.buildMessageAAD(groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId)
         let signature = try GroupCipher.sign(
@@ -440,6 +658,19 @@ final class GroupChatService: ObservableObject {
         let senderXOnlyPub = try schnorrXOnlyPublicKey(from: privateKey)
         let senderId = GroupCipher.deriveSenderId(senderAddress: wallet.publicAddress)
 
+        // If replying, wrap the content in the shared reply envelope (matches
+        // ChatService.sendMessage/BroadcastService.sendBroadcast) so the quote survives even if
+        // the original message is later pruned.
+        let payload: String
+        if let reply = replyingTo {
+            payload = MessageReplyCodec.encode(
+                replyToId: reply.txId, replyToSender: reply.senderAddress ?? "",
+                replyToPreview: MessageReplyCodec.previewText(for: reply.content), text: text
+            )
+        } else {
+            payload = text
+        }
+
         // Persist the incremented counter BEFORE building/sending - a msg_id must never be
         // reused even if the send itself later fails (spec: "Message ID reuse breaks
         // confidentiality/integrity").
@@ -449,7 +680,7 @@ final class GroupChatService: ObservableObject {
 
         let msgId = GroupCipher.buildMsgId(deviceId: deviceId, counter: counter)
         let ciphertext = try GroupCipher.encryptMessage(
-            plaintext: text, groupRootEpoch: groupRootEpoch, groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId
+            plaintext: payload, groupRootEpoch: groupRootEpoch, groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId
         )
         let aad = GroupCipher.buildMessageAAD(groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId)
         let signature = try GroupCipher.sign(
@@ -465,7 +696,7 @@ final class GroupChatService: ObservableObject {
         let pendingTimestamp = Date()
         let pendingMessage = GroupMessage(
             id: UUID(), groupId: groupId, txId: pendingId, senderAddress: wallet.publicAddress,
-            senderIdHex: senderId.hexString, content: text, timestamp: pendingTimestamp,
+            senderIdHex: senderId.hexString, content: payload, timestamp: pendingTimestamp,
             blockTime: Int64(pendingTimestamp.timeIntervalSince1970 * 1000), isOutgoing: true, deliveryStatus: .pending
         )
         groupMessages[groupId, default: []].append(pendingMessage)
@@ -483,10 +714,11 @@ final class GroupChatService: ObservableObject {
             if let index = groupMessages[groupId]?.firstIndex(where: { $0.txId == pendingId }) {
                 groupMessages[groupId]?[index] = GroupMessage(
                     id: pendingMessage.id, groupId: groupId, txId: realTxId, senderAddress: wallet.publicAddress,
-                    senderIdHex: senderId.hexString, content: text, timestamp: pendingTimestamp,
+                    senderIdHex: senderId.hexString, content: payload, timestamp: pendingTimestamp,
                     blockTime: pendingMessage.blockTime, isOutgoing: true, deliveryStatus: .sent
                 )
             }
+            replyingTo = nil
         } catch {
             store.markMessageFailed(pendingId: pendingId)
             if let index = groupMessages[groupId]?.firstIndex(where: { $0.txId == pendingId }) {
@@ -735,6 +967,14 @@ final class GroupChatService: ObservableObject {
                 isOutgoing: senderAddress == WalletManager.shared.currentWallet?.publicAddress, deliveryStatus: .sent
             )
             groupMessages[group.id, default: []].append(message)
+            // Already looking at this group's thread right now - keep it marked read instead of
+            // letting the badge tick up for a message the user is actively seeing arrive live
+            // (mirrors ChatService's identical `isUserViewing` check). Covers both this live
+            // block-scan path and catch-up sync, which also routes through this function.
+            if !message.isOutgoing, activeGroupId == group.id, UIApplication.shared.applicationState == .active {
+                markGroupAsRead(group.id)
+            }
+            ChatService.shared.scheduleBadgeUpdate()
             return
         }
         if !matchedAnyGroup {
@@ -791,12 +1031,17 @@ final class GroupChatService: ObservableObject {
     private func applyRootPayload(_ payload: GroupCipher.GroupRootPayload) {
         // device_id is persistent per device (spec) - preserve it across epoch-rotation
         // updates to an already-joined group; only a genuinely first-time join mints a new
-        // one. msgCounter always resets to 0 on a new epoch root, per the spec's own
-        // "update currentEpoch, reset counter" step. groupSeed is preserved defensively in
-        // case this device somehow already held admin secrets for this group (normally it
-        // won't - the admin never sends gctl_root/an invite to itself).
+        // one. msgCounter resets to 0 only when the epoch actually advances (spec: "update
+        // currentEpoch, reset counter") - a same-epoch re-send of the root (e.g. `renameGroup`,
+        // which doesn't rotate the epoch, or any other duplicate delivery of the same payload)
+        // must NOT reset it, since a msg_id must never be reused (see `sendGroupMessage`'s own
+        // doc comment) - resetting here would let this device's next send collide with a
+        // counter value it already used earlier in the same epoch. groupSeed is preserved
+        // defensively in case this device somehow already held admin secrets for this group
+        // (normally it won't - the admin never sends gctl_root/an invite to itself).
         let existingBag = try? keychain.loadGroupBag(groupId: payload.groupId)
         let deviceId = existingBag?.deviceId ?? GroupCipher.generateDeviceId().hexString
+        let preservedCounter = existingBag?.currentEpoch == payload.epoch ? (existingBag?.msgCounter ?? 0) : 0
         let bag = GroupBag(
             groupId: payload.groupId,
             groupSeed: existingBag?.groupSeed,
@@ -804,7 +1049,7 @@ final class GroupChatService: ObservableObject {
             blindingKey: payload.blindingKey,
             currentEpoch: payload.epoch,
             deviceId: deviceId,
-            msgCounter: 0
+            msgCounter: preservedCounter
         )
         try? keychain.saveGroupBag(bag)
 

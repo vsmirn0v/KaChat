@@ -84,6 +84,8 @@ final class WalletManager: ObservableObject {
                     await MessageStore.shared.setCurrentWallet(nil)
                     BroadcastService.shared.setCurrentWallet(nil)
                     GroupChatService.shared.setCurrentWallet(nil)
+                    ColdStorageManager.shared.setCurrentWallet(nil)
+                    PortfolioViewModel.shared.setCurrentWallet(nil)
                     SharedDataManager.syncWalletAddressForExtension()
                     SharedDataManager.setPrivateKeyAvailable(false)
                     return
@@ -109,6 +111,8 @@ final class WalletManager: ObservableObject {
                 await MessageStore.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 BroadcastService.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 GroupChatService.shared.setCurrentWallet(canonicalWallet.publicAddress)
+                ColdStorageManager.shared.setCurrentWallet(canonicalWallet.publicAddress)
+                PortfolioViewModel.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 await ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                 Task { _ = try? await refreshBalance() }
                 return
@@ -124,6 +128,8 @@ final class WalletManager: ObservableObject {
             await MessageStore.shared.setCurrentWallet(nil)
             BroadcastService.shared.setCurrentWallet(nil)
             GroupChatService.shared.setCurrentWallet(nil)
+            ColdStorageManager.shared.setCurrentWallet(nil)
+            PortfolioViewModel.shared.setCurrentWallet(nil)
             SharedDataManager.syncWalletAddressForExtension()
             SharedDataManager.setPrivateKeyAvailable(false)
         } catch {
@@ -184,6 +190,8 @@ final class WalletManager: ObservableObject {
         await MessageStore.shared.setCurrentWallet(wallet.publicAddress)
         BroadcastService.shared.setCurrentWallet(wallet.publicAddress)
         GroupChatService.shared.setCurrentWallet(wallet.publicAddress)
+        ColdStorageManager.shared.setCurrentWallet(wallet.publicAddress)
+        PortfolioViewModel.shared.setCurrentWallet(wallet.publicAddress)
         SharedDataManager.syncWalletAddressForExtension()
         SharedDataManager.setPrivateKeyAvailable(true)
 
@@ -250,6 +258,8 @@ final class WalletManager: ObservableObject {
         await MessageStore.shared.setCurrentWallet(nil)
         BroadcastService.shared.setCurrentWallet(nil)
         GroupChatService.shared.setCurrentWallet(nil)
+        ColdStorageManager.shared.setCurrentWallet(nil)
+        PortfolioViewModel.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
         SharedDataManager.setPrivateKeyAvailable(false)
     }
@@ -272,6 +282,8 @@ final class WalletManager: ObservableObject {
         await MessageStore.shared.setCurrentWallet(nil)
         BroadcastService.shared.setCurrentWallet(nil)
         GroupChatService.shared.setCurrentWallet(nil)
+        ColdStorageManager.shared.setCurrentWallet(nil)
+        PortfolioViewModel.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
         SharedDataManager.setPrivateKeyAvailable(false)
     }
@@ -362,6 +374,10 @@ final class WalletManager: ObservableObject {
         BroadcastStore.shared.clearAll()
         GroupChatService.shared.setCurrentWallet(account.publicAddress)
         GroupChatService.shared.clearAllLocalData()
+        ColdStorageManager.shared.setCurrentWallet(account.publicAddress)
+        ColdStorageManager.shared.clearAllLocalData()
+        PortfolioViewModel.shared.setCurrentWallet(account.publicAddress)
+        PortfolioViewModel.shared.clearAllLocalData()
 
         do {
             try keychainService.deleteAccountSnapshot(publicAddress: account.publicAddress)
@@ -381,6 +397,8 @@ final class WalletManager: ObservableObject {
         await MessageStore.shared.setCurrentWallet(nil)
         BroadcastService.shared.setCurrentWallet(nil)
         GroupChatService.shared.setCurrentWallet(nil)
+        ColdStorageManager.shared.setCurrentWallet(nil)
+        PortfolioViewModel.shared.setCurrentWallet(nil)
         ChatService.shared.resetForNewWallet(skipStoreClear: true)
         ContactsManager.shared.deleteAllContacts()
         ContactsManager.shared.setActiveWalletAddress(nil)

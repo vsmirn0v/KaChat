@@ -47,6 +47,7 @@ struct ProfileView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if let wallet = walletManager.currentWallet {
+                        accountNameCard(wallet)
                         knsProfileSection
                         qrButtonsSection(wallet)
                         addressDropdownsSection(wallet)
@@ -213,6 +214,25 @@ struct ProfileView: View {
                 Haptics.success()
                 showToast("Balance copied to clipboard.")
             }
+    }
+
+    /// Read-only display of which account is currently active. Renaming stays confined to
+    /// the saved-accounts list in Onboarding (`walletManager.renameSavedAccount`) — this card
+    /// is purely informative so there's no ambiguity about which account is signed in here.
+    private func accountNameCard(_ wallet: Wallet) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Account")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundColor(.secondary)
+            Text(wallet.alias)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(glassBackground(cornerRadius: 18))
     }
 
     private func accountNameSection(_ wallet: Wallet) -> some View {

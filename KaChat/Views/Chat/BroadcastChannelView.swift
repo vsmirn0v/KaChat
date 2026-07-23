@@ -38,6 +38,11 @@ struct BroadcastChannelView: View {
     @State private var feeOverrideSompi: UInt64?
     @State private var showFeeEditor = false
     @State private var feeEditorText = ""
+    /// Tap-a-reply-quote-to-jump-to-original - mirrors `ChatDetailView`/`GroupChatDetailView`'s
+    /// identical pair. `BroadcastMessage.id` is already the wire txId, unlike 1:1/group's `UUID`
+    /// row ids, so this stays a `String` throughout.
+    @State private var pendingJumpToTxId: String?
+    @State private var highlightedMessageID: String?
 
     private var myAddress: String? {
         walletManager.currentWallet?.publicAddress
@@ -173,10 +178,15 @@ struct BroadcastChannelView: View {
                                             showToast("Message copied.")
                                         },
                                         onRetry: { broadcastService.retryBroadcast(message) },
+                                        onJumpToReply: messageReplyQuote != nil ? { pendingJumpToTxId = messageReplyQuote?.replyToId } : nil,
                                         revealOffset: revealOffset,
                                         maxRevealOffset: maxRevealOffset
                                     )
                                     .id(message.id)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(highlightedMessageID == message.id ? Color.accentColor.opacity(0.18) : Color.clear)
+                                    )
                                     .task(id: message.senderAddress) {
                                         // Own address is always fetched by the room-level `.task`
                                         // above; this only opts *other* senders in when the
@@ -214,6 +224,11 @@ struct BroadcastChannelView: View {
                         }
                         .onChange(of: messages.count) { _ in
                             scrollToBottom(using: proxy, animated: true)
+                        }
+                        .onChange(of: pendingJumpToTxId) { id in
+                            guard let id else { return }
+                            jumpToReplyOriginal(id: id, in: messages, using: proxy)
+                            pendingJumpToTxId = nil
                         }
                         .onAppear {
                             scrollToBottom(using: proxy, animated: false)
@@ -260,6 +275,27 @@ struct BroadcastChannelView: View {
                             .animation(.easeInOut(duration: 0.2), value: isBottomAnchorVisible)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /// Tap-a-reply-quote-to-jump-to-original - broadcast has no pagination (the full room
+    /// history is already in `messages`), so a jump either finds the target right away or it's
+    /// genuinely gone (pruned/undelivered).
+    private func jumpToReplyOriginal(id: String, in messages: [BroadcastMessage], using proxy: ScrollViewProxy) {
+        guard messages.contains(where: { $0.id == id }) else {
+            showToast("Original message not available.")
+            return
+        }
+        withAnimation {
+            proxy.scrollTo(id, anchor: .center)
+        }
+        highlightedMessageID = id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            withAnimation(.easeOut(duration: 0.5)) {
+                if highlightedMessageID == id {
+                    highlightedMessageID = nil
                 }
             }
         }
@@ -389,7 +425,6 @@ struct BroadcastChannelView: View {
                     feeBubble
                         .offset(x: 32, y: -26)
                         .transition(.opacity)
-                        .allowsHitTesting(false)
                 }
             }
         }
@@ -731,6 +766,9 @@ private struct BroadcastMessageRow: View {
     let onReply: () -> Void
     let onCopyMessage: () -> Void
     let onRetry: () -> Void
+    /// Tapping the reply quote (if any) jumps to and highlights the original message - nil when
+    /// `replyQuote` is nil, since there's nothing to jump to.
+    var onJumpToReply: (() -> Void)?
     let revealOffset: CGFloat
     let maxRevealOffset: CGFloat
 
@@ -858,6 +896,10 @@ private struct BroadcastMessageRow: View {
         .background(Color(UIColor.tertiarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .frame(maxWidth: 240, alignment: isOwnMessage ? .trailing : .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onJumpToReply?()
+        }
     }
 
     /// The first link in the message, if any - offered as "Open Link"/"Copy Link" entries in the

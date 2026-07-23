@@ -36,6 +36,7 @@ struct ChatListView: View {
     @State private var groupPendingDelete: GroupChat?
     @State private var editMode: EditMode = .inactive
     @State private var selectedContactIDs: Set<UUID> = []
+    @State private var selectedGroupIDs: Set<String> = []
 
     private let conversationPageSize = 80
     private let conversationPrefetchThreshold = 12
@@ -86,11 +87,21 @@ struct ChatListView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if editMode == .active {
-                        Button(selectedContactIDs.count == filteredConversationsCache.count ? "Deselect All" : "Select All") {
-                            if selectedContactIDs.count == filteredConversationsCache.count {
-                                selectedContactIDs = []
-                            } else {
-                                selectedContactIDs = Set(filteredConversationsCache.map { $0.contact.id })
+                        if selectedListTab == .chats {
+                            Button(selectedContactIDs.count == filteredConversationsCache.count ? "Deselect All" : "Select All") {
+                                if selectedContactIDs.count == filteredConversationsCache.count {
+                                    selectedContactIDs = []
+                                } else {
+                                    selectedContactIDs = Set(filteredConversationsCache.map { $0.contact.id })
+                                }
+                            }
+                        } else {
+                            Button(selectedGroupIDs.count == displayedGroups.count ? "Deselect All" : "Select All") {
+                                if selectedGroupIDs.count == displayedGroups.count {
+                                    selectedGroupIDs = []
+                                } else {
+                                    selectedGroupIDs = Set(displayedGroups.map { $0.id })
+                                }
                             }
                         }
                     }
@@ -220,6 +231,7 @@ struct ChatListView: View {
         .onChange(of: editMode) { newValue in
             if newValue == .inactive {
                 selectedContactIDs = []
+                selectedGroupIDs = []
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
@@ -439,10 +451,15 @@ struct ChatListView: View {
 
     private func chatsTabButton(_ title: String, tab: ChatsListTab) -> some View {
         let isSelected = selectedListTab == tab
+        // Selection mode is scoped to whichever list it was started on - switching tabs mid-select
+        // would either strand a selection the visible list can't act on, or silently blend Chats
+        // and Group Chats selections together, so the other tab is inert while editing.
+        let isSwitchBlocked = editMode == .active && !isSelected
         let unreadCount = tab == .chats
             ? chatService.conversations.reduce(0) { $0 + $1.unreadCount }
             : groupChatService.totalGroupUnreadCount
         return Button {
+            guard !isSwitchBlocked else { return }
             withAnimation(.easeInOut(duration: 0.2)) {
                 selectedListTab = tab
             }
@@ -451,7 +468,7 @@ struct ChatListView: View {
                 HStack(spacing: 6) {
                     Text(title)
                         .font(.subheadline.weight(.bold))
-                        .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
+                        .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(isSwitchBlocked ? 0.25 : 0.5))
 
                     if unreadCount > 0 {
                         Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
@@ -473,25 +490,86 @@ struct ChatListView: View {
         .buttonStyle(.plain)
     }
 
+    /// Most recent activity first, matching chatsTabContent's identical sort for 1:1
+    /// (refreshFilteredConversations) - falls back to createdAt for a group with no messages
+    /// yet, so a brand-new empty group still sorts by when it was added/joined - then filtered
+    /// by search, matching refreshFilteredConversations' match fields (alias/address/message
+    /// content): group name, each member's alias-or-address, and message content. Shared by
+    /// groupsTabContent and the toolbar's Select All so both agree on what's "visible."
+    private var displayedGroups: [GroupChat] {
+        let sorted = groupChatService.groups.sorted { g1, g2 in
+            let t1 = groupChatService.groupMessages[g1.id]?.map { $0.timestamp }.max() ?? g1.createdAt
+            let t2 = groupChatService.groupMessages[g2.id]?.map { $0.timestamp }.max() ?? g2.createdAt
+            return t1 > t2
+        }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return sorted }
+        return sorted.filter { group in
+            if group.name.range(of: query, options: .caseInsensitive) != nil {
+                return true
+            }
+            if group.members.contains(where: { member in
+                if let alias = contactsManager.getContact(byAddress: member.address)?.alias,
+                   alias.range(of: query, options: .caseInsensitive) != nil {
+                    return true
+                }
+                return member.address.range(of: query, options: .caseInsensitive) != nil
+            }) {
+                return true
+            }
+            return (groupChatService.groupMessages[group.id] ?? []).contains { message in
+                message.content.range(of: query, options: .caseInsensitive) != nil
+            }
+        }
+    }
+
     private var groupsTabContent: some View {
-        let groups = groupChatService.groups
-        return List {
+        let groups = displayedGroups
+        return List(selection: $selectedGroupIDs) {
             if !groups.isEmpty {
                 ForEach(groups) { group in
                     Button {
-                        pendingBroadcastChannel = nil
-                        showBroadcastList = false
-                        selectedContact = nil
-                        selectedGroup = group
+                        // Same reasoning as chatsTabContent's row Button: our own Button label
+                        // consumes the tap before List(selection:)'s native edit-mode row-selection
+                        // UI ever sees it, so selection is toggled explicitly here instead.
+                        if editMode == .active {
+                            if selectedGroupIDs.contains(group.id) {
+                                selectedGroupIDs.remove(group.id)
+                            } else {
+                                selectedGroupIDs.insert(group.id)
+                            }
+                        } else {
+                            pendingBroadcastChannel = nil
+                            showBroadcastList = false
+                            selectedContact = nil
+                            selectedGroup = group
+                        }
                     } label: {
                         GroupChatRow(group: group)
                     }
                     .buttonStyle(ChatRowPressStyle())
+                    .tag(group.id)
                     .listRowBackground(
                         shouldUseSplitLayout && selectedGroup?.id == group.id
                             ? Color.accentColor.opacity(0.14)
                             : Color.clear
                     )
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        Button {
+                            if groupChatService.unreadCount(for: group) > 0 {
+                                groupChatService.markGroupAsRead(group.id)
+                            } else {
+                                groupChatService.markGroupAsUnread(group.id)
+                            }
+                        } label: {
+                            if groupChatService.unreadCount(for: group) > 0 {
+                                Label("Read", systemImage: "envelope.open")
+                            } else {
+                                Label("Unread", systemImage: "envelope.badge")
+                            }
+                        }
+                        .tint(.accentColor)
+                    }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             groupPendingDelete = group
@@ -512,7 +590,7 @@ struct ChatListView: View {
         }
         .listStyle(.plain)
         .overlay {
-            if groups.isEmpty {
+            if groups.isEmpty && searchText.isEmpty {
                 groupsEmptyStateView
             }
         }
@@ -657,27 +735,49 @@ struct ChatListView: View {
         VStack(spacing: 0) {
             Divider()
             HStack(spacing: 12) {
-                Button {
-                    let targets = filteredConversationsCache.filter { selectedContactIDs.contains($0.contact.id) }
-                    Task {
-                        await chatService.markConversationsAsRead(targets)
+                if selectedListTab == .chats {
+                    Button {
+                        let targets = filteredConversationsCache.filter { selectedContactIDs.contains($0.contact.id) }
+                        Task {
+                            await chatService.markConversationsAsRead(targets)
+                        }
+                        editMode = .inactive
+                    } label: {
+                        Label("Mark as Read", systemImage: "envelope.open")
+                            .frame(maxWidth: .infinity)
                     }
-                    editMode = .inactive
-                } label: {
-                    Label("Mark as Read", systemImage: "envelope.open")
-                        .frame(maxWidth: .infinity)
-                }
-                .disabled(selectedContactIDs.isEmpty)
+                    .disabled(selectedContactIDs.isEmpty)
 
-                Button {
-                    let targets = filteredConversationsCache.filter { selectedContactIDs.contains($0.contact.id) }
-                    chatService.markConversationsAsUnread(targets)
-                    editMode = .inactive
-                } label: {
-                    Label("Mark as Unread", systemImage: "envelope.badge")
-                        .frame(maxWidth: .infinity)
+                    Button {
+                        let targets = filteredConversationsCache.filter { selectedContactIDs.contains($0.contact.id) }
+                        chatService.markConversationsAsUnread(targets)
+                        editMode = .inactive
+                    } label: {
+                        Label("Mark as Unread", systemImage: "envelope.badge")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(selectedContactIDs.isEmpty)
+                } else {
+                    Button {
+                        let targets = groupChatService.groups.filter { selectedGroupIDs.contains($0.id) }
+                        groupChatService.markGroupsAsRead(targets)
+                        editMode = .inactive
+                    } label: {
+                        Label("Mark as Read", systemImage: "envelope.open")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(selectedGroupIDs.isEmpty)
+
+                    Button {
+                        let targets = groupChatService.groups.filter { selectedGroupIDs.contains($0.id) }
+                        groupChatService.markGroupsAsUnread(targets)
+                        editMode = .inactive
+                    } label: {
+                        Label("Mark as Unread", systemImage: "envelope.badge")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(selectedGroupIDs.isEmpty)
                 }
-                .disabled(selectedContactIDs.isEmpty)
             }
             .buttonStyle(.bordered)
             .padding(.horizontal)
@@ -1244,9 +1344,22 @@ struct BroadcastEntryRow: View {
 struct GroupChatRow: View {
     let group: GroupChat
     @EnvironmentObject var groupChatService: GroupChatService
+    @EnvironmentObject var contactsManager: ContactsManager
+    @ObservedObject private var knsService = KNSService.shared
 
     private var lastMessage: GroupMessage? {
         groupChatService.groupMessages[group.id]?.max { $0.timestamp < $1.timestamp }
+    }
+
+    /// Same resolution as `GroupChatDetailView.displayName(for:)`.
+    private func resolveDisplayName(for address: String) -> String {
+        if let contact = contactsManager.getContact(byAddress: address), !contact.alias.isEmpty {
+            return contact.alias
+        }
+        if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
+            return knsName
+        }
+        return Contact.generateDefaultAlias(from: address)
     }
 
     var body: some View {
@@ -1275,16 +1388,32 @@ struct GroupChatRow: View {
                     }
                 }
 
-                if let lastMessage {
-                    Text(lastMessage.content)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                } else {
-                    Text("\(group.members.count) member\(group.members.count == 1 ? "" : "s")")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .italic()
+                HStack {
+                    if let lastMessage {
+                        Text(GroupMentionCodec.decodeForDisplay(MessageReplyCodec.previewText(for: lastMessage.content), members: group.members, resolveDisplayName: resolveDisplayName(for:)))
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text("\(group.members.count) member\(group.members.count == 1 ? "" : "s")")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .italic()
+                    }
+
+                    Spacer()
+
+                    let unreadCount = groupChatService.unreadCount(for: group)
+                    if unreadCount > 0 {
+                        Text("\(unreadCount)")
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor)
+                            .clipShape(Capsule())
+                    }
                 }
             }
         }

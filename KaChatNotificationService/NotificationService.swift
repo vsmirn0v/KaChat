@@ -221,8 +221,21 @@ class NotificationService: UNNotificationServiceExtension {
                 suppressGroupNotification(content)
                 return
             }
+            let displayBody = unwrapReplyText(match.plaintext)
+            // "Only Notify if I'm Mentioned" - a reply to one of MY messages counts the same as
+            // an explicit @mention (checked against the raw, still-wrapped plaintext, since
+            // `displayBody` already dropped the reply envelope down to just its own text). Still
+            // stored/decryptable/visible once the app is opened either way (this only suppresses
+            // the push banner itself), matching how muting a member (enforced earlier, at
+            // push-registration time on the main app side) still lets their messages show up.
+            if isMentionsOnlyEnabled(groupId: match.groupId),
+               !mentionsMe(displayBody), !isReplyToMe(match.plaintext) {
+                suppressGroupNotification(content)
+                addPendingMessage(txId: txId, sender: "group", type: messageType)
+                return
+            }
             content.title = match.groupName
-            content.body = unwrapReplyText(match.plaintext)
+            content.body = displayBody
             content.threadIdentifier = "group:\(match.groupId)"
             content.sound = defaultSoundEnabled ? .default : nil
         } else {
@@ -376,6 +389,24 @@ class NotificationService: UNNotificationServiceExtension {
         return defaults.string(forKey: "wallet_address")
     }
 
+    /// Mirrors `SharedDataManager.syncGroupsForExtension`'s `groupMentionsOnlyNotifications` sync.
+    private func isMentionsOnlyEnabled(groupId: String) -> Bool {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
+              let data = defaults.data(forKey: "shared_group_mentions_only"),
+              let groupIds = try? JSONDecoder().decode(Set<String>.self, from: data) else {
+            return false
+        }
+        return groupIds.contains(groupId)
+    }
+
+    /// A mention is embedded as `@{fullKaspaAddress}` in the plaintext - see the main app's
+    /// `GroupMentionCodec` doc comment for why (this target can't do the friendly-name lookup
+    /// `decodeForDisplay` does, but doesn't need to - it only needs to know if it's ME).
+    private func mentionsMe(_ text: String) -> Bool {
+        guard let myAddress = getWalletAddress() else { return true }
+        return text.contains("@\(myAddress)")
+    }
+
     private func addPendingMessage(txId: String, sender: String, type: String) {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
 
@@ -443,6 +474,7 @@ class NotificationService: UNNotificationServiceExtension {
     private struct PushReplyEnvelope: Decodable {
         let type: String
         let text: String
+        let replyToSender: String?
     }
 
     private func unwrapReplyText(_ content: String) -> String {
@@ -451,6 +483,20 @@ class NotificationService: UNNotificationServiceExtension {
         guard let parsed = try? JSONDecoder().decode(PushReplyEnvelope.self, from: data),
               parsed.type == "reply" else { return content }
         return inlineAttachmentPreview(for: parsed.text)
+    }
+
+    /// True when `content` is a reply envelope (see `PushReplyEnvelope`) whose `replyToSender` is
+    /// the wallet's own address - i.e. someone replied to one of MY messages. Counts the same as
+    /// an explicit `@mention` for "Only Notify if I'm Mentioned" (see `isMentionsOnlyEnabled`),
+    /// since getting replied to and not hearing about it would be a worse surprise than the
+    /// setting's name literally promising.
+    private func isReplyToMe(_ content: String) -> Bool {
+        guard let myAddress = getWalletAddress() else { return false }
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(PushReplyEnvelope.self, from: data),
+              parsed.type == "reply" else { return false }
+        return parsed.replyToSender == myAddress
     }
 
     /// Mirrors the main app's `MessageReplyCodec.previewText`'s voice/image detection - the

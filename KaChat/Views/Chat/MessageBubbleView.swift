@@ -21,6 +21,9 @@ struct MessageBubbleView: View {
     let replyQuote: MessageReplyContent?
     let replySenderDisplayName: String?
     let onReply: (() -> Void)?
+    /// Tapping the reply quote (if any) jumps to and highlights the original message - nil
+    /// when `replyQuote` is nil, since there's nothing to jump to.
+    let onJumpToReply: (() -> Void)?
     /// Sender's KNS avatar (or nil for plain initials), matching broadcast rooms'
     /// `BroadcastMessageRow.avatarButton`.
     let avatarURLString: String?
@@ -44,6 +47,7 @@ struct MessageBubbleView: View {
         replyQuote: MessageReplyContent? = nil,
         replySenderDisplayName: String? = nil,
         onReply: (() -> Void)? = nil,
+        onJumpToReply: (() -> Void)? = nil,
         avatarURLString: String? = nil,
         avatarDisplayName: String = "",
         revealOffset: CGFloat = 0,
@@ -58,6 +62,7 @@ struct MessageBubbleView: View {
         self.replyQuote = replyQuote
         self.replySenderDisplayName = replySenderDisplayName
         self.onReply = onReply
+        self.onJumpToReply = onJumpToReply
         self.avatarURLString = avatarURLString
         self.avatarDisplayName = avatarDisplayName
         self.revealOffset = revealOffset
@@ -343,6 +348,10 @@ struct MessageBubbleView: View {
         .background(Color(UIColor.tertiarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .frame(maxWidth: 240, alignment: message.isOutgoing ? .trailing : .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onJumpToReply?()
+        }
     }
 
     /// Above this, a message renders as a truncated, tap-to-expand preview instead of laying out

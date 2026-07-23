@@ -57,6 +57,7 @@ final class PushNotificationManager: ObservableObject {
     private var conversationsCancellable: AnyCancellable?
     private var declinedContactsCancellable: AnyCancellable?
     private var groupsCancellable: AnyCancellable?
+    private var groupMutedMembersCancellable: AnyCancellable?
 
     // MARK: - Constants
 
@@ -1113,6 +1114,18 @@ final class PushNotificationManager: ObservableObject {
                 guard settings.notificationMode == .remotePush else { return }
                 Task { await self.updateWatchedAddresses() }
             }
+
+        // Muting/unmuting a member doesn't change `$groups` itself, so it needs its own
+        // subscription to actually refresh which blinded ids get watched (see
+        // `collectWatchedGroupIds`'s muted-member exclusion).
+        groupMutedMembersCancellable = GroupChatService.shared.$groupMutedMembers
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let settings = AppSettings.load()
+                guard settings.notificationMode == .remotePush else { return }
+                Task { await self.updateWatchedAddresses() }
+            }
     }
 
     private func collectWatchedAddresses() -> [String] {
@@ -1128,8 +1141,13 @@ final class PushNotificationManager: ObservableObject {
         for group in GroupChatService.shared.groups {
             guard let bag = try? KeychainService.shared.loadGroupBag(groupId: group.id),
                   let blindingKey = Data(hexString: bag.blindingKey) else { continue }
+            let mutedAddresses = GroupChatService.shared.mutedMemberAddresses(for: group.id)
             for member in group.members {
-                guard member.address != myAddress,
+                // A muted member's messages still show up in the thread (block-scan/catch-up
+                // aren't gated on this at all) - simply not watching their blinded id means the
+                // indexer never pushes a notification for them specifically, which is exactly
+                // "mute": still visible, just silent.
+                guard member.address != myAddress, !mutedAddresses.contains(member.address),
                       let memberPubKey = Data(hexString: member.xOnlyPubKeyHex) else { continue }
                 let blindedGroupId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: memberPubKey)
                 ids.insert(blindedGroupId.hexString)
