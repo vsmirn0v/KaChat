@@ -76,6 +76,13 @@ struct ChatDetailView: View {
     @State private var feeEstimateSompi: UInt64?
     @State private var isEstimatingFee = false
     @State private var feeEstimateTask: Task<Void, Never>?
+    /// User-set fee, from tapping the fee pill - overrides the live estimate for both display
+    /// and the actual send, cleared once that send completes (matches Android's `feeRateOverride`
+    /// reset-on-send, though Android's is rate-based; this is a flat sompi total - see
+    /// KasiaTransactionBuilder.selectUtxosForContextualMessage's `feeOverride` param).
+    @State private var feeOverrideSompi: UInt64?
+    @State private var showFeeEditor = false
+    @State private var feeEditorText = ""
     @State private var revealOffset: CGFloat = 0
     private let maxRevealOffset: CGFloat = 64
     @State private var inputMode: InputMode = .message
@@ -517,9 +524,16 @@ struct ChatDetailView: View {
                     Haptics.success()
                     showToast("Address copied to clipboard.")
                 } label: {
-                    Text(contact.alias)
-                        .font(.headline)
-                        .foregroundColor(.primary)
+                    VStack(spacing: 2) {
+                        KNSAvatarView(
+                            avatarURLString: knsService.profileCache[contact.address]?.avatarURL,
+                            fallbackText: contact.alias,
+                            size: 36
+                        )
+                        Text(contact.alias)
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                    }
                 }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -557,6 +571,18 @@ struct ChatDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
+        }
+        .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
+            TextField("Fee (KAS)", text: $feeEditorText)
+                .keyboardType(.decimalPad)
+            Button("Save") { commitFeeOverride() }
+            Button("Use Default") {
+                feeOverrideSompi = nil
+                scheduleFeeEstimate(for: messageText)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("If the network is busy, a higher fee can help your transaction confirm faster.")
         }
         .onChange(of: amountText) { newValue in
             schedulePaymentFee(for: newValue)
@@ -1451,12 +1477,14 @@ struct ChatDetailView: View {
 
         messageText = ""
         chatService.clearDraft(for: contact.address)
+        let feeOverride = feeOverrideSompi
         feeEstimateSompi = nil
+        feeOverrideSompi = nil
         isEstimatingFee = false
 
         Task {
             do {
-                try await chatService.sendMessage(to: contact, content: text)
+                try await chatService.sendMessage(to: contact, content: text, feeOverride: feeOverride)
             } catch {
                 if shouldPromptGiftClaim(for: error) {
                     await MainActor.run {
@@ -1618,8 +1646,9 @@ struct ChatDetailView: View {
         HStack(spacing: 6) {
             if isEstimatingFee {
                 Text("fee: -------- KAS")
-            } else if let fee = feeEstimateSompi ?? recordingFeeSompi {
+            } else if let fee = feeOverrideSompi ?? feeEstimateSompi ?? recordingFeeSompi {
                 Text(localizedFeeText(fee))
+                    .underline()
             } else {
                 Text("fee: -- KAS")
             }
@@ -1635,6 +1664,12 @@ struct ChatDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .allowsHitTesting(false)
             }
+        }
+        .allowsHitTesting(true)
+        .onTapGesture {
+            guard !isEstimatingFee, let currentFee = feeOverrideSompi ?? feeEstimateSompi ?? recordingFeeSompi else { return }
+            feeEditorText = formatKaspaExact(currentFee)
+            showFeeEditor = true
         }
         .onAppear {
             updateFeeShimmer()
@@ -1993,6 +2028,7 @@ struct ChatDetailView: View {
     }
 
     private var shouldShowFeeBubble: Bool {
+        guard settingsViewModel.settings.showFeeEstimate else { return false }
         switch inputMode {
         case .message:
             return pendingPhotoImage != nil || !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -2009,6 +2045,12 @@ struct ChatDetailView: View {
 
     private var shouldShowComposerHelperRow: Bool {
         shouldShowFeeBubble || shouldShowAvailableBalanceBubble
+    }
+
+    private func commitFeeOverride() {
+        guard let kas = Double(feeEditorText), kas >= 0 else { return }
+        feeOverrideSompi = UInt64((kas * 100_000_000).rounded())
+        scheduleFeeEstimate(for: messageText)
     }
 
     private func scheduleFeeEstimate(for text: String) {
@@ -2028,7 +2070,7 @@ struct ChatDetailView: View {
             try? await Task.sleep(nanoseconds: 200_000_000)
             if Task.isCancelled { return }
             do {
-                let estimate = try await chatService.estimateMessageFee(to: contact, content: trimmed)
+                let estimate = try await chatService.estimateMessageFee(to: contact, content: trimmed, feeOverride: feeOverrideSompi)
                 if Task.isCancelled { return }
                 await MainActor.run {
                     feeEstimateSompi = estimate

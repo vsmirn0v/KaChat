@@ -35,6 +35,10 @@ final class GroupChatService: ObservableObject {
     @Published private(set) var groups: [GroupChat] = []
     @Published var groupMessages: [String: [GroupMessage]] = [:]
 
+    /// Set when a group-chat push notification is tapped before `ChatListView` exists yet
+    /// (cold start) - consumed and cleared by `ChatListView.checkPendingGroupNavigation()`.
+    @Published var pendingGroupNavigation: String?
+
     private let store = GroupStore.shared
     private let keychain = KeychainService.shared
 
@@ -49,6 +53,12 @@ final class GroupChatService: ObservableObject {
     /// separately here rather than reused. See docs/GROUP_CHAT_API.md.
     private var groupCatchUpCursors: [String: String] = [:]
     private let groupCatchUpCursorsKey = "kachat_group_catchup_cursors"
+
+    /// Per-group "last opened" timestamp, for the Group Chats tab unread badge - one timestamp
+    /// per group rather than a per-message read flag (would need a Core Data migration; see
+    /// plan doc), persisted the same way as `groupCatchUpCursors`.
+    @Published private(set) var groupLastReadAt: [String: Date] = [:]
+    private let groupLastReadAtKey = "kachat_group_last_read_at"
 
     private static let gcommPrefix = "ciph_msg:1:gcomm:"
     private static let gctlPrefix = "ciph_msg:1:gctl:"
@@ -70,6 +80,7 @@ final class GroupChatService: ObservableObject {
             }
             .store(in: &cancellables)
         loadGroupCatchUpCursors()
+        loadGroupLastReadAt()
     }
 
     private func loadGroupCatchUpCursors() {
@@ -81,6 +92,40 @@ final class GroupChatService: ObservableObject {
     private func saveGroupCatchUpCursors() {
         guard let data = try? JSONEncoder().encode(groupCatchUpCursors) else { return }
         UserDefaults.standard.set(data, forKey: groupCatchUpCursorsKey)
+    }
+
+    private func loadGroupLastReadAt() {
+        guard let data = UserDefaults.standard.data(forKey: groupLastReadAtKey),
+              let decoded = try? JSONDecoder().decode([String: Date].self, from: data) else { return }
+        groupLastReadAt = decoded
+    }
+
+    private func saveGroupLastReadAt() {
+        guard let data = try? JSONEncoder().encode(groupLastReadAt) else { return }
+        UserDefaults.standard.set(data, forKey: groupLastReadAtKey)
+    }
+
+    /// Marks a group as opened, clearing its unread badge contribution.
+    func markGroupAsRead(_ groupId: String) {
+        groupLastReadAt[groupId] = Date()
+        saveGroupLastReadAt()
+    }
+
+    /// Unread count for one group's tab-badge contribution: messages newer than this group's
+    /// last-opened timestamp. A group that's never been opened and that we didn't create
+    /// ourselves counts as at least 1, covering "new group added, zero messages yet."
+    func unreadCount(for group: GroupChat) -> Int {
+        let messages = groupMessages[group.id] ?? []
+        guard let lastReadAt = groupLastReadAt[group.id] else {
+            let count = messages.filter { !$0.isOutgoing }.count
+            return group.isAdmin ? count : max(count, 1)
+        }
+        return messages.filter { !$0.isOutgoing && $0.timestamp > lastReadAt }.count
+    }
+
+    /// Total unread across all groups, for the Group Chats tab badge.
+    var totalGroupUnreadCount: Int {
+        groups.reduce(0) { $0 + unreadCount(for: $1) }
     }
 
     // MARK: - Wallet lifecycle
@@ -107,6 +152,8 @@ final class GroupChatService: ObservableObject {
         groupMessages.removeAll()
         groupCatchUpCursors = [:]
         UserDefaults.standard.removeObject(forKey: groupCatchUpCursorsKey)
+        groupLastReadAt = [:]
+        UserDefaults.standard.removeObject(forKey: groupLastReadAtKey)
         updateScanningStateIfNeeded()
     }
 
@@ -311,7 +358,10 @@ final class GroupChatService: ObservableObject {
     /// `BroadcastService.estimateBroadcastFee(channel:content:)`. Read-only: doesn't touch
     /// `msgCounter` (a throwaway counter value is fine for sizing, since msg_id is a fixed 24
     /// bytes regardless of the counter's value).
-    func estimateGroupMessageFee(_ text: String, for groupId: String) async throws -> UInt64 {
+    func estimateGroupMessageFee(_ text: String, for groupId: String, feeOverride: UInt64? = nil) async throws -> UInt64 {
+        if let feeOverride {
+            return feeOverride
+        }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw KasiaError.networkError("Message is empty")
@@ -373,7 +423,7 @@ final class GroupChatService: ObservableObject {
         )
     }
 
-    func sendGroupMessage(_ text: String, to groupId: String) async throws {
+    func sendGroupMessage(_ text: String, to groupId: String, feeOverride: UInt64? = nil) async throws {
         guard store.group(id: groupId) != nil else {
             throw KasiaError.networkError("Unknown group.")
         }
@@ -427,7 +477,7 @@ final class GroupChatService: ObservableObject {
 
         do {
             let realTxId = try await ChatService.shared.enqueueOutgoingTxOperation { [weak self] in
-                try await self?.sendSelfStashPayload(payloadString, from: wallet.publicAddress, privateKey: privateKey) ?? ""
+                try await self?.sendSelfStashPayload(payloadString, from: wallet.publicAddress, privateKey: privateKey, feeOverride: feeOverride) ?? ""
             }
             store.resolvePendingMessage(pendingId: pendingId, realId: realTxId, blockTime: pendingMessage.blockTime)
             if let index = groupMessages[groupId]?.firstIndex(where: { $0.txId == pendingId }) {
@@ -450,7 +500,7 @@ final class GroupChatService: ObservableObject {
     /// `BroadcastService.sendBroadcastInternal`'s UTXO fetch/reserve/submit sequence exactly,
     /// reusing `ChatService`'s shared UTXO reservation state so group sends can't race with
     /// 1:1/broadcast sends for the same UTXOs.
-    private func sendSelfStashPayload(_ payloadString: String, from address: String, privateKey: Data) async throws -> String {
+    private func sendSelfStashPayload(_ payloadString: String, from address: String, privateKey: Data, feeOverride: UInt64? = nil) async throws -> String {
         let chatService = ChatService.shared
         let freshUtxos = try await NodePoolService.shared.getUtxosByAddresses([address])
         let candidateUtxos = chatService.prepareMessageUtxos(confirmed: freshUtxos)
@@ -459,7 +509,7 @@ final class GroupChatService: ObservableObject {
         }
 
         let tx = try KasiaTransactionBuilder.buildGroupPayloadTx(
-            from: address, payloadString: payloadString, senderPrivateKey: privateKey, utxos: candidateUtxos
+            from: address, payloadString: payloadString, senderPrivateKey: privateKey, utxos: candidateUtxos, feeOverride: feeOverride
         )
         let spentUtxos = chatService.spentMessageUtxos(from: tx, candidates: candidateUtxos)
         let usesUnconfirmedInputs = spentUtxos.contains { $0.blockDaaScore == 0 }

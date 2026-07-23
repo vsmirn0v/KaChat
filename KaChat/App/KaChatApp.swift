@@ -503,8 +503,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 response.notification.request.content.userInfo
             )
         }
-        // The threadIdentifier contains the contact address, or "broadcast:<channel>" for a
-        // broadcast room notification (see `BroadcastService.notifyIfEnabled`).
+        // The threadIdentifier contains the contact address, "broadcast:<channel>" for a
+        // broadcast room notification (see `BroadcastService.notifyIfEnabled`), or
+        // "group:<groupId>" for a group chat notification.
         let threadIdentifier = response.notification.request.content.threadIdentifier
         if threadIdentifier.hasPrefix("broadcast:") {
             let channel = String(threadIdentifier.dropFirst("broadcast:".count))
@@ -519,6 +520,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                     name: .openBroadcast,
                     object: nil,
                     userInfo: ["channel": channel]
+                )
+            }
+        } else if threadIdentifier.hasPrefix("group:") {
+            let groupId = String(threadIdentifier.dropFirst("group:".count))
+            if !groupId.isEmpty {
+                // Store pending navigation for cold start scenario
+                Task { @MainActor in
+                    GroupChatService.shared.pendingGroupNavigation = groupId
+                }
+
+                // Also post notification for already-running views
+                NotificationCenter.default.post(
+                    name: .openGroup,
+                    object: nil,
+                    userInfo: ["groupId": groupId]
                 )
             }
         } else if !threadIdentifier.isEmpty {
@@ -553,5 +569,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 extension Notification.Name {
     static let openChat = Notification.Name("openChat")
     static let openBroadcast = Notification.Name("openBroadcast")
+    static let openGroup = Notification.Name("openGroup")
     static let showGiftClaim = Notification.Name("showGiftClaim")
 }

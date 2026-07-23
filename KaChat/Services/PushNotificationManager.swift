@@ -788,8 +788,25 @@ final class PushNotificationManager: ObservableObject {
         if !pendingMessages.isEmpty {
             AppLog.log("[Push] Fetching %d pending messages", pendingMessages.count)
 
+            // Group pushes (`NotificationService.handleGroupPush`) always add a pending entry
+            // with `sender: "group"` regardless of whether the NSE already decrypted and showed
+            // it, since there's no single-txId REST fetch for a group message the way 1:1 has
+            // `fetchMessageByTxId`. Routing them through that 1:1-only call below with a literal
+            // "group" sender always silently fails - the message never lands in the group
+            // thread even though its notification banner showed correctly. Group catch-up sync
+            // (cursor-based, already run separately every app-active) is the real mechanism that
+            // persists these, so just make sure it runs and drop these from the retry queue
+            // rather than repeatedly failing the same bogus 1:1 fetch.
+            let hasGroupPending = pendingMessages.contains { $0.type == "group_message" || $0.type == "group_control" }
+            if hasGroupPending {
+                await GroupChatService.shared.performCatchUpSync()
+            }
+
             var failed: [SharedPendingMessage] = []
             for pending in pendingMessages {
+                if pending.type == "group_message" || pending.type == "group_control" {
+                    continue
+                }
                 ChatService.shared.recordRemotePushDelivery(
                     txId: pending.txId,
                     sender: pending.sender,

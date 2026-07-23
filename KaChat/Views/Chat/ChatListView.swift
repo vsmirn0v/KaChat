@@ -11,6 +11,10 @@ struct ChatListView: View {
     @EnvironmentObject var groupChatService: GroupChatService
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
+    enum ChatsListTab: Int {
+        case chats, groups
+    }
+
     @State private var searchText = ""
     @State private var selectedContact: Contact?
     @State private var selectedGroup: GroupChat?
@@ -18,6 +22,7 @@ struct ChatListView: View {
     @State private var showAddContact = false
     @State private var showBroadcastList = false
     @State private var pendingBroadcastChannel: String?
+    @State private var selectedListTab: ChatsListTab = .chats
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -111,6 +116,7 @@ struct ChatListView: View {
                     showBroadcastList = false
                     selectedGroup = nil
                     selectedContact = contact
+                    selectedListTab = .chats
                     showAddContact = false
                 } onCreateGroup: { group in
                     selectedContactStartInPaymentMode = false
@@ -118,6 +124,7 @@ struct ChatListView: View {
                     showBroadcastList = false
                     selectedContact = nil
                     selectedGroup = group
+                    selectedListTab = .groups
                     showAddContact = false
                 }
                 .presentationDetents([.large])
@@ -187,7 +194,19 @@ struct ChatListView: View {
 
     @ViewBuilder
     private var chatListContent: some View {
-        conversationsList
+        VStack(spacing: 0) {
+            chatsTopTabBar
+            // Tap-only, not swipeable - a paging TabView here would fight the row-level
+            // swipe-to-delete/mark-read gestures on both the Chats and Group Chats lists.
+            Group {
+                switch selectedListTab {
+                case .chats:
+                    chatsTabContent
+                case .groups:
+                    groupsTabContent
+                }
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             if editMode == .active {
                 selectionActionBar
@@ -209,9 +228,13 @@ struct ChatListView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { notification in
             handleOpenBroadcastNotification(notification)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openGroup)) { notification in
+            handleOpenGroupNotification(notification)
+        }
         .onAppear {
             checkPendingNavigation()
             checkPendingBroadcastNavigation()
+            checkPendingGroupNavigation()
             requestNotificationPermissionIfNeeded()
             loadedConversationCount = conversationPageSize
             refreshFilteredConversations()
@@ -250,6 +273,11 @@ struct ChatListView: View {
                 checkPendingBroadcastNavigation()
             }
         }
+        .onChange(of: groupChatService.pendingGroupNavigation) { newValue in
+            if newValue != nil {
+                checkPendingGroupNavigation()
+            }
+        }
     }
 
     private func handleOpenChatNotification(_ notification: Notification) {
@@ -275,12 +303,32 @@ struct ChatListView: View {
         navigateToBroadcast(channel: channel)
     }
 
+    private func handleOpenGroupNotification(_ notification: Notification) {
+        guard let groupId = notification.userInfo?["groupId"] as? String else { return }
+        navigateToGroup(groupId: groupId)
+    }
+
+    private func checkPendingGroupNavigation() {
+        guard let groupId = groupChatService.pendingGroupNavigation else { return }
+        groupChatService.pendingGroupNavigation = nil
+        navigateToGroup(groupId: groupId)
+    }
+
     /// Opens the broadcast list already pushed one level deeper into the tapped room, matching
     /// `navigateToChat`'s cold-start/already-running handling for 1:1 chats.
     private func navigateToBroadcast(channel: String) {
         pendingBroadcastChannel = channel
         selectedContact = nil
         showBroadcastList = true
+    }
+
+    private func navigateToGroup(groupId: String) {
+        guard let target = groupChatService.groups.first(where: { $0.id == groupId }) else { return }
+        selectedListTab = .groups
+        selectedContact = nil
+        pendingBroadcastChannel = nil
+        showBroadcastList = false
+        selectedGroup = target
     }
 
     private func navigateToChat(address: String, startInPaymentMode: Bool = false) {
@@ -294,6 +342,8 @@ struct ChatListView: View {
             contact = nil
         }
         guard let target = contact else { return }
+
+        selectedListTab = .chats
 
         if shouldUseSplitLayout {
             selectedContactStartInPaymentMode = startInPaymentMode
@@ -372,7 +422,122 @@ struct ChatListView: View {
         .background(Color(UIColor.systemBackground))
     }
 
-    private var conversationsList: some View {
+    /// Underline-style tab bar (bold labels, teal indicator bar under the selected tab) - same
+    /// visual language as `BroadcastListView.broadcastTabBar`'s own Channels/Popular sub-tabs.
+    /// Tap-only (see `chatListContent`) - Broadcasts isn't one of these tabs, it's the first row
+    /// inside the Chats tab's own list (see `chatsTabContent`), matching its original
+    /// placement/behavior (a pushed screen reached from a chat-like row, not a tab).
+    private var chatsTopTabBar: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                chatsTabButton("Chats", tab: .chats)
+                chatsTabButton("Group Chats", tab: .groups)
+            }
+            Divider()
+        }
+    }
+
+    private func chatsTabButton(_ title: String, tab: ChatsListTab) -> some View {
+        let isSelected = selectedListTab == tab
+        let unreadCount = tab == .chats
+            ? chatService.conversations.reduce(0) { $0 + $1.unreadCount }
+            : groupChatService.totalGroupUnreadCount
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedListTab = tab
+            }
+        } label: {
+            VStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
+
+                    if unreadCount > 0 {
+                        Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.red))
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 12)
+
+                Rectangle()
+                    .fill(isSelected ? Color.accentColor : Color.clear)
+                    .frame(height: 2.5)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var groupsTabContent: some View {
+        let groups = groupChatService.groups
+        return List {
+            if !groups.isEmpty {
+                ForEach(groups) { group in
+                    Button {
+                        pendingBroadcastChannel = nil
+                        showBroadcastList = false
+                        selectedContact = nil
+                        selectedGroup = group
+                    } label: {
+                        GroupChatRow(group: group)
+                    }
+                    .buttonStyle(ChatRowPressStyle())
+                    .listRowBackground(
+                        shouldUseSplitLayout && selectedGroup?.id == group.id
+                            ? Color.accentColor.opacity(0.14)
+                            : Color.clear
+                    )
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            groupPendingDelete = group
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        .tint(.red)
+                    }
+                }
+
+                Text("\(groups.count) group\(groups.count == 1 ? "" : "s")")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+        }
+        .listStyle(.plain)
+        .overlay {
+            if groups.isEmpty {
+                groupsEmptyStateView
+            }
+        }
+    }
+
+    private var groupsEmptyStateView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "person.3")
+                .font(.system(size: 60))
+                .foregroundColor(.secondary)
+
+            Text("No Group Chats Yet")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            Text("Start a new group from the add-chat button")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+        }
+        .padding()
+    }
+
+    private var chatsTabContent: some View {
         let filtered = filteredConversationsCache
         let totalCount = filtered.count
         let displayed: [Conversation]
@@ -384,6 +549,9 @@ struct ChatListView: View {
         }
 
         return List(selection: $selectedContactIDs) {
+            // Restored to its original placement: a row inside the Chats list itself (so it
+            // reads as "just another chat"), not a standalone element above the tabs - only
+            // shown while not searching, matching every other non-conversation row here.
             if searchText.isEmpty {
                 Button {
                     pendingBroadcastChannel = nil
@@ -398,33 +566,6 @@ struct ChatListView: View {
                         ? Color.accentColor.opacity(0.14)
                         : Color.clear
                 )
-
-                if !groupChatService.groups.isEmpty {
-                    ForEach(groupChatService.groups) { group in
-                        Button {
-                            pendingBroadcastChannel = nil
-                            showBroadcastList = false
-                            selectedContact = nil
-                            selectedGroup = group
-                        } label: {
-                            GroupChatRow(group: group)
-                        }
-                        .buttonStyle(ChatRowPressStyle())
-                        .listRowBackground(
-                            shouldUseSplitLayout && selectedGroup?.id == group.id
-                                ? Color.accentColor.opacity(0.14)
-                                : Color.clear
-                        )
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                groupPendingDelete = group
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                            .tint(.red)
-                        }
-                    }
-                }
             }
 
             if !displayed.isEmpty {
@@ -490,6 +631,13 @@ struct ChatListView: View {
                         )
                     }
                 }
+
+                Text("\(totalCount) chat\(totalCount == 1 ? "" : "s")")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             }
         }
         .listStyle(.plain)

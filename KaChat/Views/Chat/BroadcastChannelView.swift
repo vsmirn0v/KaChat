@@ -12,6 +12,7 @@ struct BroadcastChannelView: View {
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
     @ObservedObject private var knsService = KNSService.shared
     @StateObject private var recorder = BroadcastAudioRecorder()
 
@@ -33,6 +34,10 @@ struct BroadcastChannelView: View {
     @State private var feeShimmerPhase: CGFloat = -1
     @State private var revealOffset: CGFloat = 0
     private let maxRevealOffset: CGFloat = 64
+    /// User-set fee, from tapping the fee pill - see ChatDetailView.feeOverrideSompi's doc comment.
+    @State private var feeOverrideSompi: UInt64?
+    @State private var showFeeEditor = false
+    @State private var feeEditorText = ""
 
     private var myAddress: String? {
         walletManager.currentWallet?.publicAddress
@@ -79,6 +84,18 @@ struct BroadcastChannelView: View {
             }
         }
         .toast(message: toastMessage, style: .success)
+        .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
+            TextField("Fee (KAS)", text: $feeEditorText)
+                .keyboardType(.decimalPad)
+            Button("Save") { commitFeeOverride() }
+            Button("Use Default") {
+                feeOverrideSompi = nil
+                scheduleFeeEstimate(for: messageText)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("If the network is busy, a higher fee can help your transaction confirm faster.")
+        }
         .onAppear {
             broadcastService.acquire(channelName)
         }
@@ -455,6 +472,7 @@ struct BroadcastChannelView: View {
     }
 
     private var shouldShowFeeBubble: Bool {
+        guard settingsViewModel.settings.showFeeEstimate else { return false }
         if recorder.state == .recording || recorder.state == .encoding { return true }
         return !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -463,8 +481,9 @@ struct BroadcastChannelView: View {
         Group {
             if isEstimatingFee {
                 Text("fee: -------- KAS")
-            } else if let feeEstimateSompi {
-                Text(localizedFeeText(feeEstimateSompi))
+            } else if let fee = feeOverrideSompi ?? feeEstimateSompi {
+                Text(localizedFeeText(fee))
+                    .underline()
             } else {
                 Text("fee: -- KAS")
             }
@@ -481,12 +500,24 @@ struct BroadcastChannelView: View {
                     .allowsHitTesting(false)
             }
         }
+        .allowsHitTesting(true)
+        .onTapGesture {
+            guard !isEstimatingFee, let currentFee = feeOverrideSompi ?? feeEstimateSompi else { return }
+            feeEditorText = formatKaspaExact(currentFee)
+            showFeeEditor = true
+        }
         .onAppear {
             updateFeeShimmer()
         }
         .onChange(of: isEstimatingFee) { _ in
             updateFeeShimmer()
         }
+    }
+
+    private func commitFeeOverride() {
+        guard let kas = Double(feeEditorText), kas >= 0 else { return }
+        feeOverrideSompi = UInt64((kas * 100_000_000).rounded())
+        scheduleFeeEstimate(for: messageText)
     }
 
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
@@ -521,7 +552,7 @@ struct BroadcastChannelView: View {
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }
             do {
-                let estimate = try await broadcastService.estimateBroadcastFee(channel: channelName, content: trimmed)
+                let estimate = try await broadcastService.estimateBroadcastFee(channel: channelName, content: trimmed, feeOverride: feeOverrideSompi)
                 guard !Task.isCancelled else { return }
                 feeEstimateSompi = estimate
                 isEstimatingFee = false
@@ -635,9 +666,12 @@ struct BroadcastChannelView: View {
         guard !trimmed.isEmpty else { return }
         messageText = ""
         isSending = true
+        let feeOverride = feeOverrideSompi
+        feeEstimateSompi = nil
+        feeOverrideSompi = nil
         Task {
             do {
-                try await broadcastService.sendBroadcast(channel: channelName, content: trimmed)
+                try await broadcastService.sendBroadcast(channel: channelName, content: trimmed, feeOverride: feeOverride)
             } catch {
                 showToast("Failed to send: \(error.localizedDescription)")
             }

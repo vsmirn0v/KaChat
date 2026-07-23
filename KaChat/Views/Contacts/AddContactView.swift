@@ -29,6 +29,12 @@ struct AddContactView: View {
     @State private var groupAddressEntries: [GroupAddressEntry] = [GroupAddressEntry()]
     @State private var isCreatingGroup = false
     @State private var scanningGroupRowID: UUID?
+    @State private var contactPickerRowID: UUID?
+    /// The one member "card" currently expanded for editing (text field + Import/Paste/Scan +
+    /// Add Address) - every other entry shows collapsed (name/address + a remove button only).
+    /// Tapping a collapsed entry re-expands it; committing the expanded one via "Add Address"
+    /// collapses it and expands a fresh blank entry in its place.
+    @State private var editingGroupEntryID: UUID?
     private static let maxGroupMembers = 10
 
     /// One row in the group-member address list - supports both a raw Kaspa address and a KNS
@@ -69,6 +75,11 @@ struct AddContactView: View {
             Form {
                 Section {
                     Toggle("Group Chat", isOn: $isGroupMode.animation())
+                        .onChange(of: isGroupMode) { newValue in
+                            if newValue, editingGroupEntryID == nil || !groupAddressEntries.contains(where: { $0.id == editingGroupEntryID }) {
+                                editingGroupEntryID = groupAddressEntries.first?.id
+                            }
+                        }
                 }
 
                 if isGroupMode {
@@ -229,14 +240,6 @@ struct AddContactView: View {
                 get: { scanningGroupRowID != nil },
                 set: { isPresented in
                     if !isPresented {
-                        // Scanner dismissed without a scan (e.g. Cancel) - drop the row it was
-                        // pre-appended for if the user never filled it in.
-                        if let rowID = scanningGroupRowID,
-                           let entry = groupAddressEntries.first(where: { $0.id == rowID }),
-                           entry.trimmedText.isEmpty,
-                           groupAddressEntries.count > 1 {
-                            groupAddressEntries.removeAll { $0.id == rowID }
-                        }
                         scanningGroupRowID = nil
                     }
                 }
@@ -270,6 +273,24 @@ struct AddContactView: View {
                         }
                     }
                 )
+            }
+            .sheet(isPresented: Binding(
+                get: { contactPickerRowID != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        contactPickerRowID = nil
+                    }
+                }
+            )) {
+                if let rowID = contactPickerRowID {
+                    SystemContactPickerSheet(
+                        title: "Import from Contacts",
+                        onSelect: { selection in
+                            handleGroupContactSelection(selection, rowID: rowID)
+                            contactPickerRowID = nil
+                        }
+                    )
+                }
             }
         }
     }
@@ -412,58 +433,154 @@ struct AddContactView: View {
 
         Section {
             ForEach($groupAddressEntries) { $entry in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        TextField("kaspa:qr... or name.kas", text: $entry.text)
-                            .font(.system(.body, design: .monospaced))
-                            .autocapitalization(.none)
-                            .autocorrectionDisabled()
-                            .onChange(of: entry.text) { newValue in
-                                resolveGroupAddress(id: entry.id, input: newValue)
-                            }
+                if entry.id == editingGroupEntryID {
+                    // The one expanded "card": address field, then Import/Paste/Scan (same
+                    // size/style as the single-contact flow), then Add Address to commit it and
+                    // open the next blank slot.
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            TextField("kaspa:qr... or name.kas", text: $entry.text)
+                                .font(.system(.body, design: .monospaced))
+                                .autocapitalization(.none)
+                                .autocorrectionDisabled()
+                                .onChange(of: entry.text) { newValue in
+                                    resolveGroupAddress(id: entry.id, input: newValue)
+                                }
 
-                        if groupAddressEntries.count > 1 {
-                            Button {
-                                groupAddressEntries.removeAll { $0.id == entry.id }
-                            } label: {
-                                Image(systemName: "minus.circle.fill")
-                                    .foregroundColor(.red)
+                            if groupAddressEntries.count > 1 {
+                                Button {
+                                    removeGroupEntry(entry.id)
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                        .foregroundColor(.red)
+                                }
+                                .buttonStyle(.borderless)
                             }
-                            .buttonStyle(.borderless)
                         }
-                    }
 
-                    groupAddressStatus(for: entry)
+                        groupAddressStatus(for: entry)
+
+                        Divider()
+
+                        HStack {
+                            Button {
+                                contactPickerRowID = entry.id
+                            } label: {
+                                Label("Import", systemImage: "person.crop.circle.badge.plus")
+                            }
+
+                            Spacer()
+
+                            Button {
+                                if let pastedText = UIPasteboard.general.string {
+                                    let trimmed = pastedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    entry.text = trimmed
+                                    resolveGroupAddress(id: entry.id, input: trimmed)
+                                }
+                            } label: {
+                                Label("Paste", systemImage: "doc.on.clipboard")
+                            }
+
+                            Spacer()
+
+                            Button {
+                                scanningGroupRowID = entry.id
+                            } label: {
+                                Label("Scan QR", systemImage: "qrcode.viewfinder")
+                            }
+                        }
+                        .buttonStyle(.borderless)
+
+                        Button {
+                            commitGroupEntry(entry.id)
+                        } label: {
+                            Text("Add Address")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!isValidGroupEntry(entry))
+                    }
+                    .padding(.vertical, 4)
+                } else {
+                    // Committed: collapsed to a single row - tap the name/address to edit it
+                    // again, or tap the red button to remove it outright.
+                    HStack {
+                        Text(entry.trimmedText)
+                            .font(.system(.body, design: entry.looksLikeDomain ? .default : .monospaced))
+                            .lineLimit(1)
+                        Spacer()
+                        Button {
+                            removeGroupEntry(entry.id)
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundColor(.red)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        setEditingGroupEntry(entry.id)
+                    }
                 }
             }
-
-            HStack {
-                Button {
-                    groupAddressEntries.append(GroupAddressEntry())
-                } label: {
-                    Label("Add Address", systemImage: "plus.circle")
-                }
-                .disabled(groupAddressEntries.count >= Self.maxGroupMembers)
-
-                Spacer()
-
-                Button {
-                    if groupAddressEntries.count >= Self.maxGroupMembers {
-                        return
-                    }
-                    let newEntry = GroupAddressEntry()
-                    groupAddressEntries.append(newEntry)
-                    scanningGroupRowID = newEntry.id
-                } label: {
-                    Label("Scan QR Code", systemImage: "qrcode.viewfinder")
-                }
-                .disabled(groupAddressEntries.count >= Self.maxGroupMembers)
-            }
-            .buttonStyle(.borderless)
         } header: {
             Text("Members")
         } footer: {
             Text("Up to \(Self.maxGroupMembers) addresses or KNS domains. Anyone not already a contact will be added automatically.")
+        }
+    }
+
+    /// Matches the single-contact flow's `canAdd` trust model exactly: a resolved KNS domain is
+    /// trusted outright (the KNS API is the source of truth for it), only a raw typed/scanned/
+    /// pasted address gets re-validated here. Re-running a resolved domain's address back through
+    /// `isValidKaspaAddress` was the bug behind "KNS domains don't work in group mode" - it isn't
+    /// wrong exactly, but it's a stricter, redundant check the 1:1 flow deliberately skips, and it
+    /// was silently keeping "Add Address" disabled even after a domain resolved successfully.
+    private func isValidGroupEntry(_ entry: GroupAddressEntry) -> Bool {
+        if entry.looksLikeDomain {
+            return entry.resolvedAddress != nil
+        }
+        return contactsManager.isValidKaspaAddress(entry.trimmedText)
+    }
+
+    /// Commits the given entry (must already resolve to a valid address) and opens the next
+    /// blank slot for editing, or collapses everything if the member cap is reached.
+    private func commitGroupEntry(_ id: UUID) {
+        guard let entry = groupAddressEntries.first(where: { $0.id == id }), isValidGroupEntry(entry) else { return }
+        if groupAddressEntries.count < Self.maxGroupMembers {
+            let newEntry = GroupAddressEntry()
+            groupAddressEntries.append(newEntry)
+            editingGroupEntryID = newEntry.id
+        } else {
+            editingGroupEntryID = nil
+        }
+    }
+
+    /// Switches which entry is expanded - drops the previously-expanded one first if the user
+    /// never typed anything into it, rather than leaving a blank collapsed row behind.
+    private func setEditingGroupEntry(_ id: UUID) {
+        if let currentID = editingGroupEntryID,
+           currentID != id,
+           let current = groupAddressEntries.first(where: { $0.id == currentID }),
+           current.trimmedText.isEmpty,
+           groupAddressEntries.count > 1 {
+            groupAddressEntries.removeAll { $0.id == currentID }
+        }
+        editingGroupEntryID = id
+    }
+
+    /// Removes an entry outright, always leaving exactly one blank entry available to edit
+    /// afterward (unless the member cap is still reached by what remains).
+    private func removeGroupEntry(_ id: UUID) {
+        let wasEditing = editingGroupEntryID == id
+        groupAddressEntries.removeAll { $0.id == id }
+        if wasEditing {
+            editingGroupEntryID = nil
+        }
+        if groupAddressEntries.isEmpty || (editingGroupEntryID == nil && groupAddressEntries.count < Self.maxGroupMembers) {
+            let newEntry = GroupAddressEntry()
+            groupAddressEntries.append(newEntry)
+            editingGroupEntryID = newEntry.id
         }
     }
 
@@ -554,14 +671,24 @@ struct AddContactView: View {
         resolveGroupAddress(id: rowID, input: scannedAddress)
     }
 
+    private func handleGroupContactSelection(_ selection: SystemContactImportSelection, rowID: UUID) {
+        guard let index = groupAddressEntries.firstIndex(where: { $0.id == rowID }) else { return }
+        switch selection {
+        case .withAddress(let candidate):
+            groupAddressEntries[index].text = candidate.address
+            resolveGroupAddress(id: rowID, input: candidate.address)
+        case .nameOnly(let target):
+            // No linking-for-later here (unlike the single-contact flow) - a group member needs
+            // a real address up front, so just surface why nothing was filled in.
+            error = "\(target.displayName) doesn't have a saved Kaspa address."
+        }
+    }
+
     private var canCreateGroup: Bool {
         guard !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let nonEmptyEntries = groupAddressEntries.filter { !$0.trimmedText.isEmpty }
         guard !nonEmptyEntries.isEmpty else { return false }
-        return nonEmptyEntries.allSatisfy { entry in
-            guard let address = entry.effectiveAddress else { return false }
-            return contactsManager.isValidKaspaAddress(address)
-        }
+        return nonEmptyEntries.allSatisfy(isValidGroupEntry)
     }
 
     private func createGroupChat() {
@@ -578,7 +705,7 @@ struct AddContactView: View {
         }
         var addresses: [String] = []
         for entry in nonEmptyEntries {
-            guard let address = entry.effectiveAddress, contactsManager.isValidKaspaAddress(address) else {
+            guard isValidGroupEntry(entry), let address = entry.effectiveAddress else {
                 error = entry.looksLikeDomain ? "Could not resolve \(entry.trimmedText)" : "Invalid address: \(entry.trimmedText)"
                 return
             }

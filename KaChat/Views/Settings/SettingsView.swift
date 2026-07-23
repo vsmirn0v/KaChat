@@ -12,7 +12,6 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showSeedPhrase = false
-    @State private var showLogoutConfirmation = false
     @State private var showDeleteConfirmation = false
     @State private var showWipeIncomingConfirmation = false
     @State private var showWipeAccountConfirmation = false
@@ -31,7 +30,6 @@ struct SettingsView: View {
     @State private var isPreparingDiagnostics = false
     @State private var isPreparingChatHistoryExport = false
     @State private var isImportingChatHistory = false
-    @State private var isResolvingDonateAddress = false
     @State private var showPhotoQualitySheet = false
     @AppStorage(MessageStore.dpiCorruptionWarningKey) private var dpiWarningActive = false
     @AppStorage(MessageStore.dpiCorruptionWarningEndpointKey) private var dpiWarningEndpoint = ""
@@ -97,6 +95,11 @@ struct SettingsView: View {
                 }
 
                 Section("Chats") {
+                    Toggle("Show Fee Estimate", isOn: $settingsViewModel.settings.showFeeEstimate)
+                        .onChange(of: settingsViewModel.settings.showFeeEstimate) { _ in
+                            settingsViewModel.saveSettings()
+                        }
+
                     Toggle("Require approval for photos from new contacts", isOn: $settingsViewModel.settings.requirePhotoApprovalForNewContacts)
                         .onChange(of: settingsViewModel.settings.requirePhotoApprovalForNewContacts) { _ in
                             settingsViewModel.saveSettings()
@@ -267,12 +270,6 @@ struct SettingsView: View {
                     } label: {
                         Label("View Seed Phrase", systemImage: "key")
                     }
-
-                    Button(role: .destructive) {
-                        showLogoutConfirmation = true
-                    } label: {
-                        Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
                 }
 
                 Section("Danger Zone") {
@@ -355,50 +352,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("About") {
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text(appVersionDisplay)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Link(destination: websiteURL) {
-                        HStack {
-                            Text("Website")
-                            Spacer()
-                            Text("linktr.ee/Kachat_")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Link(destination: supportEmailURL) {
-                        HStack {
-                            Text("Support Email")
-                            Spacer()
-                            Text("kaspasilver@gmail.com")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Button {
-                        Task {
-                            await donate()
-                        }
-                    } label: {
-                        HStack {
-                            Text("Donate")
-                            Spacer()
-                            if isResolvingDonateAddress {
-                                ProgressView()
-                            } else {
-                                Text("kachat.kas")
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    .disabled(isResolvingDonateAddress)
-                }
             }
             .toast(message: toastMessage, style: toastStyle)
             .toolbar {
@@ -416,20 +369,6 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showSeedPhrase) {
                 SeedPhraseView()
-            }
-            .confirmationDialog(
-                "Log Out",
-                isPresented: $showLogoutConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Log Out", role: .destructive) {
-                    Task {
-                        await walletManager.logout()
-                    }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This signs out of your account, but keeps local wallet and message data on this device.")
             }
             .sheet(isPresented: $showDiagnosticsShareSheet) {
                 if let diagnosticsArchiveURL {
@@ -632,27 +571,6 @@ struct SettingsView: View {
         }
     }
 
-    /// Resolves the KNS domain "kachat.kas" to its owner address and jumps straight to that
-    /// chat in payment mode, ready to send - matches the Android client's About screen Donate row.
-    private func donate() async {
-        if isResolvingDonateAddress { return }
-        isResolvingDonateAddress = true
-        defer { isResolvingDonateAddress = false }
-
-        guard let resolution = await KNSService.shared.resolveDomain("kachat.kas") else {
-            showToast("Couldn't resolve kachat.kas. Please try again later.", style: .error)
-            return
-        }
-
-        let contact = contactsManager.getOrCreateContact(address: resolution.ownerAddress, alias: resolution.domain)
-        _ = chatService.getOrCreateConversation(for: contact)
-        NotificationCenter.default.post(
-            name: .openChat,
-            object: nil,
-            userInfo: ["contactAddress": contact.address, "paymentMode": true]
-        )
-    }
-
     private func exportDiagnosticsArchive() async {
         if isPreparingDiagnostics { return }
         isPreparingDiagnostics = true
@@ -839,30 +757,6 @@ struct SettingsView: View {
     private func formatKaspaExact(_ sompi: UInt64) -> String {
         let kas = Double(sompi) / 100_000_000.0
         return String(format: "%.8f", kas)
-    }
-
-    private var appVersionDisplay: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
-
-        switch (version?.trimmingCharacters(in: .whitespacesAndNewlines), build?.trimmingCharacters(in: .whitespacesAndNewlines)) {
-        case let (v?, b?) where !v.isEmpty && !b.isEmpty:
-            return "\(v) (\(b))"
-        case let (v?, _) where !v.isEmpty:
-            return v
-        case let (_, b?) where !b.isEmpty:
-            return b
-        default:
-            return "Unknown"
-        }
-    }
-
-    private var websiteURL: URL {
-        URL(string: "https://linktr.ee/Kachat_")!
-    }
-
-    private var supportEmailURL: URL {
-        URL(string: "mailto:kaspasilver@gmail.com")!
     }
 
 }

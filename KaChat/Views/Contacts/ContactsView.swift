@@ -10,6 +10,7 @@ struct ProfileView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var giftService: GiftService
+    @EnvironmentObject var contactsManager: ContactsManager
 
     @State private var editedAlias = ""
     @State private var aliasSaveTask: Task<Void, Never>?
@@ -34,6 +35,8 @@ struct ProfileView: View {
     @State private var knsSaveProgressText: String?
     @State private var failedKNSUpdates: [KNSProfileFieldKey: String] = [:]
     @State private var showSettings = false
+    @State private var isResolvingDonateAddress = false
+    @State private var showLogoutConfirmation = false
 
     static func preloadQRCode(for address: String) {
         ProfileQRCodeCache.preload(address: address, completion: nil)
@@ -47,10 +50,11 @@ struct ProfileView: View {
                         knsProfileSection
                         qrButtonsSection(wallet)
                         addressDropdownsSection(wallet)
-                        accountInfoSection(wallet)
                         if shouldShowGiftSection(wallet) {
                             giftSection
                         }
+                        aboutSection(wallet)
+                        logOutSection
                     } else {
                         Text("No active account")
                             .foregroundColor(.secondary)
@@ -781,18 +785,161 @@ struct ProfileView: View {
         }
     }
 
-    private func accountInfoSection(_ wallet: Wallet) -> some View {
+    /// Bottom-most section on Profile - merges what used to be a separate "Info" section
+    /// (just "Created") with Settings' old "About" section (Version/Website/Support Email/
+    /// Donate), now reached without needing to open Settings at all.
+    private func aboutSection(_ wallet: Wallet) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionHeader("Info")
-            HStack {
-                Text("Created")
-                Spacer()
-                Text(formatDate(wallet.createdAt))
-                    .foregroundColor(.secondary)
+            sectionHeader("About")
+            VStack(spacing: 0) {
+                HStack {
+                    Text("Created")
+                    Spacer()
+                    Text(formatDate(wallet.createdAt))
+                        .foregroundColor(.secondary)
+                }
+                .padding(16)
+
+                Divider().padding(.leading, 16)
+                HStack {
+                    Text("Version")
+                    Spacer()
+                    Text(appVersionDisplay)
+                        .foregroundColor(.secondary)
+                }
+                .padding(16)
+
+                Divider().padding(.leading, 16)
+                Link(destination: websiteURL) {
+                    HStack {
+                        Text("Website")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Text("linktr.ee/Kachat_")
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
+                    .contentShape(Rectangle())
+                }
+
+                Divider().padding(.leading, 16)
+                Link(destination: supportEmailURL) {
+                    HStack {
+                        Text("Support Email")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Text("kaspasilver@gmail.com")
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(16)
+                    .contentShape(Rectangle())
+                }
+
+                Divider().padding(.leading, 16)
+                Button {
+                    Task {
+                        await donate()
+                    }
+                } label: {
+                    HStack {
+                        Text("Donate")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        if isResolvingDonateAddress {
+                            ProgressView()
+                        } else {
+                            Text("kachat.kas")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(16)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isResolvingDonateAddress)
             }
-            .padding(16)
             .background(glassBackground(cornerRadius: 18))
         }
+    }
+
+    /// Moved here from Settings > Actions - Profile is where the rest of the account-level
+    /// actions (address management, About) already live, so Log Out belongs alongside them
+    /// rather than buried in Settings.
+    private var logOutSection: some View {
+        Button(role: .destructive) {
+            showLogoutConfirmation = true
+        } label: {
+            HStack {
+                Text("Log Out")
+                    .foregroundColor(.red)
+                Spacer()
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+                    .foregroundColor(.red)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(glassBackground(cornerRadius: 18))
+        .confirmationDialog(
+            "Log Out",
+            isPresented: $showLogoutConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Log Out", role: .destructive) {
+                Task {
+                    await walletManager.logout()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This signs out of your account, but keeps local wallet and message data on this device.")
+        }
+    }
+
+    /// Resolves the KNS domain "kachat.kas" to its owner address and jumps straight to that
+    /// chat in payment mode, ready to send - matches the Android client's About screen Donate row.
+    private func donate() async {
+        if isResolvingDonateAddress { return }
+        isResolvingDonateAddress = true
+        defer { isResolvingDonateAddress = false }
+
+        guard let resolution = await KNSService.shared.resolveDomain("kachat.kas") else {
+            showToast("Couldn't resolve kachat.kas. Please try again later.", style: .error)
+            return
+        }
+
+        let contact = contactsManager.getOrCreateContact(address: resolution.ownerAddress, alias: resolution.domain)
+        _ = chatService.getOrCreateConversation(for: contact)
+        NotificationCenter.default.post(
+            name: .openChat,
+            object: nil,
+            userInfo: ["contactAddress": contact.address, "paymentMode": true]
+        )
+    }
+
+    private var appVersionDisplay: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+
+        switch (version?.trimmingCharacters(in: .whitespacesAndNewlines), build?.trimmingCharacters(in: .whitespacesAndNewlines)) {
+        case let (v?, b?) where !v.isEmpty && !b.isEmpty:
+            return "\(v) (\(b))"
+        case let (v?, _) where !v.isEmpty:
+            return v
+        case let (_, b?) where !b.isEmpty:
+            return b
+        default:
+            return "Unknown"
+        }
+    }
+
+    private var websiteURL: URL {
+        URL(string: "https://linktr.ee/Kachat_")!
+    }
+
+    private var supportEmailURL: URL {
+        URL(string: "mailto:kaspasilver@gmail.com")!
     }
 
     private func scheduleAliasSave(_ rawAlias: String, previousAlias: String) {

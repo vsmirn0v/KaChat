@@ -861,7 +861,7 @@ extension ChatService {
         }
     }
 
-    func sendMessage(to contact: Contact, content: String, messageType: ChatMessage.MessageType = .contextual) async throws {
+    func sendMessage(to contact: Contact, content: String, messageType: ChatMessage.MessageType = .contextual, feeOverride: UInt64? = nil) async throws {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard let wallet = WalletManager.shared.currentWallet else {
@@ -930,7 +930,8 @@ extension ChatService {
                 content: payload,
                 messageType: messageType,
                 pendingTxId: pendingTxId,
-                pendingMessageId: pendingMessage.id
+                pendingMessageId: pendingMessage.id,
+                feeOverride: feeOverride
             )
         }
         replyingTo = nil
@@ -1031,7 +1032,8 @@ extension ChatService {
         messageType: ChatMessage.MessageType,
         pendingTxId: String?,
         pendingMessageId: UUID? = nil,
-        spendableFundsRetryAttempt: Int = 0
+        spendableFundsRetryAttempt: Int = 0,
+        feeOverride: UInt64? = nil
     ) async throws {
         guard let wallet = WalletManager.shared.currentWallet else {
             throw KasiaError.walletNotFound
@@ -1132,7 +1134,8 @@ extension ChatService {
                     message: content,
                     senderPrivateKey: privateKey,
                     recipientPublicKey: recipientPublicKey,
-                    utxos: candidateUtxos
+                    utxos: candidateUtxos,
+                    feeOverride: feeOverride
                 )
             }
 
@@ -2201,7 +2204,8 @@ extension ChatService {
         return !transactions.isEmpty
     }
 
-    func estimateMessageFee(to contact: Contact, content: String) async throws -> UInt64 {
+    func estimateMessageFee(to contact: Contact, content: String, feeOverride: UInt64? = nil) async throws -> UInt64 {
+        if let feeOverride { return feeOverride }
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw KasiaError.networkError("Message is empty")

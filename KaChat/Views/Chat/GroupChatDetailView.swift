@@ -25,6 +25,11 @@ struct GroupChatDetailView: View {
     @FocusState private var isComposerFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
+    /// Swipe-left-to-reveal-timestamps, matching 1:1 chat's `ChatDetailView`/broadcast rooms'
+    /// identical gesture.
+    @State private var revealOffset: CGFloat = 0
+    private let maxRevealOffset: CGFloat = 64
+
     // Avatar menu destinations - "View Profile"/"Open Chat"/"Pay in Kaspa" for a tapped member,
     // matching BroadcastChannelView's identical avatarButton pattern.
     @State private var openContact: Contact?
@@ -42,6 +47,10 @@ struct GroupChatDetailView: View {
     @State private var isEstimatingFee = false
     @State private var feeEstimateTask: Task<Void, Never>?
     @State private var feeShimmerPhase: CGFloat = -1
+    /// User-set fee, from tapping the fee pill - see ChatDetailView.feeOverrideSompi's doc comment.
+    @State private var feeOverrideSompi: UInt64?
+    @State private var showFeeEditor = false
+    @State private var feeEditorText = ""
 
     /// Smaller than 1:1's `ImagePrep.defaultChatTargetBytes` (15,000) - group's `gcomm` payload
     /// hex-encodes the whole ciphertext (vs. 1:1's base64) plus fixed per-message overhead
@@ -55,28 +64,66 @@ struct GroupChatDetailView: View {
         (groupChatService.groupMessages[group.id] ?? []).sorted { $0.timestamp < $1.timestamp }
     }
 
+    private enum GroupTimelineItem: Identifiable {
+        case daySeparator(Date)
+        case message(GroupMessage)
+
+        var id: String {
+            switch self {
+            case .daySeparator(let day):
+                return "day-\(Int(day.timeIntervalSince1970))"
+            case .message(let message):
+                return "message-\(message.id.uuidString)"
+            }
+        }
+    }
+
+    /// Day-separator grouping, mirroring `ChatTimelineLayout` - not shared with it directly since
+    /// that's typed to `[ChatMessage]`, not `[GroupMessage]`.
+    private var timelineItems: [GroupTimelineItem] {
+        var items: [GroupTimelineItem] = []
+        var previousDay: Date?
+        let calendar = Calendar.autoupdatingCurrent
+        for message in messages {
+            let messageDay = calendar.startOfDay(for: message.timestamp)
+            if previousDay.map({ calendar.isDate($0, inSameDayAs: messageDay) }) != true {
+                items.append(.daySeparator(messageDay))
+                previousDay = messageDay
+            }
+            items.append(.message(message))
+        }
+        return items
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(messages) { message in
-                            GroupMessageBubbleRow(
-                                message: message,
-                                group: group,
-                                avatarURLString: message.senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
-                                onCopy: showToast,
-                                onViewProfile: viewProfile,
-                                onOpenChat: { openChat(with: $0) },
-                                onPayInKaspa: { openChat(with: $0, paymentMode: true) },
-                                onCopyAddress: copyAddress,
-                                onRetry: { retry(message) }
-                            )
-                            .id(message.id)
-                            .task(id: message.senderAddress) {
-                                guard let address = message.senderAddress, address != myAddress,
-                                      knsService.profileCache[address] == nil else { return }
-                                _ = await knsService.fetchProfile(for: address)
+                        ForEach(timelineItems) { item in
+                            switch item {
+                            case .daySeparator(let day):
+                                daySeparator(day)
+                            case .message(let message):
+                                GroupMessageBubbleRow(
+                                    message: message,
+                                    group: group,
+                                    avatarURLString: message.senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
+                                    onCopy: showToast,
+                                    onViewProfile: viewProfile,
+                                    onOpenChat: { openChat(with: $0) },
+                                    onPayInKaspa: { openChat(with: $0, paymentMode: true) },
+                                    onCopyAddress: copyAddress,
+                                    onRetry: { retry(message) },
+                                    revealOffset: revealOffset,
+                                    maxRevealOffset: maxRevealOffset
+                                )
+                                .id(message.id)
+                                .task(id: message.senderAddress) {
+                                    guard let address = message.senderAddress, address != myAddress,
+                                          knsService.profileCache[address] == nil else { return }
+                                    _ = await knsService.fetchProfile(for: address)
+                                }
                             }
                         }
                     }
@@ -84,6 +131,20 @@ struct GroupChatDetailView: View {
                     .padding(.top, 8)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .simultaneousGesture(
+                    // Swipe-left-to-reveal-timestamps, matching 1:1 chat exactly: dragging left
+                    // shifts every message row left together, uncovering each message's time.
+                    DragGesture(minimumDistance: 8)
+                        .onChanged { value in
+                            guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                            revealOffset = min(max(value.translation.width, -maxRevealOffset), 0)
+                        }
+                        .onEnded { _ in
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                revealOffset = 0
+                            }
+                        }
+                )
                 .onChange(of: messages.count) { _ in
                     if let last = messages.last {
                         withAnimation {
@@ -153,6 +214,7 @@ struct GroupChatDetailView: View {
         }
         .task {
             groupChatService.loadMessages(for: group.id)
+            groupChatService.markGroupAsRead(group.id)
             if let myAddress, knsService.profileCache[myAddress] == nil {
                 _ = await knsService.fetchProfile(for: myAddress)
             }
@@ -163,6 +225,18 @@ struct GroupChatDetailView: View {
             }
         }
         .toast(message: toastMessage, style: .success)
+        .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
+            TextField("Fee (KAS)", text: $feeEditorText)
+                .keyboardType(.decimalPad)
+            Button("Save") { commitFeeOverride() }
+            Button("Use Default") {
+                feeOverrideSompi = nil
+                scheduleTextFeeEstimate(for: draft)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("If the network is busy, a higher fee can help your transaction confirm faster.")
+        }
     }
 
     // MARK: - Compose bar
@@ -199,6 +273,7 @@ struct GroupChatDetailView: View {
     // MARK: - Fee estimation
 
     private var shouldShowFeeBubble: Bool {
+        guard settingsViewModel.settings.showFeeEstimate else { return false }
         if recorder.state == .recording || recorder.state == .encoding { return true }
         if pendingPhotoImage != nil { return true }
         return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -208,8 +283,9 @@ struct GroupChatDetailView: View {
         Group {
             if isEstimatingFee {
                 Text("fee: -------- KAS")
-            } else if let feeEstimateSompi {
-                Text(localizedFeeText(feeEstimateSompi))
+            } else if let fee = feeOverrideSompi ?? feeEstimateSompi {
+                Text(localizedFeeText(fee))
+                    .underline()
             } else {
                 Text("fee: -- KAS")
             }
@@ -226,12 +302,24 @@ struct GroupChatDetailView: View {
                     .allowsHitTesting(false)
             }
         }
+        .allowsHitTesting(true)
+        .onTapGesture {
+            guard !isEstimatingFee, let currentFee = feeOverrideSompi ?? feeEstimateSompi else { return }
+            feeEditorText = formatKaspaExact(currentFee)
+            showFeeEditor = true
+        }
         .onAppear {
             updateFeeShimmer()
         }
         .onChange(of: isEstimatingFee) { _ in
             updateFeeShimmer()
         }
+    }
+
+    private func commitFeeOverride() {
+        guard let kas = Double(feeEditorText), kas >= 0 else { return }
+        feeOverrideSompi = UInt64((kas * 100_000_000).rounded())
+        scheduleTextFeeEstimate(for: draft)
     }
 
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
@@ -267,7 +355,7 @@ struct GroupChatDetailView: View {
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }
             do {
-                let estimate = try await groupChatService.estimateGroupMessageFee(trimmed, for: group.id)
+                let estimate = try await groupChatService.estimateGroupMessageFee(trimmed, for: group.id, feeOverride: feeOverrideSompi)
                 guard !Task.isCancelled else { return }
                 feeEstimateSompi = estimate
                 isEstimatingFee = false
@@ -452,9 +540,12 @@ struct GroupChatDetailView: View {
         guard !text.isEmpty else { return }
         draft = ""
         errorMessage = nil
+        let feeOverride = feeOverrideSompi
+        feeOverrideSompi = nil
+        feeEstimateSompi = nil
         Task {
             do {
-                try await groupChatService.sendGroupMessage(text, to: group.id)
+                try await groupChatService.sendGroupMessage(text, to: group.id, feeOverride: feeOverride)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -551,6 +642,35 @@ struct GroupChatDetailView: View {
             )
             .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
     }
+
+    /// "Today"/"Yesterday"/date pill between message groups - visually identical to 1:1 chat's
+    /// `ChatDetailView.daySeparator(_:)`.
+    private func daySeparator(_ day: Date) -> some View {
+        let isToday = MessageDaySeparatorFormatter.isToday(day)
+        let label = MessageDaySeparatorFormatter.label(for: day)
+        return HStack {
+            Spacer(minLength: 0)
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .foregroundStyle(isToday ? Color.accentColor : Color.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background {
+                    Capsule()
+                        .fill(isToday ? Color.accentColor.opacity(0.12) : Color(.systemGray6))
+                }
+                .overlay {
+                    Capsule()
+                        .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+                }
+                .accessibilityLabel(label)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 2)
+    }
 }
 
 private struct GroupMessageBubbleRow: View {
@@ -563,6 +683,10 @@ private struct GroupMessageBubbleRow: View {
     let onPayInKaspa: (String) -> Void
     let onCopyAddress: (String) -> Void
     let onRetry: () -> Void
+    /// Shared horizontal offset driven by the message list's swipe-left-to-reveal-timestamp
+    /// gesture (see `GroupChatDetailView`'s drag gesture) - 0 at rest, negative while revealed.
+    var revealOffset: CGFloat = 0
+    var maxRevealOffset: CGFloat = 64
 
     @EnvironmentObject var settingsViewModel: SettingsViewModel
 
@@ -586,7 +710,29 @@ private struct GroupMessageBubbleRow: View {
         MediaFile.from(message.content, cacheKey: message.txId)
     }
 
+    private var timeText: String {
+        SharedFormatting.chatTime.string(from: message.timestamp)
+    }
+
+    /// 0 at rest, 1 once fully dragged open.
+    private var revealProgress: CGFloat {
+        min(max(-revealOffset / maxRevealOffset, 0), 1)
+    }
+
     var body: some View {
+        ZStack(alignment: .trailing) {
+            Text(timeText)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .padding(.trailing, 12)
+                .opacity(revealProgress)
+
+            messageContent
+                .offset(x: revealOffset)
+        }
+    }
+
+    private var messageContent: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if !message.isOutgoing {
                 avatarButton

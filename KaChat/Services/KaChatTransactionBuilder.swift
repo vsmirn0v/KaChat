@@ -57,7 +57,8 @@ struct KasiaTransactionBuilder {
         message: String,
         senderPrivateKey: Data,
         recipientPublicKey: Data,
-        utxos: [UTXO]
+        utxos: [UTXO],
+        feeOverride: UInt64? = nil
     ) throws -> KaspaRpcTransaction {
         // 1. Encrypt the message for the recipient
         let kasiaPayload = try buildContextualMessagePayload(
@@ -75,7 +76,8 @@ struct KasiaTransactionBuilder {
         let selection = try selectUtxosForContextualMessage(
             utxos: utxos,
             payload: kasiaPayload,
-            senderScriptPubKey: senderScriptPubKey
+            senderScriptPubKey: senderScriptPubKey,
+            feeOverride: feeOverride
         )
         let selectedUtxos = selection.utxos
         let outputAmount = selection.totalInput - selection.fee
@@ -127,7 +129,8 @@ struct KasiaTransactionBuilder {
         channel: String,
         content: String,
         senderPrivateKey: Data,
-        utxos: [UTXO]
+        utxos: [UTXO],
+        feeOverride: UInt64? = nil
     ) throws -> KaspaRpcTransaction {
         let payload = buildBroadcastPayload(channel: channel, content: content)
 
@@ -138,7 +141,8 @@ struct KasiaTransactionBuilder {
         let selection = try selectUtxosForContextualMessage(
             utxos: utxos,
             payload: payload,
-            senderScriptPubKey: senderScriptPubKey
+            senderScriptPubKey: senderScriptPubKey,
+            feeOverride: feeOverride
         )
         let selectedUtxos = selection.utxos
         let outputAmount = selection.totalInput - selection.fee
@@ -189,7 +193,8 @@ struct KasiaTransactionBuilder {
         from senderAddress: String,
         payloadString: String,
         senderPrivateKey: Data,
-        utxos: [UTXO]
+        utxos: [UTXO],
+        feeOverride: UInt64? = nil
     ) throws -> KaspaRpcTransaction {
         let payload = Data(payloadString.utf8)
 
@@ -200,7 +205,8 @@ struct KasiaTransactionBuilder {
         let selection = try selectUtxosForContextualMessage(
             utxos: utxos,
             payload: payload,
-            senderScriptPubKey: senderScriptPubKey
+            senderScriptPubKey: senderScriptPubKey,
+            feeOverride: feeOverride
         )
         let selectedUtxos = selection.utxos
         let outputAmount = selection.totalInput - selection.fee
@@ -1186,7 +1192,8 @@ struct KasiaTransactionBuilder {
     private static func selectUtxosForContextualMessage(
         utxos: [UTXO],
         payload: Data,
-        senderScriptPubKey: Data
+        senderScriptPubKey: Data,
+        feeOverride: UInt64? = nil
     ) throws -> ContextualSelection {
         let spendable = utxos.filter { !$0.isCoinbase }
         let pending = spendable
@@ -1202,8 +1209,14 @@ struct KasiaTransactionBuilder {
             scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
         )
 
+        // A user-set fee (see ChatDetailView/BroadcastChannelView/GroupChatDetailView's tappable
+        // fee pill) always wins over the computed estimate, regardless of input count.
+        let feeFor: (Int) -> UInt64 = { inputCount in
+            feeOverride ?? (estimateFee(payload: payload, inputCount: inputCount, outputs: [outputTemplate]) + 3)
+        }
+
         // Prefer chaining on a single pending self-change UTXO when it can cover fee+dust.
-        let singleInputFee = estimateFee(payload: payload, inputCount: 1, outputs: [outputTemplate]) + 3
+        let singleInputFee = feeFor(1)
         if let pendingSingle = pending.first(where: { $0.amount > singleInputFee && ($0.amount - singleInputFee) > dustThreshold }) {
             return ContextualSelection(utxos: [pendingSingle], totalInput: pendingSingle.amount, fee: singleInputFee)
         }
@@ -1229,8 +1242,7 @@ struct KasiaTransactionBuilder {
             selected.append(utxo)
             total = try addSompiChecked(total, utxo.amount, context: "contextual selection")
 
-            // Add a tiny constant to avoid under-fee rejection (observed 3-sompi gap)
-            let fee = estimateFee(payload: payload, inputCount: selected.count, outputs: [outputTemplate]) + 3
+            let fee = feeFor(selected.count)
             guard total > fee else { continue }
 
             let outputAmount = total - fee

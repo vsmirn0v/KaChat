@@ -6,7 +6,10 @@ import SwiftUI
 enum SharedFormatting {
     static let chatTime: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
+        // 12-hour, not tied to the device's 24-hour system setting - message timestamps should
+        // read the same everywhere in the app regardless of the user's locale/region settings.
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "h:mm a"
         return formatter
     }()
 
@@ -1143,6 +1146,7 @@ struct AppSettings: Codable {
     var liveUpdatesEnabled: Bool
     var chatPhotoQualityPreset: ChatPhotoQualityPreset
     var requirePhotoApprovalForNewContacts: Bool
+    var showFeeEstimate: Bool
 
     // Customization
     var appearance: AppAppearance
@@ -1205,6 +1209,7 @@ struct AppSettings: Codable {
             liveUpdatesEnabled: false,
             chatPhotoQualityPreset: .default,
             requirePhotoApprovalForNewContacts: true,
+            showFeeEstimate: true,
             appearance: .system,
             hidePortfolioTab: false,
             hideSwapTab: false,
@@ -1240,6 +1245,7 @@ struct AppSettings: Codable {
         case liveUpdatesEnabled
         case chatPhotoQualityPreset
         case requirePhotoApprovalForNewContacts
+        case showFeeEstimate
         case appearance
         case hidePortfolioTab
         case hideSwapTab
@@ -1283,6 +1289,7 @@ struct AppSettings: Codable {
         liveUpdatesEnabled: Bool,
         chatPhotoQualityPreset: ChatPhotoQualityPreset = .default,
         requirePhotoApprovalForNewContacts: Bool = true,
+        showFeeEstimate: Bool = true,
         appearance: AppAppearance = .system,
         hidePortfolioTab: Bool = false,
         hideSwapTab: Bool = false,
@@ -1316,6 +1323,7 @@ struct AppSettings: Codable {
         self.liveUpdatesEnabled = liveUpdatesEnabled
         self.chatPhotoQualityPreset = chatPhotoQualityPreset
         self.requirePhotoApprovalForNewContacts = requirePhotoApprovalForNewContacts
+        self.showFeeEstimate = showFeeEstimate
         self.appearance = appearance
         self.hidePortfolioTab = hidePortfolioTab
         self.hideSwapTab = hideSwapTab
@@ -1376,6 +1384,7 @@ struct AppSettings: Codable {
             forKey: .chatPhotoQualityPreset
         ) ?? .default
         requirePhotoApprovalForNewContacts = try container.decodeIfPresent(Bool.self, forKey: .requirePhotoApprovalForNewContacts) ?? true
+        showFeeEstimate = try container.decodeIfPresent(Bool.self, forKey: .showFeeEstimate) ?? true
         appearance = try container.decodeIfPresent(AppAppearance.self, forKey: .appearance) ?? .system
         hidePortfolioTab = try container.decodeIfPresent(Bool.self, forKey: .hidePortfolioTab) ?? false
         hideSwapTab = try container.decodeIfPresent(Bool.self, forKey: .hideSwapTab) ?? false
@@ -1435,6 +1444,7 @@ struct AppSettings: Codable {
         try container.encode(liveUpdatesEnabled, forKey: .liveUpdatesEnabled)
         try container.encode(chatPhotoQualityPreset, forKey: .chatPhotoQualityPreset)
         try container.encode(requirePhotoApprovalForNewContacts, forKey: .requirePhotoApprovalForNewContacts)
+        try container.encode(showFeeEstimate, forKey: .showFeeEstimate)
         try container.encode(appearance, forKey: .appearance)
         try container.encode(hidePortfolioTab, forKey: .hidePortfolioTab)
         try container.encode(hideSwapTab, forKey: .hideSwapTab)

@@ -48,8 +48,9 @@ final class PortfolioViewModel: ObservableObject {
     func refreshPrice() {
         Task { [weak self] in
             guard let self else { return }
-            let price = await self.coinGecko.getCurrentPriceUsd()
-            self.currentPriceUsd = price
+            if let price = await self.coinGecko.getCurrentPriceUsd() {
+                self.currentPriceUsd = price
+            }
         }
         priceHistoryCache.removeAll()
         fetchPriceHistory(days: priceRangeDays)
@@ -63,7 +64,9 @@ final class PortfolioViewModel: ObservableObject {
         priceHistoryCache.removeAll()
         async let price = coinGecko.getCurrentPriceUsd()
         async let history = coinGecko.getPriceHistory(days: priceRangeDays)
-        currentPriceUsd = await price
+        if let price = await price {
+            currentPriceUsd = price
+        }
         let result = await history
         if !result.isEmpty {
             priceHistoryCache[priceRangeDays] = result
