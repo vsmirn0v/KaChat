@@ -7,8 +7,16 @@ extension AppSettings {
     static func load() -> AppSettings {
         let userDefaults = UserDefaults.standard
         guard let data = userDefaults.data(forKey: "kachat_app_settings"),
-              let settings = try? JSONDecoder().decode(AppSettings.self, from: data) else {
+              var settings = try? JSONDecoder().decode(AppSettings.self, from: data) else {
             return .default
+        }
+        // One-time migration for anyone who saved settings before the indexer moved from
+        // kasia.fyi to kasia.wtf - kasia.fyi never got the group-chat REST endpoints
+        // (`/group-messages/...`, `/group-control/...`), which otherwise 404 forever with no
+        // clear signal to the user (group catch-up sync just silently never delivers anything).
+        if settings.indexerURL == legacyDefaultIndexerURL {
+            settings.indexerURL = defaultIndexerURL
+            save(settings)
         }
         return settings
     }

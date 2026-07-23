@@ -1178,7 +1178,11 @@ struct AppSettings: Codable {
     var lastPoolPersistDate: Date?       // Track when pool was last saved
 
     // Default URLs per network
-    static let defaultIndexerURL = "https://indexer.kasia.fyi"
+    static let defaultIndexerURL = "https://indexer.kasia.wtf"
+    /// Retired default - `indexer.kasia.fyi` doesn't run the group-chat REST endpoints
+    /// (`/group-messages/...`, `/group-control/...`), only `indexer.kasia.wtf` does. See
+    /// `AppSettings.load()`'s one-time migration off this value.
+    static let legacyDefaultIndexerURL = "https://indexer.kasia.fyi"
     static let defaultPushIndexerURL = "https://indexer.kasia.wtf"
     static let defaultKNSMainnetURL = "https://api.knsdomains.org/mainnet/api/v1"
     static let defaultKNSTestnetURL = "https://api.knsdomains.org/tn10/api/v1"
