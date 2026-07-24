@@ -1208,6 +1208,12 @@ struct ConversationRow: View {
             return result
         }
 
+        if ChessCodec.parseAny(unwrapped) != nil {
+            result = "♟️ Chess game"
+            Self.previewCache.setObject(result as NSString, forKey: key)
+            return result
+        }
+
         guard let data = unwrapped.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               json["type"] as? String == "file",

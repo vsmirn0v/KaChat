@@ -28,6 +28,17 @@ struct MessageBubbleView: View {
     /// `BroadcastMessageRow.avatarButton`.
     let avatarURLString: String?
     let avatarDisplayName: String
+    /// Parsed chess envelope, if `message.content` is one - mirrors `replyQuote`. `chessSummary`
+    /// is the current game state (nil only if `chessEnvelope` is nil), always reflecting the
+    /// *latest* message for that game, not necessarily this one - see `isLatestChessMessage`.
+    let chessEnvelope: ChessEnvelope?
+    let chessSummary: ChessGameSummary?
+    /// True only for the most recent chess message belonging to its game - that one renders as
+    /// the live status card; earlier moves in the same game render as a compact log line instead.
+    var isLatestChessMessage: Bool = false
+    /// Non-nil only for an incoming, not-yet-responded-to invite.
+    let onRespondToChessInvite: ((Bool) -> Void)?
+    let onOpenChessGame: (() -> Void)?
     /// Shared horizontal offset driven by the message list's swipe-left-to-reveal-timestamp
     /// gesture (see `ChatDetailView`'s drag gesture) - 0 at rest, negative while revealed.
     var revealOffset: CGFloat = 0
@@ -52,7 +63,12 @@ struct MessageBubbleView: View {
         avatarDisplayName: String = "",
         revealOffset: CGFloat = 0,
         maxRevealOffset: CGFloat = 64,
-        photosBlocked: Bool = false
+        photosBlocked: Bool = false,
+        chessEnvelope: ChessEnvelope? = nil,
+        chessSummary: ChessGameSummary? = nil,
+        isLatestChessMessage: Bool = false,
+        onRespondToChessInvite: ((Bool) -> Void)? = nil,
+        onOpenChessGame: (() -> Void)? = nil
     ) {
         self.message = message
         self.onCopy = onCopy
@@ -68,6 +84,11 @@ struct MessageBubbleView: View {
         self.revealOffset = revealOffset
         self.maxRevealOffset = maxRevealOffset
         self.photosBlocked = photosBlocked
+        self.chessEnvelope = chessEnvelope
+        self.chessSummary = chessSummary
+        self.isLatestChessMessage = isLatestChessMessage
+        self.onRespondToChessInvite = onRespondToChessInvite
+        self.onOpenChessGame = onOpenChessGame
     }
 
     /// The reply's own text, or the raw content when this isn't a reply - matches broadcast
@@ -124,6 +145,8 @@ struct MessageBubbleView: View {
                 // Incoming handshake request with Accept/Decline actions
                 if message.messageType == .handshake && !message.isOutgoing && onAcceptHandshake != nil {
                     handshakeRequestBubble
+                } else if let chessEnvelope {
+                    chessBubble(chessEnvelope)
                 } else {
                     if let replyQuote {
                         replyQuoteView(replyQuote)
@@ -474,6 +497,126 @@ struct MessageBubbleView: View {
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .frame(maxWidth: 300)
+    }
+
+    @ViewBuilder
+    private func chessBubble(_ envelope: ChessEnvelope) -> some View {
+        switch envelope {
+        case .invite(let content):
+            chessInviteBubble(content)
+        case .response, .move, .resign:
+            if isLatestChessMessage, let chessSummary {
+                chessLiveCard(chessSummary)
+            } else {
+                chessLogEntry(envelope)
+            }
+        }
+    }
+
+    private func chessInviteBubble(_ content: ChessInviteContent) -> some View {
+        let showsResponseButtons = !message.isOutgoing
+            && onRespondToChessInvite != nil
+            && chessSummary?.status == .pendingResponse
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("♟️")
+                    .font(.title3)
+                Text(message.isOutgoing ? "Chess game invite sent" : "Invited you to a game of chess")
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+            }
+
+            if showsResponseButtons {
+                HStack(spacing: 12) {
+                    Button {
+                        onRespondToChessInvite?(true)
+                    } label: {
+                        Text("Accept")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(kaspaBubbleColor)
+                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        onRespondToChessInvite?(false)
+                    } label: {
+                        Text("Decline")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(Color(.systemGray5))
+                            .foregroundColor(.secondary)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else if let chessSummary {
+                Text(chessSummary.statusText)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(12)
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .frame(maxWidth: 300)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard !showsResponseButtons else { return }
+            onOpenChessGame?()
+        }
+        .chessExplorerMenu(txId: message.txId, settingsViewModel: settingsViewModel)
+    }
+
+    private func chessLiveCard(_ summary: ChessGameSummary) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ChessBoardThumbnail(board: summary.board)
+            Text(summary.statusText)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(summary.status.isGameOver ? .secondary : .primary)
+        }
+        .padding(10)
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onOpenChessGame?()
+        }
+        .chessExplorerMenu(txId: message.txId, settingsViewModel: settingsViewModel)
+    }
+
+    private func chessLogEntry(_ envelope: ChessEnvelope) -> some View {
+        Text(chessLogText(envelope))
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(.systemGray6))
+            .clipShape(Capsule())
+            .contentShape(Rectangle())
+            .onTapGesture {
+                onOpenChessGame?()
+            }
+            .chessExplorerMenu(txId: message.txId, settingsViewModel: settingsViewModel)
+    }
+
+    private func chessLogText(_ envelope: ChessEnvelope) -> String {
+        switch envelope {
+        case .move(let content):
+            let promotionSuffix = content.promotion.map { " (\($0.uppercased()))" } ?? ""
+            return "♟️ \(content.from) → \(content.to)\(promotionSuffix)"
+        case .resign:
+            return "♟️ Resigned"
+        case .response(let content):
+            return content.accepted ? "♟️ Accepted the game" : "♟️ Declined the game"
+        case .invite:
+            return "♟️ Chess invite"
+        }
     }
 
     @ViewBuilder
@@ -2403,6 +2546,93 @@ private struct ShareableImage: Transferable {
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(exportedContentType: .image) { item in
             SentTransferredFile(try item.payload.writeTemporaryFile())
+        }
+    }
+}
+
+/// Small, non-interactive board render for the in-chat live game card. The full-screen
+/// `ChessGameView` has its own interactive board renderer (tap-to-select, highlights) rather than
+/// reusing this - different enough concerns (static thumbnail vs. tappable squares) that sharing
+/// the layout code wasn't worth the added complexity.
+private extension View {
+    /// Long-press "View in Explorer" for any chess bubble (invite/live card/log entry) - mirrors
+    /// `messageTextBubble`'s own `.contextMenu`, scoped down to just the one action since a
+    /// chess envelope's own JSON isn't meaningful to offer as "Copy Message".
+    func chessExplorerMenu(txId: String, settingsViewModel: SettingsViewModel) -> some View {
+        contextMenu {
+            if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
+                Link(destination: url) {
+                    Label("View in Explorer", systemImage: "safari")
+                }
+            }
+        }
+    }
+}
+
+struct ChessBoardThumbnail: View {
+    let board: ChessBoard
+    var size: CGFloat = 160
+
+    /// Classic wood-tone board colors (matches chess.com/lichess's default theme) - shared with
+    /// the full-screen board in ChessGameView.
+    static let lightSquareColor = Color(red: 0.937, green: 0.851, blue: 0.706) // #EFD9B4
+    static let darkSquareColor = Color(red: 0.710, green: 0.533, blue: 0.388)  // #B58863
+
+    var body: some View {
+        let squareSize = size / 8
+        VStack(spacing: 0) {
+            ForEach((0..<8).reversed(), id: \.self) { rank in
+                HStack(spacing: 0) {
+                    ForEach(0..<8, id: \.self) { file in
+                        let isLight = !(file + rank).isMultiple(of: 2)
+                        ZStack {
+                            Rectangle().fill(isLight ? Self.lightSquareColor : Self.darkSquareColor)
+                            if let piece = board.piece(at: ChessSquare(file: file, rank: rank)) {
+                                ChessPieceGlyphView(piece: piece, fontSize: squareSize * 0.72)
+                            }
+                        }
+                        .frame(width: squareSize, height: squareSize)
+                    }
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+/// Renders a single chess piece glyph with an explicit white/black fill plus a crisp
+/// contrasting outline (four offset copies of the glyph drawn behind the fill, a standard
+/// lightweight text-stroke trick), rather than relying on the bare Unicode glyph's
+/// outline-vs-filled shape alone to distinguish sides - at typical board sizes that distinction
+/// was too subtle to read at a glance, especially on a same-toned square.
+struct ChessPieceGlyphView: View {
+    let piece: ChessPiece
+    var fontSize: CGFloat
+
+    private var fillColor: Color { piece.color == .white ? Color(white: 0.99) : Color(white: 0.07) }
+    private var outlineColor: Color { piece.color == .white ? Color(white: 0.07) : Color(white: 0.99) }
+
+    private static let outlineOffsets: [CGSize] = {
+        let d: CGFloat = 0.9
+        return [CGSize(width: d, height: 0), CGSize(width: -d, height: 0), CGSize(width: 0, height: d), CGSize(width: 0, height: -d)]
+    }()
+
+    private var glyphText: some View {
+        Text(piece.glyph)
+            .font(.system(size: fontSize))
+            .minimumScaleFactor(0.5)
+    }
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<Self.outlineOffsets.count, id: \.self) { index in
+                glyphText
+                    .foregroundColor(outlineColor)
+                    .offset(Self.outlineOffsets[index])
+            }
+            glyphText
+                .foregroundColor(fillColor)
         }
     }
 }

@@ -1353,17 +1353,21 @@ struct KaspaExplorerSettingsView: View {
 struct ConnectionSettingsView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var nodePool = NodePoolService.shared
 
     @State private var networkType: NetworkType = .mainnet
     @State private var indexerURL: String = ""
     @State private var pushIndexerURL: String = ""
     @State private var knsBaseURL: String = ""
     @State private var kaspaRestAPIURL: String = ""
-    @State private var autoRefreshPool: Bool = true
-    @State private var customGrpcEndpoint: String = ""
-    @State private var nodeRecords: [NodeRecord] = []
-    @State private var isLoadingNodes = false
+    @State private var trustedNodeInput: String = ""
+    @State private var trustedNodeValidationError: String?
+
+    @State private var newSavedNodeLabel: String = ""
+    @State private var newSavedNodeAddress: String = ""
+    @State private var savedNodeAddressError: String?
+
+    @State private var toastMessage: String?
+    @State private var toastStyle: ToastStyle = .success
 
     var body: some View {
         Form {
@@ -1457,215 +1461,113 @@ struct ConnectionSettingsView: View {
                 Text("REST API for transaction history and balance lookups")
             }
 
-            // Node Pool Section (POOLS_v2)
             Section {
-                // Pool Statistics by State
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Active")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                        Text("\(nodePool.activeCount)")
-                            .font(.headline)
-                            .foregroundColor(.green)
-                    }
-                    Spacer()
-                    VStack(alignment: .center, spacing: 2) {
-                        Text("Verified")
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                        Text("\(nodePool.verifiedCount)")
-                            .font(.headline)
-                            .foregroundColor(.blue)
-                    }
-                    Spacer()
-                    VStack(alignment: .center, spacing: 2) {
-                        Text("Profiled")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                        Text("\(nodePool.profiledCount)")
-                            .font(.headline)
-                            .foregroundColor(.orange)
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("Other")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("\(nodePool.candidateCount + nodePool.suspectCount)")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
-
-                if let latency = nodePool.lastPingLatencyMs {
-                    HStack {
-                        Text("Primary Latency")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("\(latency) ms")
-                            .font(.caption)
-                            .foregroundColor(latency < 200 ? .green : (latency < 500 ? .orange : .red))
-                    }
-                }
-
-                HStack {
-                    Text("Pool Health")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text(poolHealthDescription)
-                        .font(.caption)
-                        .foregroundColor(poolHealthColor)
-                }
-
-                Toggle("Discover new peers", isOn: $autoRefreshPool)
-                    .onChange(of: autoRefreshPool) { newValue in
-                        settingsViewModel.settings.discoverNewPeers = newValue
-                        settingsViewModel.saveSettings()
+                TextField("host:port or grpcs://host", text: $trustedNodeInput)
+                    .font(.system(.body, design: .monospaced))
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .onChange(of: trustedNodeInput) { _ in
+                        trustedNodeValidationError = nil
                     }
 
                 Button {
-                    Task {
-                        await nodePool.refreshPool()
-                    }
+                    trustedNodeInput = AppSettings.defaultTrustedNodeAddress
+                    applyTrustedNode(AppSettings.defaultTrustedNodeAddress)
                 } label: {
+                    Text("Use Default (\(AppSettings.defaultTrustedNodeAddress))")
+                }
+
+                if let trustedNodeValidationError {
+                    Text(trustedNodeValidationError)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+
+                if !settingsViewModel.settings.trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     HStack {
-                        Text("Refresh Pool Now")
+                        Text("Connected only to this node")
+                            .font(.caption)
+                            .foregroundColor(.accentColor)
                         Spacer()
-                        if nodePool.isRefreshing {
-                            ProgressView()
+                        Button("Clear", role: .destructive) {
+                            trustedNodeInput = ""
+                            applyTrustedNode("")
                         }
                     }
                 }
-                .disabled(nodePool.isRefreshing)
             } header: {
-                Text("Node Pool")
+                Text("Kaspa Node")
             } footer: {
-                if let lastRefresh = nodePool.lastRefreshDate {
-                    Text("Last refresh: \(formatRelativeDate(lastRefresh))")
+                if settingsViewModel.settings.trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Enter a trusted node (host:port for plaintext, or grpcs://host for TLS-secured nodes like Kaspium's) and tap Save to always connect to it instead of automatic discovery. Doesn't affect the Indexer/KNS/REST API URLs above.")
                 } else {
-                    Text("Active = in use, Verified = ready, Profiled = checked, Other = candidates/suspect")
+                    Text("KaChat connects only to this node for sending and message scanning, and won't search for or fall back to other nodes. Clear, or edit and tap Save, to change it.")
                 }
             }
 
             Section {
+                TextField("Label (optional)", text: $newSavedNodeLabel)
+                    .autocapitalization(.words)
+
                 HStack {
-                    TextField("grpc://host:port", text: $customGrpcEndpoint)
+                    TextField("host:port or grpcs://host", text: $newSavedNodeAddress)
                         .font(.system(.body, design: .monospaced))
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                        .onChange(of: newSavedNodeAddress) { _ in
+                            savedNodeAddressError = nil
+                        }
 
                     Button {
-                        addCustomEndpoint()
+                        addSavedNodeAddress()
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .foregroundColor(.accentColor)
                     }
-                    .disabled(customGrpcEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(newSavedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-            } header: {
-                Text("Custom Endpoint")
-            } footer: {
-                Text("Manual endpoints have highest priority and are never auto-removed")
-            }
 
-            Section {
-                if isLoadingNodes {
-                    ProgressView()
-                } else {
-                    let activeNodes = nodeRecords.filter { $0.state == .active }
-                        .sorted { a, b in
-                            let aLat = a.health.latencyMs.value ?? a.health.globalLatencyMs.value ?? .infinity
-                            let bLat = b.health.latencyMs.value ?? b.health.globalLatencyMs.value ?? .infinity
-                            return aLat < bLat
-                        }
-                    if activeNodes.isEmpty {
-                        Text("No active nodes")
-                            .foregroundColor(.secondary)
-                            .italic()
-                    } else {
-                        ForEach(activeNodes) { record in
-                            NodeRecordRow(record: record)
-                        }
-                        .onDelete { indexSet in
-                            deleteNodes(from: activeNodes, at: indexSet)
-                        }
-                    }
-                }
-            } header: {
-                HStack {
-                    Circle().fill(.green).frame(width: 8, height: 8)
-                    Text("Active Nodes")
-                    Spacer()
-                    Text("\(nodePool.activeCount)")
+                if let savedNodeAddressError {
+                    Text(savedNodeAddressError)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.red)
                 }
-            } footer: {
-                Text("Nodes actively used for requests.")
-            }
 
-            Section {
-                let verifiedNodes = nodeRecords.filter { $0.state == .verified }
-                if verifiedNodes.isEmpty {
-                    Text("No verified nodes")
+                if settingsViewModel.settings.savedNodeAddresses.isEmpty {
+                    Text("No saved addresses")
                         .foregroundColor(.secondary)
                         .italic()
                 } else {
-                    ForEach(verifiedNodes) { record in
-                        NodeRecordRow(record: record)
+                    ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
+                        VStack(alignment: .leading, spacing: 2) {
+                            if !entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text(entry.label)
+                                Text(entry.address)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text(entry.address)
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            UIPasteboard.general.string = entry.address
+                            Haptics.success()
+                            showToast("Address copied.")
+                        }
                     }
                     .onDelete { indexSet in
-                        deleteNodes(from: verifiedNodes, at: indexSet)
+                        settingsViewModel.settings.savedNodeAddresses.remove(atOffsets: indexSet)
+                        settingsViewModel.saveSettings()
                     }
                 }
             } header: {
-                HStack {
-                    Circle().fill(.blue).frame(width: 8, height: 8)
-                    Text("Verified Nodes")
-                    Spacer()
-                    Text("\(nodePool.verifiedCount)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                Text("IP Address Book")
             } footer: {
-                Text("Synced and ready for promotion to active.")
-            }
-
-            Section {
-                let otherNodes = nodeRecords.filter { $0.state == .profiled || $0.state == .candidate || $0.state == .suspect }
-                if otherNodes.isEmpty {
-                    Text("No other nodes")
-                        .foregroundColor(.secondary)
-                        .italic()
-                } else {
-                    ForEach(otherNodes.prefix(20)) { record in
-                        NodeRecordRow(record: record)
-                    }
-                    .onDelete { indexSet in
-                        deleteNodes(from: Array(otherNodes.prefix(20)), at: indexSet)
-                    }
-                    if otherNodes.count > 20 {
-                        Text("+ \(otherNodes.count - 20) more nodes")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            } header: {
-                HStack {
-                    Circle().fill(.gray).frame(width: 8, height: 8)
-                    Text("Other Nodes")
-                    Spacer()
-                    Text("\(nodePool.profiledCount + nodePool.candidateCount + nodePool.suspectCount)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            } footer: {
-                Text("Profiled, candidate, and suspect nodes. Showing first 20.")
+                Text("Save your own node addresses here, then tap one to copy it and paste into the Kaspa Node field above.")
             }
 
             Section {
@@ -1680,17 +1582,46 @@ struct ConnectionSettingsView: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
-                    saveSettings()
-                    dismiss()
+                    if saveSettings() {
+                        dismiss()
+                    }
                 }
             }
         }
         .onAppear {
             loadCurrentSettings()
-            Task {
-                await loadNodes()
+        }
+        .toast(message: toastMessage, style: toastStyle)
+    }
+
+    private func showToast(_ message: String, style: ToastStyle = .success) {
+        toastMessage = nil
+        toastStyle = style
+        withAnimation {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation {
+                toastMessage = nil
             }
         }
+    }
+
+    private func addSavedNodeAddress() {
+        let trimmedAddress = newSavedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAddress.isEmpty else { return }
+        guard Endpoint(url: trimmedAddress) != nil else {
+            savedNodeAddressError = "Enter as host:port or grpcs://host"
+            return
+        }
+        savedNodeAddressError = nil
+        let trimmedLabel = newSavedNodeLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        settingsViewModel.settings.savedNodeAddresses.append(
+            SavedNodeAddress(label: trimmedLabel, address: trimmedAddress)
+        )
+        settingsViewModel.saveSettings()
+        newSavedNodeLabel = ""
+        newSavedNodeAddress = ""
     }
 
     private func loadCurrentSettings() {
@@ -1699,17 +1630,20 @@ struct ConnectionSettingsView: View {
         pushIndexerURL = settingsViewModel.settings.pushIndexerURL
         knsBaseURL = settingsViewModel.settings.knsBaseURL
         kaspaRestAPIURL = settingsViewModel.settings.kaspaRestAPIURL
-        autoRefreshPool = settingsViewModel.settings.discoverNewPeers
+        trustedNodeInput = settingsViewModel.settings.trustedNodeAddress
     }
 
-    private func saveSettings() {
+    /// Returns false (without dismissing) when the trusted-node field fails validation,
+    /// so the inline error stays visible instead of getting dismissed along with the sheet.
+    @discardableResult
+    private func saveSettings() -> Bool {
         settingsViewModel.settings.networkType = networkType
         settingsViewModel.settings.indexerURL = indexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.pushIndexerURL = pushIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.knsBaseURL = knsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.kaspaRestAPIURL = kaspaRestAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        settingsViewModel.settings.discoverNewPeers = autoRefreshPool
         settingsViewModel.saveSettings()
+        return saveTrustedNode()
     }
 
     private func resetToDefaults() {
@@ -1717,206 +1651,34 @@ struct ConnectionSettingsView: View {
         pushIndexerURL = AppSettings.defaultPushIndexerURL
         knsBaseURL = AppSettings.defaultKNSURL(for: networkType)
         kaspaRestAPIURL = AppSettings.defaultKaspaRestURL(for: networkType)
-        autoRefreshPool = true
     }
 
-    private func addCustomEndpoint() {
-        let url = customGrpcEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty else { return }
-        Task {
-            await nodePool.addEndpoint(url: url)
-            await loadNodes()
-        }
-        customGrpcEndpoint = ""
-    }
-
-    private func deleteNodes(from nodes: [NodeRecord], at offsets: IndexSet) {
-        Task {
-            for index in offsets {
-                let record = nodes[index]
-                await nodePool.removeEndpoint(record.endpoint)
+    @discardableResult
+    private func saveTrustedNode() -> Bool {
+        let trimmed = trustedNodeInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            trustedNodeValidationError = nil
+            if !settingsViewModel.settings.trustedNodeAddress.isEmpty {
+                applyTrustedNode("")
             }
-            await loadNodes()
-        }
-    }
-
-    private func loadNodes() async {
-        isLoadingNodes = true
-        nodeRecords = await nodePool.allNodeRecords()
-        isLoadingNodes = false
-    }
-
-    private var poolHealthDescription: String {
-        switch nodePool.poolHealth {
-        case .healthy: return "Healthy"
-        case .degraded: return "Degraded"
-        case .critical: return "Critical"
-        case .failed: return "Failed"
-        }
-    }
-
-    private var poolHealthColor: Color {
-        switch nodePool.poolHealth {
-        case .healthy: return .green
-        case .degraded: return .orange
-        case .critical: return .red
-        case .failed: return .red
-        }
-    }
-
-    private func formatRelativeDate(_ date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
-    }
-}
-
-// MARK: - Node Record Row (POOLS_v2)
-
-private struct NodeRecordRow: View {
-    let record: NodeRecord
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                // Origin indicator
-                switch record.origin {
-                case .userAdded:
-                    Image(systemName: "star.fill")
-                        .foregroundColor(.yellow)
-                        .font(.caption)
-                case .seed:
-                    Image(systemName: "shield.fill")
-                        .foregroundColor(.blue)
-                        .font(.caption)
-                case .discovered:
-                    Image(systemName: "antenna.radiowaves.left.and.right")
-                        .foregroundColor(.secondary)
-                        .font(.caption)
-                }
-
-                Text(verbatim: record.endpoint.key)
-                    .font(.system(.body, design: .monospaced))
-                    .lineLimit(1)
-
-                Spacer()
-
-                Text(record.state.displayName)
-                    .font(.caption2)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(stateColor.opacity(0.2))
-                    .foregroundColor(stateColor)
-                    .clipShape(Capsule())
-            }
-
-            HStack(spacing: 8) {
-                // Origin label
-                Text(record.origin.displayName)
-                    .font(.caption2)
-                    .foregroundColor(originColor)
-
-                // Latency
-                if let latency = record.health.latencyMs.value ?? record.health.globalLatencyMs.value {
-                    Text("\(Int(latency))ms")
-                        .font(.caption)
-                        .foregroundColor(latencyColor(Int(latency)))
-                }
-
-                // Geo distance
-                if let distKm = record.profile.geoDistanceKm {
-                    Text(formatDistance(distKm))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                // Country code
-                if let cc = record.profile.countryCode {
-                    Text(cc)
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-
-                // DPI check failed
-                if record.profile.peerInfoOk == false {
-                    HStack(spacing: 2) {
-                        Image(systemName: "network.slash")
-                            .font(.caption2)
-                        Text("DPI")
-                            .font(.caption2)
-                    }
-                    .foregroundColor(.red)
-                }
-
-                // Success/failure counts
-                if record.health.consecutiveSuccesses > 0 {
-                    Text("\(record.health.consecutiveSuccesses)✓")
-                        .font(.caption)
-                        .foregroundColor(.green)
-                }
-                if record.health.consecutiveFailures > 0 {
-                    Text("\(record.health.consecutiveFailures)✗")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                }
-
-                Spacer()
-
-                // DAA score (if available)
-                if let daa = record.profile.virtualDaaScore {
-                    Text("DAA: \(formatDaa(daa))")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    private var stateColor: Color {
-        switch record.state {
-        case .active: return .green
-        case .verified: return .blue
-        case .profiled: return .orange
-        case .candidate: return .gray
-        case .suspect: return .red
-        case .quarantined: return .red
-        }
-    }
-
-    private var originColor: Color {
-        switch record.origin {
-        case .userAdded: return .yellow
-        case .seed: return .blue
-        case .discovered: return .secondary
-        }
-    }
-
-    private func latencyColor(_ latency: Int) -> Color {
-        if latency < 100 {
-            return .green
-        } else if latency < 200 {
-            return .primary
-        } else if latency < 500 {
-            return .orange
+            return true
+        } else if Endpoint(url: trimmed) == nil {
+            trustedNodeValidationError = "Enter as host:port or grpcs://host"
+            return false
         } else {
-            return .red
+            trustedNodeValidationError = nil
+            if trimmed != settingsViewModel.settings.trustedNodeAddress {
+                applyTrustedNode(trimmed)
+            }
+            return true
         }
     }
 
-    private func formatDaa(_ daa: UInt64) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.groupingSeparator = ","
-        return formatter.string(from: NSNumber(value: daa)) ?? "\(daa)"
-    }
-
-    private func formatDistance(_ km: Double) -> String {
-        if km < 100 {
-            return "\(Int(km))km"
-        } else {
-            let thousands = km / 1000
-            return String(format: "%.1fk km", thousands)
+    private func applyTrustedNode(_ value: String) {
+        settingsViewModel.settings.trustedNodeAddress = value
+        settingsViewModel.saveSettings()
+        Task {
+            await NodePoolService.shared.setTrustedNodeAddress(value)
         }
     }
 }
@@ -1966,7 +1728,6 @@ struct ConnectionStatusDetailView: View {
     @StateObject private var nodePool = NodePoolService.shared
     @Environment(\.dismiss) private var dismiss
 
-    @State private var customGrpcEndpoint: String = ""
     @State private var isReconnecting: Bool = false
     @State private var nodeRecords: [NodeRecord] = []
     @State private var showClearPoolConfirm: Bool = false
@@ -2178,29 +1939,6 @@ struct ConnectionStatusDetailView: View {
                     }
                 }
 
-                // Custom Endpoint Section
-                Section {
-                    HStack {
-                        TextField("grpc://host:port", text: $customGrpcEndpoint)
-                            .font(.system(.body, design: .monospaced))
-                            .autocapitalization(.none)
-                            .autocorrectionDisabled()
-                            .keyboardType(.URL)
-
-                        Button {
-                            addCustomEndpoint()
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .foregroundColor(.accentColor)
-                        }
-                        .disabled(customGrpcEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                } header: {
-                    Text("Add Custom Endpoint")
-                } footer: {
-                    Text("Manual endpoints have highest priority")
-                }
-
                 // Active Nodes Section
                 Section {
                     let activeNodes = nodeRecords.filter { $0.state == .active }
@@ -2382,16 +2120,6 @@ struct ConnectionStatusDetailView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
-    }
-
-    private func addCustomEndpoint() {
-        let url = customGrpcEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty else { return }
-        Task {
-            await nodePool.addEndpoint(url: url)
-            await reloadNodeRecords()
-        }
-        customGrpcEndpoint = ""
     }
 
     private func showToast(_ message: String, style: ToastStyle = .success) {

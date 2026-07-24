@@ -839,7 +839,109 @@ enum MessageReplyCodec {
         if InlineFileSniff.isImage(unwrapped) {
             return "📷 Photo"
         }
+        if ChessCodec.parseAny(unwrapped) != nil {
+            return "♟️ Chess"
+        }
         return unwrapped
+    }
+}
+
+// MARK: - Chess
+
+/// Which color the inviter chose to play - picked once (a coin flip) when the invite is sent and
+/// embedded in the envelope, so both sides agree on colors without a picker UI.
+enum ChessInviteColor: String, Codable {
+    case white
+    case black
+}
+
+struct ChessInviteContent: Codable, Equatable {
+    var type: String = "chess_invite"
+    let gameId: String
+    let inviterColor: ChessInviteColor
+}
+
+struct ChessResponseContent: Codable, Equatable {
+    var type: String = "chess_response"
+    let gameId: String
+    let accepted: Bool
+}
+
+struct ChessMoveContent: Codable, Equatable {
+    var type: String = "chess_move"
+    let gameId: String
+    let from: String
+    let to: String
+    let promotion: String?
+}
+
+struct ChessResignContent: Codable, Equatable {
+    var type: String = "chess_resign"
+    let gameId: String
+}
+
+/// Any one of the four chess envelope shapes, parsed generically - `ChessGameService` uses this
+/// to scan a conversation's messages for everything belonging to a given game without knowing
+/// each shape's exact fields up front.
+enum ChessEnvelope {
+    case invite(ChessInviteContent)
+    case response(ChessResponseContent)
+    case move(ChessMoveContent)
+    case resign(ChessResignContent)
+
+    var gameId: String {
+        switch self {
+        case .invite(let content): return content.gameId
+        case .response(let content): return content.gameId
+        case .move(let content): return content.gameId
+        case .resign(let content): return content.gameId
+        }
+    }
+}
+
+/// Same conventions as `MessageReplyCodec`: a plain JSON envelope embedded directly as message
+/// content (no wire-protocol change), with a `{`-prefix + byte-size guard before attempting a
+/// full decode, since this runs on every visible message row alongside reply/image parsing.
+enum ChessCodec {
+    static func encode(_ content: ChessInviteContent) -> String { encodeAny(content) }
+    static func encode(_ content: ChessResponseContent) -> String { encodeAny(content) }
+    static func encode(_ content: ChessMoveContent) -> String { encodeAny(content) }
+    static func encode(_ content: ChessResignContent) -> String { encodeAny(content) }
+
+    private static func encodeAny<T: Encodable>(_ content: T) -> String {
+        guard let data = try? JSONEncoder().encode(content),
+              let json = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return json
+    }
+
+    /// Parses `text` as any of the four chess envelope shapes, or nil if it isn't one.
+    static func parseAny(_ text: String?) -> ChessEnvelope? {
+        guard let text, text.utf8.count < 100_000 else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
+        guard let typeOnly = try? JSONDecoder().decode(ChessTypeOnly.self, from: data) else { return nil }
+        switch typeOnly.type {
+        case "chess_invite":
+            guard let content = try? JSONDecoder().decode(ChessInviteContent.self, from: data) else { return nil }
+            return .invite(content)
+        case "chess_response":
+            guard let content = try? JSONDecoder().decode(ChessResponseContent.self, from: data) else { return nil }
+            return .response(content)
+        case "chess_move":
+            guard let content = try? JSONDecoder().decode(ChessMoveContent.self, from: data) else { return nil }
+            return .move(content)
+        case "chess_resign":
+            guard let content = try? JSONDecoder().decode(ChessResignContent.self, from: data) else { return nil }
+            return .resign(content)
+        default:
+            return nil
+        }
+    }
+
+    private struct ChessTypeOnly: Decodable {
+        let type: String
     }
 }
 
@@ -1170,6 +1272,15 @@ struct AppSettings: Codable {
     var knsBaseURL: String
     var kaspaRestAPIURL: String
     var kaspaExplorer: KaspaExplorer
+    /// A user-pinned "host:port" gRPC node - when non-blank, NodePoolService stops discovery
+    /// (DNS seeds/peer-gossip/scoring) entirely and only ever connects to this address,
+    /// Kaspium-style. Empty string = disabled (normal pool discovery). See
+    /// NodeRegistry.setTrustedNode.
+    var trustedNodeAddress: String
+
+    /// User-saved node addresses for quick copy/paste into `trustedNodeAddress` above -
+    /// purely a convenience list, never itself read by the node pool.
+    var savedNodeAddresses: [SavedNodeAddress]
 
     // gRPC endpoint pool settings
     var grpcEndpointPool: [GrpcEndpoint]
@@ -1188,6 +1299,13 @@ struct AppSettings: Codable {
     static let defaultKNSTestnetURL = "https://api.knsdomains.org/tn10/api/v1"
     static let defaultKaspaMainnetURL = "https://api.kaspa.org"
     static let defaultKaspaTestnetURL = "https://api-tn11.kaspa.org"
+    /// KaChat ships pinned to this node out of the box, rather than defaulting to full
+    /// seed/DNS/peer-gossip discovery - the "Use Default" button in Connection Settings resets
+    /// back to this same address after a user has typed something else. This is Kaspium's own
+    /// currently-live default (see their node_settings_notifier.dart's "temporary Toccata node
+    /// override" - node.kaspium.io's cert had expired, so Kaspium's app itself now points here
+    /// instead) - TLS-secured, hence the `grpcs://` scheme (see Endpoint.secure/Endpoint(url:)).
+    static let defaultTrustedNodeAddress = "grpcs://toccata.kaspium.io"
 
     static func defaultKNSURL(for network: NetworkType) -> String {
         network == .mainnet ? defaultKNSMainnetURL : defaultKNSTestnetURL
@@ -1227,6 +1345,8 @@ struct AppSettings: Codable {
             knsBaseURL: defaultKNSMainnetURL,
             kaspaRestAPIURL: defaultKaspaMainnetURL,
             kaspaExplorer: .default,
+            trustedNodeAddress: defaultTrustedNodeAddress,
+            savedNodeAddresses: [],
             grpcEndpointPool: [],
             discoverNewPeers: true,
             grpcPoolNetworkType: nil,
@@ -1263,6 +1383,8 @@ struct AppSettings: Codable {
         case knsBaseURL
         case kaspaRestAPIURL
         case kaspaExplorer
+        case trustedNodeAddress
+        case savedNodeAddresses
         case grpcEndpointPool
         case discoverNewPeers
         case grpcPoolNetworkType
@@ -1307,6 +1429,8 @@ struct AppSettings: Codable {
         knsBaseURL: String,
         kaspaRestAPIURL: String,
         kaspaExplorer: KaspaExplorer = .default,
+        trustedNodeAddress: String = AppSettings.defaultTrustedNodeAddress,
+        savedNodeAddresses: [SavedNodeAddress] = [],
         grpcEndpointPool: [GrpcEndpoint] = [],
         discoverNewPeers: Bool = true,
         grpcPoolNetworkType: NetworkType? = nil,
@@ -1341,6 +1465,8 @@ struct AppSettings: Codable {
         self.knsBaseURL = knsBaseURL
         self.kaspaRestAPIURL = kaspaRestAPIURL
         self.kaspaExplorer = kaspaExplorer
+        self.trustedNodeAddress = trustedNodeAddress
+        self.savedNodeAddresses = savedNodeAddresses
         self.grpcEndpointPool = grpcEndpointPool
         self.discoverNewPeers = discoverNewPeers
         self.grpcPoolNetworkType = grpcPoolNetworkType
@@ -1415,6 +1541,8 @@ struct AppSettings: Codable {
         knsBaseURL = try container.decodeIfPresent(String.self, forKey: .knsBaseURL) ?? AppSettings.defaultKNSURL(for: networkType)
         kaspaRestAPIURL = try container.decodeIfPresent(String.self, forKey: .kaspaRestAPIURL) ?? AppSettings.defaultKaspaRestURL(for: networkType)
         kaspaExplorer = try container.decodeIfPresent(KaspaExplorer.self, forKey: .kaspaExplorer) ?? .default
+        trustedNodeAddress = try container.decodeIfPresent(String.self, forKey: .trustedNodeAddress) ?? AppSettings.defaultTrustedNodeAddress
+        savedNodeAddresses = try container.decodeIfPresent([SavedNodeAddress].self, forKey: .savedNodeAddresses) ?? []
 
         // gRPC pool settings
         grpcEndpointPool = try container.decodeIfPresent([GrpcEndpoint].self, forKey: .grpcEndpointPool) ?? []
@@ -1462,6 +1590,8 @@ struct AppSettings: Codable {
         try container.encode(knsBaseURL, forKey: .knsBaseURL)
         try container.encode(kaspaRestAPIURL, forKey: .kaspaRestAPIURL)
         try container.encode(kaspaExplorer, forKey: .kaspaExplorer)
+        try container.encode(trustedNodeAddress, forKey: .trustedNodeAddress)
+        try container.encode(savedNodeAddresses, forKey: .savedNodeAddresses)
         try container.encode(grpcEndpointPool, forKey: .grpcEndpointPool)
         try container.encode(discoverNewPeers, forKey: .discoverNewPeers)
         try container.encodeIfPresent(grpcPoolNetworkType, forKey: .grpcPoolNetworkType)
@@ -1598,6 +1728,20 @@ enum EndpointOrigin: Int, Codable {
         case .preProvisioned: return 5
         default: return 7 * 24 * 60 // 1 week
         }
+    }
+}
+
+/// A user-saved "host:port" node address, kept purely for quick copy/paste into the
+/// trusted-node field in Connection Settings - not itself used for connections.
+struct SavedNodeAddress: Codable, Identifiable, Equatable {
+    let id: UUID
+    var label: String
+    var address: String
+
+    init(id: UUID = UUID(), label: String, address: String) {
+        self.id = id
+        self.label = label
+        self.address = address
     }
 }
 

@@ -35,6 +35,9 @@
 		CS0001B0000000000000001 /* Base58.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0001A0000000000000001 /* Base58.swift */; };
 		CS0002B0000000000000001 /* KaspaExtendedPublicKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */; };
 		CS0003B0000000000000001 /* ColdStorageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0003A0000000000000001 /* ColdStorageManager.swift */; };
+		CH0001B0000000000000001 /* ChessEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0001A0000000000000001 /* ChessEngine.swift */; };
+		CH0002B0000000000000001 /* ChessGameService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0002A0000000000000001 /* ChessGameService.swift */; };
+		CH0003B0000000000000001 /* ChessGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0003A0000000000000001 /* ChessGameView.swift */; };
 		CS0004B0000000000000001 /* ColdStorageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0004A0000000000000001 /* ColdStorageView.swift */; };
 		CS0006B0000000000000001 /* KsptCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0006A0000000000000001 /* KsptCodec.swift */; };
 		CS0007B0000000000000001 /* QrFrameChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0007A0000000000000001 /* QrFrameChunker.swift */; };
@@ -200,6 +203,9 @@
 		CS0001A0000000000000001 /* Base58.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base58.swift; sourceTree = "<group>"; };
 		CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaExtendedPublicKey.swift; sourceTree = "<group>"; };
 		CS0003A0000000000000001 /* ColdStorageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColdStorageManager.swift; sourceTree = "<group>"; };
+		CH0001A0000000000000001 /* ChessEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessEngine.swift; sourceTree = "<group>"; };
+		CH0002A0000000000000001 /* ChessGameService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessGameService.swift; sourceTree = "<group>"; };
+		CH0003A0000000000000001 /* ChessGameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessGameView.swift; sourceTree = "<group>"; };
 		CS0004A0000000000000001 /* ColdStorageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColdStorageView.swift; sourceTree = "<group>"; };
 		CS0006A0000000000000001 /* KsptCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KsptCodec.swift; sourceTree = "<group>"; };
 		CS0007A0000000000000001 /* QrFrameChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrFrameChunker.swift; sourceTree = "<group>"; };
@@ -483,6 +489,7 @@
 				PF0003A0000000000000001 /* CoinGeckoService.swift */,
 				CS0003A0000000000000001 /* ColdStorageManager.swift */,
 				CS0009A0000000000000001 /* ColdStorageSendEngine.swift */,
+				CH0002A0000000000000001 /* ChessGameService.swift */,
 				SWAP002A0000000000000001 /* ChangeNowAPIClient.swift */,
 				SWAP003A0000000000000001 /* SwapService.swift */,
 			);
@@ -530,6 +537,7 @@
 				CS0008A0000000000000001 /* ByteModeQRCode.swift */,
 				E810003A2D4C00010000001E /* KaChatCipher.swift */,
 				GRCP00010001000000000001 /* GroupCipher.swift */,
+				CH0001A0000000000000001 /* ChessEngine.swift */,
 				E83000022D4C000200000007 /* OpusBridge.h */,
 				E83000032D4C000200000008 /* OpusBridge.m */,
 				SECV00010001000000000001 /* SecureView.swift */,
@@ -581,6 +589,7 @@
 				4D3D20092F72000900000001 /* BroadcastNavigationPolicy.swift */,
 				BCCV00010001000000000001 /* BroadcastChannelView.swift */,
 				GRDV00010001000000000001 /* GroupChatDetailView.swift */,
+				CH0003A0000000000000001 /* ChessGameView.swift */,
 				BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */,
 				BCAR00010001000000000001 /* BroadcastAudioRecording.swift */,
 			);
@@ -893,6 +902,7 @@
 				CS0001B0000000000000001 /* Base58.swift in Sources */,
 				CS0002B0000000000000001 /* KaspaExtendedPublicKey.swift in Sources */,
 				CS0003B0000000000000001 /* ColdStorageManager.swift in Sources */,
+				CH0002B0000000000000001 /* ChessGameService.swift in Sources */,
 				CS0004B0000000000000001 /* ColdStorageView.swift in Sources */,
 				CS0006B0000000000000001 /* KsptCodec.swift in Sources */,
 				CS0007B0000000000000001 /* QrFrameChunker.swift in Sources */,
@@ -928,6 +938,7 @@
 				E81000392D4C00010000001D /* BIP39.swift in Sources */,
 				E810003B2D4C00010000001F /* KaChatCipher.swift in Sources */,
 				GRCP00010001000100000001 /* GroupCipher.swift in Sources */,
+				CH0001B0000000000000001 /* ChessEngine.swift in Sources */,
 				E8F1A0032F4B000100000003 /* Haptics.swift in Sources */,
 				A91062000000000000000001 /* AppLog.swift in Sources */,
 				19319293ACD84C2AB108D745 /* KNSService.swift in Sources */,
@@ -967,6 +978,7 @@
 				4D3D20092F72000900000002 /* BroadcastNavigationPolicy.swift in Sources */,
 				BCCV00010001000100000001 /* BroadcastChannelView.swift in Sources */,
 				GRDV00010001000100000001 /* GroupChatDetailView.swift in Sources */,
+				CH0003B0000000000000001 /* ChessGameView.swift in Sources */,
 				BCHS00010001000100000001 /* HiddenBroadcastSendersView.swift in Sources */,
 				BCAR00010001000100000001 /* BroadcastAudioRecording.swift in Sources */,
 			);

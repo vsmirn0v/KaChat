@@ -258,8 +258,18 @@ actor GRPCStreamConnection {
         // Use ClientConnection instead of GRPCChannelPool to avoid retain cycle memory leaks
         // GRPCChannelPool.with() creates internal ConnectionManager/ConnectionPool objects
         // that have retain cycles (connectivityDelegate -> CYCLE BACK) and never get released
-        let channel = ClientConnection.insecure(group: sharedGroup)
-            .connect(host: endpoint.host, port: endpoint.port)
+        let channel: GRPCChannel
+        if endpoint.secure {
+            // TLS-terminated nodes (e.g. Kaspium's own - see Endpoint.secure's doc comment)
+            // reject plaintext HTTP/2 entirely, so a plain .insecure() connection to one of
+            // these never completes. Default NIOSSL configuration (.makeClientConfigurationBackedByNIOSSL())
+            // validates against the system trust store and uses `host` for SNI/hostname verification.
+            channel = ClientConnection.usingTLSBackedByNIOSSL(on: sharedGroup)
+                .connect(host: endpoint.host, port: endpoint.port)
+        } else {
+            channel = ClientConnection.insecure(group: sharedGroup)
+                .connect(host: endpoint.host, port: endpoint.port)
+        }
         self.channel = channel
 
         // Create RPC client

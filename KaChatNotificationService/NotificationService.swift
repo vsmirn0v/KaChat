@@ -137,7 +137,7 @@ class NotificationService: UNNotificationServiceExtension {
         case "contextual":
             if let payloadHex,
                let decrypted = decryptContextualMessage(payloadHex: payloadHex) {
-                content.body = unwrapReplyText(decrypted)
+                content.body = chessPreviewText(for: decrypted) ?? unwrapReplyText(decrypted)
                 storeDecryptedMessage(
                     txId: txId,
                     sender: senderAddress,
@@ -503,6 +503,35 @@ class NotificationService: UNNotificationServiceExtension {
     /// reply's own text can itself be the inline file-attachment JSON `MediaFile`/`sendAudio`/
     /// `sendImage` use (e.g. replying to a photo), which without this shows as raw JSON in the
     /// notification instead of a placeholder label.
+    /// Local mirror of the main app's chess envelope shapes (this extension target doesn't
+    /// compile Models.swift/ChessEngine.swift) - just enough fields to map to friendly push text
+    /// instead of showing the raw JSON, matching `PushReplyEnvelope`'s same reasoning.
+    private struct PushChessEnvelope: Decodable {
+        let type: String
+        let from: String?
+        let to: String?
+        let accepted: Bool?
+    }
+
+    private func chessPreviewText(for content: String) -> String? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(PushChessEnvelope.self, from: data) else { return nil }
+        switch parsed.type {
+        case "chess_invite":
+            return "♟️ Invited you to a game of chess"
+        case "chess_response":
+            return parsed.accepted == true ? "♟️ Accepted your chess game" : "♟️ Declined your chess game"
+        case "chess_move":
+            guard let from = parsed.from, let to = parsed.to else { return "♟️ Played a chess move" }
+            return "♟️ Played \(from) → \(to)"
+        case "chess_resign":
+            return "♟️ Resigned the chess game"
+        default:
+            return nil
+        }
+    }
+
     private func inlineAttachmentPreview(for text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "{", let data = trimmed.data(using: .utf8),

@@ -121,6 +121,7 @@ struct ChatDetailView: View {
     @State private var viewportResetTrigger = UUID()
     @State private var showDustWarning = false
     @State private var pendingDustAmountSompi: UInt64 = 0
+    @State private var activeChessGameId: String?
     @FocusState private var isPaymentFocused: Bool
 
     private let maxRecordingDuration: TimeInterval = 10 // seconds
@@ -571,6 +572,16 @@ struct ChatDetailView: View {
         .sheet(isPresented: $showChatInfo) {
             ChatInfoView(contact: $contact)
                 .environmentObject(contactsManager)
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { activeChessGameId != nil },
+            set: { if !$0 { activeChessGameId = nil } }
+        )) {
+            if let activeChessGameId {
+                ChessGameView(gameId: activeChessGameId, contact: contact)
+                    .environmentObject(chatService)
+                    .environmentObject(walletManager)
+            }
         }
         .alert("Failed to Send", isPresented: .constant(error != nil)) {
             Button("OK") { error = nil }
@@ -1204,6 +1215,11 @@ struct ChatDetailView: View {
                 startRecording()
             } label: {
                 Label("Audio Message", systemImage: "mic.circle.fill")
+            }
+            Button {
+                startChessGame()
+            } label: {
+                Label("Play Chess", systemImage: "checkerboard.rectangle")
             }
             if canSendRequestToCommunicate {
                 Button {
@@ -1987,6 +2003,12 @@ struct ChatDetailView: View {
             && !isDeclined
         let replyQuote = MessageReplyCodec.parse(message.content)
         let senderAddress = message.isOutgoing ? myAddress : contact.address
+        let chessEnvelope = ChessCodec.parseAny(MessageReplyCodec.unwrappedText(message.content))
+        let chessSummary = chessEnvelope.flatMap { envelope -> ChessGameSummary? in
+            guard let myAddress else { return nil }
+            return ChessGameService.summarize(gameId: envelope.gameId, in: messages, myAddress: myAddress, contactAddress: contact.address)
+        }
+        let isLatestChess = chessEnvelope != nil && ChessGameService.isLatestChessMessage(message, in: messages)
         MessageBubbleView(
             message: message,
             onCopy: showToast,
@@ -2001,8 +2023,27 @@ struct ChatDetailView: View {
             avatarDisplayName: replyDisplayName(for: senderAddress ?? contact.address),
             revealOffset: revealOffset,
             maxRevealOffset: maxRevealOffset,
-            photosBlocked: !contactsManager.shouldAutoDisplayPhotos(for: contact, settings: settingsViewModel.settings)
+            photosBlocked: !contactsManager.shouldAutoDisplayPhotos(for: contact, settings: settingsViewModel.settings),
+            chessEnvelope: chessEnvelope,
+            chessSummary: chessSummary,
+            isLatestChessMessage: isLatestChess,
+            onRespondToChessInvite: (chessEnvelope != nil && !message.isOutgoing)
+                ? { accepted in respondToChessInvite(gameId: chessEnvelope!.gameId, accepted: accepted) }
+                : nil,
+            onOpenChessGame: chessEnvelope != nil ? { activeChessGameId = chessEnvelope!.gameId } : nil
         )
+    }
+
+    private func respondToChessInvite(gameId: String, accepted: Bool) {
+        Task {
+            try? await ChessGameService.respond(gameId: gameId, accepted: accepted, to: contact)
+        }
+    }
+
+    private func startChessGame() {
+        Task {
+            try? await ChessGameService.startGame(with: contact)
+        }
     }
 
     /// "You" for our own address, else the contact's alias - matches broadcast rooms'

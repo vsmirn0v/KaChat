@@ -6,30 +6,70 @@ import Foundation
 struct Endpoint: Hashable, Codable, Identifiable {
     let host: String
     let port: Int
+    /// Whether to connect over TLS (`grpcs://`/`https://`) rather than plaintext (`grpc://`) -
+    /// needed for nodes that terminate TLS at the gRPC port itself, e.g. Kaspium's own nodes
+    /// (see external/../kaspium_wallet's NodeConfig.isSecure and GrpcService.url's port
+    /// inference, which this mirrors: an explicit port is used if given, otherwise 443).
+    var secure: Bool
 
     var id: String { key }
     var key: String { "\(host):\(port)" }
-    var url: String { "grpc://\(host):\(port)" }
+    var url: String { secure ? "grpcs://\(host):\(port)" : "grpc://\(host):\(port)" }
 
-    init(host: String, port: Int) {
+    init(host: String, port: Int, secure: Bool = false) {
         self.host = host
         self.port = port
+        self.secure = secure
     }
 
     init?(url: String) {
-        // Parse "grpc://host:port" or "host:port"
+        // Parse "grpcs://host[:port]", "https://host[:port]" (secure), "grpc://host:port", or
+        // plain "host:port" (insecure).
         var cleanUrl = url
-        if cleanUrl.hasPrefix("grpc://") {
+        var secure = false
+        if cleanUrl.hasPrefix("grpcs://") {
+            secure = true
+            cleanUrl = String(cleanUrl.dropFirst(8))
+        } else if cleanUrl.hasPrefix("https://") {
+            secure = true
+            cleanUrl = String(cleanUrl.dropFirst(8))
+        } else if cleanUrl.hasPrefix("grpc://") {
             cleanUrl = String(cleanUrl.dropFirst(7))
         }
 
-        guard let lastColon = cleanUrl.lastIndex(of: ":"),
-              let port = Int(cleanUrl[cleanUrl.index(after: lastColon)...]) else {
+        if let lastColon = cleanUrl.lastIndex(of: ":"),
+           let port = Int(cleanUrl[cleanUrl.index(after: lastColon)...]) {
+            self.host = String(cleanUrl[..<lastColon])
+            self.port = port
+            self.secure = secure
+        } else if secure, !cleanUrl.isEmpty {
+            // Secure links may omit the port, matching Kaspium's own default-to-443 inference.
+            self.host = cleanUrl
+            self.port = 443
+            self.secure = true
+        } else {
             return nil
         }
+    }
 
-        self.host = String(cleanUrl[..<lastColon])
-        self.port = port
+    private enum CodingKeys: String, CodingKey {
+        case host, port, secure
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        host = try container.decode(String.self, forKey: .host)
+        port = try container.decode(Int.self, forKey: .port)
+        // Absent in records persisted before this field existed - default to the plaintext
+        // behavior every existing endpoint (seeds, discovered, prior manual entries) used.
+        secure = try container.decodeIfPresent(Bool.self, forKey: .secure) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(host, forKey: .host)
+        try container.encode(port, forKey: .port)
+        try container.encode(secure, forKey: .secure)
     }
 }
 

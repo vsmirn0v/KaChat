@@ -105,19 +105,34 @@ final class NodePoolService: ObservableObject {
         // Load persisted records FIRST
         await registry.load()
 
-        // Check if we have cached active nodes - if yes, we can be ready immediately
+        // Initialize seed nodes
+        await registry.initializeSeeds(for: network)
+
+        // Migrate from old format if needed
+        await migrateFromOldFormat()
+
+        // Apply a pinned trusted node (Kaspium-style fixed-node mode) before any
+        // discovery/quickBoot work starts, so nothing else gets a chance to upsert.
+        let trustedAddress = AppSettings.load().trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trustedEndpoint = trustedAddress.isEmpty ? nil : Endpoint(url: trustedAddress)
+        if let trustedEndpoint {
+            await registry.setTrustedNode(trustedEndpoint)
+        }
+
+        // Check if we have cached active nodes - if yes, we can be ready immediately.
+        // Computed AFTER setTrustedNode above (not before): setTrustedNode discards every
+        // record but the pinned one, so counting active nodes from the pre-pin registry
+        // could see leftover discovered/seed nodes from a prior normal-discovery session and
+        // wrongly conclude the pool was already healthy - skipping the trusted node's own
+        // direct-probe path below even though the pinned node itself had never been probed,
+        // which left it stuck showing "candidate" forever (quickBoot() never reaches
+        // .userAdded-origin nodes - see the branch below).
         let cachedActiveCount = await registry.stateCounts()[.active] ?? 0
         let hasCachedActiveNodes = cachedActiveCount > 0
 
         if hasCachedActiveNodes {
             AppLog.log("[NodePool] Found %d cached active nodes - ready for immediate connection", cachedActiveCount)
         }
-
-        // Initialize seed nodes
-        await registry.initializeSeeds(for: network)
-
-        // Migrate from old format if needed
-        await migrateFromOldFormat()
 
         // Create profiler
         profiler = NodeProfiler(
@@ -175,6 +190,25 @@ final class NodePoolService: ObservableObject {
                 await self.updatePoolStats()
                 AppLog.log("[NodePool] Background quickBoot complete")
             }
+        } else if let trustedEndpoint {
+            // Trusted mode with no cached active state (first pin, or a fresh install
+            // already defaulted to one): quickBoot()'s discovery loops only ever consider
+            // .seed/.discovered origin candidates, and registry.upsert() rejects every
+            // endpoint but this one while pinned, so quickBoot would find nothing and just
+            // burn several seconds polling for seeds that can never arrive. Probe the
+            // pinned node directly instead, bypassing the priority/interval gate that
+            // selectNodesForProbing() uses to throttle a large discovery pool (which would
+            // otherwise leave a freshly-added node sitting in .candidate for minutes) -
+            // twice, so it clears the two-consecutive-success bar rebalanceActivePool()
+            // requires before promoting anything out of .candidate.
+            AppLog.log("[NodePool] Trusted node pinned - probing directly instead of quickBoot")
+            await profiler?.profileEndpoint(trustedEndpoint)
+            await profiler?.profileEndpoint(trustedEndpoint)
+            await registry.rebalanceActivePool()
+            await updatePoolStats()
+            isInitialized = true
+            isInitializing = false
+            isReady = true
         } else {
             // No cached nodes - must wait for quickBoot
             AppLog.log("[NodePool] No cached active nodes - waiting for quickBoot")
@@ -1098,5 +1132,33 @@ extension NodePoolService {
     func removeEndpoint(url: String) async {
         guard let endpoint = Endpoint(url: url) else { return }
         await removeEndpoint(endpoint)
+    }
+
+    /// Pin the pool to exactly one node (Kaspium-style fixed-node mode), or clear the pin
+    /// and resume normal discovery when `address` is empty/blank.
+    func setTrustedNodeAddress(_ address: String?) async {
+        let trimmed = address?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            await registry.setTrustedNode(nil)
+            await updatePoolStats()
+            await forceProbeAll()
+        } else if let endpoint = Endpoint(url: trimmed) {
+            await registry.setTrustedNode(endpoint)
+            await updatePoolStats()
+            // Probe directly rather than forceProbeAll()/selectNodesForProbing() - that
+            // path gates a freshly-added node on a several-minute cold-start interval meant
+            // to throttle probing across a large discovery pool, which would leave this
+            // one just-pinned node stuck in .candidate. Twice, so it clears the
+            // two-consecutive-success bar rebalanceActivePool() requires before promoting
+            // anything out of .candidate.
+            await profiler?.profileEndpoint(endpoint)
+            await profiler?.profileEndpoint(endpoint)
+            await registry.rebalanceActivePool()
+            await updatePoolStats()
+        }
+        // A subscription already open on a now-unpinned node won't notice on its own - its
+        // health ping would keep succeeding against a perfectly reachable node that just
+        // isn't the trusted one anymore, so force it to re-evaluate against the pinned registry.
+        await subscriptionManager?.reconnectToBestNodeIfNeeded()
     }
 }
