@@ -49,6 +49,51 @@ final class WalletManager: ObservableObject {
     @Published private(set) var hasStoredWallet = false
     @Published private(set) var isLoggedOut = false
     @Published private(set) var savedAccounts: [SavedAccountSummary] = []
+    /// Set by `CreateWalletView` once the user has reviewed their seed phrase and checked "I have
+    /// written down my seed phrase..." (never for `importWallet`, e.g. from `ImportWalletView`) -
+    /// lets the main app show the Welcome Guide automatically for a brand-new account without
+    /// showing it again for an imported one. Deliberately NOT set by `WalletManager.createWallet`
+    /// itself, which returns well before the seed phrase has actually been shown/acknowledged -
+    /// setting it there would let the guide launch before the user has had a chance to write
+    /// anything down. Transient/in-memory only (not persisted): the first view to notice it
+    /// (`MainTabView`) is expected to flip it back to `false` immediately after presenting the
+    /// guide, so this is a one-shot signal, not a flag.
+    @Published var justCreatedNewWallet = false
+
+    /// True from the moment `createWallet` starts generating a brand-new wallet until
+    /// `CreateWalletView`'s "Continue to App" button clears it (after the user confirms they've
+    /// written down the seed phrase) - `ContentView`/`LaunchRouter` treat this as "stay on
+    /// onboarding" even though `currentWallet` is already non-nil by then, closing the race where
+    /// `currentWallet` (set inside `importWallet`, well before the seed-phrase screen is shown or
+    /// confirmed) would otherwise let top-level routing jump straight to `MainTabView` and tear
+    /// down the seed-phrase screen before the user ever saw it. Never set for `importWallet`
+    /// (typing in an existing phrase needs no review step). Transient/in-memory only, like
+    /// `justCreatedNewWallet`.
+    @Published var isAwaitingSeedPhraseConfirmation = false
+
+    /// Per-wallet ("account") toggle for whether the "Setup Guide" re-entry points (the Profile
+    /// tab's "Welcome Guide" row and the "Edit KNS Profile" screen's "Setup Guide" button) are
+    /// shown - scoped to `currentWallet?.publicAddress` rather than global `AppSettings`, mirroring
+    /// `spendingDefaultsKey` in `WalletManager+SpendingAddresses.swift`, so switching to a
+    /// different account on the same device doesn't carry the choice over. Defaults to `true`
+    /// (unset key) to match pre-existing behavior for anyone who had these guides visible before
+    /// this toggle existed.
+    var showSetupGuides: Bool {
+        get {
+            guard let key = showSetupGuidesDefaultsKey else { return true }
+            return UserDefaults.standard.object(forKey: key) as? Bool ?? true
+        }
+        set {
+            guard let key = showSetupGuidesDefaultsKey else { return }
+            UserDefaults.standard.set(newValue, forKey: key)
+            objectWillChange.send()
+        }
+    }
+
+    private var showSetupGuidesDefaultsKey: String? {
+        guard let address = currentWallet?.publicAddress else { return nil }
+        return "kachat_show_setup_guides_\(address)"
+    }
 
     private let keychainService = KeychainService.shared
     private let bip39 = BIP39.shared
@@ -101,6 +146,7 @@ final class WalletManager: ObservableObject {
                     updated.balanceSompi = cached
                 }
                 self.currentWallet = updated
+                migrateSpendingBoundsIfNeeded()
                 isBalanceRefreshing = true
                 ContactsManager.shared.setActiveWalletAddress(canonicalWallet.publicAddress)
                 ChatService.shared.loadChatListSnapshot(for: canonicalWallet.publicAddress)
@@ -137,13 +183,25 @@ final class WalletManager: ObservableObject {
         }
     }
 
+    /// Does NOT set `justCreatedNewWallet` - that fires later, once the caller (`CreateWalletView`)
+    /// confirms the user has actually reviewed and acknowledged their seed phrase, not the instant
+    /// the wallet is generated (which happens before the seed-phrase screen is even shown). Sets
+    /// `isAwaitingSeedPhraseConfirmation` *before* `importWallet` runs (rather than after it
+    /// returns) so there's no window where `currentWallet` is already non-nil but the routing
+    /// guard isn't up yet - see that property's doc comment.
     func createWallet(alias: String = "My Account", wordCount: Int = 24) async throws -> (wallet: Wallet, seedPhrase: SeedPhrase) {
         // Use async version to ensure word list is loaded
         guard let seedPhrase = await bip39.generateMnemonicAsync(wordCount: wordCount) else {
             throw KasiaError.invalidSeedPhrase
         }
-        let wallet = try await importWallet(from: seedPhrase, alias: alias)
-        return (wallet, seedPhrase)
+        isAwaitingSeedPhraseConfirmation = true
+        do {
+            let wallet = try await importWallet(from: seedPhrase, alias: alias)
+            return (wallet, seedPhrase)
+        } catch {
+            isAwaitingSeedPhraseConfirmation = false
+            throw error
+        }
     }
 
     func importWallet(from seedPhrase: SeedPhrase, alias: String = "My Account") async throws -> Wallet {

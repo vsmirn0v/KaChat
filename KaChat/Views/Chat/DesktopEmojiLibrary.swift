@@ -250,7 +250,7 @@ enum DesktopEmojiLibrary {
             let flag = scalars.compactMap { scalar -> Unicode.Scalar? in
                 Unicode.Scalar(0x1F1E6 + scalar.value - Unicode.Scalar("A").value)
             }.map(String.init).joined()
-            let regionName = Locale.current.localizedString(forRegionCode: code) ?? code
+            let regionName = AppLocalization.locale.localizedString(forRegionCode: code) ?? code
             return ExtraSequence(emoji: flag, category: .flags, keywords: "flag \(code.lowercased()) \(regionName.lowercased())")
         }
     }

@@ -323,3 +323,4 @@
 "Small Amount" = "Small Amount";
 "Send Anyway" = "Send Anyway";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "Sending less than 0.1 KAS may fail due to the network dust protection limit.";
+"You were added to \"%@\"" = "You were added to \"%@\"";

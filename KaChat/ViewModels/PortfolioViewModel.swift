@@ -11,10 +11,18 @@ final class PortfolioViewModel: ObservableObject {
     static let shared = PortfolioViewModel()
 
     @Published private(set) var transactions: [PortfolioTransaction] = []
+    /// Current KAS price in whatever `AppSettings.currency` is selected (not necessarily USD
+    /// despite the name - kept as-is to minimize churn across the many call sites already reading
+    /// it; see `currentCurrency` for the currency it's actually denominated in).
     @Published private(set) var currentPriceUsd: Double?
     @Published private(set) var priceHistory: [PricePoint] = []
     @Published private(set) var priceRangeDays: Int = 1
     @Published var scrubbedPricePoint: PricePoint?
+
+    /// The currency `currentPriceUsd`/`priceHistory` are actually denominated in - re-read from
+    /// `AppSettings` on every `.settingsDidChange` notification, refetching both if it changed.
+    private(set) var currentCurrency: AppCurrency = SettingsViewModel.loadSettings().currency
+    private var settingsObserver: NSObjectProtocol?
 
     /// Per-range (days -> history) cache. Re-selecting an already-fetched range applies
     /// instantly with no network call, and (more importantly) avoids hitting CoinGecko's
@@ -41,6 +49,33 @@ final class PortfolioViewModel: ObservableObject {
     init(coinGecko: CoinGeckoService = .shared) {
         self.coinGecko = coinGecko
         refreshPrice()
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: .settingsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // `queue: .main` guarantees this runs on the main thread at runtime, but the
+            // closure's type isn't provably `@MainActor` to the compiler - hop explicitly rather
+            // than calling the isolated `handleSettingsChanged()` directly from here.
+            Task { @MainActor in
+                self?.handleSettingsChanged()
+            }
+        }
+    }
+
+    deinit {
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+        }
+    }
+
+    /// Re-fetches price/history in the new currency whenever it changes - a currency switch
+    /// while Portfolio is open must not just reformat the existing (wrong-currency) numbers.
+    private func handleSettingsChanged() {
+        let newCurrency = SettingsViewModel.loadSettings().currency
+        guard newCurrency != currentCurrency else { return }
+        currentCurrency = newCurrency
+        refreshPrice()
     }
 
     /// Portfolio entries are scoped per wallet — otherwise switching wallets on this
@@ -64,9 +99,10 @@ final class PortfolioViewModel: ObservableObject {
     /// Explicit "get current data" action: refetches the live price and clears the price
     /// history cache so every range gets refetched fresh (bypassing whatever's cached).
     func refreshPrice() {
+        let currency = currentCurrency
         Task { [weak self] in
             guard let self else { return }
-            if let price = await self.coinGecko.getCurrentPriceUsd() {
+            if let price = await self.coinGecko.getCurrentPrice(currency: currency) {
                 self.currentPriceUsd = price
             }
         }
@@ -80,8 +116,9 @@ final class PortfolioViewModel: ObservableObject {
     func refreshPriceAsync() async {
         priceHistoryTask?.cancel()
         priceHistoryCache.removeAll()
-        async let price = coinGecko.getCurrentPriceUsd()
-        async let history = coinGecko.getPriceHistory(days: priceRangeDays)
+        let currency = currentCurrency
+        async let price = coinGecko.getCurrentPrice(currency: currency)
+        async let history = coinGecko.getPriceHistory(days: priceRangeDays, currency: currency)
         if let price = await price {
             currentPriceUsd = price
         }
@@ -123,9 +160,10 @@ final class PortfolioViewModel: ObservableObject {
             return
         }
         priceHistoryTask?.cancel()
+        let currency = currentCurrency
         priceHistoryTask = Task { [weak self] in
             guard let self else { return }
-            let result = await self.coinGecko.getPriceHistory(days: days)
+            let result = await self.coinGecko.getPriceHistory(days: days, currency: currency)
             guard !Task.isCancelled else { return }
             if !result.isEmpty {
                 self.priceHistoryCache[days] = result

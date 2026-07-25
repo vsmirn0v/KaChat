@@ -5,6 +5,7 @@ struct MainTabView: View {
     @State private var lastActiveChatAddress: String?
     @State private var isChatReturnArmed = false
     @State private var showGiftSheet = false
+    @State private var showWelcomeGuide = false
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var giftService: GiftService
@@ -24,23 +25,19 @@ struct MainTabView: View {
         .onAppear {
             chatService.startPolling()
             preloadProfileResources()
-            // Show gift sheet only when wallet balance is zero and gift is not yet claimed.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                presentGiftSheetIfEligibleForZeroBalance()
+            if walletManager.justCreatedNewWallet {
+                walletManager.justCreatedNewWallet = false
+                showWelcomeGuide = true
             }
         }
         .sheet(isPresented: $showGiftSheet) {
             GiftClaimView()
         }
+        .fullScreenCover(isPresented: $showWelcomeGuide) {
+            WelcomeGuideView(onFinished: { showWelcomeGuide = false })
+        }
         .onChange(of: walletManager.currentWallet?.publicAddress) { _ in
             preloadProfileResources()
-        }
-        .onChange(of: walletManager.currentWallet?.balanceSompi) { newValue in
-            guard newValue == 0 else { return }
-            presentGiftSheetIfEligibleForZeroBalance()
-        }
-        .onChange(of: giftService.claimState) { _ in
-            presentGiftSheetIfEligibleForZeroBalance()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { _ in
             // Switch to Chats tab when notification is tapped
@@ -133,6 +130,11 @@ struct MainTabView: View {
         )
     }
 
+    /// Only reached reactively now, via `.showGiftClaim` (posted from `ChatDetailView` when a
+    /// send fails for insufficient funds) - the unprompted auto-popup this used to also fire from
+    /// on every launch/balance-zero/claim-state change was removed since the Welcome Guide's
+    /// funding step now offers the same claim inline for new accounts, the moment they'd actually
+    /// need it.
     private func presentGiftSheetIfEligibleForZeroBalance() {
         guard walletManager.currentWallet?.balanceSompi == 0 else { return }
 

@@ -452,26 +452,20 @@ extension ChatService {
     func formatInsufficientBalanceError(plannedSpendSompi: UInt64, availableSompi: UInt64) -> KasiaError {
         let planned = formatKasAmount(plannedSpendSompi)
         let available = formatKasAmount(availableSompi)
-        let template = NSLocalizedString(
-            "Planned spend %@ KAS, but available balance %@ KAS is less than required.",
-            comment: "Shown when balance is below required spend for send operation"
-        )
-        let message = String(format: template, locale: Locale.current, planned, available)
+        let template = AppLocalization.string("Planned spend %@ KAS, but available balance %@ KAS is less than required.")
+        let message = String(format: template, locale: AppLocalization.locale, planned, available)
         return KasiaError.networkError(
             message
         )
     }
 
     func noSpendableFundsYetMessage() -> String {
-        NSLocalizedString(
-            "No spendable funds available yet. Wait for confirmations and try again.",
-            comment: "Shown when funds exist but not confirmed/spendable yet"
-        )
+        AppLocalization.string("No spendable funds available yet. Wait for confirmations and try again.")
     }
 
     func matchesLocalizedTemplate(_ message: String, key: String) -> Bool {
         let lowered = message.lowercased()
-        let localized = NSLocalizedString(key, comment: "").lowercased()
+        let localized = AppLocalization.string(key).lowercased()
         let segments = localized.components(separatedBy: "%@").filter { !$0.isEmpty }
         guard !segments.isEmpty else { return lowered == localized }
 
@@ -1853,7 +1847,7 @@ extension ChatService {
         if pendingTxId == nil {
             let formattedAmount = formatKasAmount(amountSompi)
             let pendingTimestamp = Date()
-            let pendingTemplate = NSLocalizedString("Sent %@ KAS", comment: "Outgoing payment without note")
+            let pendingTemplate = AppLocalization.string("Sent %@ KAS")
             let pendingMessage = ChatMessage(
                 txId: activePendingTxId,
                 senderAddress: wallet.publicAddress,

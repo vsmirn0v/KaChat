@@ -323,3 +323,4 @@
 "Small Amount" = "Малая сумма";
 "Send Anyway" = "Отправить всё равно";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "Отправка менее 0,1 KAS может не пройти из-за ограничения сети на минимальный размер транзакции (dust limit).";
+"You were added to \"%@\"" = "Вас добавили в \"%@\"";

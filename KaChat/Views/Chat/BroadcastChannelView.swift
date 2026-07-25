@@ -556,11 +556,8 @@ struct BroadcastChannelView: View {
     }
 
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
-        let template = NSLocalizedString(
-            "fee: %@ KAS",
-            comment: "Fee label with resolved fee amount in KAS"
-        )
-        return String(format: template, locale: Locale.current, formatKaspaExact(feeSompi))
+        let template = AppLocalization.string("fee: %@ KAS")
+        return String(format: template, locale: AppLocalization.locale, formatKaspaExact(feeSompi))
     }
 
     private func updateFeeShimmer() {

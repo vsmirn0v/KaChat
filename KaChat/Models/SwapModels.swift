@@ -14,7 +14,7 @@ struct SwapCoin: Equatable, Hashable {
     /// Scoped down to a single pair for now: KAS <-> USDC on Polygon. ChangeNOW's network code
     /// for Polygon is "matic" (not "polygon") — confirmed against the live
     /// /v2/exchange/currencies list.
-    static let usdcPolygon = SwapCoin(ticker: "usdc", network: "matic", displayName: "USD Coin (Polygon)")
+    static let usdcPolygon = SwapCoin(ticker: "usdc", network: "matic", displayName: "USDC Coin (Polygon)")
 
     static let curated: [SwapCoin] = [usdcPolygon]
 }

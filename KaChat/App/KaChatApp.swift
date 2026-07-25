@@ -70,6 +70,7 @@ struct KaChatApp: App {
                     handleIncomingURL(url)
                 }
                 .preferredColorScheme(settingsViewModel.settings.appearance.colorScheme)
+                .environment(\.locale, settingsViewModel.settings.language.locale ?? .autoupdatingCurrent)
         }
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(to: newPhase)

@@ -5,10 +5,10 @@ import P256K
 /// Spending-chain address system: a second BIP44 *account* branch off the same wallet seed,
 /// distinct from the identity/chatting address's account (see `WalletManager.deriveKeysFromSeed`,
 /// account 0). Addresses are always re-derived live from the seed + index rather than persisted -
-/// only the index bounds are stored, directly on `Wallet` (`spendingAddressIndex`/
-/// `maxSpendingAddressIndex`, persisted via Keychain alongside the rest of the wallet - see
-/// `Wallet.effectiveSpendingAddressIndex` in Models.swift). Hidden-set and per-address labels
-/// aren't part of `Wallet`, so those stay in UserDefaults, scoped per wallet address.
+/// only the index bounds are stored, in UserDefaults scoped per wallet address (see
+/// `currentSpendingAddressIndex`'s doc comment for why that, and not `Wallet`'s own
+/// `spendingAddressIndex`/`maxSpendingAddressIndex` fields, is authoritative). Hidden-set and
+/// per-address labels live in that same per-address UserDefaults scope.
 ///
 /// Path: m/44'/111111'/1'/0/<index> (the identity address uses m/44'/111111'/0'/0/0 - same
 /// purpose/coin type, a separate account index so it can't collide with the identity address,
@@ -27,23 +27,84 @@ import P256K
 /// byte-for-byte identical to what generated the original addresses).
 extension WalletManager {
 
-    // MARK: - Persisted bounds (on Wallet itself, Keychain-backed)
+    // MARK: - Persisted bounds (UserDefaults, scoped per wallet - authoritative)
 
+    /// Authoritative source is per-address-keyed UserDefaults, NOT `currentWallet`'s own
+    /// `spendingAddressIndex`/`maxSpendingAddressIndex` fields - every path that reconstructs a
+    /// `Wallet` from partial data (re-signing into a saved account via `SavedAccountSummary`,
+    /// re-importing the same account's seed phrase, the key-repair branch in
+    /// `reconcileWalletWithLocalKeyMaterialIfNeeded`) builds a bare `Wallet` whose spending
+    /// fields default to nil/0 and then persists that to the single-slot Keychain wallet record,
+    /// permanently losing this state if it were the only place it lived - which it used to be,
+    /// and was the cause of "log out, log back in, spending addresses reset to just #0". Kept in
+    /// sync on the Wallet struct too (`updateSpendingBounds` below) purely as a migration
+    /// fallback for anyone who generated spending addresses before this fix - see
+    /// `migrateSpendingBoundsIfNeeded()`.
     var currentSpendingAddressIndex: Int {
-        currentWallet?.effectiveSpendingAddressIndex ?? 0
+        persistedSpendingAddressIndex ?? currentWallet?.effectiveSpendingAddressIndex ?? 0
     }
 
     var maxSpendingAddressIndex: Int {
-        currentWallet?.effectiveMaxSpendingAddressIndex ?? 0
+        let fallback = currentWallet?.effectiveMaxSpendingAddressIndex ?? 0
+        return max(persistedMaxSpendingAddressIndex ?? fallback, currentSpendingAddressIndex)
+    }
+
+    private var persistedSpendingAddressIndex: Int? {
+        get {
+            guard let key = spendingDefaultsKey("index") else { return nil }
+            return UserDefaults.standard.object(forKey: key) as? Int
+        }
+        set {
+            guard let key = spendingDefaultsKey("index") else { return }
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+    }
+
+    private var persistedMaxSpendingAddressIndex: Int? {
+        get {
+            guard let key = spendingDefaultsKey("maxIndex") else { return nil }
+            return UserDefaults.standard.object(forKey: key) as? Int
+        }
+        set {
+            guard let key = spendingDefaultsKey("maxIndex") else { return }
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+    }
+
+    /// One-time-per-address migration for wallets that generated spending addresses before this
+    /// fix: seeds UserDefaults from the just-loaded Wallet's own (Keychain-persisted) fields the
+    /// first time this address is seen with no UserDefaults value yet, so the value survives even
+    /// if a later reconstruction path resets the Wallet's own fields before this address's next
+    /// genuine `setActiveSpendingAddress`/`generateNextSpendingAddress` call. No-op once
+    /// UserDefaults already has a value for this address (including a legitimately-0 one). Called
+    /// from `loadWallet()` right after `currentWallet` is set to the freshly-loaded record.
+    func migrateSpendingBoundsIfNeeded() {
+        guard let wallet = currentWallet else { return }
+        if persistedSpendingAddressIndex == nil, let index = wallet.spendingAddressIndex {
+            persistedSpendingAddressIndex = index
+        }
+        if persistedMaxSpendingAddressIndex == nil, let maxIndex = wallet.maxSpendingAddressIndex {
+            persistedMaxSpendingAddressIndex = maxIndex
+        }
     }
 
     private func updateSpendingBounds(index: Int? = nil, maxIndex: Int? = nil) async {
         guard var wallet = currentWallet else { return }
         if let index {
             wallet.spendingAddressIndex = index
+            persistedSpendingAddressIndex = index
         }
         if let maxIndex {
             wallet.maxSpendingAddressIndex = maxIndex
+            persistedMaxSpendingAddressIndex = maxIndex
         }
         try? await saveWalletOnly(wallet)
         currentWallet = wallet

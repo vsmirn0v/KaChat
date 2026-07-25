@@ -3,8 +3,7 @@ import SwiftUI
 struct PortfolioView: View {
     @ObservedObject private var viewModel = PortfolioViewModel.shared
     @EnvironmentObject var settingsViewModel: SettingsViewModel
-    @State private var valueScrubX: CGFloat?
-    @State private var valueCanvasWidth: CGFloat = 0
+    @State private var scrubbedValuePoint: PricePoint?
 
     var body: some View {
         NavigationStack {
@@ -45,13 +44,13 @@ struct PortfolioView: View {
                     Text(scrub.timestamp, format: .dateTime.month().day().hour().minute())
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                    Text(Self.formatPrice(scrub.value))
+                    Text(formatPrice(scrub.value))
                         .font(.system(size: 26, weight: .bold))
                 } else {
                     Text("KAS Price")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                    Text(viewModel.currentPriceUsd.map(Self.formatPrice) ?? "—")
+                    Text(viewModel.currentPriceUsd.map(formatPrice) ?? "—")
                         .font(.system(size: 26, weight: .bold))
                 }
             }
@@ -59,13 +58,13 @@ struct PortfolioView: View {
             HStack(alignment: .top) {
                 statColumn(label: "Holdings", value: Self.formatKas(summary.holdingsKas), alignment: .leading)
                 Spacer()
-                statColumn(label: "Current Value", value: Self.formatCurrency(summary.currentValue), alignment: .trailing)
+                statColumn(label: "Current Value", value: formatCurrency(summary.currentValue), alignment: .trailing)
             }
 
             Divider()
 
             HStack(alignment: .top) {
-                statColumn(label: "Total Invested", value: Self.formatCurrency(summary.totalInvested), alignment: .leading)
+                statColumn(label: "Total Invested", value: formatCurrency(summary.totalInvested), alignment: .leading)
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("Total P&L")
@@ -74,7 +73,7 @@ struct PortfolioView: View {
                     HStack(spacing: 4) {
                         Image(systemName: summary.totalPL >= 0 ? "arrow.up.right" : "arrow.down.right")
                             .font(.subheadline)
-                        Text("\(Self.formatCurrency(summary.totalPL)) (\(String(format: "%.1f", summary.totalPLPercent))%)")
+                        Text("\(formatCurrency(summary.totalPL)) (\(String(format: "%.1f", summary.totalPLPercent))%)")
                             .font(.title3)
                             .fontWeight(.bold)
                     }
@@ -85,7 +84,7 @@ struct PortfolioView: View {
             if let averageBuyPriceUsd = summary.averageBuyPriceUsd {
                 Divider()
                 HStack(alignment: .top) {
-                    statColumn(label: "Avg. Buy Price", value: Self.formatPrice(averageBuyPriceUsd), alignment: .leading)
+                    statColumn(label: "Avg. Buy Price", value: formatPrice(averageBuyPriceUsd), alignment: .leading)
                     Spacer()
                 }
             }
@@ -105,9 +104,20 @@ struct PortfolioView: View {
         }
     }
 
-    private static func formatPrice(_ value: Double) -> String {
+    private static func currencySymbol(for currency: AppCurrency) -> String {
+        // Not ISO 4217 - NumberFormatter's fallback behavior for an unrecognized currency code
+        // isn't reliably "show the code", so this is spelled out explicitly rather than trusted
+        // to the formatter below.
+        if currency == .bitcoin { return "₿" }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency.code
+        return formatter.currencySymbol ?? currency.code
+    }
+
+    private func formatPrice(_ value: Double) -> String {
         let decimals = value < 1 ? 5 : 2
-        return "$" + String(format: "%.\(decimals)f", value)
+        return Self.currencySymbol(for: settingsViewModel.settings.currency) + String(format: "%.\(decimals)f", value)
     }
 
     private static let kasFormatter: NumberFormatter = {
@@ -126,8 +136,18 @@ struct PortfolioView: View {
         return text + " KAS"
     }
 
-    private static func formatCurrency(_ value: Double) -> String {
-        value.formatted(.currency(code: "USD"))
+    /// Builds the string manually via `currencySymbol(for:)` rather than `.formatted(.currency(code:))` -
+    /// the latter is Foundation's ISO-4217-driven `FormatStyle`, whose behavior for a
+    /// non-ISO-4217 code like `.bitcoin`'s "BTC" isn't something to rely on sight-unseen.
+    private func formatCurrency(_ value: Double) -> String {
+        let sign = value < 0 ? "-" : ""
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        formatter.usesGroupingSeparator = true
+        let magnitude = formatter.string(from: NSNumber(value: abs(value))) ?? String(format: "%.2f", abs(value))
+        return sign + Self.currencySymbol(for: settingsViewModel.settings.currency) + magnitude
     }
 
     // MARK: - Price chart card (label left, sparkline right)
@@ -164,18 +184,12 @@ struct PortfolioView: View {
 
     private var valueChartCard: some View {
         let history = viewModel.valueHistory
-        let selectedIndex: Int? = {
-            guard let x = valueScrubX, valueCanvasWidth > 0 else { return nil }
-            let ratio = x / valueCanvasWidth
-            let index = Int((ratio * CGFloat(history.count - 1)).rounded())
-            return min(max(index, 0), history.count - 1)
-        }()
-        let displayed = selectedIndex.map { history[$0] } ?? history.last
+        let displayed = scrubbedValuePoint ?? history.last
 
         return VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                if let index = selectedIndex {
-                    Text("Value on \(history[index].timestamp.formatted(date: .abbreviated, time: .omitted))")
+                if let scrubbedValuePoint {
+                    Text("Value on \(scrubbedValuePoint.timestamp.formatted(date: .abbreviated, time: .omitted))")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
@@ -184,31 +198,25 @@ struct PortfolioView: View {
                         .foregroundColor(.secondary)
                 }
                 if let displayed {
-                    Text(displayed.value, format: .currency(code: "USD"))
+                    Text(formatCurrency(displayed.value))
                         .font(.title3)
                         .fontWeight(.semibold)
                 }
             }
 
+            // Passing `onScrub` (rather than `nil`, as before) is what actually turns on
+            // `SparklineChart`'s own crosshair line+dot - it was previously drawing that overlay
+            // from an internal `scrubIndex` that a `nil` onScrub never let anything set, while
+            // this view instead ran its own separate, redundant drag gesture that only updated
+            // the text label above, never the chart itself. Matches how `priceChartCard` already
+            // does it.
             SparklineChart(
                 points: history,
                 lineWidth: 3.5,
                 dotRadius: 6,
-                onScrub: nil
+                onScrub: { scrubbedValuePoint = $0 }
             )
             .frame(height: 90)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear { valueCanvasWidth = proxy.size.width }
-                        .onChange(of: proxy.size.width) { valueCanvasWidth = $0 }
-                }
-            )
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { valueScrubX = $0.location.x }
-                    .onEnded { _ in valueScrubX = nil }
-            )
         }
         .padding(16)
         .background(glassBackground(cornerRadius: 18))

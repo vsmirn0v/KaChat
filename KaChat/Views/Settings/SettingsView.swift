@@ -48,11 +48,35 @@ struct SettingsView: View {
                         settingsViewModel.saveSettings()
                     }
 
+                    Picker("Language", selection: $settingsViewModel.settings.language) {
+                        ForEach(AppLanguage.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                    .onChange(of: settingsViewModel.settings.language) { newValue in
+                        settingsViewModel.saveSettings()
+                        settingsViewModel.applyLanguagePreference(newValue)
+                    }
+
+                    Picker("Currency", selection: $settingsViewModel.settings.currency) {
+                        ForEach(AppCurrency.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                    .onChange(of: settingsViewModel.settings.currency) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+
                     NavigationLink {
                         MenuVisibilityView()
                     } label: {
                         Label("Menu", systemImage: "list.bullet")
                     }
+
+                    Toggle("Show Setup Guides", isOn: Binding(
+                        get: { walletManager.showSetupGuides },
+                        set: { walletManager.showSetupGuides = $0 }
+                    ))
                 }
 
                 Section("Security") {
@@ -1473,7 +1497,7 @@ struct ConnectionSettingsView: View {
 
                 Button {
                     trustedNodeInput = AppSettings.defaultTrustedNodeAddress
-                    applyTrustedNode(AppSettings.defaultTrustedNodeAddress)
+                    trustedNodeValidationError = settingsViewModel.applyTrustedNode(AppSettings.defaultTrustedNodeAddress)
                 } label: {
                     Text("Use Default (\(AppSettings.defaultTrustedNodeAddress))")
                 }
@@ -1492,7 +1516,7 @@ struct ConnectionSettingsView: View {
                         Spacer()
                         Button("Clear", role: .destructive) {
                             trustedNodeInput = ""
-                            applyTrustedNode("")
+                            trustedNodeValidationError = settingsViewModel.applyTrustedNode("")
                         }
                     }
                 }
@@ -1655,31 +1679,8 @@ struct ConnectionSettingsView: View {
 
     @discardableResult
     private func saveTrustedNode() -> Bool {
-        let trimmed = trustedNodeInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            trustedNodeValidationError = nil
-            if !settingsViewModel.settings.trustedNodeAddress.isEmpty {
-                applyTrustedNode("")
-            }
-            return true
-        } else if Endpoint(url: trimmed) == nil {
-            trustedNodeValidationError = "Enter as host:port or grpcs://host"
-            return false
-        } else {
-            trustedNodeValidationError = nil
-            if trimmed != settingsViewModel.settings.trustedNodeAddress {
-                applyTrustedNode(trimmed)
-            }
-            return true
-        }
-    }
-
-    private func applyTrustedNode(_ value: String) {
-        settingsViewModel.settings.trustedNodeAddress = value
-        settingsViewModel.saveSettings()
-        Task {
-            await NodePoolService.shared.setTrustedNodeAddress(value)
-        }
+        trustedNodeValidationError = settingsViewModel.applyTrustedNode(trustedNodeInput)
+        return trustedNodeValidationError == nil
     }
 }
 

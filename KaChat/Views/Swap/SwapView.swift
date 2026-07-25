@@ -112,7 +112,7 @@ struct SwapView: View {
                 }
             } message: {
                 if let prefill = pendingPortfolioPrefill {
-                    Text("\(prefill.type == .buy ? "Buy" : "Sell") \(formatKas(UInt64((prefill.amountKas * 100_000_000).rounded()))) KAS at $\(String(format: "%.2f", prefill.fiatValue)) will be added to your Portfolio ledger.")
+                    Text("\(prefill.type == .buy ? "Buy" : "Sell") \(formatKas(UInt64((prefill.amountKas * 100_000_000).rounded()))) KAS at \(currencySymbol)\(String(format: "%.2f", prefill.fiatValue)) will be added to your Portfolio ledger.")
                 }
             }
             .overlay {
@@ -462,7 +462,10 @@ struct SwapView: View {
         .background(Capsule().fill(Color(.systemGray5)))
     }
 
-    /// KAS and USDC get their real brand marks; anything else falls back to its ticker in a plain badge.
+    /// KAS gets its real brand mark; USDC is drawn in code (see `usdcBadge`) rather than loading
+    /// `Assets.xcassets/USDCLogo` - that imageset's source PNGs turned out to be corrupt (nearly
+    /// blank/white canvases, not the actual coin art), which rendered as a blank white square.
+    /// Anything else falls back to its ticker in a plain badge.
     @ViewBuilder
     private func coinIcon(_ coin: SwapCoin) -> some View {
         if coin.ticker == "kas" {
@@ -471,16 +474,25 @@ struct SwapView: View {
                 .scaledToFit()
                 .frame(width: 20, height: 20)
         } else if coin.ticker == "usdc" {
-            Image("USDCLogo")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 20, height: 20)
+            usdcBadge
         } else {
             Text(coin.ticker.uppercased())
                 .font(.caption2.weight(.bold))
                 .frame(width: 20, height: 20)
                 .background(Circle().fill(Color.accentColor.opacity(0.3)))
         }
+    }
+
+    /// Matches Android's `ic_usdc_coin.xml` background color (#3E73C4) for cross-platform
+    /// consistency - drawn directly instead of loading image assets, see `coinIcon`'s doc comment.
+    private var usdcBadge: some View {
+        ZStack {
+            Circle().fill(Color(red: 0x3E / 255, green: 0x73 / 255, blue: 0xC4 / 255))
+            Text("$")
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundColor(.white)
+        }
+        .frame(width: 20, height: 20)
     }
 
     private func spendingAddressRow(title: String, valueText: String, feeText: String?, onFeeTap: (() -> Void)?, onChangeTap: @escaping () -> Void) -> some View {
@@ -633,6 +645,14 @@ struct SwapView: View {
         while text.hasSuffix("0") { text.removeLast() }
         if text.hasSuffix(".") { text.removeLast() }
         return text
+    }
+
+    private var currencySymbol: String {
+        if settingsViewModel.settings.currency == .bitcoin { return "₿" }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = settingsViewModel.settings.currency.code
+        return formatter.currencySymbol ?? settingsViewModel.settings.currency.code
     }
 
     private func formatDecimalString(_ text: String) -> String {

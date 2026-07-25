@@ -28,6 +28,22 @@ enum ChessGameStatus: Equatable {
     }
 }
 
+/// One applied move, recorded during `ChessGameService.summarize`'s replay - lets callers show
+/// the actual piece that moved/was captured (e.g. the in-thread move log, captured-pieces tray)
+/// without re-replaying the game themselves.
+struct ChessMoveRecord {
+    let from: ChessSquare
+    let to: ChessSquare
+    let pieceType: ChessPieceType
+    let color: ChessColor
+    let capturedType: ChessPieceType?
+    let capturedColor: ChessColor?
+    let promotion: ChessPieceType?
+    /// txId of the chat message this move came from - lets a specific log entry look up its own
+    /// record via `moveHistory.first(where: { $0.messageTxId == message.txId })`.
+    let messageTxId: String
+}
+
 struct ChessGameSummary {
     let gameId: String
     let status: ChessGameStatus
@@ -43,6 +59,17 @@ struct ChessGameSummary {
     /// "Your turn"/"Their turn" instead of absolute White/Black, which a casual player has to
     /// stop and translate back to "wait, am I white or black in this one?" every time.
     let viewerColor: ChessColor?
+    /// Every move actually applied during replay, in play order.
+    let moveHistory: [ChessMoveRecord]
+
+    /// Pieces captured so far, grouped by the color that captured them (i.e. `capturedByWhite`
+    /// are black pieces White has taken) - drives a captured-pieces tray.
+    var capturedByWhite: [ChessPieceType] {
+        moveHistory.filter { $0.color == .white }.compactMap { $0.capturedType }
+    }
+    var capturedByBlack: [ChessPieceType] {
+        moveHistory.filter { $0.color == .black }.compactMap { $0.capturedType }
+    }
 
     func color(for address: String) -> ChessColor? {
         if address == whiteAddress { return .white }
@@ -81,6 +108,7 @@ enum ChessGameService {
         var board = ChessEngine.initialBoard()
         var resignerAddress: String?
         var lastMessageTxId: String?
+        var moveHistory: [ChessMoveRecord] = []
 
         for message in messages.sorted(by: { $0.timestamp < $1.timestamp }) {
             guard let envelope = ChessCodec.parseAny(MessageReplyCodec.unwrappedText(message.content)),
@@ -98,8 +126,22 @@ enum ChessGameService {
                 guard let from = ChessSquare(algebraic: content.from), let to = ChessSquare(algebraic: content.to) else { continue }
                 let promotion = ChessPieceType.fromPromotionLetter(content.promotion)
                 let move = ChessEngine.normalizingPromotion(ChessMove(from: from, to: to, promotion: promotion), in: board)
-                guard ChessEngine.isLegal(move, in: board) else { continue }
+                guard ChessEngine.isLegal(move, in: board), let movingPiece = board.piece(at: from) else { continue }
+                let isEnPassantCapture = movingPiece.type == .pawn && to == board.enPassantTarget && board.piece(at: to) == nil
+                let capturedPiece: ChessPiece? = isEnPassantCapture
+                    ? board.piece(at: ChessSquare(file: to.file, rank: from.rank))
+                    : board.piece(at: to)
                 board = ChessEngine.apply(move, to: board)
+                moveHistory.append(ChessMoveRecord(
+                    from: from,
+                    to: to,
+                    pieceType: movingPiece.type,
+                    color: movingPiece.color,
+                    capturedType: capturedPiece?.type,
+                    capturedColor: capturedPiece?.color,
+                    promotion: promotion,
+                    messageTxId: message.txId
+                ))
             case .resign:
                 resignerAddress = senderAddress
             }
@@ -135,7 +177,8 @@ enum ChessGameService {
             whiteAddress: whiteAddress,
             blackAddress: blackAddress,
             lastMessageTxId: lastMessageTxId ?? "",
-            viewerColor: viewerColor
+            viewerColor: viewerColor,
+            moveHistory: moveHistory
         )
     }
 

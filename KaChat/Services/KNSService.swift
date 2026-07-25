@@ -878,7 +878,8 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
                 primaryDomain: nil,
                 primaryInscriptionId: nil,
                 allDomains: [],
-                fetchedAt: Date()
+                fetchedAt: Date(),
+                explicitPrimaryDomain: primaryDomain
             )
             updateCache(info, address: address)
             return (info, false)
@@ -894,7 +895,8 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
             primaryDomain: finalPrimary,
             primaryInscriptionId: finalPrimaryInscriptionId,
             allDomains: allDomains,
-            fetchedAt: Date()
+            fetchedAt: Date(),
+            explicitPrimaryDomain: primaryDomain
         )
         updateCache(info, address: address)
         return (info, false)
@@ -1048,6 +1050,11 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
         for (address, info) in decoded {
             let primary = normalizeDomainName(info.primaryDomain)
+            // Pass through verbatim (normalized, but never falling back to domains.first) -
+            // unlike primaryDomain above, this must stay nil when there's genuinely no explicit
+            // primary, or every cache reload would silently re-derive a fallback value and
+            // defeat the whole point of this field (see its doc comment on KNSAddressInfo).
+            let explicitPrimary = normalizeDomainName(info.explicitPrimaryDomain)
             let primaryInscriptionId = info.primaryInscriptionId?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let domains = info.allDomains.compactMap { domain -> KNSDomain? in
@@ -1072,7 +1079,8 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
                 primaryDomain: finalPrimary,
                 primaryInscriptionId: finalPrimaryInscriptionId,
                 allDomains: domains,
-                fetchedAt: info.fetchedAt
+                fetchedAt: info.fetchedAt,
+                explicitPrimaryDomain: explicitPrimary
             )
             sanitized[address] = cleaned
             if cleaned != info {
@@ -1170,10 +1178,10 @@ final class KNSProfileWriteService: ObservableObject {
         guard let privateKey = WalletManager.shared.getPrivateKey() else {
             throw KasiaError.keychainError("Could not get private key")
         }
-        guard let fundingAddress = WalletManager.shared.currentSpendingAddress(),
-              let fundingPrivateKey = WalletManager.shared.currentSpendingPrivateKey() else {
-            throw KasiaError.keychainError("Could not derive your spending address")
-        }
+        // KNS activity is funded and settled entirely on the chatting/identity address - no
+        // spending-address split, so nothing ends up scattered across two addresses.
+        let fundingAddress = wallet.publicAddress
+        let fundingPrivateKey = privateKey
 
         var operation = KNSProfileUpdateOperation(
             id: UUID(),
@@ -1209,7 +1217,7 @@ final class KNSProfileWriteService: ObservableObject {
             let totalSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
             log("UTXO field=\(key.rawValue) total=\(fetchedUtxos.count) spendable=\(utxos.count) sumSompi=\(totalSompi)")
             guard !utxos.isEmpty else {
-                throw KasiaError.networkError("No spendable UTXOs available in your spending address for this KNS update")
+                throw KasiaError.networkError("No spendable UTXOs available in your chatting address for this KNS update")
             }
 
             let (commitTx, commitContext) = try KasiaTransactionBuilder.buildKNSAddProfileCommitTx(
@@ -1325,10 +1333,10 @@ final class KNSDomainInscribeService: ObservableObject {
         guard let privateKey = walletManager.getPrivateKey() else {
             throw KasiaError.keychainError("Could not get private key")
         }
-        guard let fundingAddress = walletManager.currentSpendingAddress(),
-              let fundingPrivateKey = walletManager.currentSpendingPrivateKey() else {
-            throw KasiaError.keychainError("Could not derive your spending address")
-        }
+        // KNS activity is funded and settled entirely on the chatting/identity address - no
+        // spending-address split, so nothing ends up scattered across two addresses.
+        let fundingAddress = wallet.publicAddress
+        let fundingPrivateKey = privateKey
         guard let label = knsService.normalizeDomainLabel(rawLabel) else {
             throw KasiaError.apiError("Invalid domain label")
         }
@@ -1359,7 +1367,7 @@ final class KNSDomainInscribeService: ObservableObject {
         let fetchedUtxos = try await nodePool.getUtxosByAddresses([fundingAddress])
         let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
         guard !utxos.isEmpty else {
-            throw KasiaError.networkError("No spendable UTXOs available in your spending address for KNS inscription")
+            throw KasiaError.networkError("No spendable UTXOs available in your chatting address for KNS inscription")
         }
         log("UTXO domain=\(fullDomain) total=\(fetchedUtxos.count) spendable=\(utxos.count)")
 
@@ -1722,6 +1730,16 @@ struct KNSAddressInfo: Equatable, Codable {
     let primaryInscriptionId: String?
     let allDomains: [KNSDomain]
     let fetchedAt: Date
+    /// The raw, pre-fallback result of the `/primary-name/{address}` reverse lookup - unlike
+    /// `primaryDomain`, this is `nil` whenever the address never called `setPrimaryDomain`, even
+    /// if it owns domains (`primaryDomain` falls back to `allDomains.first` in that case - see
+    /// `fetchInfoInternal`). Needed to distinguish "has an explicit primary" for @mention
+    /// eligibility, which the fallback-inclusive `primaryDomain` can't answer on its own.
+    /// `var`, not `let`: a `let` with a default value is excluded from both the synthesized
+    /// memberwise initializer and Codable's decoding (silently keeping the default forever) -
+    /// `var` is required for existing/new call sites to be able to pass an explicit value and
+    /// for old cached JSON to actually decode this field.
+    var explicitPrimaryDomain: String? = nil
 
     /// Display name - primary domain without .kas suffix, or nil
     var displayName: String? {

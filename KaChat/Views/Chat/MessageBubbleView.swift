@@ -178,9 +178,19 @@ struct MessageBubbleView: View {
                             onReply: onReply
                         )
                         .simultaneousGesture(TapGesture(count: 2).onEnded { onReply?() })
+                    } else if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText), MessageTextRenderPlan.isEntirelyLink(displayText) {
+                        // Message is nothing but a link - the preview card replaces the plain-text
+                        // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
+                        // keeps the raw link visible/tappable if no preview data is ever found,
+                        // rather than the message rendering as nothing at all.
+                        LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText)
                     } else {
                         messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
                             .simultaneousGesture(TapGesture(count: 2).onEnded { onReply?() })
+
+                        if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
+                            LinkPreviewCardView(url: linkURL, txId: message.txId)
+                        }
                     }
                 }
 
@@ -226,21 +236,21 @@ struct MessageBubbleView: View {
             .lowercased()
         if matchesSinglePlaceholderFormat(
             normalizedContent: normalized,
-            localizedTemplate: NSLocalizedString("Sent %@ domain", comment: "Outgoing KNS domain transfer message")
+            localizedTemplate: AppLocalization.string("Sent %@ domain")
         ) {
             return true
         }
         if matchesSinglePlaceholderFormat(
             normalizedContent: normalized,
-            localizedTemplate: NSLocalizedString("Received %@ domain", comment: "Incoming KNS domain transfer message")
+            localizedTemplate: AppLocalization.string("Received %@ domain")
         ) {
             return true
         }
 
-        let localizedOutgoingFallback = NSLocalizedString("Sent domain transfer", comment: "Outgoing KNS domain transfer fallback")
+        let localizedOutgoingFallback = AppLocalization.string("Sent domain transfer")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        let localizedIncomingFallback = NSLocalizedString("Received domain transfer", comment: "Incoming KNS domain transfer fallback")
+        let localizedIncomingFallback = AppLocalization.string("Received domain transfer")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         if normalized == localizedOutgoingFallback || normalized == localizedIncomingFallback {
@@ -412,7 +422,14 @@ struct MessageBubbleView: View {
 
     private var truncatedMessageContent: some View {
         Button {
-            showFullText = true
+            // See LazyImageBubble.setShowImagePreview's doc comment - same risk (a modal-
+            // presenting boolean flipped from inside a scrollable, gesture-heavy message row),
+            // same defensive fix.
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                showFullText = true
+            }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(String(displayText.prefix(Self.truncatedPreviewLength)) + "…")
@@ -569,7 +586,7 @@ struct MessageBubbleView: View {
             guard !showsResponseButtons else { return }
             onOpenChessGame?()
         }
-        .chessExplorerMenu(txId: message.txId, settingsViewModel: settingsViewModel)
+        .chessExplorerMenu(txId: message.txId, settingsViewModel: settingsViewModel, onRetry: shouldShowRetry ? { onRetry?(message) } : nil)
     }
 
     private func chessLiveCard(_ summary: ChessGameSummary) -> some View {
@@ -587,35 +604,50 @@ struct MessageBubbleView: View {
         .onTapGesture {
             onOpenChessGame?()
         }
-        .chessExplorerMenu(txId: message.txId, settingsViewModel: settingsViewModel)
+        .chessExplorerMenu(txId: message.txId, settingsViewModel: settingsViewModel, onRetry: shouldShowRetry ? { onRetry?(message) } : nil)
     }
 
     private func chessLogEntry(_ envelope: ChessEnvelope) -> some View {
-        Text(chessLogText(envelope))
-            .font(.caption)
-            .foregroundColor(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color(.systemGray6))
-            .clipShape(Capsule())
-            .contentShape(Rectangle())
-            .onTapGesture {
-                onOpenChessGame?()
+        // A plain Unicode glyph character embedded in text renders in the ambient text color
+        // (see the see-through-white-pieces fix on ChessPiece.glyph), so it can't convey white
+        // vs black on its own - a move's piece is rendered via a real `ChessPieceGlyphView`
+        // (fill/outline colored by `piece.color`) placed next to the text instead.
+        let record = chessMoveRecord(for: envelope)
+        return HStack(spacing: 4) {
+            if let record {
+                ChessPieceGlyphView(piece: ChessPiece(type: record.pieceType, color: record.color), fontSize: 14)
             }
-            .chessExplorerMenu(txId: message.txId, settingsViewModel: settingsViewModel)
+            Text(chessLogText(envelope))
+        }
+        .font(.caption)
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(.systemGray6))
+        .clipShape(Capsule())
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onOpenChessGame?()
+        }
+        .chessExplorerMenu(txId: message.txId, settingsViewModel: settingsViewModel, onRetry: shouldShowRetry ? { onRetry?(message) } : nil)
+    }
+
+    private func chessMoveRecord(for envelope: ChessEnvelope) -> ChessMoveRecord? {
+        guard case .move = envelope else { return nil }
+        return chessSummary?.moveHistory.first { $0.messageTxId == message.txId }
     }
 
     private func chessLogText(_ envelope: ChessEnvelope) -> String {
         switch envelope {
         case .move(let content):
             let promotionSuffix = content.promotion.map { " (\($0.uppercased()))" } ?? ""
-            return "♟️ \(content.from) → \(content.to)\(promotionSuffix)"
+            return "\(content.from) → \(content.to)\(promotionSuffix)"
         case .resign:
-            return "♟️ Resigned"
+            return "Resigned"
         case .response(let content):
-            return content.accepted ? "♟️ Accepted the game" : "♟️ Declined the game"
+            return content.accepted ? "Accepted the game" : "Declined the game"
         case .invite:
-            return "♟️ Chess invite"
+            return "Chess invite"
         }
     }
 
@@ -1189,9 +1221,26 @@ struct LazyImageBubble: View {
             .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
     }
 
+    /// A tap opening the preview can land while a nearby row's swipe-to-reveal-timestamps drag
+    /// (`revealOffset`, shared across every visible row) is still mid-spring-back, or while the
+    /// list is still settling from a scroll - if that ambient animation transaction is still
+    /// active when `showImagePreview` flips, SwiftUI's animation engine can end up asked to
+    /// animate the `fullScreenCover` presentation using a timeline it's already mid-way through
+    /// for the unrelated offset, which has produced a hard freeze/crash (SwiftUI's internal
+    /// "Invalid sample ... with time ... > last time ..." assertion - a monotonicity violation
+    /// between two colliding animation transactions). This boolean flip should never itself be
+    /// animated, so explicitly disabling animation for it removes it from that collision.
+    private func setShowImagePreview(_ value: Bool) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            showImagePreview = value
+        }
+    }
+
     private func openPreview() {
         if previewImage != nil, sharePayload != nil {
-            showImagePreview = true
+            setShowImagePreview(true)
             return
         }
 
@@ -1202,7 +1251,7 @@ struct LazyImageBubble: View {
             guard let loaded else { return }
             previewImage = loaded.image
             sharePayload = loaded.sharePayload
-            showImagePreview = true
+            setShowImagePreview(true)
         }
     }
 
@@ -2558,8 +2607,15 @@ private extension View {
     /// Long-press "View in Explorer" for any chess bubble (invite/live card/log entry) - mirrors
     /// `messageTextBubble`'s own `.contextMenu`, scoped down to just the one action since a
     /// chess envelope's own JSON isn't meaningful to offer as "Copy Message".
-    func chessExplorerMenu(txId: String, settingsViewModel: SettingsViewModel) -> some View {
+    func chessExplorerMenu(txId: String, settingsViewModel: SettingsViewModel, onRetry: (() -> Void)? = nil) -> some View {
         contextMenu {
+            if let onRetry {
+                Button {
+                    onRetry()
+                } label: {
+                    Label("Retry Send", systemImage: "arrow.clockwise")
+                }
+            }
             if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
                 Link(destination: url) {
                     Label("View in Explorer", systemImage: "safari")

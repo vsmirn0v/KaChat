@@ -74,6 +74,13 @@ struct GroupChatDetailView: View {
     @State private var isBottomAnchorVisible = true
     @State private var bottomAnchorVisibilityWorkItem: DispatchWorkItem?
 
+    /// Guards the initial scroll-to-bottom settle: the ScrollView is kept hidden (`opacity`) and
+    /// `.onChange(of: messages.count)`'s own scroll is suppressed until this flips true, so a
+    /// group history that loads in multiple async batches on cold open can't have its
+    /// scroll-to-bottom calls race/interrupt each other and leave the thread resting somewhere
+    /// other than the bottom (see `positionInitialViewport`).
+    @State private var initialViewportPositioned = false
+
     /// Swipe-left-to-reveal-timestamps, matching 1:1 chat's `ChatDetailView`/broadcast rooms'
     /// identical gesture.
     @State private var revealOffset: CGFloat = 0
@@ -87,13 +94,21 @@ struct GroupChatDetailView: View {
 
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var showPhotoPicker = false
+    @State private var showCamera = false
     @State private var pendingPhotoImage: UIImage?
     @State private var isSendingPhoto = false
     @StateObject private var recorder = BroadcastAudioRecorder()
 
-    /// `@mention` picker - see `GroupMentionCodec`'s doc comment for the wire format.
-    @State private var showMentionPicker = false
+    /// `@mention` inline autocomplete - see `GroupMentionCodec`'s doc comment for the wire
+    /// format. `mentionQuery` is the text typed after an unclosed "@" at the cursor (reported by
+    /// `ComposerTextView.onMentionQuery`), driving `mentionSuggestions`'s visibility/filtering;
+    /// nil means the cursor isn't currently in a mention context.
+    @State private var mentionQuery: String?
     @State private var mentionInsertionRequest: ComposerTextView.TextInsertionRequest?
+    /// Widest row's measured width in the current `mentionSuggestions` list - see that view's doc
+    /// comment for why this is measured explicitly rather than relying on child views to just not
+    /// ask for more width than they need.
+    @State private var mentionListWidth: CGFloat?
 
     // Live "fee: N KAS" preview above the composer - matches 1:1/broadcast's identical bubble.
     @State private var feeEstimateSompi: UInt64?
@@ -122,6 +137,7 @@ struct GroupChatDetailView: View {
             }
             .sorted { $0.timestamp < $1.timestamp }
     }
+
 
     private enum GroupTimelineItem: Identifiable {
         case daySeparator(Date)
@@ -219,6 +235,8 @@ struct GroupChatDetailView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
                 }
+                .defaultScrollAnchorCompat(.bottom)
+                .opacity(initialViewportPositioned ? 1 : 0)
                 .onChange(of: pendingJumpToTxId) { txId in
                     guard let txId else { return }
                     jumpToReplyOriginal(txId: txId, using: proxy)
@@ -240,10 +258,11 @@ struct GroupChatDetailView: View {
                         }
                 )
                 .onChange(of: messages.count) { _ in
+                    guard initialViewportPositioned else { return }
                     scrollToBottom(using: proxy, animated: true)
                 }
                 .onAppear {
-                    scrollToBottom(using: proxy, animated: false, retryAfter: 0.3)
+                    positionInitialViewport(using: proxy)
                 }
 
                 if !isBottomAnchorVisible {
@@ -284,6 +303,8 @@ struct GroupChatDetailView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
             }
+
+            mentionSuggestions
 
             composeBar
         }
@@ -338,6 +359,9 @@ struct GroupChatDetailView: View {
             if let myAddress, knsService.profileCache[myAddress] == nil {
                 _ = await knsService.fetchProfile(for: myAddress)
             }
+            // Warm every member's explicit-primary-KNS status before the user starts typing, so
+            // the @mention autocomplete doesn't come up empty on a freshly-opened thread.
+            await knsService.refreshIfNeeded(for: group.members.map(\.address))
         }
         .onDisappear {
             groupChatService.exitGroup()
@@ -473,8 +497,8 @@ struct GroupChatDetailView: View {
     }
 
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
-        let template = NSLocalizedString("fee: %@ KAS", comment: "Fee label with resolved fee amount in KAS")
-        return String(format: template, locale: Locale.current, formatKaspaExact(feeSompi))
+        let template = AppLocalization.string("fee: %@ KAS")
+        return String(format: template, locale: AppLocalization.locale, formatKaspaExact(feeSompi))
     }
 
     private func formatKaspaExact(_ sompi: UInt64) -> String {
@@ -553,12 +577,109 @@ struct GroupChatDetailView: View {
         return true
     }
 
-    /// Inserts `@DisplayName ` (human-readable) at the cursor - `send()` swaps it for the
-    /// machine-readable `@{address}` form right before the message actually goes out, see
-    /// `GroupMentionCodec`.
-    private func insertMention(for address: String) {
-        isComposerFocused = true
-        mentionInsertionRequest = ComposerTextView.TextInsertionRequest(id: UUID(), text: "@\(displayName(for: address)) ")
+    /// Members mentionable via the inline "@" autocomplete - only those with an explicit
+    /// primary KNS domain set (see `KNSAddressInfo.explicitPrimaryDomain`'s doc comment for why
+    /// this can't reuse the general fallback-inclusive `primaryDomain`/`displayName(for:)`),
+    /// excluding self, filtered by `query` (case-insensitive substring match against the
+    /// domain) when non-empty.
+    private func mentionCandidates(for query: String) -> [(member: GroupMember, domain: String)] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return group.members.compactMap { member -> (member: GroupMember, domain: String)? in
+            guard member.address != myAddress,
+                  let domain = knsService.domainCache[member.address]?.explicitPrimaryDomain,
+                  !domain.isEmpty else {
+                return nil
+            }
+            guard normalizedQuery.isEmpty || domain.lowercased().contains(normalizedQuery) else {
+                return nil
+            }
+            return (member, domain)
+        }
+    }
+
+    /// Safety cap on how many matches are considered at all, well above what anyone would
+    /// realistically scroll through - `visibleMentionRows`/scrolling (below) is what actually
+    /// bounds the on-screen list for a large group.
+    private static let maxMentionSuggestions = 30
+    /// More than this many matches and the list scrolls instead of growing taller.
+    private static let visibleMentionRows = 5
+    /// Approximate single-row height (subheadline text + 8pt vertical padding on each side) used
+    /// to size the scroll viewport to exactly `visibleMentionRows` rows - doesn't need to be
+    /// pixel-perfect, it's just clipping the scrollable area.
+    private static let mentionRowHeight: CGFloat = 38
+    /// Upper bound on the measured width below, so one absurdly long domain can't make the list
+    /// span almost the whole screen.
+    private static let maxMentionListWidth: CGFloat = 280
+
+    @ViewBuilder
+    private var mentionSuggestions: some View {
+        if let mentionQuery {
+            let candidates = Array(mentionCandidates(for: mentionQuery).prefix(Self.maxMentionSuggestions))
+            if !candidates.isEmpty {
+                // Width is measured explicitly via a PreferenceKey rather than just omitting
+                // `frame(maxWidth: .infinity)` from each row - that alone wasn't enough, because
+                // `Divider()` (used between rows below) *always* stretches to fill whatever width
+                // its container is proposed, by design, regardless of its siblings' content. That
+                // greedy child alone was enough to pull the whole VStack (and its background) back
+                // out to the full proposed width even with the Text's own frame removed. Measuring
+                // each row's actual rendered width via GeometryReader and explicitly constraining
+                // the VStack to the widest one sidesteps that entirely - nothing inside can force a
+                // wider layout than what was actually measured.
+                let rows = VStack(alignment: .leading, spacing: 0) {
+                    ForEach(candidates, id: \.member.id) { candidate in
+                        Button {
+                            mentionInsertionRequest = ComposerTextView.TextInsertionRequest(
+                                id: UUID(),
+                                text: "@\(candidate.domain) ",
+                                replacesMentionToken: true
+                            )
+                            self.mentionQuery = nil
+                        } label: {
+                            Text(candidate.domain)
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                                .background(
+                                    GeometryReader { proxy in
+                                        Color.clear.preference(key: MentionRowWidthKey.self, value: proxy.size.width)
+                                    }
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        if candidate.member.id != candidates.last?.member.id {
+                            Divider()
+                        }
+                    }
+                }
+                .onPreferenceChange(MentionRowWidthKey.self) { mentionListWidth = $0 }
+
+                // Deliberately no ScrollView/fixed frame(maxHeight:) for a short list - a
+                // ScrollView sizes itself to fill up to its max height regardless of how little
+                // content it holds, which left a large empty gap under e.g. a 2-row list. A plain
+                // VStack hugs its actual content instead. Once there are more candidates than fit
+                // in `visibleMentionRows` though, an *exact* (not max) height is handed to a real
+                // ScrollView - exact, not max, so it isn't the same "grows to fill regardless of
+                // content" trap, since here there's always guaranteed to be enough content to
+                // fill it.
+                Group {
+                    if candidates.count > Self.visibleMentionRows {
+                        ScrollView {
+                            rows
+                        }
+                        .frame(height: Self.mentionRowHeight * CGFloat(Self.visibleMentionRows))
+                    } else {
+                        rows
+                    }
+                }
+                .frame(width: mentionListWidth.map { min($0, Self.maxMentionListWidth) })
+                .background(glassBackground(cornerRadius: 14))
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
     }
 
     private var textRow: some View {
@@ -579,7 +700,8 @@ struct GroupChatDetailView: View {
                         mentionInsertionRequest = nil
                     }
                 },
-                onPasteImageData: handlePastedImageData
+                onPasteImageData: handlePastedImageData,
+                onMentionQuery: { mentionQuery = $0 }
             )
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -599,26 +721,31 @@ struct GroupChatDetailView: View {
         }
     }
 
-    /// "+" menu - Photo and Audio Message only, deliberately no "Pay in Kaspa" (see file doc).
+    /// "+" menu - Camera, Send Photo, Send Audio Message only, deliberately no "Send Kaspa"/chess
+    /// (see file doc).
+    /// Mentioning someone is no longer here - type "@" in the composer instead, see
+    /// `mentionSuggestions`.
     private var plusMenu: some View {
         Menu {
             Button {
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    showCamera = true
+                } else {
+                    errorMessage = "Camera not available on this device."
+                }
+            } label: {
+                Label("Camera", systemImage: "camera")
+            }
+            Button {
                 showPhotoPicker = true
             } label: {
-                Label("Photo", systemImage: "photo")
+                Label("Send Photo", systemImage: "photo")
             }
             Button {
                 feeEstimateSompi = nil
                 recorder.start()
             } label: {
-                Label("Audio Message", systemImage: "mic.circle.fill")
-            }
-            if group.members.contains(where: { $0.address != myAddress }) {
-                Button {
-                    showMentionPicker = true
-                } label: {
-                    Label("Mention Someone", systemImage: "at")
-                }
+                Label("Send Audio Message", systemImage: "mic.circle.fill")
             }
         } label: {
             Image(systemName: "plus")
@@ -629,14 +756,23 @@ struct GroupChatDetailView: View {
         }
         .tint(.accentColor)
         .accessibilityLabel(Text("More options"))
-        .confirmationDialog("Mention", isPresented: $showMentionPicker, titleVisibility: .visible) {
-            ForEach(group.members.filter { $0.address != myAddress }) { member in
-                Button(displayName(for: member.address)) {
-                    insertMention(for: member.address)
-                }
-            }
-        }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraCaptureView(
+                onCapture: { data in
+                    showCamera = false
+                    guard let image = UIImage(data: data) else {
+                        errorMessage = "Couldn't load that photo. Please try another."
+                        return
+                    }
+                    isComposerFocused = false
+                    pendingPhotoImage = image
+                    schedulePhotoFeeEstimate()
+                },
+                onCancel: { showCamera = false }
+            )
+            .ignoresSafeArea()
+        }
         .onChange(of: photoPickerItem) { newItem in
             guard let newItem else { return }
             Task {
@@ -744,7 +880,14 @@ struct GroupChatDetailView: View {
     /// Swaps any `@DisplayName` the user typed/picked for the machine-readable `@{address}` form
     /// - see `GroupMentionCodec`'s doc comment.
     private func encodeMentions(_ text: String) -> String {
-        GroupMentionCodec.encodeForSending(text, members: group.members, resolveDisplayName: displayName(for:))
+        // Primary-KNS-only, matching what the autocomplete actually inserts (see
+        // mentionCandidates(for:)) - not the general displayName(for:) fallback chain used for
+        // *rendering* (decodeForDisplay), which stays permissive so historical mentions still
+        // show something sensible. A member with no explicit primary returns "" here, which
+        // GroupMentionCodec.encodeForSending already skips.
+        GroupMentionCodec.encodeForSending(text, members: group.members) { address in
+            knsService.domainCache[address]?.explicitPrimaryDomain ?? ""
+        }
     }
 
     private func send() {
@@ -850,6 +993,27 @@ struct GroupChatDetailView: View {
 
     private func replyDisplayName(for address: String) -> String {
         address == myAddress ? "You" : displayName(for: address)
+    }
+
+    /// Settles the initial scroll position on cold open. A single fixed-delay retry (the previous
+    /// approach) wasn't reliably enough for a large/slow-loading group history - the LazyVStack
+    /// might still not have "bottom_anchor" materialized by the time it fires, silently leaving
+    /// `scrollTo` a no-op and the thread resting wherever the ScrollView's default (top) landed
+    /// it. This cascades through several increasing delays instead, and the ScrollView stays
+    /// hidden (`opacity`, see `body`) until the last one runs, so whichever attempt actually lands
+    /// is the only state the user ever sees - no visible "jump" once revealed.
+    private func positionInitialViewport(using proxy: ScrollViewProxy) {
+        guard !initialViewportPositioned else { return }
+        let delays: [TimeInterval] = [0, 0.15, 0.35, 0.65]
+        for (index, delay) in delays.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard !initialViewportPositioned else { return }
+                proxy.scrollTo("bottom_anchor", anchor: .bottom)
+                if index == delays.count - 1 {
+                    initialViewportPositioned = true
+                }
+            }
+        }
     }
 
     private func scrollToBottom(using proxy: ScrollViewProxy, animated: Bool, retryAfter: TimeInterval? = nil) {
@@ -1102,41 +1266,65 @@ private struct GroupMessageBubbleRow: View {
                         onReply: onReply
                     )
                     .simultaneousGesture(TapGesture(count: 2).onEnded { onReply() })
+                } else if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent), MessageTextRenderPlan.isEntirelyLink(displayContent) {
+                    // Message is nothing but a link - the preview card replaces the plain-text
+                    // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
+                    // keeps the raw link visible/tappable if no preview data is ever found,
+                    // rather than the message rendering as nothing at all.
+                    LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayContent)
                 } else {
-                    Text(displayContent)
-                        .font(.body)
-                        .foregroundColor(message.isOutgoing ? .white : .primary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(message.isOutgoing ? Self.bubbleColor : Color(.systemGray5))
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                        .simultaneousGesture(TapGesture(count: 2).onEnded { onReply() })
-                        .contextMenu {
-                            Button {
-                                onReply()
-                            } label: {
-                                Label("Reply", systemImage: "arrowshape.turn.up.left")
-                            }
-                            Button {
-                                onCopy(displayContent, .success)
-                                UIPasteboard.general.string = displayContent
-                            } label: {
-                                Label("Copy Message", systemImage: "doc.on.doc")
-                            }
-                            if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
-                                Link(destination: url) {
-                                    Label("View in Explorer", systemImage: "safari")
+                    Group {
+                        if MessageTextRenderPlan.requiresLinkTextView(displayContent) {
+                            LinkifiedMessageTextView(
+                                text: displayContent,
+                                isOutgoing: message.isOutgoing,
+                                isSingleEmojiOnly: false,
+                                onLinkLongPress: { url in
+                                    onCopy(url.absoluteString, .success)
+                                    UIPasteboard.general.string = url.absoluteString
                                 }
-                            }
-                            if shouldShowRetry {
-                                Button {
-                                    onRetry()
-                                } label: {
-                                    Label("Retry Send", systemImage: "arrow.clockwise")
-                                }
+                            )
+                        } else {
+                            Text(displayContent)
+                                .font(.body)
+                                .foregroundColor(message.isOutgoing ? .white : .primary)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(message.isOutgoing ? Self.bubbleColor : Color(.systemGray5))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .simultaneousGesture(TapGesture(count: 2).onEnded { onReply() })
+                    .contextMenu {
+                        Button {
+                            onReply()
+                        } label: {
+                            Label("Reply", systemImage: "arrowshape.turn.up.left")
+                        }
+                        Button {
+                            onCopy(displayContent, .success)
+                            UIPasteboard.general.string = displayContent
+                        } label: {
+                            Label("Copy Message", systemImage: "doc.on.doc")
+                        }
+                        if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
+                            Link(destination: url) {
+                                Label("View in Explorer", systemImage: "safari")
                             }
                         }
-                        .tint(.accentColor)
+                        if shouldShowRetry {
+                            Button {
+                                onRetry()
+                            } label: {
+                                Label("Retry Send", systemImage: "arrow.clockwise")
+                            }
+                        }
+                    }
+                    .tint(.accentColor)
+
+                    if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent) {
+                        LinkPreviewCardView(url: linkURL, txId: message.txId)
+                    }
                 }
 
                 if message.isOutgoing {
@@ -1484,5 +1672,29 @@ private struct HiddenGroupMembersView: View {
                 Button("Done") { dismiss() }
             }
         }
+    }
+}
+
+private extension View {
+    /// Matches ChatDetailView's identical compat wrapper (file-private there, so duplicated here
+    /// rather than shared) - has the ScrollView start already anchored to the bottom on its very
+    /// first layout pass on iOS 17+, instead of relying purely on an imperative `scrollTo` racing
+    /// against the LazyVStack's own layout.
+    @ViewBuilder
+    func defaultScrollAnchorCompat(_ anchor: UnitPoint) -> some View {
+        if #available(iOS 17.0, *) {
+            self.defaultScrollAnchor(anchor)
+        } else {
+            self
+        }
+    }
+}
+
+/// Reports the widest measured row width up the view tree - see `mentionSuggestions`'s doc
+/// comment for why this explicit measurement is needed instead of just sizing-to-content.
+private struct MentionRowWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

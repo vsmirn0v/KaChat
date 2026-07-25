@@ -7,7 +7,8 @@ struct ContentView: View {
         Group {
             switch LaunchRouter.route(
                 isWalletMetadataLoading: walletManager.isLoading,
-                hasCurrentWallet: walletManager.currentWallet != nil
+                hasCurrentWallet: walletManager.currentWallet != nil,
+                isPendingSeedPhraseConfirmation: walletManager.isAwaitingSeedPhraseConfirmation
             ) {
             case .loading:
                 LoadingView()
@@ -17,7 +18,10 @@ struct ContentView: View {
                 OnboardingView()
             }
         }
-        .animation(.easeInOut, value: walletManager.currentWallet != nil)
+        .animation(
+            .easeInOut,
+            value: walletManager.currentWallet != nil && !walletManager.isAwaitingSeedPhraseConfirmation
+        )
     }
 }
 

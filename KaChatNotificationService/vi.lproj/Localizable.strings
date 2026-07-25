@@ -323,3 +323,4 @@
 "Small Amount" = "Số tiền nhỏ";
 "Send Anyway" = "Vẫn gửi";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "Gửi dưới 0,1 KAS có thể thất bại do giới hạn bảo vệ dust của mạng.";
+"You were added to \"%@\"" = "Bạn đã được thêm vào \"%@\"";

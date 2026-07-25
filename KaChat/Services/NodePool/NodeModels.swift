@@ -444,6 +444,18 @@ struct NodeRecord: Codable, Identifiable {
 
     /// Update state based on profile and health
     mutating func updateState() {
+        // A manually-pinned node is meant to always be used regardless of health (see
+        // NodePoolService.setTrustedNodeAddress / NodeRegistry.upsert's trusted-only guard) -
+        // the candidate/profiled/suspect/quarantined classification below exists to filter and
+        // rank a large auto-discovered pool, and is meaningless (and misleading) for the one
+        // node the user explicitly chose to always connect to. `setTrustedNode` removes any
+        // stale `.userAdded` record when the pin is cleared, so this only ever matches the
+        // currently-pinned node, never a leftover from a previous pin.
+        if origin == .userAdded {
+            state = .active
+            return
+        }
+
         // Quarantined takes priority
         if health.isQuarantined {
             state = .quarantined

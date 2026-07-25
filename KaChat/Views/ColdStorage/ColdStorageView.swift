@@ -736,6 +736,8 @@ private struct ColdSendFlowView: View {
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @ObservedObject private var portfolioViewModel = PortfolioViewModel.shared
+    @StateObject private var fiatAmountState = KaspaFiatAmountState()
 
     private enum Step {
         case form
@@ -890,8 +892,25 @@ private struct ColdSendFlowView: View {
 
             Section {
                 HStack {
-                    TextField("0.00", text: $amountText)
+                    TextField(
+                        "0.00",
+                        text: Binding(
+                            get: { fiatAmountState.displayText },
+                            set: { amountText = fiatAmountState.onDisplayTextChange($0, priceInCurrency: portfolioViewModel.currentPriceUsd) }
+                        )
+                    )
                         .keyboardType(.decimalPad)
+                    if let conversionLabel = fiatAmountState.conversionLabelText(
+                        priceInCurrency: portfolioViewModel.currentPriceUsd,
+                        currency: portfolioViewModel.currentCurrency
+                    ) {
+                        Text(conversionLabel)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .onTapGesture {
+                                fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
+                            }
+                    }
                     if isEstimatingMax {
                         ProgressView().scaleEffect(0.75)
                     } else {
@@ -903,7 +922,7 @@ private struct ColdSendFlowView: View {
                         .buttonStyle(.borderless)
                         .disabled(!isValidAddress)
                     }
-                    Text("KAS")
+                    Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : "KAS")
                         .foregroundColor(.secondary)
                 }
             } header: {
@@ -1075,7 +1094,7 @@ private struct ColdSendFlowView: View {
             do {
                 let maxSompi = try await ColdStorageSendEngine.shared.estimateMaxAmount(fromAddress: fromAddress, feeRateOverride: overrideRate)
                 await MainActor.run {
-                    amountText = formatKasTrimmed(maxSompi)
+                    amountText = fiatAmountState.setMaxKas(Double(maxSompi) / 100_000_000.0, priceInCurrency: portfolioViewModel.currentPriceUsd)
                     isEstimatingMax = false
                 }
             } catch {

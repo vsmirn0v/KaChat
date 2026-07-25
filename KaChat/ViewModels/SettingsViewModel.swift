@@ -149,6 +149,41 @@ final class SettingsViewModel: ObservableObject {
             saveSettings()
         }
     }
+
+    /// Validates and applies a new trusted-node address (empty = automatic discovery instead of a
+    /// pinned node). Returns a user-facing error message and leaves `settings` untouched if
+    /// `value` is non-empty but not a valid endpoint; returns `nil` on success. Shared by
+    /// `ConnectionSettingsView` and the Welcome Guide's node-connection step so both stay in sync
+    /// with `NodePoolService`, not just `AppSettings`.
+    @discardableResult
+    func applyTrustedNode(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty || Endpoint(url: trimmed) != nil else {
+            return "Enter as host:port or grpcs://host"
+        }
+        guard trimmed != settings.trustedNodeAddress else { return nil }
+        settings.trustedNodeAddress = trimmed
+        saveSettings()
+        Task {
+            await NodePoolService.shared.setTrustedNodeAddress(trimmed)
+        }
+        return nil
+    }
+
+    /// Sets or clears the standard `AppleLanguages` preferred-language override. The main app
+    /// itself doesn't need this (it picks up a language change immediately via
+    /// `.environment(\.locale, ...)` in `KaChatApp.swift`, no restart) - this is for the pieces
+    /// that run as their own separate OS process and can't observe that in-memory environment
+    /// override at all: the Notification Service Extension, Share Extension, and the OS's own
+    /// Bundle-driven resolution on the next cold launch of any of them. Shared by the Settings >
+    /// Language picker and the Welcome Guide's language step.
+    func applyLanguagePreference(_ language: AppLanguage) {
+        if let code = language.appleLanguageCode {
+            UserDefaults.standard.set([code], forKey: "AppleLanguages")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        }
+    }
 }
 
 extension Notification.Name {

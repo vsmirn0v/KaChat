@@ -27,6 +27,8 @@ struct ChatDetailView: View {
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @ObservedObject private var knsService = KNSService.shared
+    @ObservedObject private var portfolioViewModel = PortfolioViewModel.shared
+    @StateObject private var fiatAmountState = KaspaFiatAmountState()
 
     private var myAddress: String? {
         walletManager.currentWallet?.publicAddress
@@ -46,6 +48,12 @@ struct ChatDetailView: View {
     @State private var messagePageSize = 40
     @State private var totalStoredMessages = 0
     @State private var normalizedMessages: [ChatMessage] = []
+    /// Rebuilt only when `normalizedMessages` actually changes (see `rebuildMessageSnapshotIfNeeded`),
+    /// not on every render - `messageRow` looks this up instead of calling `ChessGameService.summarize`
+    /// itself, which replays the whole game and was previously being re-run for every visible chess
+    /// row on every keystroke (any `@State` change on this view re-invokes `body`, and `messageRow`
+    /// is a plain function inlined into it, not an independently-diffed `View`).
+    @State private var chessSummaryCache: [String: ChessGameSummary] = [:]
     @State private var previousMessagesCount = 0
     @State private var lastMessageSnapshotDigest: Int?
     @State private var snapshotRebuildTask: Task<Void, Never>?
@@ -111,6 +119,7 @@ struct ChatDetailView: View {
     @State private var recorderDelegate = AudioRecorderDelegate()
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var showPhotoPickerFromMenu = false
+    @State private var showCamera = false
     @State private var pendingPhotoImage: UIImage?
     @State private var isCompressingPhoto = false
     @State private var hasPerformedInitialSetup = false
@@ -197,6 +206,22 @@ struct ChatDetailView: View {
         }
         let deduped = byTxId.values.sorted(by: isMessageOrderedBefore)
         normalizedMessages = deduped
+
+        if let myAddress {
+            let gameIds = Set(deduped.compactMap { ChessCodec.parseAny(MessageReplyCodec.unwrappedText($0.content))?.gameId })
+            if gameIds.isEmpty {
+                if !chessSummaryCache.isEmpty { chessSummaryCache = [:] }
+            } else {
+                var updated: [String: ChessGameSummary] = [:]
+                for gameId in gameIds {
+                    updated[gameId] = ChessGameService.summarize(gameId: gameId, in: deduped, myAddress: myAddress, contactAddress: contact.address)
+                }
+                chessSummaryCache = updated
+            }
+        } else if !chessSummaryCache.isEmpty {
+            chessSummaryCache = [:]
+        }
+
         hasIncomingHandshakeMessage = deduped.contains {
             $0.messageType == .handshake && !$0.isOutgoing && $0.deliveryStatus != .failed
         }
@@ -269,12 +294,6 @@ struct ChatDetailView: View {
         // If both directions exist, the handshake exchange is complete
         if hasIncomingHandshakeMessage && hasOutgoingHandshakeMessage { return false }
         return hasOutgoingHandshakeMessage && !chatService.hasTheirAlias(for: contact.address)
-    }
-
-    private var handshakeComplete: Bool {
-        let bothMessages = hasIncomingHandshakeMessage && hasOutgoingHandshakeMessage
-        let hasRouting = chatService.hasRoutingState(for: contact.address)
-        return bothMessages || hasRouting || (chatService.hasOurAlias(for: contact.address) && chatService.hasTheirAlias(for: contact.address))
     }
 
     private var isDeclined: Bool {
@@ -734,6 +753,7 @@ struct ChatDetailView: View {
             messageText = ""
             inputMode = startInPaymentMode ? .payment : .message
             amountText = ""
+            fiatAmountState.reset()
             initialViewportPositioned = false
             didInitialScroll = false
             topVisibleMessageId = nil
@@ -1195,26 +1215,35 @@ struct ChatDetailView: View {
     private var composerPlusMenu: some View {
         Menu {
             Button {
-                switchMode(.payment)
-            } label: {
-                Label {
-                    Text("Pay in Kaspa")
-                } icon: {
-                    Image("KaspaLogo")
-                        .resizable()
-                        .scaledToFit()
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    showCamera = true
+                } else {
+                    self.error = "Camera not available on this device."
                 }
+            } label: {
+                Label("Camera", systemImage: "camera")
             }
             Button {
                 showPhotoPickerFromMenu = true
             } label: {
-                Label("Photo", systemImage: "photo")
+                Label("Send Photo", systemImage: "photo")
             }
             Button {
                 switchMode(.audio)
                 startRecording()
             } label: {
-                Label("Audio Message", systemImage: "mic.circle.fill")
+                Label("Send Audio Message", systemImage: "mic.circle.fill")
+            }
+            Button {
+                switchMode(.payment)
+            } label: {
+                Label {
+                    Text("Send Kaspa")
+                } icon: {
+                    Image("KaspaLogo")
+                        .resizable()
+                        .scaledToFit()
+                }
             }
             Button {
                 startChessGame()
@@ -1238,6 +1267,16 @@ struct ChatDetailView: View {
         .tint(.accentColor)
         .accessibilityLabel(Text("More options"))
         .photosPicker(isPresented: $showPhotoPickerFromMenu, selection: $photoPickerItem, matching: .images)
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraCaptureView(
+                onCapture: { data in
+                    showCamera = false
+                    _ = attachImageData(data)
+                },
+                onCancel: { showCamera = false }
+            )
+            .ignoresSafeArea()
+        }
         .onChange(of: photoPickerItem) { newItem in
             guard let newItem else { return }
             Task {
@@ -1301,12 +1340,12 @@ struct ChatDetailView: View {
         isRecording || isEncodingAudio || recordedAudioPreviewURL != nil || recordedAudioURL != nil
     }
 
-    /// Matches Android's own composer-menu gate (`contact.handshakeComplete != true`) — simpler
-    /// than this used to be: it only hides the option once the handshake exchange has actually
-    /// completed, rather than also hiding it the moment either side has sent one message of
-    /// their own (which was hiding it far more often than Android ever does).
+    /// Always available in the "+" menu on iOS, even once the handshake exchange has already
+    /// completed - unlike Android, which still hides it at that point. Still gated on
+    /// `!isRespondingHandshake` alone, purely to prevent a double-tap firing two sends while one
+    /// is already in flight, not to hide the option itself.
     private var canSendRequestToCommunicate: Bool {
-        !handshakeComplete && !isRespondingHandshake
+        !isRespondingHandshake
     }
 
     /// Only ever reached for `.payment` now — the `.message` entry point moved to
@@ -1542,19 +1581,36 @@ struct ChatDetailView: View {
 
     private var paymentField: some View {
         HStack {
-            TextField("Amount (KAS)", text: $amountText)
+            TextField(
+                fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : "Amount (KAS)",
+                text: Binding(
+                    get: { fiatAmountState.displayText },
+                    set: { newValue in
+                        let sanitized = sanitizedAmount(newValue)
+                        amountText = fiatAmountState.onDisplayTextChange(sanitized, priceInCurrency: portfolioViewModel.currentPriceUsd)
+                    }
+                )
+            )
                 .keyboardType(.decimalPad)
                 .focused($isPaymentFocused)
-                .onChange(of: amountText) { newValue in
-                    amountText = sanitizedAmount(newValue)
-                }
+            if let conversionLabel = fiatAmountState.conversionLabelText(
+                priceInCurrency: portfolioViewModel.currentPriceUsd,
+                currency: portfolioViewModel.currentCurrency
+            ) {
+                Text(conversionLabel)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .onTapGesture {
+                        fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
+                    }
+            }
             Button("Max") {
                 Task {
                     do {
                         let maxSompi = try await chatService.estimateMaxPaymentAmount(to: contact)
                         await MainActor.run {
                             let kas = Double(maxSompi) / 100_000_000.0
-                            amountText = String(format: "%.8f", kas)
+                            amountText = fiatAmountState.setMaxKas(kas, priceInCurrency: portfolioViewModel.currentPriceUsd)
                         }
                     } catch {
                         print("[ChatDetail] Max calculation failed: \(error)")
@@ -1769,7 +1825,10 @@ struct ChatDetailView: View {
 
         feeEstimateSompi = nil
         isEstimatingFee = false
-        if mode != .payment { amountText = "" }
+        if mode != .payment {
+            amountText = ""
+            fiatAmountState.reset()
+        }
         if mode != .message { messageText = "" }
         if mode != .audio {
             cancelRecording()
@@ -1868,6 +1927,7 @@ struct ChatDetailView: View {
                 try await chatService.sendPayment(to: contact, amountSompi: amountSompi, note: "")
                 await MainActor.run {
                     amountText = ""
+                    fiatAmountState.reset()
                     feeEstimateSompi = nil
                     isEstimatingFee = false
                 }
@@ -2004,11 +2064,11 @@ struct ChatDetailView: View {
         let replyQuote = MessageReplyCodec.parse(message.content)
         let senderAddress = message.isOutgoing ? myAddress : contact.address
         let chessEnvelope = ChessCodec.parseAny(MessageReplyCodec.unwrappedText(message.content))
-        let chessSummary = chessEnvelope.flatMap { envelope -> ChessGameSummary? in
-            guard let myAddress else { return nil }
-            return ChessGameService.summarize(gameId: envelope.gameId, in: messages, myAddress: myAddress, contactAddress: contact.address)
-        }
-        let isLatestChess = chessEnvelope != nil && ChessGameService.isLatestChessMessage(message, in: messages)
+        let chessSummary = chessEnvelope.flatMap { chessSummaryCache[$0.gameId] }
+        // Equivalent to ChessGameService.isLatestChessMessage(message, in: messages), but reuses
+        // the cached summary's lastMessageTxId (set during the same replay) instead of a fresh
+        // O(N) scan over every message per row per render.
+        let isLatestChess = chessEnvelope != nil && message.txId == chessSummary?.lastMessageTxId
         MessageBubbleView(
             message: message,
             onCopy: showToast,
@@ -2735,20 +2795,14 @@ struct ChatDetailView: View {
     }
 
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
-        let template = NSLocalizedString(
-            "fee: %@ KAS",
-            comment: "Fee label with resolved fee amount in KAS"
-        )
-        return String(format: template, locale: Locale.current, formatKaspaExact(feeSompi))
+        let template = AppLocalization.string("fee: %@ KAS")
+        return String(format: template, locale: AppLocalization.locale, formatKaspaExact(feeSompi))
     }
 
     private func localizedAvailableBalanceText(_ balanceSompi: UInt64?) -> String {
-        let template = NSLocalizedString(
-            "available: %@ KAS",
-            comment: "Available wallet balance helper label near fee bubble in payment mode"
-        )
+        let template = AppLocalization.string("available: %@ KAS")
         let value = balanceSompi.map(formatKaspaExact) ?? "--"
-        return String(format: template, locale: Locale.current, value)
+        return String(format: template, locale: AppLocalization.locale, value)
     }
 
     private func parseAmountSompi(_ text: String) -> UInt64 {
@@ -2882,9 +2936,11 @@ struct ChatDetailView: View {
     }
 
     private func shouldShowRetryHint(for message: String) -> Bool {
-        let template = NSLocalizedString(
-            "Planned spend %@ KAS, but available balance %@ KAS is less than required.",
-            comment: "Shown when balance is below required spend for send operation"
+        // Must match `ChatService+Conversations.formatInsufficientBalanceError`'s own lookup
+        // (`AppLocalization`, not `NSLocalizedString`) - that's the language `message` was
+        // actually generated in, which isn't necessarily the device's system language.
+        let template = AppLocalization.string(
+            "Planned spend %@ KAS, but available balance %@ KAS is less than required."
         ).lowercased()
         let parts = template.components(separatedBy: "%@").filter { !$0.isEmpty }
         if parts.isEmpty { return true }

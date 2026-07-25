@@ -43,21 +43,26 @@ struct ChessPiece: Equatable {
     let color: ChessColor
 
     /// Unicode chess glyph - used by both the in-chat board thumbnail and the full-screen board,
-    /// so neither needs bundled piece image assets.
+    /// so neither needs bundled piece image assets. Deliberately always uses the solid/filled
+    /// "black" code points (U+265A-265F) regardless of `color` - the "white" code points
+    /// (U+2654-2659) are outline-only glyphs with almost no solid area, so filling them white
+    /// (see ChessPieceGlyphView.fillColor) against a light board square looked nearly invisible.
+    /// Color is conveyed entirely by the fill/outline trick below, not by which glyph is used.
+    ///
+    /// The trailing U+FE0E (text presentation selector) on the pawn matters: Apple's system font
+    /// has a special colored glyph for the bare pawn character (unlike the other five chess
+    /// symbols, which stay plain outline/solid text glyphs), so without it every pawn - both
+    /// colors, and every captured pawn in the captured-pieces tray - rendered with that same
+    /// fixed color regardless of `fillColor`/`outlineColor` below, ignoring `piece.color` entirely.
+    /// VS15 forces the plain text glyph, which does respect the applied text color.
     var glyph: String {
-        switch (type, color) {
-        case (.king, .white): return "♔"
-        case (.queen, .white): return "♕"
-        case (.rook, .white): return "♖"
-        case (.bishop, .white): return "♗"
-        case (.knight, .white): return "♘"
-        case (.pawn, .white): return "♙"
-        case (.king, .black): return "♚"
-        case (.queen, .black): return "♛"
-        case (.rook, .black): return "♜"
-        case (.bishop, .black): return "♝"
-        case (.knight, .black): return "♞"
-        case (.pawn, .black): return "♟"
+        switch type {
+        case .king: return "♚"
+        case .queen: return "♛"
+        case .rook: return "♜"
+        case .bishop: return "♝"
+        case .knight: return "♞"
+        case .pawn: return "♟\u{FE0E}"
         }
     }
 }

@@ -122,14 +122,39 @@ actor NodeRegistry {
 
     /// Pins the registry to exactly one node (Kaspium-style fixed-node mode) - clears
     /// every other record and refuses to add any other one until cleared.
-    func setTrustedNode(_ endpoint: Endpoint?) {
-        guard let endpoint else { trustedNodeKey = nil; return }
+    ///
+    /// Returns the endpoint that WAS pinned before this call, if any and if it's actually
+    /// changing - a `GRPCStreamConnection` has no concept of "trusted" and will otherwise keep
+    /// reconnecting to a node that's no longer relevant forever, so the caller needs this to
+    /// close that now-orphaned connection (see NodePoolService.setTrustedNodeAddress).
+    @discardableResult
+    func setTrustedNode(_ endpoint: Endpoint?) -> Endpoint? {
+        let previousEndpoint = trustedNodeKey.flatMap { records[$0]?.endpoint }
+
+        guard let endpoint else {
+            // Drop the now-stale pinned record too, so it doesn't linger with origin
+            // .userAdded (which forces it "active" unconditionally - see
+            // NodeRecord.updateState()) even after it's no longer actually pinned.
+            if let trustedNodeKey {
+                records.removeValue(forKey: trustedNodeKey)
+            }
+            trustedNodeKey = nil
+            scheduleSave()
+            return previousEndpoint
+        }
+
+        guard previousEndpoint?.key != endpoint.key else {
+            // Re-pinning the same endpoint - nothing stale to report.
+            return nil
+        }
+
         trustedNodeKey = endpoint.key
         records = records.filter { $0.key == endpoint.key }
         if records[endpoint.key] == nil {
             records[endpoint.key] = NodeRecord(endpoint: endpoint, origin: .userAdded)
         }
         scheduleSave()
+        return previousEndpoint
     }
 
     /// Insert or update a node record
@@ -514,6 +539,13 @@ actor NodeRegistry {
 
     /// Current pool health
     func poolHealth() -> PoolHealth {
+        // A manually-pinned node is meant to always be treated as "it's working" (see
+        // NodeRecord.updateState()) - the 5/2/1/0-active-node healthy/degraded/critical/failed
+        // thresholds below are tuned for a large auto-discovered pool and would otherwise show
+        // "Critical" for a single pinned node that's actually working completely fine.
+        if trustedNodeKey != nil {
+            return .healthy
+        }
         let activeCount = records.values.filter { $0.state == .active }.count
         return PoolHealth(activeCount: activeCount)
     }

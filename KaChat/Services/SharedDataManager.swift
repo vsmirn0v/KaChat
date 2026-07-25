@@ -74,7 +74,7 @@ final class SharedDataManager {
                 groupId: group.id,
                 name: group.name,
                 adminAddress: group.adminAddress,
-                members: group.members.map { SharedGroupMember(address: $0.address, xOnlyPubKeyHex: $0.xOnlyPubKeyHex) }
+                members: group.members.map { SharedGroupMember(address: $0.address, xOnlyPubKeyHex: $0.xOnlyPubKeyHex, displayName: $0.displayName) }
             )
         }
 
@@ -471,6 +471,10 @@ struct SharedGroup: Codable {
 struct SharedGroupMember: Codable {
     let address: String
     let xOnlyPubKeyHex: String
+    /// Snapshot of whoever added this member's own contact alias for them at add-time (see
+    /// `GroupMember.displayName`) - lets the notification extension show a real name for the
+    /// sender of a group message instead of falling back to their raw address.
+    let displayName: String?
 }
 
 /// Pending message that needs to be fetched

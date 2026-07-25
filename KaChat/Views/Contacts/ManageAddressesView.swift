@@ -719,8 +719,10 @@ private struct ConsolidateSuccessCard: View {
 }
 
 /// Scoped withdraw dialog for a single spending address — change stays on that same address
-/// (no rotation), unlike the auto-sweep-and-rotate behavior of a regular chat payment.
-private struct SpendingAddressWithdrawView: View {
+/// (no rotation), unlike the auto-sweep-and-rotate behavior of a regular chat payment. Widened
+/// from `private` so ContactsView.swift's Profile-tab "Spending Address" dropdown can reuse it
+/// for the primary spending address rather than duplicating this whole flow.
+struct SpendingAddressWithdrawView: View {
     let entry: SpendingAddressEntry
     let onComplete: () -> Void
 
@@ -728,6 +730,8 @@ private struct SpendingAddressWithdrawView: View {
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var portfolioViewModel = PortfolioViewModel.shared
+    @StateObject private var fiatAmountState = KaspaFiatAmountState()
 
     @State private var addressInput = ""
     @State private var isValidAddress = false
@@ -816,8 +820,25 @@ private struct SpendingAddressWithdrawView: View {
 
                 Section {
                     HStack {
-                        TextField("0.00", text: $amountInput)
+                        TextField(
+                            "0.00",
+                            text: Binding(
+                                get: { fiatAmountState.displayText },
+                                set: { amountInput = fiatAmountState.onDisplayTextChange($0, priceInCurrency: portfolioViewModel.currentPriceUsd) }
+                            )
+                        )
                             .keyboardType(.decimalPad)
+                        if let conversionLabel = fiatAmountState.conversionLabelText(
+                            priceInCurrency: portfolioViewModel.currentPriceUsd,
+                            currency: portfolioViewModel.currentCurrency
+                        ) {
+                            Text(conversionLabel)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .onTapGesture {
+                                    fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
+                                }
+                        }
                         if isEstimatingMax {
                             ProgressView().scaleEffect(0.75)
                         } else {
@@ -829,7 +850,7 @@ private struct SpendingAddressWithdrawView: View {
                             .buttonStyle(.borderless)
                             .disabled(!isValidAddress)
                         }
-                        Text("KAS")
+                        Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : "KAS")
                             .foregroundColor(.secondary)
                     }
                 } header: {
@@ -989,7 +1010,7 @@ private struct SpendingAddressWithdrawView: View {
             do {
                 let maxSompi = try await chatService.estimateMaxSpendingAddressAmount(index: entry.index, toAddress: recipient, extraFeeSompi: tipSompi)
                 await MainActor.run {
-                    amountInput = formatKas(maxSompi)
+                    amountInput = fiatAmountState.setMaxKas(Double(maxSompi) / 100_000_000.0, priceInCurrency: portfolioViewModel.currentPriceUsd)
                     isEstimatingMax = false
                 }
             } catch {

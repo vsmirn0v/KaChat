@@ -22,6 +22,8 @@
 		4D3D20082F72000800000002 /* ComposerKeyCommandPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20082F72000800000001 /* ComposerKeyCommandPolicy.swift */; };
 		4D3D20092F72000900000002 /* BroadcastNavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20092F72000900000001 /* BroadcastNavigationPolicy.swift */; };
 		A91062000000000000000001 /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91062000000000000000002 /* AppLog.swift */; };
+		CFMT00010001000000000002 /* CurrencyFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFMT00010001000000000001 /* CurrencyFormat.swift */; };
+		KFAS00010001000000000002 /* KaspaFiatAmountState.swift in Sources */ = {isa = PBXBuildFile; fileRef = KFAS00010001000000000001 /* KaspaFiatAmountState.swift */; };
 		B2B2B2B20001000100000001 /* Blake2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B20001000000000001 /* Blake2b.swift */; };
 		BCAR00010001000100000001 /* BroadcastAudioRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAR00010001000000000001 /* BroadcastAudioRecording.swift */; };
 		BCCV00010001000100000001 /* BroadcastChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCV00010001000000000001 /* BroadcastChannelView.swift */; };
@@ -38,6 +40,10 @@
 		CH0001B0000000000000001 /* ChessEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0001A0000000000000001 /* ChessEngine.swift */; };
 		CH0002B0000000000000001 /* ChessGameService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0002A0000000000000001 /* ChessGameService.swift */; };
 		CH0003B0000000000000001 /* ChessGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0003A0000000000000001 /* ChessGameView.swift */; };
+		KNSPROB0000000000000001 /* KNSCreateProfileFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */; };
+		LPRVB0000000000000001 /* LinkPreviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = LPRVA0000000000000001 /* LinkPreviewService.swift */; };
+		LPRVD0000000000000001 /* LinkPreviewCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LPRVC0000000000000001 /* LinkPreviewCardView.swift */; };
+		CAMV0000000000000001 /* CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAMV0000000000000002 /* CameraCaptureView.swift */; };
 		CS0004B0000000000000001 /* ColdStorageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0004A0000000000000001 /* ColdStorageView.swift */; };
 		CS0006B0000000000000001 /* KsptCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0006A0000000000000001 /* KsptCodec.swift */; };
 		CS0007B0000000000000001 /* QrFrameChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0007A0000000000000001 /* QrFrameChunker.swift */; };
@@ -63,6 +69,7 @@
 		E81000112D4C000100000009 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000102D4C000100000009 /* OnboardingView.swift */; };
 		E81000132D4C00010000000A /* CreateWalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000122D4C00010000000A /* CreateWalletView.swift */; };
 		E81000152D4C00010000000B /* ImportWalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000142D4C00010000000B /* ImportWalletView.swift */; };
+		WLCM0000000000000001 /* WelcomeGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = WLCM0000000000000002 /* WelcomeGuideView.swift */; };
 		E81000172D4C00010000000C /* ChatListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000162D4C00010000000C /* ChatListView.swift */; };
 		E81000192D4C00010000000D /* ChatDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000182D4C00010000000D /* ChatDetailView.swift */; };
 		E810001B2D4C00010000000E /* ContactsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810001A2D4C00010000000E /* ContactsView.swift */; };
@@ -71,6 +78,7 @@
 		E81000232D4C000100000012 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000222D4C000100000012 /* MainTabView.swift */; };
 		E81000292D4C000100000015 /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000282D4C000100000015 /* SettingsViewModel.swift */; };
 		E810002F2D4C000100000018 /* CryptoUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810002E2D4C000100000018 /* CryptoUtils.swift */; };
+		APLC00010000000000000BF1 /* AppLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = APLC00010000000000000BF2 /* AppLocalization.swift */; };
 		E81000332D4C00010000001A /* AddContactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000322D4C00010000001A /* AddContactView.swift */; };
 		E81000352D4C00010000001B /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000342D4C00010000001B /* MessageBubbleView.swift */; };
 		E81000372D4C00010000001C /* Bech32.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000362D4C00010000001C /* Bech32.swift */; };
@@ -189,6 +197,8 @@
 		4D3D20092F72000900000001 /* BroadcastNavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastNavigationPolicy.swift; sourceTree = "<group>"; };
 		6A61ACF41FEA483D9EF0924F /* KNSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSService.swift; sourceTree = "<group>"; };
 		A91062000000000000000002 /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
+		CFMT00010001000000000001 /* CurrencyFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrencyFormat.swift; sourceTree = "<group>"; };
+		KFAS00010001000000000001 /* KaspaFiatAmountState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaFiatAmountState.swift; sourceTree = "<group>"; };
 		A91062000000000000000010 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
 		B2B2B2B20001000000000001 /* Blake2b.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Blake2b.swift; sourceTree = "<group>"; };
 		BCAR00010001000000000001 /* BroadcastAudioRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastAudioRecording.swift; sourceTree = "<group>"; };
@@ -206,6 +216,10 @@
 		CH0001A0000000000000001 /* ChessEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessEngine.swift; sourceTree = "<group>"; };
 		CH0002A0000000000000001 /* ChessGameService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessGameService.swift; sourceTree = "<group>"; };
 		CH0003A0000000000000001 /* ChessGameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessGameView.swift; sourceTree = "<group>"; };
+		KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSCreateProfileFlowView.swift; sourceTree = "<group>"; };
+		LPRVA0000000000000001 /* LinkPreviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkPreviewService.swift; sourceTree = "<group>"; };
+		LPRVC0000000000000001 /* LinkPreviewCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkPreviewCardView.swift; sourceTree = "<group>"; };
+		CAMV0000000000000002 /* CameraCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCaptureView.swift; sourceTree = "<group>"; };
 		CS0004A0000000000000001 /* ColdStorageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColdStorageView.swift; sourceTree = "<group>"; };
 		CS0006A0000000000000001 /* KsptCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KsptCodec.swift; sourceTree = "<group>"; };
 		CS0007A0000000000000001 /* QrFrameChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrFrameChunker.swift; sourceTree = "<group>"; };
@@ -232,6 +246,7 @@
 		E81000102D4C000100000009 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		E81000122D4C00010000000A /* CreateWalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateWalletView.swift; sourceTree = "<group>"; };
 		E81000142D4C00010000000B /* ImportWalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportWalletView.swift; sourceTree = "<group>"; };
+		WLCM0000000000000002 /* WelcomeGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeGuideView.swift; sourceTree = "<group>"; };
 		E81000162D4C00010000000C /* ChatListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListView.swift; sourceTree = "<group>"; };
 		E81000182D4C00010000000D /* ChatDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailView.swift; sourceTree = "<group>"; };
 		E810001A2D4C00010000000E /* ContactsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactsView.swift; sourceTree = "<group>"; };
@@ -240,6 +255,7 @@
 		E81000222D4C000100000012 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
 		E81000282D4C000100000015 /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModel.swift; sourceTree = "<group>"; };
 		E810002E2D4C000100000018 /* CryptoUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoUtils.swift; sourceTree = "<group>"; };
+		APLC00010000000000000BF2 /* AppLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLocalization.swift; sourceTree = "<group>"; };
 		E81000322D4C00010000001A /* AddContactView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddContactView.swift; sourceTree = "<group>"; };
 		E81000342D4C00010000001B /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
 		E81000362D4C00010000001C /* Bech32.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bech32.swift; sourceTree = "<group>"; };
@@ -492,6 +508,7 @@
 				CH0002A0000000000000001 /* ChessGameService.swift */,
 				SWAP002A0000000000000001 /* ChangeNowAPIClient.swift */,
 				SWAP003A0000000000000001 /* SwapService.swift */,
+				LPRVA0000000000000001 /* LinkPreviewService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -525,6 +542,7 @@
 			isa = PBXGroup;
 			children = (
 				E810002E2D4C000100000018 /* CryptoUtils.swift */,
+				APLC00010000000000000BF2 /* AppLocalization.swift */,
 				DA0001A0000000000000001 /* DeviceAuth.swift */,
 				IMGP00010001000000000001 /* ImagePrep.swift */,
 				DTAL00010001000000000001 /* DeterministicAlias.swift */,
@@ -542,6 +560,8 @@
 				E83000032D4C000200000008 /* OpusBridge.m */,
 				SECV00010001000000000001 /* SecureView.swift */,
 				A91062000000000000000002 /* AppLog.swift */,
+				CFMT00010001000000000001 /* CurrencyFormat.swift */,
+				KFAS00010001000000000001 /* KaspaFiatAmountState.swift */,
 			);
 			path = Utilities;
 			sourceTree = "<group>";
@@ -564,6 +584,7 @@
 				E81000122D4C00010000000A /* CreateWalletView.swift */,
 				E81000142D4C00010000000B /* ImportWalletView.swift */,
 				GIFT00010001000000000002 /* GiftClaimView.swift */,
+				WLCM0000000000000002 /* WelcomeGuideView.swift */,
 			);
 			path = Onboarding;
 			sourceTree = "<group>";
@@ -602,6 +623,7 @@
 				E810001A2D4C00010000000E /* ContactsView.swift */,
 				E81000322D4C00010000001A /* AddContactView.swift */,
 				SA0001A0000000000000001 /* ManageAddressesView.swift */,
+				KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */,
 			);
 			path = Contacts;
 			sourceTree = "<group>";
@@ -631,6 +653,8 @@
 				KNAV000100010000000001 /* KNSAvatarView.swift */,
 				FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */,
 				CS0010A0000000000000001 /* MultiFrameQRViews.swift */,
+				LPRVC0000000000000001 /* LinkPreviewCardView.swift */,
+				CAMV0000000000000002 /* CameraCaptureView.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -889,6 +913,7 @@
 				E81000112D4C000100000009 /* OnboardingView.swift in Sources */,
 				E81000132D4C00010000000A /* CreateWalletView.swift in Sources */,
 				E81000152D4C00010000000B /* ImportWalletView.swift in Sources */,
+				WLCM0000000000000001 /* WelcomeGuideView.swift in Sources */,
 				E81000172D4C00010000000C /* ChatListView.swift in Sources */,
 				E81000192D4C00010000000D /* ChatDetailView.swift in Sources */,
 				4D3D20022F72000200000002 /* ChatTimelineLayout.swift in Sources */,
@@ -918,6 +943,10 @@
 				4D3D20032F72000300000002 /* MessageImageSharePayload.swift in Sources */,
 				4D3D20042F72000400000002 /* ChatImageAttachmentLoader.swift in Sources */,
 				E810001B2D4C00010000000E /* ContactsView.swift in Sources */,
+				KNSPROB0000000000000001 /* KNSCreateProfileFlowView.swift in Sources */,
+				LPRVB0000000000000001 /* LinkPreviewService.swift in Sources */,
+				LPRVD0000000000000001 /* LinkPreviewCardView.swift in Sources */,
+				CAMV0000000000000001 /* CameraCaptureView.swift in Sources */,
 				E810001D2D4C00010000000F /* SettingsView.swift in Sources */,
 				MV0001B0000000000000001 /* MenuVisibilityView.swift in Sources */,
 				E8F100122D4C0001000000FF /* Toast.swift in Sources */,
@@ -929,6 +958,7 @@
 				E81000292D4C000100000015 /* SettingsViewModel.swift in Sources */,
 				DTAL00010001000100000001 /* DeterministicAlias.swift in Sources */,
 				E810002F2D4C000100000018 /* CryptoUtils.swift in Sources */,
+				APLC00010000000000000BF1 /* AppLocalization.swift in Sources */,
 				DA0001B0000000000000001 /* DeviceAuth.swift in Sources */,
 				IMGP00010001000100000001 /* ImagePrep.swift in Sources */,
 				FEESHIM0001000100000002 /* FeeShimmerOverlay.swift in Sources */,
@@ -941,6 +971,8 @@
 				CH0001B0000000000000001 /* ChessEngine.swift in Sources */,
 				E8F1A0032F4B000100000003 /* Haptics.swift in Sources */,
 				A91062000000000000000001 /* AppLog.swift in Sources */,
+				CFMT00010001000000000002 /* CurrencyFormat.swift in Sources */,
+				KFAS00010001000000000002 /* KaspaFiatAmountState.swift in Sources */,
 				19319293ACD84C2AB108D745 /* KNSService.swift in Sources */,
 				E83000012D4C000200000006 /* OpusBridge.m in Sources */,
 				F5A71C3C1061AA2FFE3F837F /* KaChatTransactionBuilder.swift in Sources */,

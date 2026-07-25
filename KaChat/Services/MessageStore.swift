@@ -350,11 +350,37 @@ final class MessageStore {
         loadPersistentStores(primaryDescription: description, completion: completion)
     }
 
-    /// Switch wallet store asynchronously
+    /// Switch wallet store asynchronously. `container.loadPersistentStores` (invoked inside the
+    /// completion-based overload below) has no built-in timeout - CloudKit schema initialization
+    /// on a fresh install/first-ever launch can genuinely take a very long time, or effectively
+    /// hang, waiting on Apple's servers under degraded network conditions. Without a cap here,
+    /// this `await` (and everything downstream of it, e.g. `WalletManager.importWallet` during
+    /// account creation) blocks indefinitely with no visible error - matching reports of account
+    /// creation "hanging on loading" on a fresh install until the app is force-quit and reopened.
+    /// The store keeps loading in the background regardless of the timeout; this only stops
+    /// making the caller wait on it past a point where something is clearly wrong.
     func setCurrentWallet(_ walletAddress: String?) async {
-        await withCheckedContinuation { continuation in
-            setCurrentWallet(walletAddress) {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeLock = NSLock()
+            var hasResumed = false
+            func resumeOnce() {
+                resumeLock.lock()
+                let alreadyResumed = hasResumed
+                hasResumed = true
+                resumeLock.unlock()
+                guard !alreadyResumed else { return }
                 continuation.resume()
+            }
+
+            let timeoutWorkItem = DispatchWorkItem { [weak self] in
+                self?.logInfo("[MessageStore] setCurrentWallet timed out waiting for the persistent store to finish loading - proceeding anyway.")
+                resumeOnce()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: timeoutWorkItem)
+
+            setCurrentWallet(walletAddress) {
+                timeoutWorkItem.cancel()
+                resumeOnce()
             }
         }
     }

@@ -1053,6 +1053,120 @@ enum AppAppearance: String, Codable, CaseIterable {
     }
 }
 
+/// In-app language override, independent of the device's system language. `.system` (the
+/// default) means "follow the device setting" - the app never touches `AppleLanguages` in that
+/// case, so it behaves exactly as it did before this setting existed. Any other case persists a
+/// preferred-language override via the standard `AppleLanguages` UserDefaults key, which iOS only
+/// picks up on the next cold launch - there is no in-process Bundle-swizzling here by design (see
+/// the Settings row that sets this: it always prompts for a restart after changing this value).
+enum AppLanguage: String, Codable, CaseIterable {
+    case system
+    case ar, arEG = "ar-EG", bn, de, en, es, fa, fr, he, hi, it, ja, ko, pt, ru, tr, vi
+    case zhHans = "zh-Hans"
+
+    /// Native name, matching how a language picker conventionally presents itself (each language
+    /// names itself, not translated into the currently-displayed language).
+    var displayName: String {
+        switch self {
+        case .system: return "System"
+        case .ar: return "العربية"
+        case .arEG: return "العربية (مصر)"
+        case .bn: return "বাংলা"
+        case .de: return "Deutsch"
+        case .en: return "English"
+        case .es: return "Español"
+        case .fa: return "فارسی"
+        case .fr: return "Français"
+        case .he: return "עברית"
+        case .hi: return "हिन्दी"
+        case .it: return "Italiano"
+        case .ja: return "日本語"
+        case .ko: return "한국어"
+        case .pt: return "Português"
+        case .ru: return "Русский"
+        case .tr: return "Türkçe"
+        case .vi: return "Tiếng Việt"
+        case .zhHans: return "简体中文"
+        }
+    }
+
+    /// The `AppleLanguages` preferred-language code for this case, or `nil` for `.system` (which
+    /// means "remove the override, follow the device setting").
+    var appleLanguageCode: String? {
+        self == .system ? nil : rawValue
+    }
+
+    /// The `Locale` to pass as `.environment(\.locale, ...)` at the app root so every
+    /// `Text(LocalizedStringKey)` in the tree re-resolves against this language's `.lproj`
+    /// bundle immediately, no relaunch required (see `AppLocalization`'s doc comment for why
+    /// this actually works, unlike the `AppleLanguages`/restart approach this replaces). `nil`
+    /// for `.system` means "don't override the environment" - follow the device's own locale.
+    var locale: Locale? {
+        appleLanguageCode.map { Locale(identifier: $0) }
+    }
+}
+
+/// Fiat currency for Portfolio's live KAS price/value display. Raw value is the lowercase ISO
+/// 4217 code, doubling as the literal `vs_currency`/`vs_currencies` value CoinGecko's API expects
+/// (see `CoinGeckoService`) - no separate mapping table to keep in sync. Unlike `AppLanguage`,
+/// changing this takes effect immediately (no restart) since it only affects a live-fetched price,
+/// not `Bundle`/`Locale`-driven UI strings.
+enum AppCurrency: String, Codable, CaseIterable {
+    case usDollar = "usd"
+    case euro = "eur"
+    case britishPound = "gbp"
+    case japaneseYen = "jpy"
+    case chineseYuan = "cny"
+    case australianDollar = "aud"
+    case canadianDollar = "cad"
+    case swissFranc = "chf"
+    case hongKongDollar = "hkd"
+    case indianRupee = "inr"
+    case southKoreanWon = "krw"
+    case singaporeDollar = "sgd"
+    case newZealandDollar = "nzd"
+    case mexicanPeso = "mxn"
+    case brazilianReal = "brl"
+    case russianRuble = "rub"
+    case turkishLira = "try"
+    case southAfricanRand = "zar"
+    /// Not ISO 4217 (no fiat currency is) - CoinGecko's `vs_currency` list includes major
+    /// cryptocurrencies alongside fiat ones, "btc" among them, so this needs no special handling
+    /// anywhere else: same API call, same `NumberFormatter` fallback-to-code behavior as any other
+    /// code it doesn't recognize a symbol for (see `PortfolioView.currencySymbol(for:)`).
+    case bitcoin = "btc"
+
+    /// Uppercased for display (e.g. "USD") - `Foundation.Currency`/`NumberFormatter` both expect
+    /// this casing. Not every case is a real ISO 4217 code (see `.bitcoin`).
+    var code: String { rawValue.uppercased() }
+
+    var name: String {
+        switch self {
+        case .usDollar: return "US Dollar"
+        case .euro: return "Euro"
+        case .britishPound: return "British Pound"
+        case .japaneseYen: return "Japanese Yen"
+        case .chineseYuan: return "Chinese Yuan"
+        case .australianDollar: return "Australian Dollar"
+        case .canadianDollar: return "Canadian Dollar"
+        case .swissFranc: return "Swiss Franc"
+        case .hongKongDollar: return "Hong Kong Dollar"
+        case .indianRupee: return "Indian Rupee"
+        case .southKoreanWon: return "South Korean Won"
+        case .singaporeDollar: return "Singapore Dollar"
+        case .newZealandDollar: return "New Zealand Dollar"
+        case .mexicanPeso: return "Mexican Peso"
+        case .brazilianReal: return "Brazilian Real"
+        case .russianRuble: return "Russian Ruble"
+        case .turkishLira: return "Turkish Lira"
+        case .southAfricanRand: return "South African Rand"
+        case .bitcoin: return "Bitcoin"
+        }
+    }
+
+    var displayName: String { "\(name) (\(code))" }
+}
+
 /// Every bottom-tab destination this app can show - drives both MainTabView's actual TabView and
 /// the reorderable preview strip on Settings > Customization > Menu. `tag` is a fixed identifier
 /// per case (not tied to display position) so the app's existing tag-based navigation (e.g.
@@ -1252,6 +1366,8 @@ struct AppSettings: Codable {
 
     // Customization
     var appearance: AppAppearance
+    var language: AppLanguage
+    var currency: AppCurrency
     var hidePortfolioTab: Bool
     var hideSwapTab: Bool
     var hideColdStorageTab: Bool
@@ -1333,6 +1449,8 @@ struct AppSettings: Codable {
             requirePhotoApprovalForNewContacts: true,
             showFeeEstimate: true,
             appearance: .system,
+            language: .system,
+            currency: .usDollar,
             hidePortfolioTab: false,
             hideSwapTab: false,
             hideColdStorageTab: false,
@@ -1371,6 +1489,8 @@ struct AppSettings: Codable {
         case requirePhotoApprovalForNewContacts
         case showFeeEstimate
         case appearance
+        case language
+        case currency
         case hidePortfolioTab
         case hideSwapTab
         case hideColdStorageTab
@@ -1417,6 +1537,8 @@ struct AppSettings: Codable {
         requirePhotoApprovalForNewContacts: Bool = true,
         showFeeEstimate: Bool = true,
         appearance: AppAppearance = .system,
+        language: AppLanguage = .system,
+        currency: AppCurrency = .usDollar,
         hidePortfolioTab: Bool = false,
         hideSwapTab: Bool = false,
         hideColdStorageTab: Bool = false,
@@ -1453,6 +1575,8 @@ struct AppSettings: Codable {
         self.requirePhotoApprovalForNewContacts = requirePhotoApprovalForNewContacts
         self.showFeeEstimate = showFeeEstimate
         self.appearance = appearance
+        self.language = language
+        self.currency = currency
         self.hidePortfolioTab = hidePortfolioTab
         self.hideSwapTab = hideSwapTab
         self.hideColdStorageTab = hideColdStorageTab
@@ -1516,6 +1640,8 @@ struct AppSettings: Codable {
         requirePhotoApprovalForNewContacts = try container.decodeIfPresent(Bool.self, forKey: .requirePhotoApprovalForNewContacts) ?? true
         showFeeEstimate = try container.decodeIfPresent(Bool.self, forKey: .showFeeEstimate) ?? true
         appearance = try container.decodeIfPresent(AppAppearance.self, forKey: .appearance) ?? .system
+        language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
+        currency = try container.decodeIfPresent(AppCurrency.self, forKey: .currency) ?? .usDollar
         hidePortfolioTab = try container.decodeIfPresent(Bool.self, forKey: .hidePortfolioTab) ?? false
         hideSwapTab = try container.decodeIfPresent(Bool.self, forKey: .hideSwapTab) ?? false
         hideColdStorageTab = try container.decodeIfPresent(Bool.self, forKey: .hideColdStorageTab) ?? false
@@ -1578,6 +1704,8 @@ struct AppSettings: Codable {
         try container.encode(requirePhotoApprovalForNewContacts, forKey: .requirePhotoApprovalForNewContacts)
         try container.encode(showFeeEstimate, forKey: .showFeeEstimate)
         try container.encode(appearance, forKey: .appearance)
+        try container.encode(language, forKey: .language)
+        try container.encode(currency, forKey: .currency)
         try container.encode(hidePortfolioTab, forKey: .hidePortfolioTab)
         try container.encode(hideSwapTab, forKey: .hideSwapTab)
         try container.encode(hideColdStorageTab, forKey: .hideColdStorageTab)

@@ -2849,36 +2849,36 @@ extension ChatService {
             if let payload = decodePaymentPayload(payment.messagePayload),
                !payload.message.isEmpty {
                 let template = isOutgoing
-                    ? NSLocalizedString("Sent %@ KAS — %@", comment: "Outgoing payment with note")
-                    : NSLocalizedString("Received %@ KAS — %@", comment: "Incoming payment with note")
+                    ? AppLocalization.string("Sent %@ KAS — %@")
+                    : AppLocalization.string("Received %@ KAS — %@")
                 return String(format: template, formatted, payload.message)
             }
             let template = isOutgoing
-                ? NSLocalizedString("Sent %@ KAS", comment: "Outgoing payment without note")
-                : NSLocalizedString("Received %@ KAS", comment: "Incoming payment without note")
+                ? AppLocalization.string("Sent %@ KAS")
+                : AppLocalization.string("Received %@ KAS")
             return String(format: template, formatted)
         }
 
         if let payload = decodePaymentPayload(payment.messagePayload) {
             let formatted = formatKasAmount(payload.amount)
-            let template = NSLocalizedString("Payment: %@ KAS — %@", comment: "Fallback payment content with amount and note")
+            let template = AppLocalization.string("Payment: %@ KAS — %@")
             return String(format: template, formatted, payload.message)
         }
 
-        return NSLocalizedString("[Payment]", comment: "Fallback payment label")
+        return AppLocalization.string("[Payment]")
     }
 
     func localizedKNSTransferMessage(domainName: String?, isOutgoing: Bool) -> String {
         let trimmedDomain = domainName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDomain.isEmpty {
             let template = isOutgoing
-                ? NSLocalizedString("Sent %@ domain", comment: "Outgoing KNS domain transfer message")
-                : NSLocalizedString("Received %@ domain", comment: "Incoming KNS domain transfer message")
+                ? AppLocalization.string("Sent %@ domain")
+                : AppLocalization.string("Received %@ domain")
             return String(format: template, trimmedDomain)
         }
         return isOutgoing
-            ? NSLocalizedString("Sent domain transfer", comment: "Outgoing KNS domain transfer fallback")
-            : NSLocalizedString("Received domain transfer", comment: "Incoming KNS domain transfer fallback")
+            ? AppLocalization.string("Sent domain transfer")
+            : AppLocalization.string("Received domain transfer")
     }
 
     func formatKasAmount(_ sompi: UInt64) -> String {

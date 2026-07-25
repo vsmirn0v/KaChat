@@ -429,11 +429,11 @@ struct ChatInfoView: View {
     }
 
     private func localized(_ key: String) -> String {
-        NSLocalizedString(key, comment: "")
+        AppLocalization.string(key)
     }
 
     private func localizedFormat(_ key: String, _ args: CVarArg...) -> String {
-        String(format: NSLocalizedString(key, comment: ""), locale: Locale.current, arguments: args)
+        String(format: AppLocalization.string(key), locale: AppLocalization.locale, arguments: args)
     }
 
     private func saveChanges() {

@@ -71,6 +71,17 @@ final class NodePoolService: ObservableObject {
             .assign(to: &$networkQuality)
 
         // Bind subscription state when manager is created
+
+        // Reset per-node health stats (latency EWMA, error rates) on a network path change
+        // (WiFi<->cellular, VPN toggle) - a node's observed latency/error history from the old
+        // path is meaningless on the new one and would otherwise bias selection with stale data.
+        // The only other place this was wired up (KaspaRPCRouter) is dead code that's never
+        // instantiated, so this was never actually happening.
+        epochMonitor.onEpochChange { [weak self] newEpochId in
+            Task {
+                await self?.registry.resetEpochStats(newEpochId: newEpochId)
+            }
+        }
     }
 
     // MARK: - Lifecycle
@@ -1138,12 +1149,13 @@ extension NodePoolService {
     /// and resume normal discovery when `address` is empty/blank.
     func setTrustedNodeAddress(_ address: String?) async {
         let trimmed = address?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var staleEndpoint: Endpoint?
         if trimmed.isEmpty {
-            await registry.setTrustedNode(nil)
+            staleEndpoint = await registry.setTrustedNode(nil)
             await updatePoolStats()
             await forceProbeAll()
         } else if let endpoint = Endpoint(url: trimmed) {
-            await registry.setTrustedNode(endpoint)
+            staleEndpoint = await registry.setTrustedNode(endpoint)
             await updatePoolStats()
             // Probe directly rather than forceProbeAll()/selectNodesForProbing() - that
             // path gates a freshly-added node on a several-minute cold-start interval meant
@@ -1156,6 +1168,16 @@ extension NodePoolService {
             await registry.rebalanceActivePool()
             await updatePoolStats()
         }
+
+        // A GRPCStreamConnection has no idea it's no longer trusted/relevant and will otherwise
+        // keep reconnecting to it forever in the background, completely independently of
+        // whatever we do next - this is what was causing a node to keep seeing repeated
+        // connection attempts (and "resource exhausted" rejections) minutes after being
+        // cleared/switched away from in Settings.
+        if let staleEndpoint {
+            await connectionPool.removeConnection(for: staleEndpoint)
+        }
+
         // A subscription already open on a now-unpinned node won't notice on its own - its
         // health ping would keep succeeding against a perfectly reachable node that just
         // isn't the trusted one anymore, so force it to re-evaluate against the pinned registry.

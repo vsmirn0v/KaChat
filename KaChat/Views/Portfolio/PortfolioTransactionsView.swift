@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct PortfolioTransactionsView: View {
     @ObservedObject var viewModel: PortfolioViewModel
+    @EnvironmentObject private var settingsViewModel: SettingsViewModel
 
     @State private var editingTransaction: PortfolioTransaction?
     @State private var showAddSheet = false
@@ -188,7 +189,7 @@ struct PortfolioTransactionsView: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(String(format: "%.4f KAS", tx.amountKas))
                     .fontWeight(.medium)
-                Text(tx.fiatValue, format: .currency(code: "USD"))
+                Text(formatCurrency(tx.fiatValue))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -243,6 +244,26 @@ struct PortfolioTransactionsView: View {
         }
         .tint(.accentColor)
     }
+
+    /// Manual build via a plain symbol prefix rather than `.formatted(.currency(code:))` - the
+    /// latter is Foundation's ISO-4217-driven `FormatStyle`, whose behavior for a non-ISO-4217
+    /// code like `.bitcoin`'s "BTC" isn't something to rely on sight-unseen.
+    private func formatCurrency(_ value: Double) -> String {
+        let sign = value < 0 ? "-" : ""
+        let symbol = settingsViewModel.settings.currency == .bitcoin ? "₿" : {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .currency
+            formatter.currencyCode = settingsViewModel.settings.currency.code
+            return formatter.currencySymbol ?? settingsViewModel.settings.currency.code
+        }()
+        let decimalFormatter = NumberFormatter()
+        decimalFormatter.numberStyle = .decimal
+        decimalFormatter.minimumFractionDigits = 2
+        decimalFormatter.maximumFractionDigits = 2
+        decimalFormatter.usesGroupingSeparator = true
+        let magnitude = decimalFormatter.string(from: NSNumber(value: abs(value))) ?? String(format: "%.2f", abs(value))
+        return sign + symbol + magnitude
+    }
 }
 
 private struct PortfolioCsvShareSheet: UIViewControllerRepresentable {
@@ -259,6 +280,7 @@ private struct PortfolioCsvShareSheet: UIViewControllerRepresentable {
 
 private struct PortfolioTransactionEditor: View {
     @ObservedObject var viewModel: PortfolioViewModel
+    @EnvironmentObject private var settingsViewModel: SettingsViewModel
     let existing: PortfolioTransaction?
     @Environment(\.dismiss) private var dismiss
 
@@ -298,6 +320,28 @@ private struct PortfolioTransactionEditor: View {
         return isBuy ? base + fee : base - fee
     }
 
+    private var currencySymbol: String {
+        if settingsViewModel.settings.currency == .bitcoin { return "₿" }
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = settingsViewModel.settings.currency.code
+        return formatter.currencySymbol ?? settingsViewModel.settings.currency.code
+    }
+
+    /// Manual build via `currencySymbol` rather than `.formatted(.currency(code:))` - the latter
+    /// is Foundation's ISO-4217-driven `FormatStyle`, whose behavior for a non-ISO-4217 code like
+    /// `.bitcoin`'s "BTC" isn't something to rely on sight-unseen.
+    private func formatCurrency(_ value: Double) -> String {
+        let sign = value < 0 ? "-" : ""
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        formatter.usesGroupingSeparator = true
+        let magnitude = formatter.string(from: NSNumber(value: abs(value))) ?? String(format: "%.2f", abs(value))
+        return sign + currencySymbol + magnitude
+    }
+
     private var isValid: Bool {
         (quantity ?? 0) > 0 && (pricePerCoin ?? 0) > 0
     }
@@ -326,7 +370,7 @@ private struct PortfolioTransactionEditor: View {
                     HStack {
                         Text("Price Per Coin")
                         Spacer()
-                        Text("$")
+                        Text(currencySymbol)
                             .foregroundColor(.secondary)
                         TextField("0.00", text: $priceText)
                             .keyboardType(.decimalPad)
@@ -335,7 +379,7 @@ private struct PortfolioTransactionEditor: View {
                     HStack {
                         Text("Fee (optional)")
                         Spacer()
-                        Text("$")
+                        Text(currencySymbol)
                             .foregroundColor(.secondary)
                         TextField("0.00", text: $feeText)
                             .keyboardType(.decimalPad)
@@ -353,7 +397,7 @@ private struct PortfolioTransactionEditor: View {
                         Text(isBuy ? "Total Spent" : "Total Received")
                             .foregroundColor(.secondary)
                         Spacer()
-                        Text(total ?? 0, format: .currency(code: "USD"))
+                        Text(formatCurrency(total ?? 0))
                             .fontWeight(.semibold)
                     }
                 }

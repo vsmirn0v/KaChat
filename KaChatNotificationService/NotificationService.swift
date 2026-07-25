@@ -234,7 +234,14 @@ class NotificationService: UNNotificationServiceExtension {
                 addPendingMessage(txId: txId, sender: "group", type: messageType)
                 return
             }
+            // Prefer a 1:1 contact alias (most likely to be current/deliberate) over the
+            // group-roster displayName snapshot (set once, from whoever added this member, at
+            // add-time - see GroupMember.displayName), over a shortened address as a last resort.
+            let senderName = getSharedContact(address: match.senderAddress)?.alias
+                ?? match.senderDisplayName
+                ?? formatAddress(match.senderAddress)
             content.title = match.groupName
+            content.subtitle = senderName
             content.body = displayBody
             content.threadIdentifier = "group:\(match.groupId)"
             content.sound = defaultSoundEnabled ? .default : nil
@@ -270,6 +277,8 @@ class NotificationService: UNNotificationServiceExtension {
         let groupId: String
         let groupName: String
         let plaintext: String
+        let senderAddress: String
+        let senderDisplayName: String?
     }
 
     private func decryptGroupMessage(blindedGroupIdHex: String, payloadHex: String) -> GroupMessageMatch? {
@@ -303,7 +312,13 @@ class NotificationService: UNNotificationServiceExtension {
                         epoch: parsed.epoch, senderId: parsed.senderId, msgId: parsed.msgId
                       ) else { return nil }
 
-                return GroupMessageMatch(groupId: group.groupId, groupName: group.name, plaintext: plaintext)
+                return GroupMessageMatch(
+                    groupId: group.groupId,
+                    groupName: group.name,
+                    plaintext: plaintext,
+                    senderAddress: member.address,
+                    senderDisplayName: member.displayName
+                )
             }
         }
         return nil
@@ -996,6 +1011,7 @@ private struct SharedGroup: Codable {
 private struct SharedGroupMember: Codable {
     let address: String
     let xOnlyPubKeyHex: String
+    let displayName: String?
 }
 
 /// Mirrors `GroupBag` in the main app's `Models.swift` - same JSON keys (default `Codable`
