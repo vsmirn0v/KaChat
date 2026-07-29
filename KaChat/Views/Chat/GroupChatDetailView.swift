@@ -60,6 +60,7 @@ struct GroupChatDetailView: View {
     // itself (matching 1:1/broadcast's identical `isMessageFocused`), it doesn't use the
     // `.focused()` modifier that @FocusState's own binding type is specifically for.
     @State private var isComposerFocused = false
+    @State private var scrollViewReference = ScrollViewReference()
     @Environment(\.dismiss) private var dismiss
 
     /// Tap-a-reply-quote-to-jump-to-original - mirrors `ChatDetailView`/`BroadcastChannelView`'s
@@ -67,6 +68,9 @@ struct GroupChatDetailView: View {
     /// in scope there) and consumed by an `.onChange` inside the `ScrollViewReader` closure, which
     /// does have the proxy.
     @State private var pendingJumpToTxId: String?
+    /// Which message (if any) currently has its double-tap quick-reaction bar open - mirrors 1:1
+    /// chat's identical `ChatDetailView.activeQuickReactionMessageId`.
+    @State private var activeQuickReactionMessageId: UUID?
     @State private var highlightedMessageID: UUID?
 
     /// Scroll-to-bottom floating button, matching 1:1/broadcast's identical debounced-visibility
@@ -175,6 +179,14 @@ struct GroupChatDetailView: View {
             ScrollViewReader { proxy in
                 ZStack(alignment: .bottomTrailing) {
                 ScrollView {
+                    ScrollViewIntrospector { scrollView in
+                        if scrollViewReference.scrollView !== scrollView {
+                            scrollViewReference.scrollView = scrollView
+                        }
+                    }
+                    .frame(height: 0)
+                    .allowsHitTesting(false)
+
                     LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(timelineItems) { item in
                             switch item {
@@ -197,6 +209,15 @@ struct GroupChatDetailView: View {
                                     onMuteSender: { muteSender($0) },
                                     onRetry: { retry(message) },
                                     onReply: { groupChatService.startReplyTo(message) },
+                                    reactions: groupChatService.reactionsByGroupId[group.id]?[message.txId] ?? [],
+                                    onReact: { emoji in
+                                        let existing = groupChatService.reactionsByGroupId[group.id]?[message.txId]?.first { $0.reactorAddress == myAddress }
+                                        let action = existing?.emoji == emoji ? "remove" : "add"
+                                        Task {
+                                            try? await groupChatService.sendGroupReaction(targetTxId: message.txId, groupId: group.id, emoji: emoji, action: action)
+                                        }
+                                    },
+                                    activeQuickReactionMessageId: $activeQuickReactionMessageId,
                                     onJumpToReply: { pendingJumpToTxId = $0 },
                                     revealOffset: revealOffset,
                                     maxRevealOffset: maxRevealOffset
@@ -257,9 +278,23 @@ struct GroupChatDetailView: View {
                             }
                         }
                 )
+                .simultaneousGesture(
+                    // Tapping anywhere in the message list dismisses whichever bubble's
+                    // quick-reaction bar is open - mirrors 1:1 chat's identical gesture.
+                    TapGesture().onEnded {
+                        if activeQuickReactionMessageId != nil {
+                            activeQuickReactionMessageId = nil
+                        }
+                    }
+                )
                 .onChange(of: messages.count) { _ in
                     guard initialViewportPositioned else { return }
                     scrollToBottom(using: proxy, animated: true)
+                }
+                .onChange(of: isComposerFocused) { focused in
+                    if focused {
+                        pinToBottomThroughKeyboardTransition()
+                    }
                 }
                 .onAppear {
                     positionInitialViewport(using: proxy)
@@ -311,6 +346,9 @@ struct GroupChatDetailView: View {
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                ConnectionStatusIndicator()
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     showInfo = true
@@ -441,6 +479,30 @@ struct GroupChatDetailView: View {
         .padding(.vertical, 8)
         .onChange(of: recorder.elapsedSeconds) { elapsed in
             updateRecordingFeeEstimate(elapsedSeconds: elapsed)
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraCaptureView(
+                onCapture: { data in
+                    showCamera = false
+                    guard let image = UIImage(data: data) else {
+                        errorMessage = "Couldn't load that photo. Please try another."
+                        return
+                    }
+                    isComposerFocused = false
+                    pendingPhotoImage = image
+                    schedulePhotoFeeEstimate()
+                },
+                onCancel: { showCamera = false }
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    private func takePhoto() {
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            showCamera = true
+        } else {
+            errorMessage = "Camera not available on this device."
         }
     }
 
@@ -684,25 +746,40 @@ struct GroupChatDetailView: View {
 
     private var textRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            // ComposerTextView (not a plain TextField) so Cmd+V image paste works on macOS,
-            // matching 1:1/broadcast - a plain TextField only ever intercepts text paste.
-            ComposerTextView(
-                text: $draft,
-                isFocused: $isComposerFocused,
-                onTextChange: { newValue in
-                    scheduleTextFeeEstimate(for: newValue)
-                },
-                onSubmit: { send() },
-                placeholder: "Message",
-                insertionRequest: mentionInsertionRequest,
-                onInsertionHandled: { requestID in
-                    if mentionInsertionRequest?.id == requestID {
-                        mentionInsertionRequest = nil
-                    }
-                },
-                onPasteImageData: handlePastedImageData,
-                onMentionQuery: { mentionQuery = $0 }
-            )
+            HStack(spacing: 4) {
+                // ComposerTextView (not a plain TextField) so Cmd+V image paste works on macOS,
+                // matching 1:1/broadcast - a plain TextField only ever intercepts text paste.
+                ComposerTextView(
+                    text: $draft,
+                    isFocused: $isComposerFocused,
+                    onTextChange: { newValue in
+                        scheduleTextFeeEstimate(for: newValue)
+                    },
+                    onSubmit: { send() },
+                    placeholder: "Message",
+                    insertionRequest: mentionInsertionRequest,
+                    onInsertionHandled: { requestID in
+                        if mentionInsertionRequest?.id == requestID {
+                            mentionInsertionRequest = nil
+                        }
+                    },
+                    onPasteImageData: handlePastedImageData,
+                    onMentionQuery: { mentionQuery = $0 }
+                )
+
+                // Quick-access camera, replacing what used to be a "Camera" entry in the "+" menu
+                // - living right in the compose bubble instead since it's the most common
+                // non-text action. Matches 1:1 chat's textRow.
+                Button {
+                    takePhoto()
+                } label: {
+                    Image(systemName: "camera")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Take Photo"))
+            }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(glassBackground(cornerRadius: 20))
@@ -728,15 +805,6 @@ struct GroupChatDetailView: View {
     private var plusMenu: some View {
         Menu {
             Button {
-                if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    showCamera = true
-                } else {
-                    errorMessage = "Camera not available on this device."
-                }
-            } label: {
-                Label("Camera", systemImage: "camera")
-            }
-            Button {
                 showPhotoPicker = true
             } label: {
                 Label("Send Photo", systemImage: "photo")
@@ -757,22 +825,6 @@ struct GroupChatDetailView: View {
         .tint(.accentColor)
         .accessibilityLabel(Text("More options"))
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
-        .fullScreenCover(isPresented: $showCamera) {
-            CameraCaptureView(
-                onCapture: { data in
-                    showCamera = false
-                    guard let image = UIImage(data: data) else {
-                        errorMessage = "Couldn't load that photo. Please try another."
-                        return
-                    }
-                    isComposerFocused = false
-                    pendingPhotoImage = image
-                    schedulePhotoFeeEstimate()
-                },
-                onCancel: { showCamera = false }
-            )
-            .ignoresSafeArea()
-        }
         .onChange(of: photoPickerItem) { newItem in
             guard let newItem else { return }
             Task {
@@ -999,20 +1051,26 @@ struct GroupChatDetailView: View {
     /// approach) wasn't reliably enough for a large/slow-loading group history - the LazyVStack
     /// might still not have "bottom_anchor" materialized by the time it fires, silently leaving
     /// `scrollTo` a no-op and the thread resting wherever the ScrollView's default (top) landed
-    /// it. This cascades through several increasing delays instead, and the ScrollView stays
-    /// hidden (`opacity`, see `body`) until the last one runs, so whichever attempt actually lands
-    /// is the only state the user ever sees - no visible "jump" once revealed.
+    /// it. This cascades through several increasing delays to keep correcting the position if a
+    /// group's history arrives in more than one async batch shortly after opening (local cache,
+    /// then a network catch-up merging in a few more messages).
+    ///
+    /// The ScrollView used to stay hidden (`opacity`, see `body`) until the *last* of these ran,
+    /// unconditionally - so every cold open waited the full ~650ms before showing anything, even
+    /// for a 3-message group with nothing left to correct. A later scroll-to-bottom correction is
+    /// imperceptible even while visible (it's a sub-pixel-scale jump at most), whereas holding a
+    /// black/blank screen for that long is not, so this now reveals right after the *first*
+    /// attempt instead, while the rest keep running in the background as a safety net.
     private func positionInitialViewport(using proxy: ScrollViewProxy) {
         guard !initialViewportPositioned else { return }
         let delays: [TimeInterval] = [0, 0.15, 0.35, 0.65]
-        for (index, delay) in delays.enumerated() {
+        for delay in delays {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                guard !initialViewportPositioned else { return }
                 proxy.scrollTo("bottom_anchor", anchor: .bottom)
-                if index == delays.count - 1 {
-                    initialViewportPositioned = true
-                }
             }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            initialViewportPositioned = true
         }
     }
 
@@ -1036,6 +1094,30 @@ struct GroupChatDetailView: View {
                 proxy.scrollTo("bottom_anchor", anchor: .bottom)
             }
         }
+    }
+
+    /// Drives the real `UIScrollView` directly instead of `ScrollViewProxy.scrollTo`, which
+    /// doesn't reliably land while the keyboard-driven safe-area change is still settling -
+    /// verbatim copy of `ChatDetailView`'s identical fix for the same problem there.
+    private func pinToBottomThroughKeyboardTransition() {
+        let deadline = Date().addingTimeInterval(1.2)
+        func tick() {
+            defer {
+                if Date() < deadline {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: tick)
+                }
+            }
+            guard let scrollView = scrollViewReference.scrollView else { return }
+            let minOffsetY = -scrollView.adjustedContentInset.top
+            let maxOffsetY = max(
+                minOffsetY,
+                scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
+            )
+            if abs(scrollView.contentOffset.y - maxOffsetY) > 0.5 {
+                scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: maxOffsetY), animated: false)
+            }
+        }
+        tick()
     }
 
     /// Group chat has no pagination (the full history is already in `messages`, unlike 1:1's
@@ -1150,6 +1232,17 @@ private struct GroupMessageBubbleRow: View {
     let onMuteSender: (String) -> Void
     let onRetry: () -> Void
     let onReply: () -> Void
+    /// This message's current reactions (one per reactor), for the pill shown on its corner.
+    var reactions: [GroupStore.ReactionSnapshot] = []
+    /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
+    /// entirely (matches 1:1 chat's `MessageBubbleView.onReact`).
+    var onReact: ((String) -> Void)?
+    /// Shared across every bubble in the conversation (not per-bubble `@State`) - mirrors 1:1
+    /// chat's identical `MessageBubbleView.activeQuickReactionMessageId` binding.
+    var activeQuickReactionMessageId: Binding<UUID?> = .constant(nil)
+    private var showQuickReactionBar: Bool {
+        activeQuickReactionMessageId.wrappedValue == message.id
+    }
     /// Called with the original message's txId when the reply quote (if any) is tapped -
     /// `GroupChatDetailView` scrolls to and highlights it.
     let onJumpToReply: (String) -> Void
@@ -1162,6 +1255,9 @@ private struct GroupMessageBubbleRow: View {
     @EnvironmentObject var groupChatService: GroupChatService
     @EnvironmentObject var contactsManager: ContactsManager
     @ObservedObject private var knsService = KNSService.shared
+    /// Long-pressing a link surfaces this instead of `.contextMenu` (which never fires there -
+    /// mirrors `MessageBubbleView`'s identical fix) - matches 1:1 chat's own `linkMenuURL`.
+    @State private var linkMenuURL: URL?
 
     private static let bubbleColor = Color(red: 112.0 / 255.0, green: 199.0 / 255.0, blue: 186.0 / 255.0)
 
@@ -1234,6 +1330,23 @@ private struct GroupMessageBubbleRow: View {
             }
 
             VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 2) {
+                // Sits directly above the bubble in normal layout flow, same as 1:1 chat's
+                // `MessageBubbleView` - an `.overlay` with a manual offset gets cropped by the
+                // ScrollView's own clipping instead of rendering cleanly above the row.
+                if showQuickReactionBar, let onReact {
+                    QuickReactionBarView(
+                        onReact: { emoji in
+                            onReact(emoji)
+                            activeQuickReactionMessageId.wrappedValue = nil
+                        },
+                        onReply: {
+                            onReply()
+                            activeQuickReactionMessageId.wrappedValue = nil
+                        }
+                    )
+                    .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
+                }
+
                 Text(senderName)
                     .font(.caption2.weight(.semibold))
                     .foregroundColor(.accentColor)
@@ -1243,88 +1356,122 @@ private struct GroupMessageBubbleRow: View {
                     replyQuoteView(replyQuote)
                 }
 
-                if let media, media.isImage {
-                    LazyImageBubble(
-                        media: media,
-                        txId: message.txId,
-                        shouldShowRetry: shouldShowRetry,
-                        photosBlocked: false,
-                        senderDisplayName: senderName,
-                        onCopy: onCopy,
-                        onRetry: shouldShowRetry ? { onRetry() } : nil,
-                        onReply: onReply
-                    )
-                } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
-                    LazyAudioBubble(
-                        data: data,
-                        mimeType: media.mimeType,
-                        isOutgoing: message.isOutgoing,
-                        fileName: media.name,
-                        txId: message.txId,
-                        onCopy: onCopy,
-                        onRetry: shouldShowRetry ? { onRetry() } : nil,
-                        onReply: onReply
-                    )
-                    .simultaneousGesture(TapGesture(count: 2).onEnded { onReply() })
-                } else if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent), MessageTextRenderPlan.isEntirelyLink(displayContent) {
-                    // Message is nothing but a link - the preview card replaces the plain-text
-                    // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
-                    // keeps the raw link visible/tappable if no preview data is ever found,
-                    // rather than the message rendering as nothing at all.
-                    LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayContent)
-                } else {
-                    Group {
-                        if MessageTextRenderPlan.requiresLinkTextView(displayContent) {
-                            LinkifiedMessageTextView(
-                                text: displayContent,
-                                isOutgoing: message.isOutgoing,
-                                isSingleEmojiOnly: false,
-                                onLinkLongPress: { url in
-                                    onCopy(url.absoluteString, .success)
-                                    UIPasteboard.general.string = url.absoluteString
-                                }
-                            )
-                        } else {
-                            Text(displayContent)
-                                .font(.body)
-                                .foregroundColor(message.isOutgoing ? .white : .primary)
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(message.isOutgoing ? Self.bubbleColor : Color(.systemGray5))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .simultaneousGesture(TapGesture(count: 2).onEnded { onReply() })
-                    .contextMenu {
-                        Button {
-                            onReply()
-                        } label: {
-                            Label("Reply", systemImage: "arrowshape.turn.up.left")
-                        }
-                        Button {
-                            onCopy(displayContent, .success)
-                            UIPasteboard.general.string = displayContent
-                        } label: {
-                            Label("Copy Message", systemImage: "doc.on.doc")
-                        }
-                        if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
-                            Link(destination: url) {
-                                Label("View in Explorer", systemImage: "safari")
+                // Grouped separately from `replyQuote` above so the reaction pill's overlay
+                // (attached to just this Group) anchors to the actual bubble's own corner -
+                // attaching it to the whole VStack instead would size/position it against
+                // whichever sibling is widest, which for a reply is usually the quote banner, not
+                // the (often much narrower) bubble underneath it.
+                Group {
+                    if let media, media.isImage {
+                        LazyImageBubble(
+                            media: media,
+                            txId: message.txId,
+                            shouldShowRetry: shouldShowRetry,
+                            photosBlocked: false,
+                            senderDisplayName: senderName,
+                            onCopy: onCopy,
+                            onRetry: shouldShowRetry ? { onRetry() } : nil,
+                            onReply: onReply,
+                            onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil
+                        )
+                    } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
+                        LazyAudioBubble(
+                            data: data,
+                            mimeType: media.mimeType,
+                            isOutgoing: message.isOutgoing,
+                            fileName: media.name,
+                            txId: message.txId,
+                            onCopy: onCopy,
+                            onRetry: shouldShowRetry ? { onRetry() } : nil,
+                            onReply: onReply
+                        )
+                        .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId.wrappedValue = message.id })
+                    } else if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent), MessageTextRenderPlan.isEntirelyLink(displayContent) {
+                        // Message is nothing but a link - the preview card replaces the plain-text
+                        // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
+                        // keeps the raw link visible/tappable if no preview data is ever found,
+                        // rather than the message rendering as nothing at all.
+                        LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayContent)
+                    } else {
+                        Group {
+                            if MessageTextRenderPlan.requiresLinkTextView(displayContent) {
+                                LinkifiedMessageTextView(
+                                    text: displayContent,
+                                    isOutgoing: message.isOutgoing,
+                                    isSingleEmojiOnly: false,
+                                    onLinkLongPress: { url in
+                                        linkMenuURL = url
+                                    },
+                                    onLinkDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : {}
+                                )
+                            } else {
+                                Text(displayContent)
+                                    .font(.body)
+                                    .foregroundColor(message.isOutgoing ? .white : .primary)
                             }
                         }
-                        if shouldShowRetry {
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(message.isOutgoing ? Self.bubbleColor : Color(.systemGray5))
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId.wrappedValue = message.id })
+                        .contextMenu {
                             Button {
-                                onRetry()
+                                onReply()
                             } label: {
-                                Label("Retry Send", systemImage: "arrow.clockwise")
+                                Label("Reply", systemImage: "arrowshape.turn.up.left")
+                            }
+                            Button {
+                                onCopy(displayContent, .success)
+                                UIPasteboard.general.string = displayContent
+                            } label: {
+                                Label("Copy Message", systemImage: "doc.on.doc")
+                            }
+                            if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
+                                Link(destination: url) {
+                                    Label("View in Explorer", systemImage: "safari")
+                                }
+                            }
+                            if shouldShowRetry {
+                                Button {
+                                    onRetry()
+                                } label: {
+                                    Label("Retry Send", systemImage: "arrow.clockwise")
+                                }
                             }
                         }
+                        .tint(.accentColor)
+                        .confirmationDialog(
+                            "Link",
+                            isPresented: Binding(get: { linkMenuURL != nil }, set: { if !$0 { linkMenuURL = nil } }),
+                            presenting: linkMenuURL
+                        ) { url in
+                            Button("Open Link") {
+                                UIApplication.shared.open(url)
+                            }
+                            Button("Copy Link") {
+                                onCopy(url.absoluteString, .success)
+                                UIPasteboard.general.string = url.absoluteString
+                            }
+                            Button("Reply") {
+                                onReply()
+                            }
+                        } message: { url in
+                            Text(url.absoluteString)
+                        }
                     }
-                    .tint(.accentColor)
+                }
+                .overlay(alignment: message.isOutgoing ? .bottomLeading : .bottomTrailing) {
+                    if !reactions.isEmpty {
+                        ReactionPillView(emojis: reactions.map { $0.emoji })
+                            .offset(y: 10)
+                    }
+                }
 
-                    if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent) {
-                        LinkPreviewCardView(url: linkURL, txId: message.txId)
-                    }
+                if media == nil,
+                   !MessageTextRenderPlan.isEntirelyLink(displayContent),
+                   let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent) {
+                    LinkPreviewCardView(url: linkURL, txId: message.txId)
                 }
 
                 if message.isOutgoing {

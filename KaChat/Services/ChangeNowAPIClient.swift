@@ -1,9 +1,11 @@
 import Foundation
 
 /// ChangeNOW's v2 exchange API — lets KaChat swap KAS for another coin (and back) without
-/// leaving the app. Auth is a per-request `x-changenow-api-key` header, baked in below - mirrors
-/// Android's own compile-time key (sourced from a local, gitignored `local.properties` value via
-/// BuildConfig) rather than exposing it as a user-facing Settings field.
+/// leaving the app. Auth is a per-request `x-changenow-api-key` header, read from the
+/// `CHANGENOW_API_KEY` environment variable (set it under Xcode > Product > Scheme > Edit
+/// Scheme > Run > Arguments > Environment Variables - schemes are per-user/gitignored, so the
+/// real key never lands in source control) - mirrors Android's own compile-time key (sourced
+/// from a local, gitignored `local.properties` value via BuildConfig).
 struct ChangeNowEstimateResponse: Decodable {
     let fromAmount: Double
     let toAmount: Double
@@ -63,7 +65,7 @@ final class ChangeNowAPIClient {
     private init() {}
 
     private let baseURL = "https://api.changenow.io"
-    private let apiKey = "11b9ef59f3eebaea2b8e880f53e60081e5d3e0eecfdd61ff2679c159f0e491e9"
+    private let apiKey = ProcessInfo.processInfo.environment["CHANGENOW_API_KEY"] ?? ""
 
     private func makeRequest(path: String, queryItems: [URLQueryItem] = [], method: String = "GET", body: Data? = nil) throws -> URLRequest {
         guard var components = URLComponents(string: baseURL + path) else { throw ChangeNowError.invalidURL }

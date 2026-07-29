@@ -89,6 +89,11 @@ struct SettingsView: View {
                         .onChange(of: settingsViewModel.settings.biometricAccountLoginEnabled) { _ in
                             settingsViewModel.saveSettings()
                         }
+
+                    Toggle("Biometrics for Address Private Keys", isOn: $settingsViewModel.settings.biometricSpendingKeyEnabled)
+                        .onChange(of: settingsViewModel.settings.biometricSpendingKeyEnabled) { _ in
+                            settingsViewModel.saveSettings()
+                        }
                 }
 
                 // Connection Section
@@ -1383,7 +1388,6 @@ struct ConnectionSettingsView: View {
     @State private var pushIndexerURL: String = ""
     @State private var knsBaseURL: String = ""
     @State private var kaspaRestAPIURL: String = ""
-    @State private var trustedNodeInput: String = ""
     @State private var trustedNodeValidationError: String?
 
     @State private var newSavedNodeLabel: String = ""
@@ -1486,20 +1490,19 @@ struct ConnectionSettingsView: View {
             }
 
             Section {
-                TextField("host:port or grpcs://host", text: $trustedNodeInput)
-                    .font(.system(.body, design: .monospaced))
-                    .autocapitalization(.none)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
-                    .onChange(of: trustedNodeInput) { _ in
-                        trustedNodeValidationError = nil
+                Picker(
+                    "Kaspa Node",
+                    selection: Binding(get: { nodeChoiceSelection }, set: { applyNodeChoice($0) })
+                ) {
+                    Text("Default (Recommended)").tag(NodeChoice.defaultNode)
+                    Text("Automatic Scan").tag(NodeChoice.automatic)
+                    ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
+                        Text(entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? entry.address : entry.label)
+                            .tag(NodeChoice.saved(entry.address))
                     }
-
-                Button {
-                    trustedNodeInput = AppSettings.defaultTrustedNodeAddress
-                    trustedNodeValidationError = settingsViewModel.applyTrustedNode(AppSettings.defaultTrustedNodeAddress)
-                } label: {
-                    Text("Use Default (\(AppSettings.defaultTrustedNodeAddress))")
+                    if case .custom(let address) = nodeChoiceSelection {
+                        Text(address).tag(NodeChoice.custom(address))
+                    }
                 }
 
                 if let trustedNodeValidationError {
@@ -1509,25 +1512,14 @@ struct ConnectionSettingsView: View {
                 }
 
                 if !settingsViewModel.settings.trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    HStack {
-                        Text("Connected only to this node")
-                            .font(.caption)
-                            .foregroundColor(.accentColor)
-                        Spacer()
-                        Button("Clear", role: .destructive) {
-                            trustedNodeInput = ""
-                            trustedNodeValidationError = settingsViewModel.applyTrustedNode("")
-                        }
-                    }
+                    Text("Connected only to this node")
+                        .font(.caption)
+                        .foregroundColor(.accentColor)
                 }
             } header: {
                 Text("Kaspa Node")
             } footer: {
-                if settingsViewModel.settings.trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("Enter a trusted node (host:port for plaintext, or grpcs://host for TLS-secured nodes like Kaspium's) and tap Save to always connect to it instead of automatic discovery. Doesn't affect the Indexer/KNS/REST API URLs above.")
-                } else {
-                    Text("KaChat connects only to this node for sending and message scanning, and won't search for or fall back to other nodes. Clear, or edit and tap Save, to change it.")
-                }
+                Text("Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the Indexer/KNS/REST API URLs above. Add custom addresses to the IP Address Book below to select them here.")
             }
 
             Section {
@@ -1593,22 +1585,14 @@ struct ConnectionSettingsView: View {
             } footer: {
                 Text("Save your own node addresses here, then tap one to copy it and paste into the Kaspa Node field above.")
             }
-
-            Section {
-                Button("Reset to Defaults") {
-                    resetToDefaults()
-                }
-                .foregroundColor(.red)
-            }
         }
         .navigationTitle("Connection Settings")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
-                    if saveSettings() {
-                        dismiss()
-                    }
+                    saveSettings()
+                    dismiss()
                 }
             }
         }
@@ -1654,33 +1638,153 @@ struct ConnectionSettingsView: View {
         pushIndexerURL = settingsViewModel.settings.pushIndexerURL
         knsBaseURL = settingsViewModel.settings.knsBaseURL
         kaspaRestAPIURL = settingsViewModel.settings.kaspaRestAPIURL
-        trustedNodeInput = settingsViewModel.settings.trustedNodeAddress
     }
 
-    /// Returns false (without dismissing) when the trusted-node field fails validation,
-    /// so the inline error stays visible instead of getting dismissed along with the sheet.
-    @discardableResult
-    private func saveSettings() -> Bool {
+    private func saveSettings() {
         settingsViewModel.settings.networkType = networkType
         settingsViewModel.settings.indexerURL = indexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.pushIndexerURL = pushIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.knsBaseURL = knsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.kaspaRestAPIURL = kaspaRestAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.saveSettings()
-        return saveTrustedNode()
     }
 
-    private func resetToDefaults() {
-        indexerURL = AppSettings.defaultIndexerURL
-        pushIndexerURL = AppSettings.defaultPushIndexerURL
-        knsBaseURL = AppSettings.defaultKNSURL(for: networkType)
-        kaspaRestAPIURL = AppSettings.defaultKaspaRestURL(for: networkType)
+    private enum NodeChoice: Hashable {
+        case automatic
+        case defaultNode
+        case saved(String)
+        /// A trusted node address that's currently active but matches neither the default nor any
+        /// saved address book entry (e.g. a one-off address typed into the field below) - shown so
+        /// the picker always reflects the real current state instead of misrepresenting it.
+        case custom(String)
     }
 
-    @discardableResult
-    private func saveTrustedNode() -> Bool {
-        trustedNodeValidationError = settingsViewModel.applyTrustedNode(trustedNodeInput)
-        return trustedNodeValidationError == nil
+    private var normalizedDefaultAddress: String {
+        AppSettings.defaultTrustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var nodeChoiceSelection: NodeChoice {
+        let normalizedTrustedAddress = settingsViewModel.settings.trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedTrustedAddress.isEmpty {
+            return .automatic
+        }
+        if normalizedTrustedAddress == normalizedDefaultAddress {
+            return .defaultNode
+        }
+        if let match = settingsViewModel.settings.savedNodeAddresses.first(where: {
+            $0.address.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTrustedAddress
+        }) {
+            return .saved(match.address)
+        }
+        return .custom(normalizedTrustedAddress)
+    }
+
+    private func applyNodeChoice(_ choice: NodeChoice) {
+        let address: String
+        switch choice {
+        case .automatic: address = ""
+        case .defaultNode: address = AppSettings.defaultTrustedNodeAddress
+        case .saved(let addr): address = addr
+        case .custom(let addr): address = addr
+        }
+        trustedNodeValidationError = settingsViewModel.applyTrustedNode(address)
+    }
+}
+
+// MARK: - Kaspa Node (quick access from Connection Status)
+
+/// A single dropdown for picking which node to connect to, right from the connection status
+/// sheet (tap the status dot) without navigating to Settings > Connection Settings: the default
+/// node (recommended), automatic discovery, or any address already saved in the IP Address Book
+/// there. Managing the address book itself (adding/removing/labeling entries) still lives in
+/// `ConnectionSettingsView` - this is a quick-select surface over that same underlying list, not
+/// a duplicate of it.
+struct KaspaNodeQuickAccessSections: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+    var onToast: (String, ToastStyle) -> Void
+
+    private enum NodeChoice: Hashable {
+        case automatic
+        case defaultNode
+        case saved(String)
+        /// A trusted node address that's currently active but matches neither the default nor any
+        /// saved address book entry (e.g. entered as free text in Settings > Connection Settings) -
+        /// shown so the picker always reflects the real current state instead of silently
+        /// misrepresenting it as "Automatic Scan".
+        case custom(String)
+    }
+
+    private var normalizedTrustedAddress: String {
+        settingsViewModel.settings.trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var normalizedDefaultAddress: String {
+        AppSettings.defaultTrustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var selection: NodeChoice {
+        if normalizedTrustedAddress.isEmpty {
+            return .automatic
+        }
+        if normalizedTrustedAddress == normalizedDefaultAddress {
+            return .defaultNode
+        }
+        if let match = settingsViewModel.settings.savedNodeAddresses.first(where: {
+            $0.address.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTrustedAddress
+        }) {
+            return .saved(match.address)
+        }
+        return .custom(normalizedTrustedAddress)
+    }
+
+    var body: some View {
+        Section {
+            Picker(
+                "Kaspa Node",
+                selection: Binding(get: { selection }, set: { apply($0) })
+            ) {
+                Text("Default (Recommended)").tag(NodeChoice.defaultNode)
+                Text("Automatic Scan").tag(NodeChoice.automatic)
+                ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
+                    Text(entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? entry.address : entry.label)
+                        .tag(NodeChoice.saved(entry.address))
+                }
+                if case .custom(let address) = selection {
+                    Text(address)
+                        .tag(NodeChoice.custom(address))
+                }
+            }
+
+            if case .automatic = selection {
+                // No extra row - automatic discovery is the default connection mode.
+            } else {
+                HStack {
+                    Text("Connected only to this node")
+                        .font(.caption)
+                        .foregroundColor(.accentColor)
+                    Spacer()
+                }
+            }
+        } header: {
+            Text("Kaspa Node")
+        } footer: {
+            Text("Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Manage saved addresses in Settings > Connection Settings > IP Address Book.")
+        }
+    }
+
+    private func apply(_ choice: NodeChoice) {
+        let address: String
+        switch choice {
+        case .automatic: address = ""
+        case .defaultNode: address = AppSettings.defaultTrustedNodeAddress
+        case .saved(let addr): address = addr
+        case .custom(let addr): address = addr
+        }
+        if let error = settingsViewModel.applyTrustedNode(address) {
+            onToast(error, .error)
+        } else {
+            onToast(choice == .automatic ? "Automatic scan enabled." : "Node updated.", .success)
+        }
     }
 }
 
@@ -1939,6 +2043,8 @@ struct ConnectionStatusDetailView: View {
                         Text("Primary: \(endpoint.host)")
                     }
                 }
+
+                KaspaNodeQuickAccessSections(onToast: showToast)
 
                 // Active Nodes Section
                 Section {

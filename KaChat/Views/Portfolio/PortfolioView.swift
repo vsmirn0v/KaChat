@@ -1,29 +1,109 @@
 import SwiftUI
 
+private enum PortfolioContentTab: Hashable {
+    case data
+    case transactions
+}
+
 struct PortfolioView: View {
     @ObservedObject private var viewModel = PortfolioViewModel.shared
+    @ObservedObject private var portfolioManager = PortfolioManager.shared
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @State private var scrubbedValuePoint: PricePoint?
+    @State private var selectedContentTab: PortfolioContentTab = .data
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    summaryCard
-                    priceChartCard
-                    if viewModel.valueHistory.count >= 2 {
-                        valueChartCard
-                    }
-                    transactionsNavRow
+            VStack(spacing: 0) {
+                PortfolioPickerHeader(
+                    portfolios: portfolioManager.portfolios,
+                    activePortfolioId: portfolioManager.activePortfolioId,
+                    cardModel: cardModel(for:),
+                    formatCurrency: formatCurrency,
+                    onSelect: { portfolioManager.setActivePortfolio($0) },
+                    onAdd: { portfolioManager.addPortfolio(name: $0) },
+                    onRename: { portfolioManager.renamePortfolio($0, to: $1) },
+                    onDelete: { portfolioManager.deletePortfolio($0) }
+                )
+                contentTabBar
+
+                // .page style gives left/right swipe between tabs for free, kept in sync with
+                // contentTabBar's buttons via the shared $selectedContentTab binding; index dots
+                // are hidden since that tab bar is already the visible selector.
+                TabView(selection: $selectedContentTab) {
+                    dataTabContent
+                        .tag(PortfolioContentTab.data)
+                    PortfolioTransactionsView(viewModel: viewModel)
+                        .tag(PortfolioContentTab.transactions)
                 }
-                .padding()
-            }
-            .refreshable {
-                await viewModel.refreshPriceAsync()
+                .tabViewStyle(.page(indexDisplayMode: .never))
             }
             .navigationTitle("Portfolio")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+
+    private var dataTabContent: some View {
+        ScrollView {
+            // Matches Android's Data tab spacing (12.dp outer padding, 10.dp between cards) -
+            // this was previously 16pt everywhere, tall enough to force a scroll on most iPhones
+            // even though every card's content already fits without it.
+            VStack(spacing: 10) {
+                summaryCard
+                priceChartCard
+                if viewModel.valueHistory.count >= 2 {
+                    valueChartCard
+                }
+            }
+            .padding(12)
+        }
+        .refreshable {
+            await viewModel.refreshPriceAsync()
+        }
+    }
+
+    // MARK: - Data / Transactions tab bar (styled like ChatListView's Chats/Group Chats tabs)
+
+    private var contentTabBar: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                contentTabButton("Data", tab: .data)
+                contentTabButton("Transactions", tab: .transactions)
+            }
+            Divider()
+        }
+        .background(.ultraThinMaterial)
+    }
+
+    private func contentTabButton(_ title: String, tab: PortfolioContentTab) -> some View {
+        let isSelected = selectedContentTab == tab
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) { selectedContentTab = tab }
+        } label: {
+            VStack(spacing: 8) {
+                Text(title)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 10)
+
+                Rectangle()
+                    .fill(isSelected ? Color.accentColor : Color.clear)
+                    .frame(height: 2.5)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func cardModel(for portfolio: Portfolio) -> PortfolioCardModel {
+        let change = viewModel.todayChange(for: portfolio.id)
+        return PortfolioCardModel(
+            id: portfolio.id,
+            name: portfolio.name,
+            currentValue: viewModel.currentValue(for: portfolio.id),
+            todayChangeAmount: change?.amount,
+            todayChangePercent: change?.percent
+        )
     }
 
     private func rangeLabel(_ days: Int) -> String {
@@ -38,7 +118,7 @@ struct PortfolioView: View {
 
     private var summaryCard: some View {
         let summary = viewModel.summary
-        return VStack(alignment: .leading, spacing: 16) {
+        return VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 if let scrub = viewModel.scrubbedPricePoint {
                     Text(scrub.timestamp, format: .dateTime.month().day().hour().minute())
@@ -50,8 +130,20 @@ struct PortfolioView: View {
                     Text("KAS Price")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                    Text(viewModel.currentPriceUsd.map(formatPrice) ?? "—")
-                        .font(.system(size: 26, weight: .bold))
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(viewModel.currentPriceUsd.map(formatPrice) ?? "—")
+                            .font(.system(size: 26, weight: .bold))
+                        if let change = viewModel.priceChange24h {
+                            HStack(spacing: 2) {
+                                Image(systemName: change >= 0 ? "arrow.up" : "arrow.down")
+                                    .font(.caption2)
+                                Text("\(String(format: "%.2f", abs(change)))%")
+                                    .font(.subheadline)
+                                    .fontWeight(.semibold)
+                            }
+                            .foregroundColor(change >= 0 ? .green : .red)
+                        }
+                    }
                 }
             }
 
@@ -89,7 +181,7 @@ struct PortfolioView: View {
                 }
             }
         }
-        .padding(16)
+        .padding(14)
         .background(glassBackground(cornerRadius: 18))
     }
 
@@ -176,7 +268,7 @@ struct PortfolioView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.vertical, 10)
         .background(glassBackground(cornerRadius: 18))
     }
 
@@ -218,31 +310,8 @@ struct PortfolioView: View {
             )
             .frame(height: 90)
         }
-        .padding(16)
+        .padding(14)
         .background(glassBackground(cornerRadius: 18))
-    }
-
-    // MARK: - Transactions nav row
-
-    private var transactionsNavRow: some View {
-        NavigationLink {
-            PortfolioTransactionsView(viewModel: viewModel)
-        } label: {
-            HStack {
-                Image(systemName: "receipt")
-                    .foregroundColor(.accentColor)
-                Text("Transactions")
-                    .foregroundColor(.primary)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(16)
-            .background(glassBackground(cornerRadius: 18))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     private func glassBackground(cornerRadius: CGFloat) -> some View {

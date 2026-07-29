@@ -34,6 +34,7 @@ struct ChatListView: View {
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var contactPendingDelete: Contact?
     @State private var groupPendingDelete: GroupChat?
+    @State private var showBulkDeleteConfirmation = false
     @State private var editMode: EditMode = .inactive
     @State private var selectedContactIDs: Set<UUID> = []
     @State private var selectedGroupIDs: Set<String> = []
@@ -75,7 +76,12 @@ struct ChatListView: View {
     }
 
     private var chatListPane: some View {
-        chatListContent
+        // Split into staged intermediate variables (rather than one long chained-modifier
+        // expression) so the type checker isn't solving toolbar + searchable/refreshable/toast/
+        // sheet + three `.alert`s + two custom modifiers + `.environment` all as a single
+        // expression - that combination is what triggered "unable to type-check in reasonable
+        // time" once the third `.alert` (bulk delete) was added.
+        let withToolbar = chatListContent
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -114,6 +120,8 @@ struct ChatListView: View {
                     }
                 }
             }
+
+        let withPresentation = withToolbar
             .searchable(text: $searchText, prompt: "Search chats")
             .refreshable {
                 await chatService.fetchNewMessages()
@@ -140,6 +148,8 @@ struct ChatListView: View {
                 }
                 .presentationDetents([.large])
             }
+
+        let withAlerts = withPresentation
             .alert(
                 "Delete Chat with \(contactPendingDelete?.alias ?? "")",
                 isPresented: Binding(
@@ -179,12 +189,34 @@ struct ChatListView: View {
             } message: {
                 Text("This removes the group and its messages from this device. This cannot be undone, and other members won't be notified.")
             }
+            .alert(
+                bulkDeleteAlertTitle,
+                isPresented: $showBulkDeleteConfirmation
+            ) {
+                Button("Delete", role: .destructive) {
+                    if selectedListTab == .chats {
+                        let targets = filteredConversationsCache
+                            .filter { selectedContactIDs.contains($0.contact.id) }
+                            .map { $0.contact }
+                        deleteConversations(targets)
+                    } else {
+                        let targets = groupChatService.groups.filter { selectedGroupIDs.contains($0.id) }
+                        deleteGroups(targets)
+                    }
+                    editMode = .inactive
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(bulkDeleteAlertMessage)
+            }
+
+        return withAlerts
             .modifier(BroadcastListNavigationDestination(
                 mode: BroadcastNavigationPolicy.listPresentationMode(usesSplitLayout: shouldUseSplitLayout),
                 showBroadcastList: $showBroadcastList,
                 pendingBroadcastChannel: $pendingBroadcastChannel
             ))
-            .environment(\.editMode, $editMode)
+            .environment(\EnvironmentValues.editMode, $editMode)
     }
 
     @ViewBuilder
@@ -630,7 +662,7 @@ struct ChatListView: View {
             // Restored to its original placement: a row inside the Chats list itself (so it
             // reads as "just another chat"), not a standalone element above the tabs - only
             // shown while not searching, matching every other non-conversation row here.
-            if searchText.isEmpty {
+            if searchText.isEmpty && !settingsViewModel.settings.hideBroadcasts {
                 Button {
                     pendingBroadcastChannel = nil
                     selectedContact = nil
@@ -743,7 +775,7 @@ struct ChatListView: View {
                         }
                         editMode = .inactive
                     } label: {
-                        Label("Mark as Read", systemImage: "envelope.open")
+                        Image(systemName: "envelope.open")
                             .frame(maxWidth: .infinity)
                     }
                     .disabled(selectedContactIDs.isEmpty)
@@ -753,7 +785,15 @@ struct ChatListView: View {
                         chatService.markConversationsAsUnread(targets)
                         editMode = .inactive
                     } label: {
-                        Label("Mark as Unread", systemImage: "envelope.badge")
+                        Image(systemName: "envelope.badge")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(selectedContactIDs.isEmpty)
+
+                    Button(role: .destructive) {
+                        showBulkDeleteConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
                             .frame(maxWidth: .infinity)
                     }
                     .disabled(selectedContactIDs.isEmpty)
@@ -763,7 +803,7 @@ struct ChatListView: View {
                         groupChatService.markGroupsAsRead(targets)
                         editMode = .inactive
                     } label: {
-                        Label("Mark as Read", systemImage: "envelope.open")
+                        Image(systemName: "envelope.open")
                             .frame(maxWidth: .infinity)
                     }
                     .disabled(selectedGroupIDs.isEmpty)
@@ -773,12 +813,21 @@ struct ChatListView: View {
                         groupChatService.markGroupsAsUnread(targets)
                         editMode = .inactive
                     } label: {
-                        Label("Mark as Unread", systemImage: "envelope.badge")
+                        Image(systemName: "envelope.badge")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(selectedGroupIDs.isEmpty)
+
+                    Button(role: .destructive) {
+                        showBulkDeleteConfirmation = true
+                    } label: {
+                        Image(systemName: "trash")
                             .frame(maxWidth: .infinity)
                     }
                     .disabled(selectedGroupIDs.isEmpty)
                 }
             }
+            .font(.system(size: 18))
             .buttonStyle(.bordered)
             .padding(.horizontal)
             .padding(.vertical, 10)
@@ -926,6 +975,47 @@ struct ChatListView: View {
         contactsManager.deleteContact(contact)
         chatService.checkAndResubscribeIfNeeded()
         showToast("Chat deleted.")
+    }
+
+    /// Pulled out of the `.alert(...)` call site as a plain computed property - an inline ternary
+    /// nested inside string interpolation there was making the compiler unable to type-check the
+    /// `.alert` expression in reasonable time.
+    private var bulkDeleteAlertTitle: String {
+        if selectedListTab == .chats {
+            return "Delete \(selectedContactIDs.count) Chat\(selectedContactIDs.count == 1 ? "" : "s")?"
+        } else {
+            return "Delete \(selectedGroupIDs.count) Group\(selectedGroupIDs.count == 1 ? "" : "s")?"
+        }
+    }
+
+    private var bulkDeleteAlertMessage: String {
+        selectedListTab == .chats
+            ? "This permanently deletes every message in each selected chat, including from iCloud, so they're removed from your other devices too. This cannot be undone."
+            : "This removes each selected group and its messages from this device. This cannot be undone, and other members won't be notified."
+    }
+
+    /// Bulk multi-select delete - same per-contact cleanup as `deleteConversation`, just
+    /// resubscribing and toasting once at the end instead of once per contact.
+    private func deleteConversations(_ contacts: [Contact]) {
+        guard !contacts.isEmpty else { return }
+        for contact in contacts {
+            chatService.removeConversation(for: contact.address)
+            contactsManager.deleteContact(contact)
+        }
+        chatService.checkAndResubscribeIfNeeded()
+        selectedContactIDs = []
+        showToast(contacts.count == 1 ? "Chat deleted." : "\(contacts.count) chats deleted.")
+    }
+
+    /// Bulk multi-select delete for groups - mirrors `deleteConversations`.
+    private func deleteGroups(_ groups: [GroupChat]) {
+        guard !groups.isEmpty else { return }
+        for group in groups {
+            if selectedGroup?.id == group.id { selectedGroup = nil }
+            groupChatService.deleteGroup(group.id)
+        }
+        selectedGroupIDs = []
+        showToast(groups.count == 1 ? "Group deleted." : "\(groups.count) groups deleted.")
     }
 
     private func maybeLoadMoreConversations(currentIndex: Int, displayedCount: Int, totalCount: Int) {

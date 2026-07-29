@@ -28,6 +28,7 @@ Pods/
 *.swp
 *.swo
 *~
+*.bak
 
 # External references (large repos) - except external/opus, which is a real
 # linked build dependency (Opus.xcframework), not just reference material.

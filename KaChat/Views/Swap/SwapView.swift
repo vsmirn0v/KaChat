@@ -13,13 +13,12 @@ struct SwapView: View {
     @State private var selectedTab: Tab = .swap
 
     @State private var selectedSwap: SwapTransaction?
-    @State private var showFeeEditor = false
-    @State private var feeEditorText = ""
-    @State private var showFromAddressPicker = false
     @State private var showToAddressPicker = false
+    @State private var showCoinPicker = false
     @State private var showPortfolioConfirm = false
     @State private var pendingPortfolioPrefill: SwapService.PortfolioPrefill?
     @State private var pendingPortfolioSwapId: String?
+    @State private var pendingDeleteSwap: SwapTransaction?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @FocusState private var focusedField: FocusField?
@@ -45,9 +44,6 @@ struct SwapView: View {
             .navigationTitle("Swap")
             .navigationBarTitleDisplayMode(.inline)
             .toast(message: toastMessage)
-            .task {
-                await swapService.refreshSpendingBalance()
-            }
             .onChange(of: swapService.createSwapState.status) { status in
                 if status == .success {
                     showToast("Swap started")
@@ -69,33 +65,15 @@ struct SwapView: View {
                     showPortfolioConfirm = true
                 }
             }
-            .sheet(isPresented: $showFromAddressPicker) {
-                SwapAddressPickerView { entry in
-                    swapService.selectFromSpendingAddress(index: entry.index, balanceSompi: entry.balanceSompi)
-                }
-            }
             .sheet(isPresented: $showToAddressPicker) {
                 SwapAddressPickerView { entry in
                     swapService.selectToSpendingAddress(index: entry.index)
                 }
             }
-            .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
-                TextField("Fee (KAS)", text: $feeEditorText)
-                    .keyboardType(.decimalPad)
-                Button("Save") {
-                    if let kas = Double(feeEditorText), kas > 0 {
-                        let totalSompi = UInt64((kas * 100_000_000).rounded())
-                        swapService.extraFeeSompi = totalSompi > swapService.defaultFeeSompi
-                            ? totalSompi - swapService.defaultFeeSompi
-                            : 0
-                    } else {
-                        swapService.extraFeeSompi = 0
-                    }
+            .sheet(isPresented: $showCoinPicker) {
+                SwapCoinPickerView(currentCoin: swapService.otherCoin) { coin in
+                    swapService.setOtherCoin(coin)
                 }
-                Button("Use Default") { swapService.extraFeeSompi = 0 }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("If the network is busy, a higher fee can help your transaction confirm faster.\n\nDefault: \(formatKas(swapService.defaultFeeSompi)) KAS")
             }
             .alert("Add to Portfolio", isPresented: $showPortfolioConfirm) {
                 Button("Add") {
@@ -114,6 +92,23 @@ struct SwapView: View {
                 if let prefill = pendingPortfolioPrefill {
                     Text("\(prefill.type == .buy ? "Buy" : "Sell") \(formatKas(UInt64((prefill.amountKas * 100_000_000).rounded()))) KAS at \(currencySymbol)\(String(format: "%.2f", prefill.fiatValue)) will be added to your Portfolio ledger.")
                 }
+            }
+            .confirmationDialog(
+                "Delete this swap?",
+                isPresented: Binding(get: { pendingDeleteSwap != nil }, set: { if !$0 { pendingDeleteSwap = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    if let pendingDeleteSwap {
+                        swapService.deleteSwap(id: pendingDeleteSwap.id)
+                    }
+                    pendingDeleteSwap = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingDeleteSwap = nil
+                }
+            } message: {
+                Text("This only removes it from your local history - it doesn't affect the actual exchange.")
             }
             .overlay {
                 if !swapService.swapDisclaimerAgreed {
@@ -160,20 +155,11 @@ struct SwapView: View {
     // MARK: - Swap form
 
     private var isBusy: Bool {
-        swapService.createSwapState.status == .sendingKAS || swapService.createSwapState.status == .creating
-    }
-
-    private var amountSompi: UInt64 {
-        guard let kas = Double(swapService.amountText) else { return 0 }
-        return UInt64((kas * 100_000_000).rounded())
-    }
-
-    private var insufficientFunds: Bool {
-        swapService.kasIsSendSide && amountSompi > swapService.spendingBalanceSompi
+        swapService.createSwapState.status == .creating
     }
 
     private var canSwap: Bool {
-        swapService.estimateState.status == .success && !isBusy && !insufficientFunds
+        swapService.estimateState.status == .success && !isBusy
     }
 
     private var needsPayoutAddress: Bool {
@@ -189,23 +175,8 @@ struct SwapView: View {
                     amountText: swapService.amountText,
                     editable: true,
                     onAmountChange: { swapService.setAmountText($0) },
-                    onMaxTap: swapService.kasIsSendSide ? {
-                        swapService.setAmountText(formatKasTrimmed(swapService.maxSendableSompi))
-                    } : nil
+                    onMaxTap: nil
                 )
-
-                if swapService.kasIsSendSide {
-                    spendingAddressRow(
-                        title: "Available",
-                        valueText: "\(formatKas(swapService.spendingBalanceSompi)) KAS (\(swapService.selectedFromAddress != nil ? "Address #\(swapService.selectedFromAddress!.index)" : "Primary"))",
-                        feeText: "Fee: \(formatKas(swapService.effectiveFeeSompi)) KAS",
-                        onFeeTap: {
-                            feeEditorText = formatKasTrimmed(swapService.effectiveFeeSompi)
-                            showFeeEditor = true
-                        },
-                        onChangeTap: { showFromAddressPicker = true }
-                    )
-                }
 
                 HStack(spacing: 12) {
                     Button {
@@ -297,10 +268,7 @@ struct SwapView: View {
         }
     }
 
-    private var swapButtonTitle: String {
-        if insufficientFunds { return "Insufficient Funds" }
-        return swapService.kasIsSendSide ? "Swap" : "Get Deposit Address"
-    }
+    private var swapButtonTitle: String { "Get Deposit Address" }
 
     private var estimatedAmountText: String {
         switch swapService.estimateState.status {
@@ -340,21 +308,45 @@ struct SwapView: View {
 
     private func swapResultCard(_ result: ChangeNowTransactionResponse) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(swapService.kasIsSendSide ? "KAS sent, exchange in progress" : "Send \(swapService.otherCoin.displayName) to this address")
+            if swapService.kasIsSendSide {
+                NavigationLink {
+                    ManageAddressesView()
+                } label: {
+                    HStack {
+                        Image(systemName: "arrow.right.circle.fill")
+                        Text("Go to Spending Addresses")
+                            .fontWeight(.semibold)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.accentColor)
+                }
+                .padding(.bottom, 2)
+            }
+
+            Text("Send \(swapService.fromCoin.displayName) to this address")
                 .font(.subheadline.weight(.bold))
 
-            if !swapService.kasIsSendSide, let payinAddress = result.payinAddress {
+            if let payinAddress = result.payinAddress {
                 HStack {
                     Spacer()
                     if let qrImage = makeQRCodeImage(from: payinAddress) {
-                        Image(uiImage: qrImage)
-                            .interpolation(.none)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 180, height: 180)
-                            .padding(12)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        Button {
+                            UIPasteboard.general.string = payinAddress
+                            Haptics.success()
+                            showToast("Address copied")
+                        } label: {
+                            Image(uiImage: qrImage)
+                                .interpolation(.none)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 180, height: 180)
+                                .padding(12)
+                                .background(Color.white)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
                     }
                     Spacer()
                 }
@@ -451,48 +443,38 @@ struct SwapView: View {
         .background(glassBackground(cornerRadius: 18))
     }
 
+    /// Only the non-KAS side of the pair is actually pickable - KAS is always the fixed side.
     private func coinBadge(_ coin: SwapCoin) -> some View {
+        Group {
+            if coin.ticker == "kas" {
+                coinBadgeContent(coin)
+            } else {
+                Button {
+                    showCoinPicker = true
+                } label: {
+                    HStack(spacing: 4) {
+                        coinBadgeContent(coin)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func coinBadgeContent(_ coin: SwapCoin) -> some View {
         HStack(spacing: 6) {
-            coinIcon(coin)
+            swapCoinIcon(coin)
             Text(coin.displayName)
                 .font(.subheadline.weight(.bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(Capsule().fill(Color(.systemGray5)))
-    }
-
-    /// KAS gets its real brand mark; USDC is drawn in code (see `usdcBadge`) rather than loading
-    /// `Assets.xcassets/USDCLogo` - that imageset's source PNGs turned out to be corrupt (nearly
-    /// blank/white canvases, not the actual coin art), which rendered as a blank white square.
-    /// Anything else falls back to its ticker in a plain badge.
-    @ViewBuilder
-    private func coinIcon(_ coin: SwapCoin) -> some View {
-        if coin.ticker == "kas" {
-            Image("KaspaLogo")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 20, height: 20)
-        } else if coin.ticker == "usdc" {
-            usdcBadge
-        } else {
-            Text(coin.ticker.uppercased())
-                .font(.caption2.weight(.bold))
-                .frame(width: 20, height: 20)
-                .background(Circle().fill(Color.accentColor.opacity(0.3)))
-        }
-    }
-
-    /// Matches Android's `ic_usdc_coin.xml` background color (#3E73C4) for cross-platform
-    /// consistency - drawn directly instead of loading image assets, see `coinIcon`'s doc comment.
-    private var usdcBadge: some View {
-        ZStack {
-            Circle().fill(Color(red: 0x3E / 255, green: 0x73 / 255, blue: 0xC4 / 255))
-            Text("$")
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundColor(.white)
-        }
-        .frame(width: 20, height: 20)
     }
 
     private func spendingAddressRow(title: String, valueText: String, feeText: String?, onFeeTap: (() -> Void)?, onChangeTap: @escaping () -> Void) -> some View {
@@ -569,24 +551,28 @@ struct SwapView: View {
             } else {
                 List {
                     ForEach(swapService.history) { swap in
-                        Button {
-                            selectedSwap = swap
-                        } label: {
-                            swapHistoryRow(swap)
+                        HStack(spacing: 8) {
+                            Button {
+                                selectedSwap = swap
+                            } label: {
+                                swapHistoryRow(swap)
+                            }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                pendingDeleteSwap = swap
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(.red)
+                                    .frame(width: 32, height: 32)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .padding(.vertical, 6)
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                swapService.deleteSwap(id: swap.id)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                            .tint(.red)
-                        }
                     }
                 }
                 .listStyle(.plain)
@@ -911,5 +897,216 @@ private struct SwapAddressPickerView: View {
         while text.hasSuffix("0") { text.removeLast() }
         if text.hasSuffix(".") { text.removeLast() }
         return text
+    }
+}
+
+/// Ticker -> `Assets.xcassets` imageset name for coins with real brand art (sourced from the
+/// Tangem wallet app's bundled network logos). Tickers not listed here (xmr, zec, usdt) have no
+/// available art and fall back to the plain ticker-text circle.
+private let swapCoinLogoAssetNames: [String: String] = [
+    "btc": "CoinBtc",
+    "eth": "CoinEth",
+    "sol": "CoinSol",
+    "xrp": "CoinXrp",
+    "bnb": "CoinBnb",
+    "trx": "CoinTrx",
+    "hype": "CoinHype",
+    "doge": "CoinDoge",
+    "ltc": "CoinLtc",
+    "ada": "CoinAda",
+    "bch": "CoinBch",
+    "etc": "CoinEtc",
+    "usdc": "CoinUsdc"
+]
+
+/// KAS and the tickers in `swapCoinLogoAssetNames` get their real brand marks; everything else
+/// falls back to its ticker in a plain colored circle. Top-level (not a method on `SwapView`) so
+/// `SwapCoinPickerView`'s rows can share it too.
+@ViewBuilder
+func swapCoinIcon(_ coin: SwapCoin) -> some View {
+    if coin.ticker == "kas" {
+        Image("KaspaLogo")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 20, height: 20)
+    } else if let assetName = swapCoinLogoAssetNames[coin.ticker] {
+        Image(assetName)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 20, height: 20)
+            .clipShape(Circle())
+    } else {
+        Text(coin.ticker.uppercased())
+            .font(.system(size: 8, weight: .bold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+            .frame(width: 20, height: 20)
+            .background(Circle().fill(Color.accentColor.opacity(0.3)))
+    }
+}
+
+/// Reached by tapping either amount card's coin badge (the non-KAS side only - KAS is always the
+/// fixed side of the pair). Searchable since `SwapCoin.curated` now has ~50 entries across many
+/// networks, not just the one hardcoded USDC-Polygon pair this originally shipped with.
+private struct SwapCoinPickerView: View {
+    let currentCoin: SwapCoin
+    let onPick: (SwapCoin) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @State private var expandedGroups: Set<String> = []
+
+    /// Tickers with more than one network - collapsed to a single row on the root list that
+    /// expands in place to show its networks (rather than listing all ~7-9 networks inline
+    /// unconditionally), since that's most of what made the flat list unwieldy. Keyed by ticker,
+    /// valued by the short name shown for the collapsed row.
+    private static let groupedTickers: [String: String] = [
+        "usdt": "Tether",
+        "usdc": "USD Coin"
+    ]
+
+    private enum PickerRow: Identifiable {
+        case coin(SwapCoin)
+        case group(ticker: String, displayName: String)
+        case network(SwapCoin)
+
+        var id: String {
+            switch self {
+            case .coin(let coin): return "\(coin.ticker)-\(coin.network)"
+            case .group(let ticker, _): return "group-\(ticker)"
+            case .network(let coin): return "network-\(coin.ticker)-\(coin.network)"
+            }
+        }
+    }
+
+    /// USDC and USDT are pinned as the first two rows (in that order) since they're the most
+    /// commonly swapped stablecoins - everything else follows in `SwapCoin.curated`'s order.
+    private static let pinnedGroupTickers = ["usdc", "usdt"]
+
+    private var rootRows: [PickerRow] {
+        var rows: [PickerRow] = []
+        for ticker in Self.pinnedGroupTickers {
+            guard let displayName = Self.groupedTickers[ticker] else { continue }
+            rows.append(.group(ticker: ticker, displayName: displayName))
+            if expandedGroups.contains(ticker) {
+                for coin in SwapCoin.curated where coin.ticker == ticker {
+                    rows.append(.network(coin))
+                }
+            }
+        }
+        for coin in SwapCoin.curated where Self.groupedTickers[coin.ticker] == nil {
+            rows.append(.coin(coin))
+        }
+        return rows
+    }
+
+    private var filteredRows: [PickerRow] {
+        guard !searchText.trimmingCharacters(in: .whitespaces).isEmpty else { return rootRows }
+        let query = searchText.lowercased()
+        return rootRows.filter { row in
+            switch row {
+            case .coin(let coin):
+                return coin.displayName.lowercased().contains(query) || coin.ticker.lowercased().contains(query)
+            case .group(let ticker, let displayName):
+                return displayName.lowercased().contains(query) || ticker.lowercased().contains(query)
+            case .network(let coin):
+                return coin.displayName.lowercased().contains(query) || coin.ticker.lowercased().contains(query)
+            }
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(filteredRows) { row in
+                switch row {
+                case .coin(let coin):
+                    Button {
+                        onPick(coin)
+                        dismiss()
+                    } label: {
+                        pickerRow(icon: { swapCoinIcon(coin) }, title: coin.displayName, isSelected: coin == currentCoin)
+                    }
+                    .buttonStyle(.plain)
+                case .group(let ticker, let displayName):
+                    // Icon only depends on `.ticker`, so any curated entry sharing this ticker
+                    // works as the representative icon for the collapsed row.
+                    let representative = SwapCoin.curated.first { $0.ticker == ticker }
+                    let isExpanded = expandedGroups.contains(ticker)
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            if isExpanded {
+                                expandedGroups.remove(ticker)
+                            } else {
+                                expandedGroups.insert(ticker)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            if let representative {
+                                swapCoinIcon(representative)
+                            }
+                            Text(displayName)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            if currentCoin.ticker == ticker {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.accentColor)
+                            }
+                            Image(systemName: "chevron.down")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                case .network(let coin):
+                    Button {
+                        onPick(coin)
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Spacer().frame(width: 28)
+                            swapCoinIcon(coin)
+                            Text(coin.displayName)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            if coin == currentCoin {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.accentColor)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .listStyle(.plain)
+            .searchable(text: $searchText, prompt: "Search coins")
+            .navigationTitle("Choose Coin")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func pickerRow<Icon: View>(icon: () -> Icon, title: String, isSelected: Bool) -> some View {
+        HStack(spacing: 12) {
+            icon()
+            Text(title)
+                .foregroundColor(.primary)
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .foregroundColor(.accentColor)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }

@@ -144,6 +144,35 @@ extension WalletManager {
         }
     }
 
+    // MARK: - Per-UTXO labels
+
+    /// Keyed by address + `"txId:index"` outpoint key, mirroring `ColdStorageManager`'s identical
+    /// per-UTXO label scheme (see that file's own copy of this pattern) - a spending address's
+    /// UTXOs deserve the same optional naming Cold Storage's already have.
+    func setSpendingUtxoLabel(address: String, outpointKey: String, label: String?) {
+        var labels = loadSpendingUtxoLabels(address: address)
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            labels.removeValue(forKey: outpointKey)
+        } else {
+            labels[outpointKey] = trimmed
+        }
+        guard let data = try? JSONEncoder().encode(labels) else { return }
+        UserDefaults.standard.set(data, forKey: spendingUtxoLabelsKey(for: address))
+    }
+
+    func loadSpendingUtxoLabels(address: String) -> [String: String] {
+        guard let data = UserDefaults.standard.data(forKey: spendingUtxoLabelsKey(for: address)),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
+            return [:]
+        }
+        return decoded
+    }
+
+    private func spendingUtxoLabelsKey(for address: String) -> String {
+        "kachat_spending_utxo_labels_" + address
+    }
+
     // MARK: - Derivation
 
     func spendingAddress(at index: Int) -> String? {
@@ -173,6 +202,32 @@ extension WalletManager {
 
     func currentSpendingPrivateKey() -> Data? {
         spendingPrivateKey(at: currentSpendingAddressIndex)
+    }
+
+    /// Derives the shared "change" node (m/44'/111111'/1'/0) once, for reuse across every index
+    /// in a range - `spendingAddress(at:)`/`spendingPrivateKey(at:)` above each redo the expensive
+    /// parts (Secure Enclave seed-phrase decrypt, PBKDF2-2048 mnemonic-to-seed, 4 HMAC-SHA512
+    /// hardened derivations) from scratch per call, which is fine for a single lookup but was the
+    /// dominant cost in `getSpendingAddressList()`/`discoverSpendingAddresses()` below calling one
+    /// of those once per address - Manage Addresses' load time scaled with the number of revealed
+    /// addresses for no reason, since only the final per-index derivation actually differs.
+    private func spendingChangeKey() -> (key: Data, chainCode: Data)? {
+        guard let seedPhrase = try? getSeedPhrase() else { return nil }
+        guard var seed = BIP39.shared.mnemonicToSeed(seedPhrase.phrase, passphrase: "") else { return nil }
+        defer { seed.zeroOut() }
+        let masterKey = deriveMasterKey(from: seed)
+        let purpose = deriveChildKey(from: masterKey, index: 44 | 0x80000000)
+        let coinType = deriveChildKey(from: purpose, index: 111111 | 0x80000000)
+        let account = deriveChildKey(from: coinType, index: 1 | 0x80000000)
+        return deriveChildKey(from: account, index: 0)
+    }
+
+    private func spendingAddress(at index: Int, changeKey: (key: Data, chainCode: Data)) -> String? {
+        guard index >= 0 else { return nil }
+        let privateKey = deriveChildKey(from: changeKey, index: UInt32(index)).key
+        guard let publicKeyData = try? deriveSchnorrPublicKey(from: privateKey) else { return nil }
+        let network = SettingsViewModel.loadSettings().networkType
+        return KaspaAddress.fromPublicKey(publicKeyData, network: network).address
     }
 
     // MARK: - Mutation
@@ -232,9 +287,11 @@ extension WalletManager {
         let labels = spendingLabels
 
         var addressesByIndex: [Int: String] = [:]
-        for index in 0...maxIndex {
-            if let address = spendingAddress(at: index) {
-                addressesByIndex[index] = address
+        if let changeKey = spendingChangeKey() {
+            for index in 0...maxIndex {
+                if let address = spendingAddress(at: index, changeKey: changeKey) {
+                    addressesByIndex[index] = address
+                }
             }
         }
 
@@ -262,12 +319,13 @@ extension WalletManager {
     /// standard BIP44 wallet-recovery discovery. Extends `maxSpendingAddressIndex` to cover any
     /// found. Returns how many new indices were revealed.
     func discoverSpendingAddresses(gapLimit: Int = 20) async -> Int {
+        guard let changeKey = spendingChangeKey() else { return 0 }
         var index = maxSpendingAddressIndex + 1
         var consecutiveUnused = 0
         var highestFound = maxSpendingAddressIndex
 
         while consecutiveUnused < gapLimit {
-            guard let address = spendingAddress(at: index) else { break }
+            guard let address = spendingAddress(at: index, changeKey: changeKey) else { break }
             let used = await ChatService.shared.hasSpendingAddressBeenUsed(address)
             if used {
                 highestFound = index

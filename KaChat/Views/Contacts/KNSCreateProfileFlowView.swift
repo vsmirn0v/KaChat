@@ -940,7 +940,7 @@ private struct KNSDetailsStepView: View {
                     .font(.footnote)
                     .foregroundColor(.secondary)
 
-                detailField("Bio", key: .bio, text: $bio)
+                detailField("Bio", key: .bio, text: $bio, multiline: true)
                 detailField("Website", key: .website, text: $website)
                 detailField("X (Twitter)", key: .x, text: $x)
                 detailField("Telegram", key: .telegram, text: $telegram)
@@ -1000,7 +1000,7 @@ private struct KNSDetailsStepView: View {
         }
     }
 
-    private func detailField(_ label: String, key: KNSProfileFieldKey, text: Binding<String>) -> some View {
+    private func detailField(_ label: String, key: KNSProfileFieldKey, text: Binding<String>, multiline: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(label)
@@ -1019,13 +1019,22 @@ private struct KNSDetailsStepView: View {
                     EmptyView()
                 }
             }
-            TextField(label, text: text)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .focused($focusedField, equals: key)
-                .padding(12)
-                .background(Color(.systemGray6))
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+            if multiline {
+                TextEditor(text: text)
+                    .frame(minHeight: 84)
+                    .focused($focusedField, equals: key)
+                    .padding(8)
+                    .background(Color(.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            } else {
+                TextField(label, text: text)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focusedField, equals: key)
+                    .padding(12)
+                    .background(Color(.systemGray6))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
         }
     }
 

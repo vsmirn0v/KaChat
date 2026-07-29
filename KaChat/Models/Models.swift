@@ -846,6 +846,45 @@ enum MessageReplyCodec {
     }
 }
 
+// MARK: - Reactions
+
+/// A reaction (tapback) to an earlier message - embedded as JSON directly in the same plaintext
+/// content used for plain text (no separate wire type), matching the same approach
+/// `MessageReplyContent` already uses. `targetTxId` is the reacted-to message's Kaspa transaction
+/// id - the only identifier both parties/platforms agree on, since a local row id isn't shared.
+/// `action` is "add" or "remove": picking a new emoji on a message you've already reacted to
+/// replaces your previous one, and tapping your currently-active reaction again removes it.
+/// Field-for-field identical to Android's `MessageReactionContent` so a reaction sent from one
+/// platform renders correctly on the other.
+struct MessageReactionContent: Codable, Equatable {
+    var type: String = "reaction"
+    let targetTxId: String
+    let emoji: String
+    let action: String
+}
+
+enum MessageReactionCodec {
+    static func encode(targetTxId: String, emoji: String, action: String) -> String {
+        let content = MessageReactionContent(targetTxId: targetTxId, emoji: emoji, action: action)
+        guard let data = try? JSONEncoder().encode(content),
+              let json = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return json
+    }
+
+    /// Same {-prefix + 100_000-byte guard as `MessageReplyCodec.parse`, for the same hot-path
+    /// scrolling reason.
+    static func parse(_ text: String?) -> MessageReactionContent? {
+        guard let text, text.utf8.count < 100_000 else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
+        guard let parsed = try? JSONDecoder().decode(MessageReactionContent.self, from: data),
+              parsed.type == "reaction" else { return nil }
+        return parsed
+    }
+}
+
 // MARK: - Chess
 
 /// Which color the inviter chose to play - picked once (a coin flip) when the invite is sent and
@@ -1371,6 +1410,10 @@ struct AppSettings: Codable {
     var hidePortfolioTab: Bool
     var hideSwapTab: Bool
     var hideColdStorageTab: Bool
+    /// Broadcasts isn't a tab (it's an entry row inside the Chats list, see `ChatListView`'s
+    /// `chatsTabContent`) but is still user-hideable from Settings > Customization > Menu, so it
+    /// gets its own flag here rather than a case in `AppTab`.
+    var hideBroadcasts: Bool
     /// Raw values of `AppTab`, in display order - user-customizable via Settings > Customization
     /// > Menu's drag-to-reorder preview strip.
     var tabOrder: [String]
@@ -1378,6 +1421,12 @@ struct AppSettings: Codable {
     // Security
     var biometricSeedPhraseEnabled: Bool
     var biometricAccountLoginEnabled: Bool
+    /// Gates the "Export" button on a spending address's own screen (Manage Addresses > tap an
+    /// address) - separate from `biometricSeedPhraseEnabled` since revealing one address's own
+    /// derived key is lower-stakes than the wallet's whole seed phrase, but still sensitive
+    /// enough that some users will want it gated independently rather than always tied 1:1 to
+    /// the seed-phrase toggle.
+    var biometricSpendingKeyEnabled: Bool
 
     // Swap (ChangeNOW)
     var swapDisclaimerAgreed: Bool
@@ -1454,9 +1503,11 @@ struct AppSettings: Codable {
             hidePortfolioTab: false,
             hideSwapTab: false,
             hideColdStorageTab: false,
+            hideBroadcasts: false,
             tabOrder: AppTab.defaultOrder.map { $0.rawValue },
             biometricSeedPhraseEnabled: true,
             biometricAccountLoginEnabled: true,
+            biometricSpendingKeyEnabled: true,
             swapDisclaimerAgreed: false,
             indexerURL: defaultIndexerURL,
             pushIndexerURL: defaultPushIndexerURL,
@@ -1494,9 +1545,11 @@ struct AppSettings: Codable {
         case hidePortfolioTab
         case hideSwapTab
         case hideColdStorageTab
+        case hideBroadcasts
         case tabOrder
         case biometricSeedPhraseEnabled
         case biometricAccountLoginEnabled
+        case biometricSpendingKeyEnabled
         case swapDisclaimerAgreed
         case indexerURL
         case pushIndexerURL
@@ -1542,9 +1595,11 @@ struct AppSettings: Codable {
         hidePortfolioTab: Bool = false,
         hideSwapTab: Bool = false,
         hideColdStorageTab: Bool = false,
+        hideBroadcasts: Bool = false,
         tabOrder: [String] = AppTab.defaultOrder.map { $0.rawValue },
         biometricSeedPhraseEnabled: Bool = true,
         biometricAccountLoginEnabled: Bool = true,
+        biometricSpendingKeyEnabled: Bool = true,
         swapDisclaimerAgreed: Bool = false,
         indexerURL: String,
         pushIndexerURL: String,
@@ -1580,9 +1635,11 @@ struct AppSettings: Codable {
         self.hidePortfolioTab = hidePortfolioTab
         self.hideSwapTab = hideSwapTab
         self.hideColdStorageTab = hideColdStorageTab
+        self.hideBroadcasts = hideBroadcasts
         self.tabOrder = tabOrder
         self.biometricSeedPhraseEnabled = biometricSeedPhraseEnabled
         self.biometricAccountLoginEnabled = biometricAccountLoginEnabled
+        self.biometricSpendingKeyEnabled = biometricSpendingKeyEnabled
         self.swapDisclaimerAgreed = swapDisclaimerAgreed
         self.indexerURL = indexerURL
         self.pushIndexerURL = pushIndexerURL
@@ -1645,9 +1702,11 @@ struct AppSettings: Codable {
         hidePortfolioTab = try container.decodeIfPresent(Bool.self, forKey: .hidePortfolioTab) ?? false
         hideSwapTab = try container.decodeIfPresent(Bool.self, forKey: .hideSwapTab) ?? false
         hideColdStorageTab = try container.decodeIfPresent(Bool.self, forKey: .hideColdStorageTab) ?? false
+        hideBroadcasts = try container.decodeIfPresent(Bool.self, forKey: .hideBroadcasts) ?? false
         tabOrder = try container.decodeIfPresent([String].self, forKey: .tabOrder) ?? AppTab.defaultOrder.map { $0.rawValue }
         biometricSeedPhraseEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSeedPhraseEnabled) ?? true
         biometricAccountLoginEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricAccountLoginEnabled) ?? true
+        biometricSpendingKeyEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSpendingKeyEnabled) ?? true
         swapDisclaimerAgreed = try container.decodeIfPresent(Bool.self, forKey: .swapDisclaimerAgreed) ?? false
 
         // Handle migration from old settings
@@ -1709,9 +1768,11 @@ struct AppSettings: Codable {
         try container.encode(hidePortfolioTab, forKey: .hidePortfolioTab)
         try container.encode(hideSwapTab, forKey: .hideSwapTab)
         try container.encode(hideColdStorageTab, forKey: .hideColdStorageTab)
+        try container.encode(hideBroadcasts, forKey: .hideBroadcasts)
         try container.encode(tabOrder, forKey: .tabOrder)
         try container.encode(biometricSeedPhraseEnabled, forKey: .biometricSeedPhraseEnabled)
         try container.encode(biometricAccountLoginEnabled, forKey: .biometricAccountLoginEnabled)
+        try container.encode(biometricSpendingKeyEnabled, forKey: .biometricSpendingKeyEnabled)
         try container.encode(swapDisclaimerAgreed, forKey: .swapDisclaimerAgreed)
         try container.encode(indexerURL, forKey: .indexerURL)
         try container.encode(pushIndexerURL, forKey: .pushIndexerURL)

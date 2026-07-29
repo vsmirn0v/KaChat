@@ -1538,7 +1538,8 @@ final class KNSDomainTransferService: ObservableObject {
     func transferDomain(
         domain fullDomain: String,
         assetId rawAssetId: String,
-        to rawRecipient: String
+        to rawRecipient: String,
+        priorityFeeSompi: UInt64 = 2_000_000
     ) async throws -> KNSDomainTransferResult {
         guard !isSubmitting else {
             throw KasiaError.apiError("Another KNS domain transfer is already running")
@@ -1549,10 +1550,10 @@ final class KNSDomainTransferService: ObservableObject {
         guard let privateKey = walletManager.getPrivateKey() else {
             throw KasiaError.keychainError("Could not get private key")
         }
-        guard let fundingAddress = walletManager.currentSpendingAddress(),
-              let fundingPrivateKey = walletManager.currentSpendingPrivateKey() else {
-            throw KasiaError.keychainError("Could not derive your spending address")
-        }
+        // KNS activity is funded and settled entirely on the identity/chatting address chain -
+        // no spending-address split, same as submitAddProfile/inscribeDomain.
+        let fundingAddress = wallet.publicAddress
+        let fundingPrivateKey = privateKey
 
         let assetId = rawAssetId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !assetId.isEmpty else {
@@ -1588,7 +1589,7 @@ final class KNSDomainTransferService: ObservableObject {
         let fetchedUtxos = try await nodePool.getUtxosByAddresses([fundingAddress])
         let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
         guard !utxos.isEmpty else {
-            throw KasiaError.networkError("No spendable UTXOs available in your spending address for KNS transfer")
+            throw KasiaError.networkError("No spendable UTXOs available in your chatting address for KNS transfer")
         }
         log("UTXO domain=\(domain) total=\(fetchedUtxos.count) spendable=\(utxos.count)")
 
@@ -1620,7 +1621,8 @@ final class KNSDomainTransferService: ObservableObject {
             changeAddress: fundingAddress,
             commitTxId: commitTxId,
             commitContext: commitContext,
-            revealTargetAddress: wallet.publicAddress
+            revealTargetAddress: wallet.publicAddress,
+            revealPriorityFeeSompi: priorityFeeSompi
         )
         let (revealTxId, _) = try await submitRevealWithFallback(revealTx)
         log("REVEAL_SUBMITTED domain=\(domain) txId=\(revealTxId)")

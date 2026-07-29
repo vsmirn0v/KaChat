@@ -131,6 +131,31 @@ struct ChessGameView: View {
         return summary.board.sideToMove == myColor
     }
 
+    /// Cumulative wins/losses against this contact, across every chess game ever played with
+    /// them (not just the current one) - see `ChessGameService.record`.
+    private var winLossRecord: (wins: Int, losses: Int) {
+        guard let myAddress else { return (0, 0) }
+        return ChessGameService.record(in: messages, myAddress: myAddress, contactAddress: contact.address)
+    }
+
+    /// The `ChatMessage` behind the most recent action in this game, whichever it was (invite/
+    /// move/response/resign) - `ChessGameSummary.lastMessageTxId` already identifies it by txId.
+    private var lastActionMessage: ChatMessage? {
+        guard let summary else { return nil }
+        return messages.first { $0.txId == summary.lastMessageTxId }
+    }
+
+    /// Drives the "Sent"/"Retry" indicator under the turn status - only shown right after *I*
+    /// made the most recent move (not after an invite/response/resign, and not when the most
+    /// recent action was the opponent's move, which has no local delivery status to report).
+    private var lastMoveSendStatus: ChatMessage.DeliveryStatus? {
+        guard let lastActionMessage, lastActionMessage.isOutgoing,
+              case .move = ChessCodec.parseAny(MessageReplyCodec.unwrappedText(lastActionMessage.content)) else {
+            return nil
+        }
+        return lastActionMessage.deliveryStatus
+    }
+
     private var legalDestinations: [ChessSquare] {
         guard let selectedSquare, let summary else { return [] }
         return ChessEngine.legalMoves(from: selectedSquare, board: summary.board).map { $0.to }
@@ -161,6 +186,18 @@ struct ChessGameView: View {
                 }
             }
             .padding(.top, 8)
+            // Re-asserts (never clears) the active-conversation flag `ChatDetailView` already set
+            // when it opened - both on appear and on disappear, since dismissing this full-screen
+            // cover returns to that still-open chat, not away from the conversation. Without this,
+            // a move arriving while this board is on screen could still trigger a notification for
+            // a game the user is already watching live, the same redundant-notification bug fixed
+            // for Android's separate chess nav destination.
+            .onAppear {
+                chatService.enterConversation(for: contact.address)
+            }
+            .onDisappear {
+                chatService.enterConversation(for: contact.address)
+            }
             .task(id: messagesDigest) {
                 refreshCache()
             }
@@ -183,6 +220,15 @@ struct ChessGameView: View {
                         }
                     }
                 }
+            }
+            // Plain text under the toolbar's Resign button, not sharing its glass-pill background -
+            // a shared VStack inside the ToolbarItem made the system draw one combined pill behind
+            // both the button and the counter, which looked broken. An overlay on the content below
+            // the nav bar keeps the counter visually "under Resign" without borrowing its chrome.
+            .overlay(alignment: .topTrailing) {
+                winLossCounter
+                    .padding(.top, 4)
+                    .padding(.trailing, 16)
             }
             // Real `safeAreaInset` (matching ChatDetailView's identical composer pattern) rather
             // than a floating overlay - guarantees the composer sits flush above the keyboard
@@ -323,6 +369,33 @@ struct ChessGameView: View {
     }
 
 
+    /// "W" / "L" small labels over a "0 - 0"-style tally - toolbar-trailing, under the Resign
+    /// button, always visible (not just mid-game) so the running record stays in view.
+    private var winLossCounter: some View {
+        let record = winLossRecord
+        return HStack(alignment: .bottom, spacing: 4) {
+            VStack(spacing: 1) {
+                Text("W")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text("\(record.wins)")
+                    .font(.caption)
+                    .fontWeight(.bold)
+            }
+            Text("-")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            VStack(spacing: 1) {
+                Text("L")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text("\(record.losses)")
+                    .font(.caption)
+                    .fontWeight(.bold)
+            }
+        }
+    }
+
     private var header: some View {
         VStack(spacing: 4) {
             Text(contact.alias.isEmpty ? contact.address : contact.alias)
@@ -333,6 +406,42 @@ struct ChessGameView: View {
                     .fontWeight(.semibold)
                     .foregroundColor(summary.status.isGameOver ? .secondary : .accentColor)
             }
+            if let lastMoveSendStatus {
+                moveSendStatusRow(lastMoveSendStatus)
+            }
+        }
+    }
+
+    /// "Sent"/"Retry" indicator directly under the turn status, so the player has confirmation
+    /// their move actually went through while in full-screen game mode (they can't see the normal
+    /// chat transcript's own delivery-status ticks from here). Mirrors `statusIcon(for:)`'s
+    /// existing sent/pending/failed icon language rather than inventing new iconography.
+    @ViewBuilder
+    private func moveSendStatusRow(_ status: ChatMessage.DeliveryStatus) -> some View {
+        HStack(spacing: 4) {
+            switch status {
+            case .sent:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("Sent")
+            case .failed, .warning:
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundColor(.red)
+                Text("Retry")
+                    .foregroundColor(.red)
+                    .fontWeight(.semibold)
+            case .pending:
+                ProgressView()
+                    .scaleEffect(0.7)
+                Text("Sending…")
+            }
+        }
+        .font(.caption)
+        .foregroundColor(.secondary)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard status == .failed || status == .warning, let lastActionMessage else { return }
+            retryMessage(lastActionMessage)
         }
     }
 
@@ -343,29 +452,35 @@ struct ChessGameView: View {
         let ranks = orientation == .white ? Array((0..<8).reversed()) : Array(0..<8)
         let files = orientation == .white ? Array(0..<8) : Array((0..<8).reversed())
 
-        return GeometryReader { geo in
-            let available = min(geo.size.width, geo.size.height) - Self.coordinateLabelSize * 2
-            let boardSize = max(available, 0)
-            let squareSize = boardSize / 8
-            VStack(spacing: 0) {
-                fileLabelsRow(files, squareSize: squareSize)
-                HStack(spacing: 0) {
-                    rankLabelsColumn(ranks, squareSize: squareSize)
-                    VStack(spacing: 0) {
-                        ForEach(ranks, id: \.self) { rank in
-                            HStack(spacing: 0) {
-                                ForEach(files, id: \.self) { file in
-                                    squareView(file: file, rank: rank, summary: summary, squareSize: squareSize)
+        return ZStack {
+            GeometryReader { geo in
+                let available = min(geo.size.width, geo.size.height) - Self.coordinateLabelSize * 2
+                let boardSize = max(available, 0)
+                let squareSize = boardSize / 8
+                VStack(spacing: 0) {
+                    fileLabelsRow(files, squareSize: squareSize)
+                    HStack(spacing: 0) {
+                        rankLabelsColumn(ranks, squareSize: squareSize)
+                        VStack(spacing: 0) {
+                            ForEach(ranks, id: \.self) { rank in
+                                HStack(spacing: 0) {
+                                    ForEach(files, id: \.self) { file in
+                                        squareView(file: file, rank: rank, summary: summary, squareSize: squareSize)
+                                    }
                                 }
                             }
                         }
+                        .frame(width: boardSize, height: boardSize)
+                        rankLabelsColumn(ranks, squareSize: squareSize)
                     }
-                    .frame(width: boardSize, height: boardSize)
-                    rankLabelsColumn(ranks, squareSize: squareSize)
+                    fileLabelsRow(files, squareSize: squareSize)
                 }
-                fileLabelsRow(files, squareSize: squareSize)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if !isMyTurn && summary.status == .inProgress {
+                WaitingOnOpponentOverlay()
+            }
         }
         .aspectRatio(1, contentMode: .fit)
     }
@@ -586,5 +701,30 @@ private struct ChessChatComposer: View {
             }
             isSending = false
         }
+    }
+}
+
+/// Overlay shown on the board while waiting for the opponent's move - the "..." cycles 1/2/3 dots
+/// like a typing indicator rather than sitting static, so it reads as "still waiting" rather than
+/// looking frozen/stuck. Self-contained `.task` loop starts/stops automatically as SwiftUI mounts/
+/// unmounts this view (see `boardView`'s conditional inclusion), so nothing leaks a timer while
+/// it isn't actually the opponent's turn.
+private struct WaitingOnOpponentOverlay: View {
+    @State private var dotCount = 1
+
+    var body: some View {
+        Text("Waiting on opponent" + String(repeating: ".", count: dotCount))
+            .font(.subheadline)
+            .fontWeight(.semibold)
+            .foregroundColor(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    dotCount = dotCount % 3 + 1
+                }
+            }
     }
 }

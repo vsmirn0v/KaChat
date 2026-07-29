@@ -129,10 +129,14 @@ final class ColdStorageManager: ObservableObject {
 
     // MARK: - Address list / balances
 
-    /// Derives addresses 0...maxAddressIndex for the account and fetches live balances
-    /// concurrently — safe here (unlike the spending chain's sequential "used" scan) since
-    /// this is only balance lookups, not the REST call that was previously implicated in
-    /// rate-limit-driven false "used" results.
+    /// Derives addresses 0...maxAddressIndex for the account and fetches live balances with a
+    /// single batched `getUtxosByAddresses` call covering every address at once (mirrors
+    /// Kaspium's `UtxosNotifier.refresh`, which does the same one-call-for-the-whole-set fetch
+    /// rather than a request per address) instead of the previous per-address `withTaskGroup`,
+    /// which fired one gRPC round trip per address even though `getUtxosByAddresses` already
+    /// accepts the whole address list. Safe to batch here (unlike the spending chain's
+    /// sequential "used" scan below) since this is only balance lookups against a gRPC node,
+    /// not the REST call that was previously implicated in rate-limit-driven false "used" results.
     func getAddressList(for account: ColdStorageAccount) async -> [ColdStorageAddressEntry] {
         guard let extendedKey = KaspaExtendedPublicKey(kpubString: account.kpubString) else { return [] }
         let network = AppSettings.load().networkType
@@ -146,26 +150,22 @@ final class ColdStorageManager: ObservableObject {
             }
         }
 
-        return await withTaskGroup(of: ColdStorageAddressEntry?.self) { group in
-            for (index, address) in addressesByIndex {
-                group.addTask {
-                    let balance = (try? await NodePoolService.shared.getUtxosByAddresses([address]))?
-                        .reduce(UInt64(0)) { $0 + $1.amount } ?? 0
-                    return ColdStorageAddressEntry(
-                        index: index,
-                        address: address,
-                        balanceSompi: balance,
-                        label: labels[index],
-                        hidden: hidden.contains(index)
-                    )
-                }
-            }
-            var results: [ColdStorageAddressEntry] = []
-            for await entry in group {
-                if let entry { results.append(entry) }
-            }
-            return results.sorted { $0.index < $1.index }
+        let allAddresses = Array(addressesByIndex.values)
+        let utxos = (try? await NodePoolService.shared.getUtxosByAddresses(allAddresses)) ?? []
+        var balanceByAddress: [String: UInt64] = [:]
+        for utxo in utxos {
+            balanceByAddress[utxo.address, default: 0] += utxo.amount
         }
+
+        return addressesByIndex.map { index, address in
+            ColdStorageAddressEntry(
+                index: index,
+                address: address,
+                balanceSompi: balanceByAddress[address] ?? 0,
+                label: labels[index],
+                hidden: hidden.contains(index)
+            )
+        }.sorted { $0.index < $1.index }
     }
 
     /// Scans forward from index 0, stopping after `gapLimit` consecutive never-used
@@ -236,6 +236,38 @@ final class ColdStorageManager: ObservableObject {
 
     private func addressLabelsKey(for accountId: UUID) -> String {
         "kachat_cold_storage_labels_" + accountId.uuidString
+    }
+
+    // MARK: - Per-UTXO labels
+
+    /// Keyed by address (the UTXOs tab is per-address, not per-account) + `"txId:index"` outpoint
+    /// key, mirroring per-address labels above exactly.
+    func setUtxoLabel(address: String, outpointKey: String, label: String?) {
+        var labels = loadUtxoLabels(address: address)
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            labels.removeValue(forKey: outpointKey)
+        } else {
+            labels[outpointKey] = trimmed
+        }
+        saveUtxoLabels(labels, address: address)
+    }
+
+    func loadUtxoLabels(address: String) -> [String: String] {
+        guard let data = UserDefaults.standard.data(forKey: utxoLabelsKey(for: address)),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
+            return [:]
+        }
+        return decoded
+    }
+
+    private func saveUtxoLabels(_ labels: [String: String], address: String) {
+        guard let data = try? JSONEncoder().encode(labels) else { return }
+        UserDefaults.standard.set(data, forKey: utxoLabelsKey(for: address))
+    }
+
+    private func utxoLabelsKey(for address: String) -> String {
+        "kachat_cold_storage_utxo_labels_" + address
     }
 
     // MARK: - Hidden addresses

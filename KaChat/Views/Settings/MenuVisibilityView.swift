@@ -20,6 +20,10 @@ struct MenuVisibilityView: View {
     var body: some View {
         List {
             Section {
+                // Always-shown (locked) rows first, then everything toggleable - matching
+                // Android's MenuVisibilityScreen ordering.
+                menuRow(icon: AppTab.chats.icon, label: AppTab.chats.label, isOn: .constant(true), locked: true)
+                menuRow(icon: AppTab.profile.icon, label: AppTab.profile.label, isOn: .constant(true), locked: true)
                 menuRow(
                     icon: AppTab.portfolio.icon,
                     label: AppTab.portfolio.label,
@@ -38,7 +42,6 @@ struct MenuVisibilityView: View {
                     ),
                     locked: false
                 )
-                menuRow(icon: AppTab.chats.icon, label: AppTab.chats.label, isOn: .constant(true), locked: true)
                 menuRow(
                     icon: AppTab.swap.icon,
                     label: AppTab.swap.label,
@@ -48,7 +51,15 @@ struct MenuVisibilityView: View {
                     ),
                     locked: false
                 )
-                menuRow(icon: AppTab.profile.icon, label: AppTab.profile.label, isOn: .constant(true), locked: true)
+                menuRow(
+                    icon: "dot.radiowaves.left.and.right",
+                    label: "Broadcasts",
+                    isOn: Binding(
+                        get: { !settingsViewModel.settings.hideBroadcasts },
+                        set: { settingsViewModel.settings.hideBroadcasts = !$0; settingsViewModel.saveSettings() }
+                    ),
+                    locked: false
+                )
             } header: {
                 Text("Choose which tabs appear in your bottom menu.")
             } footer: {
@@ -137,6 +148,10 @@ private struct TabOrderDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         draggingTab = nil
+        // Persisted once here, not on every `dropEntered` hover - saveSettings() does a full
+        // JSON encode + UserDefaults write + settingsDidChange broadcast, which was firing many
+        // times per second while the pill dragged across neighbors, visibly stuttering the drag.
+        settingsViewModel.saveSettings()
         return true
     }
 
@@ -153,7 +168,6 @@ private struct TabOrderDropDelegate: DropDelegate {
                 toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
             )
             settingsViewModel.settings.tabOrder = order.map { $0.rawValue }
-            settingsViewModel.saveSettings()
         }
     }
 }

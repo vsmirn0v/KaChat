@@ -2560,6 +2560,35 @@ extension ChatService {
         if contactsManager.isAddressDeleted(contactAddress) {
             return
         }
+
+        // Reactions are never shown as their own chat bubble - just attached to the message they
+        // target - so intercept and route to the reactions store before this ever becomes a
+        // conversation update. Covers both incoming reactions (contactAddress is the sender) and
+        // our own outgoing reaction messages if they're ever independently re-fetched -
+        // `sendReaction` already applies the optimistic local update at send time, so this is a
+        // safety net for that direction, not its primary path.
+        if let reaction = MessageReactionCodec.parse(message.content) {
+            let reactorAddress = message.isOutgoing
+                ? (WalletManager.shared.currentWallet?.publicAddress ?? message.senderAddress)
+                : message.senderAddress
+            if reaction.action == "add" {
+                applyLocalReaction(targetTxId: reaction.targetTxId, reactorAddress: reactorAddress, emoji: reaction.emoji)
+                if let key = messageEncryptionKey() {
+                    messageStore.upsertReaction(
+                        targetTxId: reaction.targetTxId, reactorAddress: reactorAddress, contactAddress: contactAddress,
+                        emoji: reaction.emoji, reactionTxId: message.txId, blockTime: Int64(message.blockTime), encryptionKey: key
+                    )
+                }
+            } else {
+                removeLocalReaction(targetTxId: reaction.targetTxId, reactorAddress: reactorAddress)
+                messageStore.removeReaction(targetTxId: reaction.targetTxId, reactorAddress: reactorAddress)
+            }
+            // Same self-triggered-notification suppression as every other local Core Data write -
+            // see `ChatService+Reactions.swift`'s identical call for why this matters.
+            recordLocalSave()
+            return
+        }
+
         let contact = contactsManager.getOrCreateContact(address: contactAddress)
         if message.isOutgoing {
             contactsManager.markHasSentOutgoingMessage(address: contactAddress)
@@ -2770,7 +2799,7 @@ extension ChatService {
         var conversation = originalConversation
         update(&conversation)
         if normalizeMessages {
-            conversation.messages = dedupeMessages(conversation.messages)
+            conversation.messages = Self.dedupeMessages(conversation.messages)
         }
         guard conversation != originalConversation else { return }
         updatedConversations[index] = conversation

@@ -3,10 +3,9 @@ import Foundation
 /// KAS <-> USDC (Polygon) swaps, powered by ChangeNOW — combines the roles of Android's
 /// SwapViewModel + SwapRepository into one observable service, matching this app's existing
 /// pattern of a single `*.shared` service driving Views directly rather than a separate
-/// repository layer. For the KAS-is-the-"from"-side case, this sends the KAS itself via
-/// ChatService's spending-address send path rather than making the user do that manually in a
-/// separate app; the "to" side of a swap is never something this wallet holds, so swapping INTO
-/// something other than KAS only ever gets as far as showing the deposit address to pay into.
+/// repository layer. Neither side of a swap is something this app sends automatically: whichever
+/// coin the user is giving up, they pay into the ChangeNOW deposit address themselves (shown as a
+/// QR code), same as the "to" side already worked when that coin wasn't KAS.
 @MainActor
 final class SwapService: ObservableObject {
     static let shared = SwapService()
@@ -16,26 +15,15 @@ final class SwapService: ObservableObject {
     @Published private(set) var history: [SwapTransaction] = []
 
     // True = KAS is what you're sending (the curated coin is what you receive); false = the
-    // reverse. KAS is always one side of the pair, only which side flips.
-    @Published var kasIsSendSide: Bool = true
+    // reverse. KAS is always one side of the pair, only which side flips. Defaults to false -
+    // most people opening Swap are looking to acquire KAS, not sell it, so "You Send" starts on
+    // the other coin and "You Get" starts on KAS.
+    @Published var kasIsSendSide: Bool = false
     @Published var otherCoin: SwapCoin = .usdcPolygon
     @Published var amountText: String = ""
     /// Where ChangeNOW should deliver the "to" coin — only asked for when that coin isn't KAS
     /// (KAS always comes back to this wallet automatically).
     @Published var payoutAddressText: String = ""
-
-    struct SelectedFromAddress: Equatable {
-        let index: Int
-        let address: String
-        let balanceSompi: UInt64
-    }
-    /// Set when the user picked a specific non-primary spending address (via Manage Addresses)
-    /// to swap KAS from instead of the active one.
-    @Published private(set) var selectedFromAddress: SelectedFromAddress?
-    /// KAS available to swap away — the picked address's balance if one was chosen, otherwise
-    /// the active spending address's balance. Refreshed explicitly (see `refreshSpendingBalance`)
-    /// rather than kept live, matching how the rest of this app reads spending balances.
-    @Published private(set) var spendingBalanceSompi: UInt64 = 0
 
     /// Where swap-received KAS lands. Nil previews the next never-used spending address (same
     /// index math as WalletManager.generateNextSpendingAddress, just not reserved/persisted
@@ -43,11 +31,6 @@ final class SwapService: ObservableObject {
     /// address instead, e.g. one already received into from a prior swap.
     @Published private(set) var toAddressOverrideIndex: Int?
     @Published private(set) var toAddress: String = ""
-
-    /// Extra tip on top of the computed default fee, for network congestion - same
-    /// default-fee-plus-editable-extra pattern as Manage Addresses' withdraw/consolidate fee
-    /// editors, applied to the KAS leg's send when KAS is the "from" side.
-    @Published var extraFeeSompi: UInt64 = 0
 
     enum EstimateStatus { case idle, loading, success, failed }
     struct EstimateUiState {
@@ -57,7 +40,7 @@ final class SwapService: ObservableObject {
     }
     @Published private(set) var estimateState = EstimateUiState()
 
-    enum CreateSwapStatus { case idle, sendingKAS, creating, success, failed }
+    enum CreateSwapStatus { case idle, creating, success, failed }
     struct CreateSwapUiState {
         var status: CreateSwapStatus = .idle
         var result: ChangeNowTransactionResponse?
@@ -70,25 +53,6 @@ final class SwapService: ObservableObject {
     private init() {
         history = Self.loadHistory()
         refreshToAddress()
-    }
-
-    // MARK: - Fee (same reference-mass shortcut as Cold Storage/Manage Addresses fee editors)
-
-    var referenceMass: UInt64 { ColdStorageSendEngine.referenceMassForFeeEditor }
-
-    var defaultFeeSompi: UInt64 {
-        ColdStorageSendEngine.calculateFee(mass: referenceMass, rateSompiPerGram: KaspaFeePolicy.minimumRelayFeePerGramSompi)
-    }
-
-    var effectiveFeeSompi: UInt64 {
-        defaultFeeSompi + extraFeeSompi
-    }
-
-    /// Full balance minus the estimated fee, no change output - same shortcut as the withdraw
-    /// dialogs' Max button.
-    var maxSendableSompi: UInt64 {
-        let fee = effectiveFeeSompi
-        return spendingBalanceSompi > fee ? spendingBalanceSompi - fee : 0
     }
 
     // MARK: - Coin selection / direction
@@ -111,18 +75,7 @@ final class SwapService: ObservableObject {
         rescheduleEstimate()
     }
 
-    // MARK: - From/to spending address selection
-
-    func selectFromSpendingAddress(index: Int, balanceSompi: UInt64) {
-        guard let address = WalletManager.shared.spendingAddress(at: index) else { return }
-        selectedFromAddress = SelectedFromAddress(index: index, address: address, balanceSompi: balanceSompi)
-        Task { await refreshSpendingBalance() }
-    }
-
-    func clearSelectedFromSpendingAddress() {
-        selectedFromAddress = nil
-        Task { await refreshSpendingBalance() }
-    }
+    // MARK: - To spending address selection
 
     func selectToSpendingAddress(index: Int) {
         toAddressOverrideIndex = index
@@ -141,19 +94,6 @@ final class SwapService: ObservableObject {
     func refreshToAddress() {
         let index = toAddressOverrideIndex ?? nextFreshSpendingIndex()
         toAddress = WalletManager.shared.spendingAddress(at: index) ?? ""
-    }
-
-    func refreshSpendingBalance() async {
-        if let selected = selectedFromAddress {
-            spendingBalanceSompi = selected.balanceSompi
-            return
-        }
-        guard let address = WalletManager.shared.currentSpendingAddress() else {
-            spendingBalanceSompi = 0
-            return
-        }
-        let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
-        spendingBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
     }
 
     // MARK: - Live quote
@@ -198,7 +138,7 @@ final class SwapService: ObservableObject {
         let to = toCoin
         let amountStr = amountText
 
-        createSwapState = CreateSwapUiState(status: from.ticker == "kas" ? .sendingKAS : .creating)
+        createSwapState = CreateSwapUiState(status: .creating)
 
         Task {
             let payoutAddress: String
@@ -241,23 +181,6 @@ final class SwapService: ObservableObject {
                     return
                 }
 
-                var kasSendTxId: String?
-                if from.ticker == "kas" {
-                    let amountSompi = UInt64((amount * 100_000_000).rounded())
-                    let fromIndex = selectedFromAddress?.index ?? WalletManager.shared.currentSpendingAddressIndex
-                    do {
-                        kasSendTxId = try await ChatService.shared.sendFromSpendingAddress(
-                            index: fromIndex,
-                            toAddress: payinAddress,
-                            amountSompi: amountSompi,
-                            extraFeeSompi: extraFeeSompi
-                        )
-                    } catch {
-                        createSwapState = CreateSwapUiState(status: .failed, errorMessage: error.localizedDescription)
-                        return
-                    }
-                }
-
                 let transaction = SwapTransaction(
                     id: response.id,
                     fromTicker: from.ticker,
@@ -270,7 +193,7 @@ final class SwapService: ObservableObject {
                     payoutAddress: payoutAddress,
                     status: response.status ?? "new",
                     createdAt: Date(),
-                    kasSendTxId: kasSendTxId
+                    kasSendTxId: nil
                 )
                 history.insert(transaction, at: 0)
                 saveHistory()
@@ -278,10 +201,7 @@ final class SwapService: ObservableObject {
                 createSwapState = CreateSwapUiState(status: .success, result: response)
                 amountText = ""
                 estimateState = EstimateUiState()
-                selectedFromAddress = nil
                 toAddressOverrideIndex = nil
-                extraFeeSompi = 0
-                await refreshSpendingBalance()
                 refreshToAddress()
             } catch {
                 createSwapState = CreateSwapUiState(status: .failed, errorMessage: error.localizedDescription)

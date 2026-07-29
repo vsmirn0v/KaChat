@@ -182,6 +182,61 @@ enum ChessGameService {
         )
     }
 
+    /// The contact's current active (not yet game-over) chess game, if any - scans for every
+    /// distinct `gameId` invited in `messages` and returns the summary for whichever is still
+    /// active. `startGame` enforces at most one active game per contact, so this should never find
+    /// more than one candidate in practice; if older history somehow left more than one, the most
+    /// recently invited game wins.
+    static func activeGame(in messages: [ChatMessage], myAddress: String, contactAddress: String) -> ChessGameSummary? {
+        let inviteMessages = messages
+            .filter {
+                if case .invite = ChessCodec.parseAny(MessageReplyCodec.unwrappedText($0.content)) { return true }
+                return false
+            }
+            .sorted { $0.timestamp > $1.timestamp }
+
+        var seenGameIds = Set<String>()
+        for message in inviteMessages {
+            guard let envelope = ChessCodec.parseAny(MessageReplyCodec.unwrappedText(message.content)) else { continue }
+            guard seenGameIds.insert(envelope.gameId).inserted else { continue }
+            if let summary = summarize(gameId: envelope.gameId, in: messages, myAddress: myAddress, contactAddress: contactAddress),
+               !summary.status.isGameOver {
+                return summary
+            }
+        }
+        return nil
+    }
+
+    /// Cumulative decisive-outcome tally across every distinct chess game ever invited with this
+    /// contact (not just the current one) - checkmate/resignation count as a win or loss for the
+    /// local player; stalemate/declined/pending/in-progress games don't count either way. Used by
+    /// `ChessGameView`'s W/L counter and `ChatInfoView`'s "Chess Stats" row.
+    static func record(in messages: [ChatMessage], myAddress: String, contactAddress: String) -> (wins: Int, losses: Int) {
+        let inviteMessages = messages.filter {
+            if case .invite = ChessCodec.parseAny(MessageReplyCodec.unwrappedText($0.content)) { return true }
+            return false
+        }
+
+        var seenGameIds = Set<String>()
+        var wins = 0
+        var losses = 0
+        for message in inviteMessages {
+            guard let envelope = ChessCodec.parseAny(MessageReplyCodec.unwrappedText(message.content)) else { continue }
+            guard seenGameIds.insert(envelope.gameId).inserted else { continue }
+            guard let summary = summarize(gameId: envelope.gameId, in: messages, myAddress: myAddress, contactAddress: contactAddress),
+                  let myColor = summary.color(for: myAddress) else { continue }
+            switch summary.status {
+            case .checkmate(let winner):
+                if winner == myColor { wins += 1 } else { losses += 1 }
+            case .resigned(let loser):
+                if loser == myColor { losses += 1 } else { wins += 1 }
+            case .pendingResponse, .declined, .inProgress, .stalemate:
+                break
+            }
+        }
+        return (wins, losses)
+    }
+
     /// True if `message` is any chess envelope and no *later* message in `messages` shares its
     /// `gameId` - i.e. this is the current/latest state for that game, which is the only one that
     /// should render as the live status card (earlier moves render as a compact log line instead,

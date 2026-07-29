@@ -39,6 +39,11 @@ final class GroupChatService: ObservableObject {
     /// "Reply" action, consumed (wrapped into the outgoing payload, then cleared) by
     /// `sendGroupMessage`.
     @Published var replyingTo: GroupMessage?
+    /// This wallet's group reactions, keyed by targetTxId then further by groupId at the top
+    /// level - mirrors `ChatService.reactionsByTxId`'s shape for 1:1. Loaded once per group open
+    /// (see `loadGroupReactions`) and kept live afterward by `sendGroupReaction`/the
+    /// incoming-reaction interception in `handleIncomingGroupMessage` updating it directly.
+    @Published var reactionsByGroupId: [String: [String: [GroupStore.ReactionSnapshot]]] = [:]
 
     /// Set when a group-chat push notification is tapped before `ChatListView` exists yet
     /// (cold start) - consumed and cleared by `ChatListView.checkPendingGroupNavigation()`.
@@ -100,6 +105,22 @@ final class GroupChatService: ObservableObject {
         string.utf8.map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Wallet the currently in-memory `groupLastReadAt`/`groupHiddenMembers`/`groupMutedMembers`/
+    /// `groupMentionsOnlyNotifications`/`groupCatchUpCursors` belong to. Every UserDefaults key
+    /// for those five is suffixed with this address (see `scopedDefaultsKey`) so switching between
+    /// multiple accounts on the same device can't let one account's read/mute/hide state leak
+    /// into, or get overwritten by, another's - previously all five shared one un-scoped global
+    /// key, which is how logging out, creating a second account, then logging back into the first
+    /// could reset every group back to "unread."
+    private var currentWalletAddress: String?
+
+    /// nil (falling back to the base, un-scoped key) when there's no active wallet - matches every
+    /// other per-wallet store in this codebase reading nothing until a wallet is set.
+    private func scopedDefaultsKey(_ base: String) -> String? {
+        guard let currentWalletAddress else { return nil }
+        return "\(base)_\(currentWalletAddress)"
+    }
+
     private init() {
         // Re-evaluate scanning as the node pool warms up - see updateScanningStateIfNeeded's
         // gating on activeNodeCount for why this needs to be reactive, not just re-checked at
@@ -118,36 +139,48 @@ final class GroupChatService: ObservableObject {
     }
 
     private func loadGroupCatchUpCursors() {
-        guard let data = UserDefaults.standard.data(forKey: groupCatchUpCursorsKey),
-              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else { return }
-        groupCatchUpCursors = decoded
+        groupCatchUpCursors = loadScoped(groupCatchUpCursorsKey) ?? [:]
     }
 
     private func saveGroupCatchUpCursors() {
-        guard let data = try? JSONEncoder().encode(groupCatchUpCursors) else { return }
-        UserDefaults.standard.set(data, forKey: groupCatchUpCursorsKey)
+        saveScoped(groupCatchUpCursorsKey, groupCatchUpCursors)
     }
 
     private func loadGroupLastReadAt() {
-        guard let data = UserDefaults.standard.data(forKey: groupLastReadAtKey),
-              let decoded = try? JSONDecoder().decode([String: Date].self, from: data) else { return }
-        groupLastReadAt = decoded
+        groupLastReadAt = loadScoped(groupLastReadAtKey) ?? [:]
     }
 
     private func saveGroupLastReadAt() {
-        guard let data = try? JSONEncoder().encode(groupLastReadAt) else { return }
-        UserDefaults.standard.set(data, forKey: groupLastReadAtKey)
+        saveScoped(groupLastReadAtKey, groupLastReadAt)
+    }
+
+    /// Reads the current wallet's scoped key; if that's never been written yet, falls back to the
+    /// old un-scoped global key (read-only, one-time migration for whichever account first loads
+    /// after the per-wallet scoping fix - never written back to, so it's still there for any other
+    /// account on this device to migrate from too, the first time each of them is loaded).
+    private func loadScoped<T: Decodable>(_ baseKey: String) -> T? {
+        // No active wallet - nothing to scope to, and no reason to fall back to the legacy blob
+        // either (there's no group list on screen to misattribute it to).
+        guard let key = scopedDefaultsKey(baseKey) else { return nil }
+        if let data = UserDefaults.standard.data(forKey: key),
+           let decoded = try? JSONDecoder().decode(T.self, from: data) {
+            return decoded
+        }
+        guard let legacyData = UserDefaults.standard.data(forKey: baseKey) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: legacyData)
+    }
+
+    private func saveScoped<T: Encodable>(_ baseKey: String, _ value: T) {
+        guard let key = scopedDefaultsKey(baseKey), let data = try? JSONEncoder().encode(value) else { return }
+        UserDefaults.standard.set(data, forKey: key)
     }
 
     private func loadGroupHiddenMembers() {
-        guard let data = UserDefaults.standard.data(forKey: groupHiddenMembersKey),
-              let decoded = try? JSONDecoder().decode([String: Set<String>].self, from: data) else { return }
-        groupHiddenMembers = decoded
+        groupHiddenMembers = loadScoped(groupHiddenMembersKey) ?? [:]
     }
 
     private func saveGroupHiddenMembers() {
-        guard let data = try? JSONEncoder().encode(groupHiddenMembers) else { return }
-        UserDefaults.standard.set(data, forKey: groupHiddenMembersKey)
+        saveScoped(groupHiddenMembersKey, groupHiddenMembers)
     }
 
     /// Hides a member's messages in one group's thread - their messages stay stored (recoverable
@@ -167,14 +200,11 @@ final class GroupChatService: ObservableObject {
     }
 
     private func loadGroupMutedMembers() {
-        guard let data = UserDefaults.standard.data(forKey: groupMutedMembersKey),
-              let decoded = try? JSONDecoder().decode([String: Set<String>].self, from: data) else { return }
-        groupMutedMembers = decoded
+        groupMutedMembers = loadScoped(groupMutedMembersKey) ?? [:]
     }
 
     private func saveGroupMutedMembers() {
-        guard let data = try? JSONEncoder().encode(groupMutedMembers) else { return }
-        UserDefaults.standard.set(data, forKey: groupMutedMembersKey)
+        saveScoped(groupMutedMembersKey, groupMutedMembers)
     }
 
     /// Mutes a member's notifications in one group - their messages still show up in the thread
@@ -194,14 +224,11 @@ final class GroupChatService: ObservableObject {
     }
 
     private func loadGroupMentionsOnlyNotifications() {
-        guard let data = UserDefaults.standard.data(forKey: groupMentionsOnlyNotificationsKey),
-              let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) else { return }
-        groupMentionsOnlyNotifications = decoded
+        groupMentionsOnlyNotifications = loadScoped(groupMentionsOnlyNotificationsKey) ?? []
     }
 
     private func saveGroupMentionsOnlyNotifications() {
-        guard let data = try? JSONEncoder().encode(groupMentionsOnlyNotifications) else { return }
-        UserDefaults.standard.set(data, forKey: groupMentionsOnlyNotificationsKey)
+        saveScoped(groupMentionsOnlyNotificationsKey, groupMentionsOnlyNotifications)
         SharedDataManager.syncGroupsForExtension()
     }
 
@@ -283,6 +310,30 @@ final class GroupChatService: ObservableObject {
     /// Mirrors `ChatService.enterConversation(for:)` - call from the group thread's `.onAppear`.
     func enterGroup(_ groupId: String) {
         activeGroupId = groupId
+        loadGroupReactions(for: groupId)
+    }
+
+    /// Loads this group's reactions from disk into the live in-memory index - mirrors
+    /// `ChatService.loadReactions(for:)` for 1:1.
+    func loadGroupReactions(for groupId: String) {
+        reactionsByGroupId[groupId] = store.fetchGroupReactions(groupId: groupId)
+    }
+
+    private func applyLocalGroupReaction(targetTxId: String, groupId: String, reactorAddress: String, emoji: String) {
+        var existing = reactionsByGroupId[groupId]?[targetTxId] ?? []
+        existing.removeAll { $0.reactorAddress == reactorAddress }
+        existing.append(GroupStore.ReactionSnapshot(targetTxId: targetTxId, reactorAddress: reactorAddress, emoji: emoji))
+        reactionsByGroupId[groupId, default: [:]][targetTxId] = existing
+    }
+
+    private func removeLocalGroupReaction(targetTxId: String, groupId: String, reactorAddress: String) {
+        guard var existing = reactionsByGroupId[groupId]?[targetTxId] else { return }
+        existing.removeAll { $0.reactorAddress == reactorAddress }
+        if existing.isEmpty {
+            reactionsByGroupId[groupId]?.removeValue(forKey: targetTxId)
+        } else {
+            reactionsByGroupId[groupId, default: [:]][targetTxId] = existing
+        }
     }
 
     /// Mirrors `ChatService.leaveConversation()` - call from the group thread's `.onDisappear`.
@@ -294,6 +345,12 @@ final class GroupChatService: ObservableObject {
 
     func setCurrentWallet(_ walletAddress: String?) {
         hasActiveWallet = walletAddress != nil
+        currentWalletAddress = walletAddress
+        loadGroupCatchUpCursors()
+        loadGroupLastReadAt()
+        loadGroupHiddenMembers()
+        loadGroupMutedMembers()
+        loadGroupMentionsOnlyNotifications()
         store.setCurrentWallet(walletAddress)
         groups = walletAddress == nil ? [] : store.allGroups()
         groupMessages.removeAll()
@@ -315,15 +372,18 @@ final class GroupChatService: ObservableObject {
         groups = []
         groupMessages.removeAll()
         groupCatchUpCursors = [:]
-        UserDefaults.standard.removeObject(forKey: groupCatchUpCursorsKey)
         groupLastReadAt = [:]
-        UserDefaults.standard.removeObject(forKey: groupLastReadAtKey)
         groupHiddenMembers = [:]
-        UserDefaults.standard.removeObject(forKey: groupHiddenMembersKey)
         groupMutedMembers = [:]
-        UserDefaults.standard.removeObject(forKey: groupMutedMembersKey)
         groupMentionsOnlyNotifications = []
-        UserDefaults.standard.removeObject(forKey: groupMentionsOnlyNotificationsKey)
+        for baseKey in [groupCatchUpCursorsKey, groupLastReadAtKey, groupHiddenMembersKey, groupMutedMembersKey, groupMentionsOnlyNotificationsKey] {
+            if let key = scopedDefaultsKey(baseKey) {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+            // Also clear the legacy un-scoped key so a pre-migration blob can't keep resurfacing
+            // via loadScoped's fallback for whichever account loads next.
+            UserDefaults.standard.removeObject(forKey: baseKey)
+        }
         updateScanningStateIfNeeded()
         ChatService.shared.scheduleBadgeUpdate()
     }
@@ -728,6 +788,61 @@ final class GroupChatService: ObservableObject {
         }
     }
 
+    /// Reacts to `targetTxId` with `emoji` ("add"), or removes this wallet's existing reaction on
+    /// it ("remove"). Unlike `sendGroupMessage`, this never creates a visible pending bubble - the
+    /// reaction is applied to the local reactions store immediately (optimistic UI) and the
+    /// actual send reuses the exact same single self-stash broadcast `sendGroupMessage` uses,
+    /// which already reaches every member via the shared group root key - no per-member fan-out
+    /// needed.
+    func sendGroupReaction(targetTxId: String, groupId: String, emoji: String, action: String) async throws {
+        guard var bag = try keychain.loadGroupBag(groupId: groupId),
+              let gid = Data(hexString: groupId),
+              let groupRootEpoch = Data(hexString: bag.groupRootEpoch),
+              let blindingKey = Data(hexString: bag.blindingKey),
+              let deviceId = Data(hexString: bag.deviceId) else {
+            throw KasiaError.networkError("Missing group secrets - try rejoining this group.")
+        }
+        guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey() else {
+            throw KasiaError.walletNotFound
+        }
+        let senderXOnlyPub = try schnorrXOnlyPublicKey(from: privateKey)
+        let senderId = GroupCipher.deriveSenderId(senderAddress: wallet.publicAddress)
+        let payload = MessageReactionCodec.encode(targetTxId: targetTxId, emoji: emoji, action: action)
+
+        if action == "add" {
+            applyLocalGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress, emoji: emoji)
+            store.upsertGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress, emoji: emoji, reactionTxId: nil, blockTime: Int64(Date().timeIntervalSince1970 * 1000))
+        } else {
+            removeLocalGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress)
+            store.removeGroupReaction(targetTxId: targetTxId, reactorAddress: wallet.publicAddress)
+        }
+
+        bag.msgCounter += 1
+        let counter = bag.msgCounter
+        try keychain.saveGroupBag(bag)
+
+        let msgId = GroupCipher.buildMsgId(deviceId: deviceId, counter: counter)
+        let ciphertext = try GroupCipher.encryptMessage(
+            plaintext: payload, groupRootEpoch: groupRootEpoch, groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId
+        )
+        let aad = GroupCipher.buildMessageAAD(groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId)
+        let signature = try GroupCipher.sign(
+            GroupCipher.buildMessageSigningPayload(aad: aad, ciphertextWithTag: ciphertext), privateKey: privateKey
+        )
+        let blindedGroupId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: senderXOnlyPub)
+        let payloadString = GroupCipher.buildGroupMessagePayload(
+            blindedGroupId: blindedGroupId, epoch: bag.currentEpoch, senderId: senderId, senderPubKey: senderXOnlyPub,
+            msgId: msgId, ciphertext: ciphertext, signature: signature
+        )
+
+        let realTxId = try await ChatService.shared.enqueueOutgoingTxOperation { [weak self] in
+            try await self?.sendSelfStashPayload(payloadString, from: wallet.publicAddress, privateKey: privateKey) ?? ""
+        }
+        if action == "add" {
+            store.upsertGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress, emoji: emoji, reactionTxId: realTxId, blockTime: Int64(Date().timeIntervalSince1970 * 1000))
+        }
+    }
+
     /// Shared self-stash send primitive for gcomm/gctl payloads - mirrors
     /// `BroadcastService.sendBroadcastInternal`'s UTXO fetch/reserve/submit sequence exactly,
     /// reusing `ChatService`'s shared UTXO reservation state so group sends can't race with
@@ -950,6 +1065,21 @@ final class GroupChatService: ObservableObject {
                 ciphertextWithTag: parsed.ciphertext, groupRootEpoch: root, groupId: gid, epoch: parsed.epoch, senderId: parsed.senderId, msgId: parsed.msgId
             ) else {
                 AppLog.log("[GroupChatService] Rejected gcomm for group %@: decrypt failed from %@", String(group.id.prefix(12)), senderAddress)
+                return
+            }
+
+            // Reactions are never shown as their own chat bubble - just attached to the message
+            // they target - so intercept and route to the reactions store before this ever
+            // becomes a GroupMessage. Our own outgoing reactions already apply their local update
+            // at send time (sendGroupReaction), so this mainly covers incoming ones.
+            if let reaction = MessageReactionCodec.parse(plaintext) {
+                if reaction.action == "add" {
+                    applyLocalGroupReaction(targetTxId: reaction.targetTxId, groupId: group.id, reactorAddress: senderAddress, emoji: reaction.emoji)
+                    store.upsertGroupReaction(targetTxId: reaction.targetTxId, groupId: group.id, reactorAddress: senderAddress, emoji: reaction.emoji, reactionTxId: txId, blockTime: blockTime)
+                } else {
+                    removeLocalGroupReaction(targetTxId: reaction.targetTxId, groupId: group.id, reactorAddress: senderAddress)
+                    store.removeGroupReaction(targetTxId: reaction.targetTxId, reactorAddress: senderAddress)
+                }
                 return
             }
 

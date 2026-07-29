@@ -48,6 +48,11 @@ final class ChatService: ObservableObject {
     @Published var error: KasiaError?
     @Published var declinedContacts: Set<String> = []
     @Published var replyingTo: ChatMessage?
+    /// This wallet's reactions, keyed by the txId of the message they target - loaded once per
+    /// conversation (see `loadReactions(for:)`) and kept live afterward by `sendReaction`/the
+    /// incoming-reaction interception in `addMessageToConversation` applying updates directly,
+    /// rather than a Core Data change-notification round trip for every update.
+    @Published var reactionsByTxId: [String: [MessageStore.ReactionSnapshot]] = [:]
     var settingsViewModel: SettingsViewModel?
     var cachedSettings = SettingsViewModel.loadSettings()
     @Published var activeConversationAddress: String?
@@ -153,7 +158,11 @@ final class ChatService: ObservableObject {
 #endif
     // Keep only a recent in-memory slice per conversation by default.
     // Older pages are loaded on demand in ChatDetailView.
-    let inMemoryConversationWindowSize = 160
+    // `nonisolated static` (not an instance property) so `trimMessagesForMemory` can stay
+    // `nonisolated static` and run off the main actor - see that function's doc comment. `static`
+    // alone isn't enough: a static member of an `@MainActor` type is still actor-isolated by
+    // default unless explicitly marked `nonisolated` too.
+    nonisolated static let inMemoryConversationWindowSize = 160
     struct PendingOutgoingRef {
         let txId: String
         let messageType: ChatMessage.MessageType

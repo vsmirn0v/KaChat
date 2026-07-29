@@ -58,7 +58,7 @@ extension ChatService {
             guard !contactAddress.isEmpty, !txId.isEmpty else { continue }
             var bucket = messagesByAddress[contactAddress, default: [:]]
             if let existing = bucket[txId] {
-                bucket[txId] = preferMessage(existing, stored.message)
+                bucket[txId] = Self.preferMessage(existing, stored.message)
             } else {
                 bucket[txId] = stored.message
             }
@@ -68,7 +68,7 @@ extension ChatService {
         let allAddresses = Set(messagesByAddress.keys).union(metaByAddress.keys)
         let exportedConversations = allAddresses.map { contactAddress in
             let messages = Array(messagesByAddress[contactAddress, default: [:]].values)
-                .sorted(by: isMessageOrderedBefore)
+                .sorted(by: Self.isMessageOrderedBefore)
             let meta = metaByAddress[contactAddress]
             let inMemory = conversations.first(where: { $0.contact.address == contactAddress })
             let alias = contactsManager.getContact(byAddress: contactAddress)?.alias ?? inMemory?.contact.alias
@@ -126,7 +126,7 @@ extension ChatService {
         let existingBefore = await messageStore.fetchAllMessages(decryptionKey: key)
         let existingOutgoingPlaceholderTxIds = Set(
             existingBefore.compactMap { stored -> String? in
-                guard stored.message.isOutgoing, isPlaceholderContent(stored.message.content) else { return nil }
+                guard stored.message.isOutgoing, Self.isPlaceholderContent(stored.message.content) else { return nil }
                 return stored.message.txId
             }
         )
@@ -140,9 +140,9 @@ extension ChatService {
 
             var importedMessages = archivedConversation.messages.filter { !$0.txId.isEmpty }
             guard !importedMessages.isEmpty else { continue }
-            importedMessages = dedupeMessages(importedMessages)
+            importedMessages = Self.dedupeMessages(importedMessages)
 
-            for message in importedMessages where message.isOutgoing && !isPlaceholderContent(message.content) {
+            for message in importedMessages where message.isOutgoing && !Self.isPlaceholderContent(message.content) {
                 importedOutgoingWithContentTxIds.insert(message.txId)
             }
 
@@ -165,7 +165,7 @@ extension ChatService {
             )
 
             if var existing = importedByAddress[contactAddress] {
-                existing.messages = dedupeMessages(existing.messages + archived.messages)
+                existing.messages = Self.dedupeMessages(existing.messages + archived.messages)
                 existing.unreadCount = max(existing.unreadCount, archived.unreadCount)
                 importedByAddress[contactAddress] = existing
             } else {

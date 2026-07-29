@@ -2736,6 +2736,111 @@ final class MessageStore {
         )
     }
 
+    // MARK: - Reactions (CDReaction)
+
+    /// One reaction on a message, decrypted and safe to pass across contexts/threads.
+    struct ReactionSnapshot: Identifiable, Equatable {
+        var id: String { "\(targetTxId)-\(reactorAddress)" }
+        let targetTxId: String
+        let reactorAddress: String
+        let emoji: String
+    }
+
+    /// Replaces any existing reaction `reactorAddress` left on `targetTxId` with `emoji` - one
+    /// reaction per (message, reactor). No uniqueness constraint at the Core Data level (CloudKit
+    /// doesn't support them, same as `CDReadMarker`) - any duplicate found during the
+    /// fetch-then-upsert is folded into the first result and the rest deleted.
+    func upsertReaction(targetTxId: String, reactorAddress: String, contactAddress: String, emoji: String, reactionTxId: String?, blockTime: Int64, encryptionKey: SymmetricKey) {
+        guard ensureStoreLoaded() else { return }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+        context.perform {
+            let request = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
+            if let walletAddr {
+                request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)", targetTxId, reactorAddress, walletAddr)
+            } else {
+                request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@", targetTxId, reactorAddress)
+            }
+            let existing = (try? context.fetch(request)) ?? []
+            let reaction = existing.first ?? CDReaction(context: context)
+            for duplicate in existing.dropFirst() {
+                context.delete(duplicate)
+            }
+            reaction.targetTxId = targetTxId
+            reaction.reactorAddress = reactorAddress
+            reaction.contactAddress = contactAddress
+            reaction.reactionTxId = reactionTxId
+            reaction.blockTime = blockTime
+            reaction.updatedAt = Date()
+            if let walletAddr {
+                reaction.walletAddress = walletAddr
+            }
+            if let encrypted = self.encryptContent(emoji, key: encryptionKey) {
+                reaction.emojiEncrypted = encrypted
+            }
+            do {
+                try context.save()
+            } catch {
+                self.logInfo("[MessageStore] Failed to upsert reaction: \(error)")
+            }
+        }
+    }
+
+    /// Deletes `reactorAddress`'s reaction on `targetTxId`, if any.
+    func removeReaction(targetTxId: String, reactorAddress: String) {
+        guard ensureStoreLoaded() else { return }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        context.perform {
+            let request = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
+            if let walletAddr {
+                request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)", targetTxId, reactorAddress, walletAddr)
+            } else {
+                request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@", targetTxId, reactorAddress)
+            }
+            do {
+                let existing = try context.fetch(request)
+                for record in existing {
+                    context.delete(record)
+                }
+                try context.save()
+            } catch {
+                self.logInfo("[MessageStore] Failed to remove reaction: \(error)")
+            }
+        }
+    }
+
+    /// All reactions for `contactAddress`, decrypted and grouped by the message they target -
+    /// loaded once when a conversation opens; kept live afterward by the caller applying the same
+    /// upsert/remove calls to its own in-memory copy, the same way `ChatService` already keeps its
+    /// published conversation state in sync without a Core Data change-notification round trip for
+    /// every update.
+    func fetchReactions(contactAddress: String, decryptionKey: SymmetricKey) async -> [String: [ReactionSnapshot]] {
+        guard ensureStoreLoaded() else { return [:] }
+        let walletAddress = currentWalletAddress
+        return await withCheckedContinuation { (continuation: CheckedContinuation<[String: [ReactionSnapshot]], Never>) in
+            container.performBackgroundTask { context in
+                let request = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
+                if let walletAddress {
+                    request.predicate = NSPredicate(format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)", contactAddress, walletAddress)
+                } else {
+                    request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+                }
+                var grouped: [String: [ReactionSnapshot]] = [:]
+                if let results = try? context.fetch(request) {
+                    for record in results {
+                        guard let emojiData = record.emojiEncrypted,
+                              let emoji = self.decryptContent(emojiData, key: decryptionKey) else { continue }
+                        let snapshot = ReactionSnapshot(targetTxId: record.targetTxId, reactorAddress: record.reactorAddress, emoji: emoji)
+                        grouped[record.targetTxId, default: []].append(snapshot)
+                    }
+                }
+                continuation.resume(returning: grouped)
+            }
+        }
+    }
+
     private static func makeModel() -> NSManagedObjectModel {
         let model = NSManagedObjectModel()
 
@@ -2754,6 +2859,10 @@ final class MessageStore {
         let syncMarkerEntity = NSEntityDescription()
         syncMarkerEntity.name = CDSyncMarker.entityName
         syncMarkerEntity.managedObjectClassName = NSStringFromClass(CDSyncMarker.self)
+
+        let reactionEntity = NSEntityDescription()
+        reactionEntity.name = CDReaction.entityName
+        reactionEntity.managedObjectClassName = NSStringFromClass(CDReaction.self)
 
         messageEntity.properties = [
             makeAttribute(name: "messageId", type: .UUIDAttributeType, optional: true),
@@ -2806,7 +2915,22 @@ final class MessageStore {
             makeAttribute(name: "updatedAt", type: .dateAttributeType, optional: true)
         ]
 
-        model.entities = [messageEntity, conversationEntity, readMarkerEntity, syncMarkerEntity]
+        // CDReaction: one row per (targetTxId, reactorAddress, walletAddress) - picking a new
+        // emoji replaces the row's emojiEncrypted rather than adding a second row; removing a
+        // reaction deletes the row outright. No uniqueness constraint (CloudKit doesn't support
+        // them, same as CDReadMarker above) - dedup is handled manually before insert.
+        reactionEntity.properties = [
+            makeAttribute(name: "targetTxId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "reactorAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "contactAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "emojiEncrypted", type: .binaryDataAttributeType, optional: true),
+            makeAttribute(name: "reactionTxId", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "blockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            makeAttribute(name: "updatedAt", type: .dateAttributeType, optional: true),
+            makeAttribute(name: "walletAddress", type: .stringAttributeType, optional: true)
+        ]
+
+        model.entities = [messageEntity, conversationEntity, readMarkerEntity, syncMarkerEntity, reactionEntity]
         return model
     }
 
@@ -3368,6 +3492,24 @@ final class CDReadMarker: NSManagedObject {
     @NSManaged var lastReadBlockTime: Int64
     /// When this marker was last updated (for stale cleanup)
     @NSManaged var updatedAt: Date?
+}
+
+/// A reaction (tapback) sent or received on a 1:1 message - see `MessageReactionContent`. One row
+/// per (targetTxId, reactorAddress, walletAddress); `reactionTxId` is the reaction message's own
+/// transaction id, kept for reference (not used for dedup - the fetch-then-upsert in
+/// `MessageStore.upsertReaction` already prevents duplicates).
+@objc(CDReaction)
+final class CDReaction: NSManagedObject {
+    static let entityName = "CDReaction"
+
+    @NSManaged var targetTxId: String
+    @NSManaged var reactorAddress: String
+    @NSManaged var contactAddress: String
+    @NSManaged var emojiEncrypted: Data?
+    @NSManaged var reactionTxId: String?
+    @NSManaged var blockTime: Int64
+    @NSManaged var updatedAt: Date?
+    @NSManaged var walletAddress: String?
 }
 
 @objc(CDSyncMarker)

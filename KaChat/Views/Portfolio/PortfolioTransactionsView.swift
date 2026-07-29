@@ -7,6 +7,7 @@ struct PortfolioTransactionsView: View {
 
     @State private var editingTransaction: PortfolioTransaction?
     @State private var showAddSheet = false
+    @State private var showAddAddressSheet = false
     @State private var showCsvImporter = false
     @State private var showCsvExporter = false
     @State private var exportURL: URL?
@@ -43,9 +44,10 @@ struct PortfolioTransactionsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .refreshable {
+            await viewModel.refreshPriceAsync()
+        }
         .environment(\.editMode, $editMode)
-        .navigationTitle("Transactions")
-        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if isSelecting {
@@ -98,6 +100,21 @@ struct PortfolioTransactionsView: View {
         }
         .sheet(item: $editingTransaction) { tx in
             PortfolioTransactionEditor(viewModel: viewModel, existing: tx)
+        }
+        .sheet(isPresented: $showAddAddressSheet) {
+            AddPortfolioAddressSheet(viewModel: viewModel) { result in
+                switch result {
+                case .success(let importResult):
+                    toastStyle = .success
+                    let base = "Imported \(importResult.imported.count) transaction\(importResult.imported.count == 1 ? "" : "s")"
+                    toastMessage = importResult.missingPriceCount > 0
+                        ? base + " (\(importResult.missingPriceCount) need a price — edit to set manually)"
+                        : base
+                case .failure(let error):
+                    toastStyle = .error
+                    toastMessage = error.errorDescription ?? "Import failed."
+                }
+            }
         }
         .sheet(isPresented: $showCsvExporter) {
             if let exportURL {
@@ -165,14 +182,23 @@ struct PortfolioTransactionsView: View {
     }
 
     private func transactionRow(_ tx: PortfolioTransaction) -> some View {
-        HStack(spacing: 12) {
+        let needsPrice = tx.notes == PortfolioAddressImporter.priceUnavailableNote
+        return HStack(spacing: 12) {
             Image(systemName: tx.type == .buy ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
                 .font(.title2)
                 .foregroundColor(tx.type == .buy ? .green : .red)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(tx.type == .buy ? "Buy" : "Sell")
-                    .fontWeight(.medium)
+                HStack(spacing: 4) {
+                    Text(tx.type == .buy ? "Buy" : "Sell")
+                        .fontWeight(.medium)
+                    if needsPrice {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.yellow)
+                            .accessibilityLabel("Price needed — tap to set")
+                    }
+                }
                 Text(tx.timestamp.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -187,7 +213,7 @@ struct PortfolioTransactionsView: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 2) {
-                Text(String(format: "%.4f KAS", tx.amountKas))
+                Text("\(Self.formatKasAmount(tx.amountKas)) KAS")
                     .fontWeight(.medium)
                 Text(formatCurrency(tx.fiatValue))
                     .font(.caption)
@@ -197,24 +223,50 @@ struct PortfolioTransactionsView: View {
         .padding(.vertical, 4)
     }
 
+    private static let kasAmountFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = true
+        formatter.groupingSeparator = ","
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 4
+        formatter.locale = Locale(identifier: "en_US")
+        return formatter
+    }()
+
+    /// Comma-grouped for display only (e.g. "12,345.6789 KAS") — never used for a value that
+    /// gets parsed back, unlike the plain, non-grouped formatting the editable quantity field uses.
+    private static func formatKasAmount(_ value: Double) -> String {
+        kasAmountFormatter.string(from: NSNumber(value: value)) ?? String(format: "%.4f", value)
+    }
+
     private var addTransactionButton: some View {
-        Button {
-            Haptics.impact(.light)
-            showAddSheet = true
+        Menu {
+            Button {
+                Haptics.impact(.light)
+                showAddSheet = true
+            } label: {
+                Label("Add Transaction", systemImage: "pencil")
+            }
+            Button {
+                Haptics.impact(.light)
+                showAddAddressSheet = true
+            } label: {
+                Label("Add Kaspa Address", systemImage: "arrow.left.arrow.right")
+            }
         } label: {
-            Label("Add Transaction", systemImage: "plus")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 14)
+            Image(systemName: "plus")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(.accentColor)
+                .frame(width: 56, height: 56)
                 .background(
-                    Capsule()
+                    Circle()
                         .fill(.regularMaterial)
-                        .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+                        .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
                         .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
                 )
-                .foregroundColor(.accentColor)
         }
+        .tint(.accentColor)
     }
 
     private var importExportButton: some View {
@@ -274,6 +326,84 @@ private struct PortfolioCsvShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - Add Kaspa Address
+
+/// Address entry -> fetch/classify/price progress, all in one sheet. Every received transaction
+/// on the address becomes a buy, every sent transaction becomes a sell (see
+/// `PortfolioAddressImporter`) — deliberately no attempt to filter out ordinary KaChat payments
+/// or protocol overhead, a simplification the user explicitly chose over building a "real trade"
+/// classifier.
+private struct AddPortfolioAddressSheet: View {
+    @ObservedObject var viewModel: PortfolioViewModel
+    let onCompletion: (Result<PortfolioAddressImporter.ImportResult, PortfolioAddressImporter.ImportError>) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var addressText = ""
+    @State private var isImporting = false
+    @State private var progressText = "Starting…"
+
+    private var isValidAddress: Bool {
+        KaspaAddress.isValid(addressText.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if isImporting {
+                    Section {
+                        HStack(spacing: 12) {
+                            ProgressView()
+                            Text(progressText)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                } else {
+                    Section {
+                        TextField("kaspa:qr...", text: $addressText)
+                            .font(.system(.body, design: .monospaced))
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                    } footer: {
+                        Text("Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import.")
+                    }
+                }
+            }
+            .navigationTitle("Add Kaspa Address")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .disabled(isImporting)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Import") {
+                        startImport()
+                    }
+                    .disabled(!isValidAddress || isImporting)
+                }
+            }
+        }
+        .interactiveDismissDisabled(isImporting)
+    }
+
+    private func startImport() {
+        isImporting = true
+        let address = addressText
+        Task {
+            let result = await viewModel.importAddress(address) { text in
+                Task { @MainActor in
+                    progressText = text
+                }
+            }
+            await MainActor.run {
+                dismiss()
+                onCompletion(result)
+            }
+        }
+    }
 }
 
 // MARK: - Add/Edit editor

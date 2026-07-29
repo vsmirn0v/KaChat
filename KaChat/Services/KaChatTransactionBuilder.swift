@@ -425,6 +425,7 @@ struct KasiaTransactionBuilder {
         amount: UInt64,
         senderPrivateKey: Data,
         utxos: [UTXO],
+        manualUtxos: [UTXO]? = nil,
         extraFeeSompi: UInt64 = 0,
         changeAddress: String? = nil
     ) throws -> KaspaRpcTransaction {
@@ -451,14 +452,26 @@ struct KasiaTransactionBuilder {
             changeScriptPubKey = senderScriptPubKey
         }
 
-        let selection = try selectUtxosForPayment(
-            utxos: utxos,
-            amount: amount,
-            payload: Data(),
-            recipientScriptPubKey: recipientScriptPubKey,
-            senderScriptPubKey: senderScriptPubKey,
-            extraFeeSompi: extraFeeSompi
-        )
+        let selection: PaymentSelection
+        if let manualUtxos, !manualUtxos.isEmpty {
+            selection = try selectManualUtxosForPayment(
+                utxos: manualUtxos,
+                amount: amount,
+                payload: Data(),
+                recipientScriptPubKey: recipientScriptPubKey,
+                senderScriptPubKey: senderScriptPubKey,
+                extraFeeSompi: extraFeeSompi
+            )
+        } else {
+            selection = try selectUtxosForPayment(
+                utxos: utxos,
+                amount: amount,
+                payload: Data(),
+                recipientScriptPubKey: recipientScriptPubKey,
+                senderScriptPubKey: senderScriptPubKey,
+                extraFeeSompi: extraFeeSompi
+            )
+        }
 
         var outputs: [KaspaRpcTransactionOutput] = [
             KaspaRpcTransactionOutput(
@@ -600,16 +613,29 @@ struct KasiaTransactionBuilder {
         amount: UInt64,
         recipientScriptPubKey: Data,
         senderScriptPubKey: Data,
+        manualUtxos: [UTXO]? = nil,
         extraFeeSompi: UInt64 = 0
     ) throws -> UInt64 {
-        let selection = try selectUtxosForPayment(
-            utxos: utxos,
-            amount: amount,
-            payload: Data(),
-            recipientScriptPubKey: recipientScriptPubKey,
-            senderScriptPubKey: senderScriptPubKey,
-            extraFeeSompi: extraFeeSompi
-        )
+        let selection: PaymentSelection
+        if let manualUtxos, !manualUtxos.isEmpty {
+            selection = try selectManualUtxosForPayment(
+                utxos: manualUtxos,
+                amount: amount,
+                payload: Data(),
+                recipientScriptPubKey: recipientScriptPubKey,
+                senderScriptPubKey: senderScriptPubKey,
+                extraFeeSompi: extraFeeSompi
+            )
+        } else {
+            selection = try selectUtxosForPayment(
+                utxos: utxos,
+                amount: amount,
+                payload: Data(),
+                recipientScriptPubKey: recipientScriptPubKey,
+                senderScriptPubKey: senderScriptPubKey,
+                extraFeeSompi: extraFeeSompi
+            )
+        }
         var outputs: [KaspaRpcTransactionOutput] = [
             KaspaRpcTransactionOutput(value: amount, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey))
         ]
@@ -652,9 +678,12 @@ struct KasiaTransactionBuilder {
         payload: Data,
         recipientScriptPubKey: Data,
         senderScriptPubKey: Data,
+        manualUtxos: [UTXO]? = nil,
         extraFeeSompi: UInt64 = 0
     ) -> UInt64 {
-        let spendable = utxos.filter { !$0.isCoinbase }
+        // With coin control active, "max" means "max spendable from the selected UTXOs", not
+        // from the whole address - use exactly the manual set instead of every spendable UTXO.
+        let spendable = (manualUtxos?.isEmpty == false ? manualUtxos! : utxos).filter { !$0.isCoinbase }
         // Calculate with 2 outputs to match selectUtxosForPayment which always estimates with change first
         let outputs = [
             KaspaRpcTransactionOutput(value: 0, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)),
@@ -1305,6 +1334,55 @@ struct KasiaTransactionBuilder {
                 change = total - amount - feeNoChange
                 return PaymentSelection(utxos: selected, change: change)
             }
+        }
+
+        throw KasiaError.networkError("Insufficient funds for payment")
+    }
+
+    /// Coin-control counterpart to `selectUtxosForPayment` - uses exactly the given `utxos` as
+    /// the transaction's input set (no incremental growth/sorting) rather than greedily picking
+    /// a subset, since the whole point of coin control is letting the caller fix which specific
+    /// inputs a send spends. Same "with change, else without change, else fail" fee logic as the
+    /// greedy selector, just evaluated once against the fixed set instead of per candidate added.
+    private static func selectManualUtxosForPayment(
+        utxos: [UTXO],
+        amount: UInt64,
+        payload: Data,
+        recipientScriptPubKey: Data,
+        senderScriptPubKey: Data,
+        extraFeeSompi: UInt64 = 0
+    ) throws -> PaymentSelection {
+        let usable = utxos.filter { !$0.isCoinbase }
+        guard !usable.isEmpty else {
+            throw KasiaError.networkError("Insufficient funds for payment")
+        }
+        let total = try usable.reduce(UInt64(0)) { try addSompiChecked($0, $1.amount, context: "manual payment selection") }
+
+        let recipientOutput = KaspaRpcTransactionOutput(
+            value: amount,
+            scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)
+        )
+
+        let feeWithChange = estimateFee(
+            payload: payload,
+            inputCount: usable.count,
+            outputs: [
+                recipientOutput,
+                KaspaRpcTransactionOutput(value: 0, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey))
+            ]
+        ) + 3 + extraFeeSompi
+
+        if total > amount, total - amount >= feeWithChange {
+            let change = total - amount - feeWithChange
+            if change > dustThreshold {
+                return PaymentSelection(utxos: usable, change: change)
+            }
+        }
+
+        // Try without change (treat dust/leftover as fee, + buffer, + priority tip)
+        let feeNoChange = estimateFee(payload: payload, inputCount: usable.count, outputs: [recipientOutput]) + 3 + extraFeeSompi
+        if total > amount, total - amount >= feeNoChange {
+            return PaymentSelection(utxos: usable, change: total - amount - feeNoChange)
         }
 
         throw KasiaError.networkError("Insufficient funds for payment")

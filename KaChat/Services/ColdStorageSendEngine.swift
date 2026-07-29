@@ -179,17 +179,50 @@ final class ColdStorageSendEngine {
         return Selection(utxos: selected, feeSompi: estimatedFee, finalAmount: finalAmount, changeSompi: changeAmount)
     }
 
+    /// Coin control: prices and validates a user-picked, fixed set of UTXOs instead of greedily
+    /// growing one. Otherwise identical to `selectUtxos` (same "close enough, trim the amount"
+    /// leeway, same always-price-a-change-output policy).
+    private static func buildManualSelection(
+        utxos: [UTXO],
+        amountSompi: UInt64,
+        feeRateSompiPerGram: UInt64,
+        recipientScriptLen: Int,
+        changeScriptLen: Int
+    ) -> Selection? {
+        guard !utxos.isEmpty else { return nil }
+        let totalSelected = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+        let mass = calculateMass(numInputs: utxos.count, outputScriptLens: [recipientScriptLen, changeScriptLen], payloadSize: 0)
+        let estimatedFee = calculateFee(mass: mass, rateSompiPerGram: feeRateSompiPerGram)
+
+        var finalAmount = amountSompi
+        let requiredAmount = amountSompi + estimatedFee
+        if totalSelected < requiredAmount {
+            if totalSelected > estimatedFee && (requiredAmount - totalSelected) < 2000 {
+                finalAmount = totalSelected - estimatedFee
+            } else {
+                return nil
+            }
+        }
+
+        let changeAmount = totalSelected - finalAmount - estimatedFee
+        return Selection(utxos: utxos, feeSompi: estimatedFee, finalAmount: finalAmount, changeSompi: changeAmount)
+    }
+
     // MARK: - Build
 
     /// Fetches UTXOs at `fromAddress` and builds (but does not sign) a transfer to `toAddress`.
     /// `feeRateOverride`, if given, is a sompi-per-mass-gram rate the user chose explicitly (via
     /// the send screen's "Adjust Network Fee" editor); otherwise this fetches the network's live
-    /// quoted rate, same as Android.
+    /// quoted rate, same as Android. `manualUtxos`, if given (coin control), fixes the exact
+    /// input set instead of letting `selectUtxos` greedily grow one — re-resolved against this
+    /// call's own fresh `getUtxosByAddresses` fetch by outpoint, not used as-is, so a UTXO spent
+    /// since the coin-control picker was shown can't silently get included.
     func buildUnsignedTransaction(
         fromAddress: String,
         toAddress: String,
         amountSompi: UInt64,
-        feeRateOverride: UInt64? = nil
+        feeRateOverride: UInt64? = nil,
+        manualUtxos: [UTXO]? = nil
     ) async throws -> UnsignedColdTx {
         guard amountSompi > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
@@ -216,13 +249,30 @@ final class ColdStorageSendEngine {
             feeRate = await Self.fetchQuotedFeeRateSompiPerGram()
         }
 
-        guard let selection = Self.selectUtxos(
-            from: spendable,
-            amountSompi: amountSompi,
-            feeRateSompiPerGram: feeRate,
-            recipientScriptLen: recipientScript.count,
-            changeScriptLen: changeScript.count
-        ) else {
+        let selectionResult: Selection?
+        if let manualUtxos, !manualUtxos.isEmpty {
+            let freshByOutpoint = Dictionary(
+                spendable.map { ("\($0.outpoint.transactionId):\($0.outpoint.index)", $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            let resolved = manualUtxos.compactMap { freshByOutpoint["\($0.outpoint.transactionId):\($0.outpoint.index)"] }
+            selectionResult = Self.buildManualSelection(
+                utxos: resolved,
+                amountSompi: amountSompi,
+                feeRateSompiPerGram: feeRate,
+                recipientScriptLen: recipientScript.count,
+                changeScriptLen: changeScript.count
+            )
+        } else {
+            selectionResult = Self.selectUtxos(
+                from: spendable,
+                amountSompi: amountSompi,
+                feeRateSompiPerGram: feeRate,
+                recipientScriptLen: recipientScript.count,
+                changeScriptLen: changeScript.count
+            )
+        }
+        guard let selection = selectionResult else {
             throw ColdSendError.insufficientFunds
         }
         guard selection.utxos.count <= KsptCodec.maxInputs else {
@@ -253,17 +303,60 @@ final class ColdStorageSendEngine {
         return UnsignedColdTx(transaction: transaction, inputUtxos: selection.utxos, feeSompi: selection.feeSompi, changeSompi: changeSompi)
     }
 
+    struct AutomaticSelectionPreview {
+        let utxos: [UTXO]
+        let feeSompi: UInt64
+    }
+
+    /// Live preview of what automatic selection *would* pick for `amountSompi` at
+    /// `feeRateSompiPerGram` — same selector `buildUnsignedTransaction` itself uses, just without
+    /// actually building. Lets the send form show a fee that's already exact (not the 1-input
+    /// reference-mass guess) whenever a fresh preview is available, and — critically — lets the
+    /// form pass this exact same UTXO set into the real build as `manualUtxos`, so the two numbers
+    /// can't diverge the way they could when each independently guessed at the input count.
+    /// Uses standard 34-byte output script lengths (matching `referenceMassForFeeEditor`) since
+    /// this only needs to be right about *how many inputs*, not the recipient's exact address.
+    func previewAutomaticSelection(fromAddress: String, amountSompi: UInt64, feeRateSompiPerGram: UInt64) async -> AutomaticSelectionPreview? {
+        guard amountSompi > 0, let spendable = try? await NodePoolService.shared.getUtxosByAddresses([fromAddress]), !spendable.isEmpty else {
+            return nil
+        }
+        guard let selection = Self.selectUtxos(
+            from: spendable,
+            amountSompi: amountSompi,
+            feeRateSompiPerGram: feeRateSompiPerGram,
+            recipientScriptLen: 34,
+            changeScriptLen: 34
+        ) else {
+            return nil
+        }
+        return AutomaticSelectionPreview(utxos: selection.utxos, feeSompi: selection.feeSompi)
+    }
+
     /// Max sendable amount (full balance minus estimated fee, no change output) for the Max
     /// button in the send form — same shape as Android's own Max button: prices using every
     /// spendable UTXO as the input count (a full-balance send will need close to all of them
-    /// anyway) rather than running the incremental selection loop.
-    func estimateMaxAmount(fromAddress: String, feeRateOverride: UInt64? = nil) async throws -> UInt64 {
+    /// anyway) rather than running the incremental selection loop. If coin control has fixed a
+    /// UTXO set, Max reflects only that subset (re-resolved against this call's own fresh fetch,
+    /// same as `buildUnsignedTransaction`) rather than the whole address's balance.
+    func estimateMaxAmount(fromAddress: String, feeRateOverride: UInt64? = nil, manualUtxos: [UTXO]? = nil) async throws -> UInt64 {
         // No coinbase filtering here either — see the matching comment in
         // buildUnsignedTransaction above.
         let spendable = try await NodePoolService.shared.getUtxosByAddresses([fromAddress])
         guard !spendable.isEmpty else { throw ColdSendError.noSpendableUtxos }
 
-        let totalBalance = spendable.reduce(UInt64(0)) { $0 + $1.amount }
+        let utxosToUse: [UTXO]
+        if let manualUtxos, !manualUtxos.isEmpty {
+            let freshByOutpoint = Dictionary(
+                spendable.map { ("\($0.outpoint.transactionId):\($0.outpoint.index)", $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            utxosToUse = manualUtxos.compactMap { freshByOutpoint["\($0.outpoint.transactionId):\($0.outpoint.index)"] }
+            guard !utxosToUse.isEmpty else { return 0 }
+        } else {
+            utxosToUse = spendable
+        }
+
+        let totalBalance = utxosToUse.reduce(UInt64(0)) { $0 + $1.amount }
         let feeRate: UInt64
         if let feeRateOverride {
             feeRate = feeRateOverride
@@ -271,7 +364,7 @@ final class ColdStorageSendEngine {
             feeRate = await Self.fetchQuotedFeeRateSompiPerGram()
         }
 
-        let mass = Self.calculateMass(numInputs: max(spendable.count, 1), outputScriptLens: [34, 34], payloadSize: 0)
+        let mass = Self.calculateMass(numInputs: max(utxosToUse.count, 1), outputScriptLens: [34, 34], payloadSize: 0)
         let fee = Self.calculateFee(mass: mass, rateSompiPerGram: feeRate)
 
         guard totalBalance > fee else { return 0 }
@@ -283,25 +376,35 @@ final class ColdStorageSendEngine {
     /// minimum. Falls back to the minimum on any request failure, same as Android.
     static func fetchQuotedFeeRateSompiPerGram() async -> UInt64 {
         let minimum = KaspaFeePolicy.minimumRelayFeePerGramSompi
-        guard var components = URLComponents(string: AppSettings.load().kaspaRestAPIURL) else { return minimum }
-        components.path += "/info/fee-estimate"
-        guard let url = components.url else { return minimum }
+        guard let decoded = await fetchFeeEstimateResponse() else { return minimum }
+        guard let quoted = decoded.normalBuckets.first?.feerate else { return minimum }
+        return max(UInt64(quoted.rounded(.up)), minimum)
+    }
 
-        struct FeeEstimateResponse: Decodable {
-            struct Bucket: Decodable { let feerate: Double }
-            let normalBuckets: [Bucket]
-        }
+    private struct FeeEstimateResponseBucket: Decodable {
+        let feerate: Double
+        let estimatedSeconds: Double?
+    }
+
+    private struct FeeEstimateResponse: Decodable {
+        let priorityBucket: FeeEstimateResponseBucket?
+        let normalBuckets: [FeeEstimateResponseBucket]
+        let lowBuckets: [FeeEstimateResponseBucket]
+    }
+
+    private static func fetchFeeEstimateResponse() async -> FeeEstimateResponse? {
+        guard var components = URLComponents(string: AppSettings.load().kaspaRestAPIURL) else { return nil }
+        components.path += "/info/fee-estimate"
+        guard let url = components.url else { return nil }
 
         do {
             let (data, response) = try await URLSession.shared.data(from: url)
             guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
-                return minimum
+                return nil
             }
-            let decoded = try JSONDecoder().decode(FeeEstimateResponse.self, from: data)
-            guard let quoted = decoded.normalBuckets.first?.feerate else { return minimum }
-            return max(UInt64(quoted.rounded(.up)), minimum)
+            return try JSONDecoder().decode(FeeEstimateResponse.self, from: data)
         } catch {
-            return minimum
+            return nil
         }
     }
 

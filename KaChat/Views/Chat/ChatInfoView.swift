@@ -11,6 +11,8 @@ struct ChatInfoView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @EnvironmentObject var chatService: ChatService
+    @EnvironmentObject var walletManager: WalletManager
     @ObservedObject private var knsService = KNSService.shared
 
     @State private var editedAlias: String = ""
@@ -19,6 +21,7 @@ struct ChatInfoView: View {
     @State private var photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil
     @State private var showAvatarPreview = false
     @State private var moreInfoExpanded = false
+    @State private var isBioExpanded = false
     @State private var showSystemContactLinkPicker = false
     @State private var linkedSystemContactId: String?
     @State private var linkedSystemContactName: String?
@@ -44,6 +47,23 @@ struct ChatInfoView: View {
             return "Show"
         }
         return (!contact.isAutoAdded || contact.hasSentOutgoingMessage) ? "Show" : "Hidden"
+    }
+
+    private var messages: [ChatMessage] {
+        chatService.conversations.first(where: { $0.contact.address == contact.address })?.messages ?? []
+    }
+
+    /// nil hides the "Chess Stats" row entirely - only shown once this contact has actually played
+    /// at least one chess game (an always-visible "0W - 0L" on every contact who's never played
+    /// would just be clutter). See `ChessGameService.record`.
+    private var chessRecord: (wins: Int, losses: Int)? {
+        guard let myAddress = walletManager.currentWallet?.publicAddress else { return nil }
+        let hasChessHistory = messages.contains {
+            if case .invite = ChessCodec.parseAny(MessageReplyCodec.unwrappedText($0.content)) { return true }
+            return false
+        }
+        guard hasChessHistory else { return nil }
+        return ChessGameService.record(in: messages, myAddress: myAddress, contactAddress: contact.address)
     }
 
     private var knsInfo: KNSAddressInfo? {
@@ -78,6 +98,14 @@ struct ChatInfoView: View {
         NavigationStack {
             Form {
                 Section {
+                    if KNSProfileLinkBuilder.websiteURL(from: knsProfile?.bannerUrl) != nil {
+                        KNSBannerImageView(
+                            bannerURLString: knsProfile?.bannerUrl,
+                            height: 110,
+                            cornerRadius: 10
+                        )
+                    }
+
                     HStack {
                         Button {
                             showAvatarPreview = true
@@ -106,6 +134,10 @@ struct ChatInfoView: View {
                             } else if let bio = knsProfile?.bio {
                                 Text(bio)
                                     .font(.subheadline)
+                                    .lineLimit(isBioExpanded ? nil : 5)
+                                    .onTapGesture {
+                                        withAnimation { isBioExpanded.toggle() }
+                                    }
                                     .onLongPressGesture(minimumDuration: 0.45) {
                                         copyProfileFieldValue(bio, fieldName: "Bio")
                                     }
@@ -118,14 +150,6 @@ struct ChatInfoView: View {
                         .padding(.leading, 8)
                     }
                     .padding(.vertical, 8)
-
-                    if KNSProfileLinkBuilder.websiteURL(from: knsProfile?.bannerUrl) != nil {
-                        KNSBannerImageView(
-                            bannerURLString: knsProfile?.bannerUrl,
-                            height: 110,
-                            cornerRadius: 10
-                        )
-                    }
 
                     if !knsDomains.isEmpty {
                         // Same DisclosureGroup used by the user's own Profile view's KNS card
@@ -180,16 +204,6 @@ struct ChatInfoView: View {
                             .tint(.accentColor)
                         }
 
-                        NavigationLink {
-                            domainsListView
-                        } label: {
-                            HStack {
-                                Text("Domains")
-                                Spacer()
-                                Text(knsInfo?.primaryDomain ?? "")
-                                    .foregroundColor(.secondary)
-                            }
-                        }
                     }
                 }
 
@@ -314,7 +328,17 @@ struct ChatInfoView: View {
                     }
                     if let lastMessage = contact.lastMessageAt {
                         LabeledContent("Last Message") {
-                            Text(lastMessage, style: .relative)
+                            if Date().timeIntervalSince(lastMessage) < 86_400 {
+                                Text(lastMessage, style: .relative)
+                            } else {
+                                let days = max(1, Int(Date().timeIntervalSince(lastMessage) / 86_400))
+                                Text("\(days) day\(days == 1 ? "" : "s") ago")
+                            }
+                        }
+                    }
+                    if let chessRecord {
+                        LabeledContent("Chess Stats") {
+                            Text("\(chessRecord.wins)W - \(chessRecord.losses)L")
                         }
                     }
                     HStack {
@@ -467,44 +491,6 @@ struct ChatInfoView: View {
         //         await ChatService.shared.updateUtxoSubscriptionForRealtimeChange()
         //     }
         // }
-    }
-
-    private func applyDomainAsAlias(_ domain: String) {
-        editedAlias = domain
-        Haptics.success()
-        showToast(localizedFormat("Name set to %@. Tap Save to apply.", domain))
-    }
-
-    /// Pushed from the header card's "Domains" row - matches Android's dedicated domain-picker
-    /// screen (SettingsNavigationItem -> onNavigateToDomainSettings) rather than the flat,
-    /// always-visible list this used to be.
-    private var domainsListView: some View {
-        List {
-            ForEach(knsDomains, id: \.inscriptionId) { domain in
-                Button {
-                    applyDomainAsAlias(domain.fullName)
-                } label: {
-                    HStack {
-                        Text(domain.fullName)
-                            .font(.body)
-                            .foregroundColor(.primary)
-                        if domain.fullName == knsInfo?.primaryDomain {
-                            Spacer()
-                            Text("Primary")
-                                .font(.caption)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
-                                .background(Color.accentColor)
-                                .clipShape(Capsule())
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .navigationTitle("Domains")
-        .navigationBarTitleDisplayMode(.inline)
     }
 
     @ViewBuilder

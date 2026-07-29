@@ -28,11 +28,40 @@ final class CoinGeckoService {
         let prices: [[Double]]
     }
 
-    func getCurrentPrice(currency: AppCurrency) async -> Double? {
+    private struct HistoryResponse: Decodable {
+        struct MarketData: Decodable {
+            let currentPrice: [String: Double]?
+
+            enum CodingKeys: String, CodingKey {
+                case currentPrice = "current_price"
+            }
+        }
+        /// Absent (rather than present-with-nulls) when CoinGecko has no snapshot for the
+        /// requested date — a very recent date, or a date before Kaspa was listed.
+        let marketData: MarketData?
+
+        enum CodingKeys: String, CodingKey {
+            case marketData = "market_data"
+        }
+    }
+
+    private static let historyDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd-MM-yyyy"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        return formatter
+    }()
+
+    /// `change24hPercent` is nil only on a decode/response oddity, not treated as a separate
+    /// failure from the price fetch itself — CoinGecko returns both in the same call
+    /// (`include_24hr_change=true`), so there's no second request to independently fail.
+    func getCurrentPrice(currency: AppCurrency) async -> (price: Double, change24hPercent: Double?)? {
         guard var components = URLComponents(string: baseURL + "/api/v3/simple/price") else { return nil }
         components.queryItems = [
             URLQueryItem(name: "ids", value: "kaspa"),
-            URLQueryItem(name: "vs_currencies", value: currency.rawValue)
+            URLQueryItem(name: "vs_currencies", value: currency.rawValue),
+            URLQueryItem(name: "include_24hr_change", value: "true")
         ]
         guard let url = components.url else { return nil }
 
@@ -40,7 +69,9 @@ final class CoinGeckoService {
             let (data, response) = try await session.data(from: url)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
             let decoded = try JSONDecoder().decode(SimplePriceResponse.self, from: data)
-            return decoded.kaspa[currency.rawValue]
+            guard let price = decoded.kaspa[currency.rawValue] else { return nil }
+            let change24h = decoded.kaspa["\(currency.rawValue)_24h_change"]
+            return (price: price, change24hPercent: change24h)
         } catch {
             return nil
         }
@@ -67,6 +98,29 @@ final class CoinGeckoService {
             }
         } catch {
             return []
+        }
+    }
+
+    /// The daily snapshot price CoinGecko recorded for `date` (daily granularity only — CoinGecko's
+    /// `/coins/{id}/history` endpoint has no intraday resolution). Nil on any failure or when
+    /// CoinGecko simply has no data for that date, so callers (see `PortfolioAddressImporter`)
+    /// must treat this the same as any other "couldn't price this" case rather than assuming
+    /// nil only means a network error.
+    func getHistoricalPrice(date: Date, currency: AppCurrency) async -> Double? {
+        guard var components = URLComponents(string: baseURL + "/api/v3/coins/kaspa/history") else { return nil }
+        components.queryItems = [
+            URLQueryItem(name: "date", value: Self.historyDateFormatter.string(from: date)),
+            URLQueryItem(name: "localization", value: "false")
+        ]
+        guard let url = components.url else { return nil }
+
+        do {
+            let (data, response) = try await session.data(from: url)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            let decoded = try JSONDecoder().decode(HistoryResponse.self, from: data)
+            return decoded.marketData?.currentPrice?[currency.rawValue]
+        } catch {
+            return nil
         }
     }
 }

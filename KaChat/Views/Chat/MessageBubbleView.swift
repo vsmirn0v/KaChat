@@ -21,6 +21,18 @@ struct MessageBubbleView: View {
     let replyQuote: MessageReplyContent?
     let replySenderDisplayName: String?
     let onReply: (() -> Void)?
+    /// This message's current reactions (one per reactor), for the pill shown on its corner.
+    var reactions: [MessageStore.ReactionSnapshot] = []
+    /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
+    /// entirely (matches how `onReply` being nil already disables reply everywhere it's checked).
+    let onReact: ((String) -> Void)?
+    /// Shared across every bubble in the conversation (not per-bubble `@State`) so the list's own
+    /// tap-anywhere-to-dismiss gesture can close whichever bubble's bar is open from outside this
+    /// view entirely - see `ChatDetailView`'s `activeQuickReactionMessageId`.
+    @Binding var activeQuickReactionMessageId: UUID?
+    private var showQuickReactionBar: Bool {
+        activeQuickReactionMessageId == message.id
+    }
     /// Tapping the reply quote (if any) jumps to and highlights the original message - nil
     /// when `replyQuote` is nil, since there's nothing to jump to.
     let onJumpToReply: (() -> Void)?
@@ -48,6 +60,11 @@ struct MessageBubbleView: View {
     var photosBlocked: Bool = false
     @State private var shimmerPhase: CGFloat = -1
     @State private var showFullText = false
+    /// Long-pressing a link surfaces this instead of `.contextMenu` (which never fires there -
+    /// `LinkifiedMessageTextView`'s own long-press recognizer claims and cancels the touch before
+    /// the ancestor `.contextMenu` gesture sees it), offering the same actions a confirmationDialog
+    /// can trigger imperatively.
+    @State private var linkMenuURL: URL?
 
     init(
         message: ChatMessage,
@@ -58,6 +75,9 @@ struct MessageBubbleView: View {
         replyQuote: MessageReplyContent? = nil,
         replySenderDisplayName: String? = nil,
         onReply: (() -> Void)? = nil,
+        reactions: [MessageStore.ReactionSnapshot] = [],
+        onReact: ((String) -> Void)? = nil,
+        activeQuickReactionMessageId: Binding<UUID?> = .constant(nil),
         onJumpToReply: (() -> Void)? = nil,
         avatarURLString: String? = nil,
         avatarDisplayName: String = "",
@@ -78,6 +98,9 @@ struct MessageBubbleView: View {
         self.replyQuote = replyQuote
         self.replySenderDisplayName = replySenderDisplayName
         self.onReply = onReply
+        self.reactions = reactions
+        self.onReact = onReact
+        self._activeQuickReactionMessageId = activeQuickReactionMessageId
         self.onJumpToReply = onJumpToReply
         self.avatarURLString = avatarURLString
         self.avatarDisplayName = avatarDisplayName
@@ -137,6 +160,24 @@ struct MessageBubbleView: View {
             }
 
             VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 4) {
+                // Sits directly above the bubble in normal layout flow (like `replyQuoteView`
+                // below) rather than as an `.overlay` with a manual offset - an offset popup that
+                // sticks out above its row gets cropped by the ScrollView's own clipping, which is
+                // exactly what made the emoji row render as sliced-off fragments before.
+                if showQuickReactionBar, let onReact {
+                    QuickReactionBarView(
+                        onReact: { emoji in
+                            onReact(emoji)
+                            activeQuickReactionMessageId = nil
+                        },
+                        onReply: {
+                            onReply?()
+                            activeQuickReactionMessageId = nil
+                        }
+                    )
+                    .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
+                }
+
                 // Message type indicator for special messages
                 if shouldShowMessageTypeIndicator {
                     messageTypeIndicator
@@ -152,45 +193,64 @@ struct MessageBubbleView: View {
                         replyQuoteView(replyQuote)
                     }
 
-                    if let media, media.isImage {
-                        // Double-tap-to-reply is handled inside LazyImageBubble itself (co-located
-                        // with its single-tap-to-preview gesture so SwiftUI can disambiguate the
-                        // two correctly) rather than here, unlike the audio/text cases below.
-                        LazyImageBubble(
-                            media: media,
-                            txId: message.txId,
-                            shouldShowRetry: shouldShowRetry,
-                            photosBlocked: photosBlocked && !message.isOutgoing,
-                            senderDisplayName: avatarDisplayName,
-                            onCopy: onCopy,
-                            onRetry: { onRetry?(message) },
-                            onReply: onReply
-                        )
-                    } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
-                        LazyAudioBubble(
-                            data: data,
-                            mimeType: media.mimeType,
-                            isOutgoing: message.isOutgoing,
-                            fileName: media.name,
-                            txId: message.txId,
-                            onCopy: onCopy,
-                            onRetry: shouldShowRetry ? { onRetry?(message) } : nil,
-                            onReply: onReply
-                        )
-                        .simultaneousGesture(TapGesture(count: 2).onEnded { onReply?() })
-                    } else if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText), MessageTextRenderPlan.isEntirelyLink(displayText) {
-                        // Message is nothing but a link - the preview card replaces the plain-text
-                        // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
-                        // keeps the raw link visible/tappable if no preview data is ever found,
-                        // rather than the message rendering as nothing at all.
-                        LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText)
-                    } else {
-                        messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
-                            .simultaneousGesture(TapGesture(count: 2).onEnded { onReply?() })
-
-                        if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
-                            LinkPreviewCardView(url: linkURL, txId: message.txId)
+                    // Grouped separately from `replyQuote` above so the reaction pill's overlay
+                    // (attached to just this Group) anchors to the actual bubble's own corner -
+                    // attaching it to the whole VStack instead would size/position it against
+                    // whichever sibling is widest, which for a reply is usually the quote banner,
+                    // not the (often much narrower) bubble underneath it.
+                    Group {
+                        if let media, media.isImage {
+                            // Double-tap opens the quick-reaction bar (co-located inside
+                            // LazyImageBubble with its single-tap-to-preview gesture so SwiftUI can
+                            // disambiguate the two correctly) rather than here, unlike the audio/text
+                            // cases below.
+                            LazyImageBubble(
+                                media: media,
+                                txId: message.txId,
+                                shouldShowRetry: shouldShowRetry,
+                                photosBlocked: photosBlocked && !message.isOutgoing,
+                                senderDisplayName: avatarDisplayName,
+                                onCopy: onCopy,
+                                onRetry: { onRetry?(message) },
+                                onReply: onReply,
+                                onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil
+                            )
+                        } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
+                            LazyAudioBubble(
+                                data: data,
+                                mimeType: media.mimeType,
+                                isOutgoing: message.isOutgoing,
+                                fileName: media.name,
+                                txId: message.txId,
+                                onCopy: onCopy,
+                                onRetry: shouldShowRetry ? { onRetry?(message) } : nil,
+                                onReply: onReply
+                            )
+                            .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
+                        } else if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText), MessageTextRenderPlan.isEntirelyLink(displayText) {
+                            // Message is nothing but a link - the preview card replaces the plain-text
+                            // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
+                            // keeps the raw link visible/tappable if no preview data is ever found,
+                            // rather than the message rendering as nothing at all.
+                            LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText)
+                        } else {
+                            messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
+                                .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
                         }
+                    }
+                    .overlay(alignment: message.isOutgoing ? .bottomLeading : .bottomTrailing) {
+                        if !reactions.isEmpty {
+                            ReactionPillView(emojis: reactions.map { $0.emoji })
+                                .offset(y: 10)
+                        }
+                    }
+
+                    // Only the plain-text-bubble case (no media, and not itself entirely a link,
+                    // both handled inside the Group above) gets this extra preview card below it.
+                    if media == nil,
+                       !MessageTextRenderPlan.isEntirelyLink(displayText),
+                       let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
+                        LinkPreviewCardView(url: linkURL, txId: message.txId)
                     }
                 }
 
@@ -363,6 +423,25 @@ struct MessageBubbleView: View {
                 }
             }
             .tint(.accentColor)
+            .confirmationDialog(
+                "Link",
+                isPresented: Binding(get: { linkMenuURL != nil }, set: { if !$0 { linkMenuURL = nil } }),
+                presenting: linkMenuURL
+            ) { url in
+                Button("Open Link") {
+                    UIApplication.shared.open(url)
+                }
+                Button("Copy Link") {
+                    handleCopy(url.absoluteString, toast: "Link copied to clipboard.")
+                }
+                if let onReply {
+                    Button("Reply") {
+                        onReply()
+                    }
+                }
+            } message: { url in
+                Text(url.absoluteString)
+            }
     }
 
     private func replyQuoteView(_ reply: MessageReplyContent) -> some View {
@@ -409,8 +488,9 @@ struct MessageBubbleView: View {
                 isOutgoing: message.isOutgoing,
                 isSingleEmojiOnly: isSingleEmojiOnly,
                 onLinkLongPress: { url in
-                    handleCopy(url.absoluteString, toast: "Link copied to clipboard.")
-                }
+                    linkMenuURL = url
+                },
+                onLinkDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : {}
             )
         } else {
             Text(displayText)
@@ -764,6 +844,10 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
     let isOutgoing: Bool
     let isSingleEmojiOnly: Bool
     let onLinkLongPress: (URL) -> Void
+    /// Double-tapping a link should still open the quick-reaction bar, matching the rest of the
+    /// bubble - without this, the link's own tap recognizer (which `cancelsTouchesInView`)
+    /// silently swallowed the touch before the bubble's ancestor double-tap gesture ever saw it.
+    var onLinkDoubleTap: () -> Void = {}
     /// When false, tapping a link does nothing - only the long-press menu can open it. Used in
     /// broadcast rooms, where links can come from anonymous public senders, so opening one
     /// should always require a deliberate long-press rather than a single accidental tap.
@@ -829,6 +913,7 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
         var parent: LinkifiedMessageTextView
         weak var textView: UITextView?
         private var tapRecognizer: UITapGestureRecognizer?
+        private var doubleTapRecognizer: UITapGestureRecognizer?
         private var longPressRecognizer: UILongPressGestureRecognizer?
         private var cachedText: String?
         private var cachedIsOutgoing = false
@@ -841,10 +926,22 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
 
         func configureGestureRecognizersIfNeeded() {
             guard let textView else { return }
-            if tapRecognizer == nil {
+            if doubleTapRecognizer == nil {
+                let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+                recognizer.delegate = self
+                recognizer.numberOfTapsRequired = 2
+                recognizer.cancelsTouchesInView = true
+                textView.addGestureRecognizer(recognizer)
+                doubleTapRecognizer = recognizer
+            }
+            if tapRecognizer == nil, let doubleTapRecognizer {
                 let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
                 recognizer.delegate = self
                 recognizer.cancelsTouchesInView = true
+                // A single tap only fires once the double-tap recognizer has had its chance and
+                // failed - otherwise the first tap of a double-tap would open the link immediately
+                // before the second tap ever lands.
+                recognizer.require(toFail: doubleTapRecognizer)
                 textView.addGestureRecognizer(recognizer)
                 tapRecognizer = recognizer
             }
@@ -911,6 +1008,14 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
         }
 
         @objc
+        private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended, let textView else { return }
+            let point = gesture.location(in: textView)
+            guard url(at: point, in: textView) != nil else { return }
+            parent.onLinkDoubleTap()
+        }
+
+        @objc
         private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
             guard gesture.state == .began, let textView else { return }
             let point = gesture.location(in: textView)
@@ -920,7 +1025,7 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let textView else { return false }
-            guard gestureRecognizer === tapRecognizer || gestureRecognizer === longPressRecognizer else {
+            guard gestureRecognizer === tapRecognizer || gestureRecognizer === doubleTapRecognizer || gestureRecognizer === longPressRecognizer else {
                 return true
             }
             let location = gestureRecognizer.location(in: textView)
@@ -1052,6 +1157,8 @@ struct LazyImageBubble: View {
     let onCopy: ((String, ToastStyle) -> Void)?
     let onRetry: (() -> Void)?
     let onReply: (() -> Void)?
+    /// Double-tap opens the quick-reaction bar rather than replying directly - nil disables it.
+    let onDoubleTap: (() -> Void)?
 
     @State private var thumbnailState: (txId: String, image: UIImage)?
     @State private var previewImage: UIImage?
@@ -1068,7 +1175,8 @@ struct LazyImageBubble: View {
         senderDisplayName: String,
         onCopy: ((String, ToastStyle) -> Void)?,
         onRetry: (() -> Void)?,
-        onReply: (() -> Void)?
+        onReply: (() -> Void)?,
+        onDoubleTap: (() -> Void)? = nil
     ) {
         self.media = media
         self.txId = txId
@@ -1078,6 +1186,7 @@ struct LazyImageBubble: View {
         self.onCopy = onCopy
         self.onRetry = onRetry
         self.onReply = onReply
+        self.onDoubleTap = onDoubleTap
         _isRevealed = State(initialValue: PhotoRevealStore.isRevealed(txId))
     }
 
@@ -1156,7 +1265,7 @@ struct LazyImageBubble: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
-            onReply?()
+            onDoubleTap?()
         }
         .onTapGesture(count: 1) {
             openPreview()

@@ -22,7 +22,6 @@ struct ManageAddressesView: View {
     @State private var consolidateSentTxIds: [String] = []
     @State private var switchingPrimaryIndex: Int?
     @State private var errorMessage: String?
-    @State private var withdrawTarget: SpendingAddressEntry?
     @State private var qrTarget: SpendingAddressEntry?
     @State private var renameTarget: SpendingAddressEntry?
     @State private var renameText = ""
@@ -184,11 +183,6 @@ struct ManageAddressesView: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        .sheet(item: $withdrawTarget) { entry in
-            SpendingAddressWithdrawView(entry: entry) {
-                Task { await loadEntries() }
-            }
-        }
         .sheet(isPresented: $showConsolidateConfirm) {
             ConsolidateToPrimaryConfirmView(
                 sources: entries.filter { $0.index != walletManager.currentSpendingAddressIndex && $0.balanceSompi > 0 },
@@ -327,6 +321,12 @@ struct ManageAddressesView: View {
                 } else {
                     Menu {
                         Button {
+                            renameText = entry.label ?? ""
+                            renameTarget = entry
+                        } label: {
+                            Label("Rename Address", systemImage: "pencil")
+                        }
+                        Button {
                             UIPasteboard.general.string = entry.address
                             Haptics.success()
                             showToast("Address copied to clipboard.")
@@ -338,30 +338,12 @@ struct ManageAddressesView: View {
                         } label: {
                             Label("Show QR Code", systemImage: "qrcode")
                         }
-                        if let url = settingsViewModel.settings.kaspaExplorer.addressURL(for: entry.address) {
-                            Link(destination: url) {
-                                Label("View in Explorer", systemImage: "safari")
-                            }
-                        }
                         if !entry.isCurrent {
                             Button {
                                 setPrimary(entry)
                             } label: {
                                 Label("Set as Primary Address", systemImage: "star")
                             }
-                        }
-                        if entry.balanceSompi > 0 {
-                            Button {
-                                withdrawTarget = entry
-                            } label: {
-                                Label("Send Kaspa", systemImage: "arrow.up.circle")
-                            }
-                        }
-                        Button {
-                            renameText = entry.label ?? ""
-                            renameTarget = entry
-                        } label: {
-                            Label("Rename Address", systemImage: "pencil")
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -383,21 +365,38 @@ struct ManageAddressesView: View {
         isLoading = true
         let baseEntries = await walletManager.getSpendingAddressList()
 
-        // Sequential, not a concurrent TaskGroup: firing N simultaneous requests at the same
-        // REST host risked the host/CDN rate-limiting the burst and returning a degraded
-        // response that isn't a clean empty result, which read as every address being
-        // "used." One-at-a-time is slower but each request stands alone.
-        var updatedEntries: [SpendingAddressEntry] = []
-        for entry in baseEntries {
-            if entry.balanceSompi > 0 {
-                updatedEntries.append(entry)
-                continue
+        // Bounded concurrency, not fully serial and not unbounded: firing every zero-balance
+        // address's request at once risked the REST host/CDN rate-limiting the burst and
+        // returning a degraded response that isn't a clean empty result, which read as every
+        // address being "used" - but one-at-a-time made load time scale linearly with how many
+        // zero-balance addresses existed, which was the main thing making this screen feel slow
+        // to open. A small concurrency cap keeps each in-flight batch small (same per-request
+        // isolation the old comment cared about) while cutting wall-clock time roughly
+        // proportional to the cap.
+        let concurrencyLimit = 4
+        let toCheck = baseEntries.filter { $0.balanceSompi == 0 }
+        var usedByAddress: [String: Bool] = [:]
+
+        var pending = toCheck.makeIterator()
+        await withTaskGroup(of: (String, Bool).self) { group in
+            for _ in 0..<concurrencyLimit {
+                guard let entry = pending.next() else { break }
+                group.addTask { (entry.address, await self.chatService.hasSpendingAddressBeenUsed(entry.address)) }
             }
+            while let (address, used) = await group.next() {
+                usedByAddress[address] = used
+                if let entry = pending.next() {
+                    group.addTask { (entry.address, await self.chatService.hasSpendingAddressBeenUsed(entry.address)) }
+                }
+            }
+        }
+
+        let updatedEntries = baseEntries.map { entry -> SpendingAddressEntry in
+            guard let used = usedByAddress[entry.address] else { return entry }
             var updated = entry
-            let used = await chatService.hasSpendingAddressBeenUsed(entry.address)
-            AppLog.log("[ManageAddresses] everUsed check address=%@ index=%d used=%@", entry.address, entry.index, used ? "true" : "false")
             updated.everUsed = used
-            updatedEntries.append(updated)
+            AppLog.log("[ManageAddresses] everUsed check address=%@ index=%d used=%@", entry.address, entry.index, used ? "true" : "false")
+            return updated
         }
         entries = updatedEntries.sorted { $0.index < $1.index }
         isLoading = false
@@ -513,6 +512,7 @@ private struct ConsolidateToPrimaryConfirmView: View {
     @State private var customExtraFeeSompi: UInt64?
     @State private var isEditingFee = false
     @State private var feeEditorText = ""
+    @FocusState private var feeFieldFocused: Bool
 
     /// Same reference-mass shortcut used by Cold Storage's fee editor - a fixed 1-input/2-output
     /// mass, good enough to show/edit a per-transaction fee estimate without a network round trip.
@@ -592,6 +592,7 @@ private struct ConsolidateToPrimaryConfirmView: View {
                                     .keyboardType(.decimalPad)
                                     .multilineTextAlignment(.trailing)
                                     .frame(maxWidth: 100)
+                                    .focused($feeFieldFocused)
                                     .onSubmit { commitCustomFee() }
                                 Button {
                                     commitCustomFee()
@@ -627,6 +628,12 @@ private struct ConsolidateToPrimaryConfirmView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        feeFieldFocused = false
+                    }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Confirm") {
@@ -724,6 +731,12 @@ private struct ConsolidateSuccessCard: View {
 /// for the primary spending address rather than duplicating this whole flow.
 struct SpendingAddressWithdrawView: View {
     let entry: SpendingAddressEntry
+    /// Pre-fills the recipient with `entry.address` itself (a self-send) and auto-fills Max, for
+    /// the "Compound UTXOs" entry point - merges every UTXO at this address into one. Locks the
+    /// recipient field instead of just pre-filling it, matching Cold Storage's identical
+    /// ColdSendFlowView behavior, since editing it away from `entry.address` would defeat the
+    /// point of a compound send.
+    var isCompoundMode: Bool = false
     let onComplete: () -> Void
 
     @EnvironmentObject var chatService: ChatService
@@ -742,6 +755,25 @@ struct SpendingAddressWithdrawView: View {
     @State private var errorMessage: String?
     @State private var successTxId: String?
 
+    @State private var isResolvingKNS = false
+    @State private var resolvedAddress: String?
+    @State private var resolvedDomain: String?
+    @State private var knsError: String?
+    private let knsService = KNSService.shared
+
+    /// The actual address to use (resolved from a KNS domain, or the direct input) - same
+    /// precedence as ContactsView's WithdrawKaspaView/AddContactView.
+    private var effectiveAddress: String {
+        resolvedAddress ?? addressInput
+    }
+
+    /// True once we have a usable recipient - either a resolved KNS domain or a directly valid
+    /// Kaspa address (mirrors WithdrawKaspaView.hasValidRecipient).
+    private var hasValidRecipient: Bool {
+        if resolvedAddress != nil { return true }
+        return isValidAddress && !isResolvingKNS
+    }
+
     @State private var feeTier: WithdrawFeeTier = .normal
     @State private var normalFeeSompi: UInt64?
     @State private var isEstimatingFee = false
@@ -749,13 +781,16 @@ struct SpendingAddressWithdrawView: View {
     @State private var isEditingFee = false
     @State private var customFeeText = ""
 
+    @State private var manualUtxos: [UTXO]?
+    @State private var showCoinControl = false
+
     private var amountSompi: UInt64? {
         guard let kas = Double(amountInput), kas > 0 else { return nil }
         return UInt64((kas * 100_000_000).rounded())
     }
 
     private var canSend: Bool {
-        isValidAddress && amountSompi != nil && !isSending
+        hasValidRecipient && amountSompi != nil && !isSending
     }
 
     /// Extra priority tip on top of the base (Normal-tier) fee, for network congestion. A
@@ -774,52 +809,112 @@ struct SpendingAddressWithdrawView: View {
     }
 
     private var feeEstimationKey: String {
-        "\(isValidAddress ? addressInput : "")|\(amountSompi ?? 0)"
+        let manualKey = manualUtxos?.map { "\($0.outpoint.transactionId):\($0.outpoint.index)" }.sorted().joined(separator: ",") ?? ""
+        return "\(hasValidRecipient ? effectiveAddress : "")|\(amountSompi ?? 0)|\(manualKey)"
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("kaspa:qr...", text: $addressInput)
-                        .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .onChange(of: addressInput) { handleInputChange($0) }
-
-                    if !addressInput.isEmpty {
+                    if isCompoundMode {
                         HStack {
-                            Image(systemName: isValidAddress ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundColor(isValidAddress ? .green : .red)
-                            Text(isValidAddress ? "Valid address" : "Invalid address format")
-                                .font(.caption)
-                                .foregroundColor(isValidAddress ? .green : .red)
+                            Image(systemName: "arrow.triangle.merge")
+                                .foregroundColor(.accentColor)
+                            Text(entry.address)
+                                .font(.system(.caption, design: .monospaced))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         }
-                    }
+                    } else {
+                        TextField("kaspa:qr... or name.kas", text: $addressInput)
+                            .font(.system(.body, design: .monospaced))
+                            .autocapitalization(.none)
+                            .autocorrectionDisabled()
+                            .onChange(of: addressInput) { handleInputChange($0) }
 
-                    HStack {
-                        Button {
-                            if let pasted = UIPasteboard.general.string {
-                                addressInput = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
-                                handleInputChange(addressInput)
+                        if !addressInput.isEmpty {
+                            if isResolvingKNS {
+                                HStack {
+                                    ProgressView().scaleEffect(0.8)
+                                    Text("Resolving KNS domain...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                            } else if let knsError {
+                                HStack {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.red)
+                                    Text(knsError)
+                                        .font(.caption)
+                                        .foregroundColor(.red)
+                                }
+                            } else if let resolvedAddress {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(.green)
+                                        Text("Resolved: \(resolvedDomain ?? "")")
+                                            .font(.caption)
+                                            .foregroundColor(.green)
+                                    }
+                                    Text(resolvedAddress)
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                            } else {
+                                HStack {
+                                    Image(systemName: isValidAddress ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                        .foregroundColor(isValidAddress ? .green : .red)
+                                    Text(isValidAddress ? "Valid address" : "Invalid address format")
+                                        .font(.caption)
+                                        .foregroundColor(isValidAddress ? .green : .red)
+                                }
                             }
-                        } label: {
-                            Label("Paste", systemImage: "doc.on.clipboard")
                         }
-                        Spacer()
-                        Button {
-                            showQRScanner = true
-                        } label: {
-                            Label("Scan QR", systemImage: "qrcode.viewfinder")
+
+                        HStack {
+                            Button {
+                                if let pasted = UIPasteboard.general.string {
+                                    addressInput = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    handleInputChange(addressInput)
+                                }
+                            } label: {
+                                Label("Paste", systemImage: "doc.on.clipboard")
+                            }
+                            Spacer()
+                            Button {
+                                showQRScanner = true
+                            } label: {
+                                Label("Scan QR", systemImage: "qrcode.viewfinder")
+                            }
                         }
+                        .buttonStyle(.borderless)
                     }
-                    .buttonStyle(.borderless)
                 } header: {
-                    Text("Recipient Address")
+                    Text(isCompoundMode ? "Consolidating This Address" : "Recipient Address")
                 }
 
                 Section {
                     HStack {
+                        Button {
+                            fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
+                        } label: {
+                            if fiatAmountState.isFiatMode {
+                                Text(currencySymbol(for: portfolioViewModel.currentCurrency))
+                                    .font(.title3.weight(.semibold))
+                                    .foregroundColor(.accentColor)
+                                    .frame(width: 22, height: 22)
+                            } else {
+                                Image("KaspaLogo")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 22, height: 22)
+                            }
+                        }
+                        .buttonStyle(.plain)
+
                         TextField(
                             "0.00",
                             text: Binding(
@@ -848,7 +943,7 @@ struct SpendingAddressWithdrawView: View {
                             .font(.caption)
                             .fontWeight(.semibold)
                             .buttonStyle(.borderless)
-                            .disabled(!isValidAddress)
+                            .disabled(!hasValidRecipient)
                         }
                         Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : "KAS")
                             .foregroundColor(.secondary)
@@ -857,6 +952,30 @@ struct SpendingAddressWithdrawView: View {
                     Text("Amount")
                 } footer: {
                     Text("Available: \(formatKas(entry.balanceSompi)) KAS")
+                }
+
+                Section {
+                    Button {
+                        showCoinControl = true
+                    } label: {
+                        HStack {
+                            Text("Coin Control")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            if let manualUtxos {
+                                Text("\(manualUtxos.count) UTXO\(manualUtxos.count == 1 ? "" : "s") selected")
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text("Automatic")
+                                    .foregroundColor(.secondary)
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                } footer: {
+                    Text("Choose exactly which UTXOs to spend instead of selecting automatically.")
                 }
 
                 Section {
@@ -921,7 +1040,7 @@ struct SpendingAddressWithdrawView: View {
                 }
             }
             .task(id: feeEstimationKey) {
-                guard isValidAddress, let amountSompi else {
+                guard hasValidRecipient, let amountSompi else {
                     normalFeeSompi = nil
                     return
                 }
@@ -929,7 +1048,7 @@ struct SpendingAddressWithdrawView: View {
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 guard !Task.isCancelled else { return }
                 do {
-                    let fee = try await chatService.estimateSpendingAddressWithdrawalFee(index: entry.index, toAddress: addressInput, amountSompi: amountSompi)
+                    let fee = try await chatService.estimateSpendingAddressWithdrawalFee(index: entry.index, toAddress: effectiveAddress, amountSompi: amountSompi, manualUtxos: manualUtxos)
                     guard !Task.isCancelled else { return }
                     normalFeeSompi = fee
                 } catch {
@@ -938,7 +1057,14 @@ struct SpendingAddressWithdrawView: View {
                 }
                 isEstimatingFee = false
             }
-            .navigationTitle("Send Kaspa from Address #\(entry.index)")
+            .task {
+                if isCompoundMode {
+                    addressInput = entry.address
+                    isValidAddress = true
+                    setMaxAmount()
+                }
+            }
+            .navigationTitle(isCompoundMode ? "Compound UTXOs" : "Send Kaspa from Address #\(entry.index)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
@@ -955,9 +1081,15 @@ struct SpendingAddressWithdrawView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .sheet(isPresented: $showQRScanner) {
                 QRScannerView { code in
                     handleScannedQRCode(code)
+                }
+            }
+            .sheet(isPresented: $showCoinControl) {
+                CoinControlView(fromAddress: entry.address, initialSelection: manualUtxos) { selection in
+                    manualUtxos = selection
                 }
             }
             .overlay {
@@ -982,11 +1114,62 @@ struct SpendingAddressWithdrawView: View {
             }
             .animation(.easeInOut(duration: 0.2), value: successTxId)
         }
+        .interactiveDismissDisabled()
     }
 
     private func handleInputChange(_ input: String) {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        isValidAddress = !trimmed.isEmpty && contactsManager.isValidKaspaAddress(trimmed)
+
+        resolvedAddress = nil
+        resolvedDomain = nil
+        knsError = nil
+        isResolvingKNS = false
+
+        guard !trimmed.isEmpty else {
+            isValidAddress = false
+            return
+        }
+
+        if trimmed.hasPrefix("kaspa:") || trimmed.hasPrefix("kaspatest:") {
+            isValidAddress = contactsManager.isValidKaspaAddress(trimmed)
+            return
+        }
+
+        if KNSService.looksLikeDomain(trimmed) {
+            isValidAddress = false
+            resolveKNSDomain(trimmed)
+        } else {
+            isValidAddress = false
+        }
+    }
+
+    private func resolveKNSDomain(_ domain: String) {
+        isResolvingKNS = true
+
+        Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+
+            guard addressInput.trimmingCharacters(in: .whitespacesAndNewlines) == domain ||
+                  addressInput.trimmingCharacters(in: .whitespacesAndNewlines) + ".kas" == domain + ".kas" else {
+                return
+            }
+
+            if let resolution = await knsService.resolveDomain(domain) {
+                await MainActor.run {
+                    resolvedAddress = resolution.ownerAddress
+                    resolvedDomain = resolution.domain
+                    knsError = nil
+                    isResolvingKNS = false
+                }
+            } else {
+                await MainActor.run {
+                    resolvedAddress = nil
+                    resolvedDomain = nil
+                    knsError = "KNS domain not found"
+                    isResolvingKNS = false
+                }
+            }
+        }
     }
 
     private func handleScannedQRCode(_ code: String) {
@@ -1001,14 +1184,14 @@ struct SpendingAddressWithdrawView: View {
     }
 
     private func setMaxAmount() {
-        guard isValidAddress else { return }
+        guard hasValidRecipient else { return }
         isEstimatingMax = true
         errorMessage = nil
-        let recipient = addressInput
+        let recipient = effectiveAddress
         let tipSompi = extraFeeSompi
         Task {
             do {
-                let maxSompi = try await chatService.estimateMaxSpendingAddressAmount(index: entry.index, toAddress: recipient, extraFeeSompi: tipSompi)
+                let maxSompi = try await chatService.estimateMaxSpendingAddressAmount(index: entry.index, toAddress: recipient, manualUtxos: manualUtxos, extraFeeSompi: tipSompi)
                 await MainActor.run {
                     amountInput = fiatAmountState.setMaxKas(Double(maxSompi) / 100_000_000.0, priceInCurrency: portfolioViewModel.currentPriceUsd)
                     isEstimatingMax = false
@@ -1042,11 +1225,11 @@ struct SpendingAddressWithdrawView: View {
         guard let amountSompi else { return }
         isSending = true
         errorMessage = nil
-        let recipient = addressInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let recipient = effectiveAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         let tipSompi = extraFeeSompi
         Task {
             do {
-                let txId = try await chatService.sendFromSpendingAddress(index: entry.index, toAddress: recipient, amountSompi: amountSompi, extraFeeSompi: tipSompi)
+                let txId = try await chatService.sendFromSpendingAddress(index: entry.index, toAddress: recipient, amountSompi: amountSompi, manualUtxos: manualUtxos, extraFeeSompi: tipSompi)
                 await MainActor.run {
                     isSending = false
                     successTxId = txId
@@ -1075,6 +1258,8 @@ private struct SpendingAddressQRView: View {
     let entry: SpendingAddressEntry
     @Environment(\.dismiss) private var dismiss
     @State private var qrImage: UIImage?
+    @State private var toastMessage: String?
+    @State private var toastToken = UUID()
 
     var body: some View {
         NavigationStack {
@@ -1109,6 +1294,16 @@ private struct SpendingAddressQRView: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 32)
 
+                        Button {
+                            UIPasteboard.general.string = entry.address
+                            Haptics.success()
+                            showToast("Address copied to clipboard.")
+                        } label: {
+                            Label("Copy Address", systemImage: "doc.on.doc")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundColor(.accentColor)
+                        }
+
                         Spacer()
                         Spacer()
                     }
@@ -1121,6 +1316,22 @@ private struct SpendingAddressQRView: View {
                     }
                 }
                 .onAppear { generateQR() }
+                .toast(message: toastMessage)
+        }
+    }
+
+    private func showToast(_ message: String) {
+        let token = UUID()
+        toastToken = token
+        withAnimation(.easeOut(duration: 0.2)) {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    toastMessage = nil
+                }
+            }
         }
     }
 
@@ -1141,6 +1352,125 @@ private struct SpendingAddressQRView: View {
     }
 }
 
+/// Reveals a single spending address's own derived private key - not the wallet's seed phrase -
+/// so a specific address's spending capability can be exported/backed up without exposing the
+/// rest of the wallet. Mirrors SettingsView's seed-phrase reveal flow at the same sensitivity
+/// level (SecureView screenshot protection, tap-to-reveal with a 7s auto-hide timer, clipboard
+/// auto-clear after 30s) rather than inventing a lighter-weight pattern for equally sensitive
+/// key material. The caller gates presentation behind `DeviceAuth`/biometrics already, same as
+/// the seed-phrase entry point does.
+private struct SpendingAddressPrivateKeyView: View {
+    let entry: SpendingAddressEntry
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var isRevealed = false
+    @State private var revealToken = UUID()
+    @State private var toastMessage: String?
+    @State private var toastToken = UUID()
+
+    private var privateKeyHex: String {
+        WalletManager.shared.spendingPrivateKey(at: entry.index)?.hexString ?? "Unavailable"
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Security Warning", systemImage: "exclamationmark.triangle.fill")
+                        .font(.headline)
+                        .foregroundColor(.orange)
+                    Text("Anyone with this address's private key can spend its funds. Never share it with anyone.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .padding()
+                .background(Color.orange.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                if isRevealed {
+                    SecureView {
+                        Text(privateKeyHex)
+                            .font(.system(.footnote, design: .monospaced))
+                            .multilineTextAlignment(.center)
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color(.systemGray6))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+
+                    Button {
+                        copySensitiveToClipboard(privateKeyHex)
+                        Haptics.success()
+                        showToast("Private key copied. Clipboard will clear in 30s.")
+                    } label: {
+                        Label("Copy Private Key Hex", systemImage: "doc.on.doc")
+                    }
+                    .padding(.top)
+                } else {
+                    Button {
+                        isRevealed = true
+                        let token = UUID()
+                        revealToken = token
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 7) {
+                            if revealToken == token {
+                                isRevealed = false
+                            }
+                        }
+                    } label: {
+                        VStack(spacing: 12) {
+                            Image(systemName: "eye.slash.fill")
+                                .font(.largeTitle)
+                            Text("Tap to reveal private key")
+                                .font(.subheadline)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(60)
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .foregroundColor(.secondary)
+                }
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle(entry.displayLabel)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Close") { dismiss() }
+                }
+            }
+            .toast(message: toastMessage)
+        }
+    }
+
+    private func copySensitiveToClipboard(_ value: String) {
+        UIPasteboard.general.string = value
+        let copiedValue = value
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+            if UIPasteboard.general.string == copiedValue {
+                UIPasteboard.general.string = ""
+            }
+        }
+    }
+
+    private func showToast(_ message: String) {
+        let token = UUID()
+        toastToken = token
+        withAnimation(.easeOut(duration: 0.2)) {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    toastMessage = nil
+                }
+            }
+        }
+    }
+}
+
 /// Transaction history for a single spending address. Tapping a transaction opens it
 /// directly on whichever block explorer is selected in Settings > Connection > Kaspa
 /// Explorer, rather than showing an in-app detail screen.
@@ -1150,10 +1480,173 @@ private struct SpendingAddressTransactionHistoryView: View {
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var settingsViewModel: SettingsViewModel
 
+    private enum Tab: String, CaseIterable {
+        case transactions = "Transaction History"
+        case utxos = "UTXOs"
+    }
+
+    @State private var selectedTab: Tab = .transactions
     @State private var transactions: [KaspaFullTransactionResponse] = []
     @State private var isLoading = false
+    @State private var utxos: [UTXO] = []
+    @State private var isLoadingUtxos = false
+    @State private var showReceiveSheet = false
+    @State private var showSendSheet = false
+    @State private var showCompoundSheet = false
+    @State private var showPrivateKeySheet = false
+    @State private var utxoLabels: [String: String] = [:]
+    @State private var renamingUtxo: UTXO?
+    @State private var renameUtxoText = ""
+
+    private func outpointKey(_ utxo: UTXO) -> String {
+        "\(utxo.outpoint.transactionId):\(utxo.outpoint.index)"
+    }
+
+    private func tabLabel(_ tab: Tab) -> String {
+        switch tab {
+        case .transactions: return tab.rawValue
+        case .utxos: return "\(tab.rawValue) (\(utxos.count))"
+        }
+    }
 
     var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 2) {
+                Text("Balance")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text("\(formatKasExact(entry.balanceSompi)) KAS")
+                    .font(.title3.weight(.semibold))
+            }
+            .padding(.top, 12)
+
+            Picker("", selection: $selectedTab) {
+                ForEach(Tab.allCases, id: \.self) { tab in
+                    Text(tabLabel(tab)).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            switch selectedTab {
+            case .transactions:
+                transactionsList
+            case .utxos:
+                utxosList
+            }
+        }
+        .navigationTitle(entry.displayLabel)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // A single ToolbarItem with both icons inside an HStack (rather than two separate
+            // ToolbarItems) so left-to-right order (Export, then Explorer) is guaranteed - but
+            // each icon draws its own circular glass background explicitly, so they read as two
+            // distinct pills with a gap between them instead of iOS's automatic toolbar-item
+            // grouping merging adjacent trailing items into one shared pill shape.
+            ToolbarItem(placement: .navigationBarTrailing) {
+                HStack(spacing: 10) {
+                    Button {
+                        if settingsViewModel.settings.biometricSpendingKeyEnabled {
+                            DeviceAuth.authenticate(reason: "Unlock to view this address's private key") {
+                                showPrivateKeySheet = true
+                            }
+                        } else {
+                            showPrivateKeySheet = true
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up.on.square")
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(.regularMaterial))
+                    }
+                    if let url = settingsViewModel.settings.kaspaExplorer.addressURL(for: entry.address) {
+                        Link(destination: url) {
+                            Image(systemName: "globe")
+                                .frame(width: 32, height: 32)
+                                .background(Circle().fill(.regularMaterial))
+                        }
+                    }
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            HStack(spacing: 12) {
+                Button {
+                    showReceiveSheet = true
+                } label: {
+                    Label("Receive", systemImage: "qrcode")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .foregroundColor(.black)
+                        .background(Capsule().fill(Color.accentColor))
+                }
+                Button {
+                    showSendSheet = true
+                } label: {
+                    Label("Send", systemImage: "arrow.up.circle.fill")
+                        .font(.subheadline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .foregroundColor(.black)
+                        .background(Capsule().fill(Color.accentColor))
+                }
+                .disabled(entry.balanceSompi == 0)
+                .opacity(entry.balanceSompi == 0 ? 0.5 : 1)
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 16)
+        }
+        .sheet(isPresented: $showReceiveSheet) {
+            SpendingAddressQRView(entry: entry)
+        }
+        .sheet(isPresented: $showSendSheet) {
+            SpendingAddressWithdrawView(entry: entry) {
+                Task {
+                    await loadTransactions()
+                    await loadUtxos()
+                }
+            }
+        }
+        .sheet(isPresented: $showCompoundSheet) {
+            SpendingAddressWithdrawView(entry: entry, isCompoundMode: true) {
+                Task {
+                    await loadTransactions()
+                    await loadUtxos()
+                }
+            }
+        }
+        .sheet(isPresented: $showPrivateKeySheet) {
+            SpendingAddressPrivateKeyView(entry: entry)
+        }
+        .alert(
+            "Rename UTXO",
+            isPresented: Binding(
+                get: { renamingUtxo != nil },
+                set: { if !$0 { renamingUtxo = nil } }
+            )
+        ) {
+            TextField("Name", text: $renameUtxoText)
+            Button("Save") {
+                if let renamingUtxo {
+                    WalletManager.shared.setSpendingUtxoLabel(address: entry.address, outpointKey: outpointKey(renamingUtxo), label: renameUtxoText)
+                    utxoLabels = WalletManager.shared.loadSpendingUtxoLabels(address: entry.address)
+                }
+                renamingUtxo = nil
+            }
+            Button("Cancel", role: .cancel) {
+                renamingUtxo = nil
+            }
+        }
+        .task {
+            utxoLabels = WalletManager.shared.loadSpendingUtxoLabels(address: entry.address)
+            await loadTransactions()
+            await loadUtxos()
+        }
+    }
+
+    private var transactionsList: some View {
         List {
             if isLoading && transactions.isEmpty {
                 HStack {
@@ -1176,14 +1669,96 @@ private struct SpendingAddressTransactionHistoryView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle(entry.displayLabel)
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            await loadTransactions()
-        }
         .refreshable {
             await loadTransactions()
         }
+    }
+
+    private var utxosList: some View {
+        List {
+            if utxos.count > 1 {
+                Section {
+                    Button {
+                        showCompoundSheet = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.triangle.merge")
+                            Text("Compound UTXOs")
+                                .fontWeight(.semibold)
+                            Spacer()
+                        }
+                    }
+                } footer: {
+                    Text("Combines all UTXOs at this address into a single one, to reduce the number of inputs a future send needs.")
+                }
+            }
+            if isLoadingUtxos && utxos.isEmpty {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+            } else if utxos.isEmpty {
+                Text("No UTXOs.")
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(Array(utxos.enumerated()), id: \.offset) { _, utxo in
+                    utxoRow(utxo)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .refreshable {
+            await loadUtxos()
+        }
+    }
+
+    private func utxoRow(_ utxo: UTXO) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: utxo.isCoinbase ? "cube.fill" : "circle.grid.2x2.fill")
+                .font(.title2)
+                .foregroundColor(.accentColor)
+            VStack(alignment: .leading, spacing: 2) {
+                if let label = utxoLabels[outpointKey(utxo)], !label.isEmpty {
+                    Text(label)
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(.accentColor)
+                }
+                Text("\(formatKasExact(utxo.amount)) KAS")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                Text("\(utxo.outpoint.transactionId):\(utxo.outpoint.index)")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer()
+            if utxo.isCoinbase {
+                Text("Coinbase")
+                    .font(.caption2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
+            Button {
+                renameUtxoText = utxoLabels[outpointKey(utxo)] ?? ""
+                renamingUtxo = utxo
+            } label: {
+                Image(systemName: "pencil")
+                    .foregroundColor(.accentColor)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func loadUtxos() async {
+        isLoadingUtxos = true
+        utxos = (try? await NodePoolService.shared.getUtxosByAddresses([entry.address])) ?? []
+        isLoadingUtxos = false
     }
 
     private func transactionRow(_ tx: KaspaFullTransactionResponse) -> some View {

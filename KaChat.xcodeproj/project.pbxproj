@@ -56,6 +56,8 @@
 		CSEX00010001000100000004 /* ChatService+Fetching.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000004 /* ChatService+Fetching.swift */; };
 		CSEX00010001000100000005 /* ChatService+Persistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000005 /* ChatService+Persistence.swift */; };
 		CSEX00010001000100000006 /* ChatService+Decryption.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000006 /* ChatService+Decryption.swift */; };
+		CSEX00010001000100000007 /* ChatService+Reactions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CSEX00010001000000000007 /* ChatService+Reactions.swift */; };
+		QRBV00010001000100000001 /* QuickReactionBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = QRBV00010001000000000001 /* QuickReactionBarView.swift */; };
 		DA0001B0000000000000001 /* DeviceAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0001A0000000000000001 /* DeviceAuth.swift */; };
 		DTAL00010001000100000001 /* DeterministicAlias.swift in Sources */ = {isa = PBXBuildFile; fileRef = DTAL00010001000000000001 /* DeterministicAlias.swift */; };
 		E81000012D4C000100000001 /* KaChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000002D4C000100000001 /* KaChatApp.swift */; };
@@ -125,6 +127,9 @@
 		PF0004B0000000000000001 /* PortfolioViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0004A0000000000000001 /* PortfolioViewModel.swift */; };
 		PF0005B0000000000000001 /* PortfolioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0005A0000000000000001 /* PortfolioView.swift */; };
 		PF0006B0000000000000001 /* PortfolioTransactionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0006A0000000000000001 /* PortfolioTransactionsView.swift */; };
+		PF0008B0000000000000001 /* PortfolioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0008A0000000000000001 /* PortfolioManager.swift */; };
+		PF0009B0000000000000001 /* PortfolioPickerHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0009A0000000000000001 /* PortfolioPickerHeader.swift */; };
+		PF0010B0000000000000001 /* PortfolioAddressImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0010A0000000000000001 /* PortfolioAddressImporter.swift */; };
 		PQSS00010001000000000002 /* PhotoQualitySettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */; };
 		PUSH00010001000100000001 /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PUSH00010001000000000001 /* PushNotificationManager.swift */; };
 		PUSH00010001000100000002 /* SharedDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PUSH00010001000000000002 /* SharedDataManager.swift */; };
@@ -232,6 +237,8 @@
 		CSEX00010001000000000004 /* ChatService+Fetching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Fetching.swift"; sourceTree = "<group>"; };
 		CSEX00010001000000000005 /* ChatService+Persistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Persistence.swift"; sourceTree = "<group>"; };
 		CSEX00010001000000000006 /* ChatService+Decryption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Decryption.swift"; sourceTree = "<group>"; };
+		CSEX00010001000000000007 /* ChatService+Reactions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatService+Reactions.swift"; sourceTree = "<group>"; };
+		QRBV00010001000000000001 /* QuickReactionBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickReactionBarView.swift; sourceTree = "<group>"; };
 		DA0001A0000000000000001 /* DeviceAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceAuth.swift; sourceTree = "<group>"; };
 		DTAL00010001000000000001 /* DeterministicAlias.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeterministicAlias.swift; sourceTree = "<group>"; };
 		E80000002D4C000000000000 /* KaChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KaChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -321,6 +328,9 @@
 		PF0004A0000000000000001 /* PortfolioViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioViewModel.swift; sourceTree = "<group>"; };
 		PF0005A0000000000000001 /* PortfolioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioView.swift; sourceTree = "<group>"; };
 		PF0006A0000000000000001 /* PortfolioTransactionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioTransactionsView.swift; sourceTree = "<group>"; };
+		PF0008A0000000000000001 /* PortfolioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioManager.swift; sourceTree = "<group>"; };
+		PF0009A0000000000000001 /* PortfolioPickerHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioPickerHeader.swift; sourceTree = "<group>"; };
+		PF0010A0000000000000001 /* PortfolioAddressImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioAddressImporter.swift; sourceTree = "<group>"; };
 		PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoQualitySettingsSheet.swift; sourceTree = "<group>"; };
 		PUSH00010001000000000001 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
 		PUSH00010001000000000002 /* SharedDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedDataManager.swift; sourceTree = "<group>"; };
@@ -482,6 +492,7 @@
 				CSEX00010001000000000004 /* ChatService+Fetching.swift */,
 				CSEX00010001000000000005 /* ChatService+Persistence.swift */,
 				CSEX00010001000000000006 /* ChatService+Decryption.swift */,
+				CSEX00010001000000000007 /* ChatService+Reactions.swift */,
 				3F4C10022F72000100000001 /* ChatListSnapshotStore.swift */,
 				MSGS00012F5C000100000001 /* MessageStore.swift */,
 				E81000382D4C00010000001D /* BIP39.swift */,
@@ -503,6 +514,8 @@
 				BSVC00010001000000000001 /* BroadcastService.swift */,
 				PF0002A0000000000000001 /* PortfolioLedgerStore.swift */,
 				PF0003A0000000000000001 /* CoinGeckoService.swift */,
+				PF0008A0000000000000001 /* PortfolioManager.swift */,
+				PF0010A0000000000000001 /* PortfolioAddressImporter.swift */,
 				CS0003A0000000000000001 /* ColdStorageManager.swift */,
 				CS0009A0000000000000001 /* ColdStorageSendEngine.swift */,
 				CH0002A0000000000000001 /* ChessGameService.swift */,
@@ -602,6 +615,7 @@
 				4D3D20062F72000600000001 /* DesktopEmojiLibrary.swift */,
 				4D3D20072F72000700000001 /* DesktopEmojiPickerView.swift */,
 				E81000342D4C00010000001B /* MessageBubbleView.swift */,
+				QRBV00010001000000000001 /* QuickReactionBarView.swift */,
 				4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */,
 				PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */,
 				4D3D20032F72000300000001 /* MessageImageSharePayload.swift */,
@@ -691,6 +705,7 @@
 			children = (
 				PF0005A0000000000000001 /* PortfolioView.swift */,
 				PF0006A0000000000000001 /* PortfolioTransactionsView.swift */,
+				PF0009A0000000000000001 /* PortfolioPickerHeader.swift */,
 			);
 			path = Portfolio;
 			sourceTree = "<group>";
@@ -902,6 +917,7 @@
 				CSEX00010001000100000004 /* ChatService+Fetching.swift in Sources */,
 				CSEX00010001000100000005 /* ChatService+Persistence.swift in Sources */,
 				CSEX00010001000100000006 /* ChatService+Decryption.swift in Sources */,
+				CSEX00010001000100000007 /* ChatService+Reactions.swift in Sources */,
 				3F4C10022F72000100000002 /* ChatListSnapshotStore.swift in Sources */,
 				MSGS00012F5C000100000002 /* MessageStore.swift in Sources */,
 				PF0001B0000000000000001 /* PortfolioModels.swift in Sources */,
@@ -910,6 +926,9 @@
 				PF0004B0000000000000001 /* PortfolioViewModel.swift in Sources */,
 				PF0005B0000000000000001 /* PortfolioView.swift in Sources */,
 				PF0006B0000000000000001 /* PortfolioTransactionsView.swift in Sources */,
+				PF0008B0000000000000001 /* PortfolioManager.swift in Sources */,
+				PF0009B0000000000000001 /* PortfolioPickerHeader.swift in Sources */,
+				PF0010B0000000000000001 /* PortfolioAddressImporter.swift in Sources */,
 				E81000112D4C000100000009 /* OnboardingView.swift in Sources */,
 				E81000132D4C00010000000A /* CreateWalletView.swift in Sources */,
 				E81000152D4C00010000000B /* ImportWalletView.swift in Sources */,
@@ -964,6 +983,7 @@
 				FEESHIM0001000100000002 /* FeeShimmerOverlay.swift in Sources */,
 				E81000332D4C00010000001A /* AddContactView.swift in Sources */,
 				E81000352D4C00010000001B /* MessageBubbleView.swift in Sources */,
+				QRBV00010001000100000001 /* QuickReactionBarView.swift in Sources */,
 				E81000372D4C00010000001C /* Bech32.swift in Sources */,
 				E81000392D4C00010000001D /* BIP39.swift in Sources */,
 				E810003B2D4C00010000001F /* KaChatCipher.swift in Sources */,

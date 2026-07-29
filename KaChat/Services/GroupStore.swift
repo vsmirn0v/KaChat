@@ -90,6 +90,9 @@ final class GroupStore {
             messageRequest.predicate = NSPredicate(format: "groupId == %@", id)
             let deleteRequest = NSBatchDeleteRequest(fetchRequest: messageRequest)
             _ = try? context.execute(deleteRequest)
+            let reactionRequest = NSFetchRequest<NSFetchRequestResult>(entityName: CDGroupReaction.entityName)
+            reactionRequest.predicate = NSPredicate(format: "groupId == %@", id)
+            _ = try? context.execute(NSBatchDeleteRequest(fetchRequest: reactionRequest))
             save(context)
         }
     }
@@ -241,13 +244,79 @@ final class GroupStore {
         return result
     }
 
+    // MARK: - Reactions (CDGroupReaction)
+
+    /// Plain snapshot of a `CDGroupReaction` row, safe to pass across contexts/actors.
+    struct ReactionSnapshot: Identifiable, Equatable {
+        var id: String { "\(targetTxId)-\(reactorAddress)" }
+        let targetTxId: String
+        let reactorAddress: String
+        let emoji: String
+    }
+
+    /// Replaces any existing reaction `reactorAddress` left on `targetTxId` with `emoji` - one
+    /// reaction per (message, reactor), mirroring `MessageStore.upsertReaction`'s 1:1 shape.
+    func upsertGroupReaction(targetTxId: String, groupId: String, reactorAddress: String, emoji: String, reactionTxId: String?, blockTime: Int64) {
+        guard isLoaded else { return }
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDGroupReaction>(entityName: CDGroupReaction.entityName)
+            request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@", targetTxId, reactorAddress)
+            let existing = (try? context.fetch(request)) ?? []
+            let reaction = existing.first ?? CDGroupReaction(context: context)
+            for duplicate in existing.dropFirst() {
+                context.delete(duplicate)
+            }
+            reaction.targetTxId = targetTxId
+            reaction.groupId = groupId
+            reaction.reactorAddress = reactorAddress
+            reaction.emoji = emoji
+            reaction.reactionTxId = reactionTxId
+            reaction.blockTime = blockTime
+            save(context)
+        }
+    }
+
+    /// Deletes `reactorAddress`'s reaction on `targetTxId`, if any.
+    func removeGroupReaction(targetTxId: String, reactorAddress: String) {
+        guard isLoaded else { return }
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDGroupReaction>(entityName: CDGroupReaction.entityName)
+            request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@", targetTxId, reactorAddress)
+            let existing = (try? context.fetch(request)) ?? []
+            for record in existing {
+                context.delete(record)
+            }
+            save(context)
+        }
+    }
+
+    /// All reactions for `groupId`, grouped by the message they target.
+    func fetchGroupReactions(groupId: String) -> [String: [ReactionSnapshot]] {
+        guard isLoaded else { return [:] }
+        var grouped: [String: [ReactionSnapshot]] = [:]
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDGroupReaction>(entityName: CDGroupReaction.entityName)
+            request.predicate = NSPredicate(format: "groupId == %@", groupId)
+            guard let results = try? context.fetch(request) else { return }
+            for record in results {
+                guard let emoji = record.emoji else { continue }
+                let snapshot = ReactionSnapshot(targetTxId: record.targetTxId, reactorAddress: record.reactorAddress, emoji: emoji)
+                grouped[record.targetTxId, default: []].append(snapshot)
+            }
+        }
+        return grouped
+    }
+
     /// Clear all local group data for the current wallet (e.g. on wallet reset/logout).
     /// Does NOT touch Keychain-held GroupBags - callers must separately delete those per group.
     func clearAll() {
         guard isLoaded else { return }
         let context = viewContext
         context.performAndWait {
-            for entityName in [CDGroupMessage.entityName, CDGroup.entityName] {
+            for entityName in [CDGroupMessage.entityName, CDGroup.entityName, CDGroupReaction.entityName] {
                 let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
                 let deleteRequest = NSBatchDeleteRequest(fetchRequest: request)
                 _ = try? context.execute(deleteRequest)
@@ -298,7 +367,19 @@ final class GroupStore {
             makeAttribute(name: "deliveryStatus", type: .stringAttributeType, optional: true)
         ]
 
-        model.entities = [groupEntity, messageEntity]
+        let reactionEntity = NSEntityDescription()
+        reactionEntity.name = CDGroupReaction.entityName
+        reactionEntity.managedObjectClassName = NSStringFromClass(CDGroupReaction.self)
+        reactionEntity.properties = [
+            makeAttribute(name: "targetTxId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "groupId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "reactorAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "emoji", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "reactionTxId", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "blockTime", type: .integer64AttributeType, optional: false, defaultValue: 0)
+        ]
+
+        model.entities = [groupEntity, messageEntity, reactionEntity]
         return model
     }
 
@@ -360,4 +441,21 @@ final class CDGroupMessage: NSManagedObject {
     @NSManaged var blockTime: Int64
     @NSManaged var isOutgoing: Bool
     @NSManaged var deliveryStatus: String?
+}
+
+/// A reaction (tapback) sent or received on a group message - see `MessageReactionContent`.
+/// `emoji` is stored as plain text, unlike `CDGroupMessage.contentEncrypted` above - a reaction
+/// carries no independent at-rest encryption key here (this store has none of its own; group
+/// message content is protected by `GroupCipher`'s own crypto in transit and only ever decrypted
+/// to plaintext for display, never re-encrypted just for local storage).
+@objc(CDGroupReaction)
+final class CDGroupReaction: NSManagedObject {
+    static let entityName = "CDGroupReaction"
+
+    @NSManaged var targetTxId: String
+    @NSManaged var groupId: String
+    @NSManaged var reactorAddress: String
+    @NSManaged var emoji: String?
+    @NSManaged var reactionTxId: String?
+    @NSManaged var blockTime: Int64
 }
