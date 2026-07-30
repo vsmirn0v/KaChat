@@ -10,6 +10,7 @@ import YbridOpus
 private let kaspaBubbleColor = Color(red: 112.0 / 255.0, green: 199.0 / 255.0, blue: 186.0 / 255.0)
 
 struct MessageBubbleView: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
     let message: ChatMessage
     let onCopy: ((String, ToastStyle) -> Void)?
     let onRetry: ((ChatMessage) -> Void)?
@@ -20,10 +21,39 @@ struct MessageBubbleView: View {
     let replyQuote: MessageReplyContent?
     let replySenderDisplayName: String?
     let onReply: (() -> Void)?
+    /// Enters the chat's message multi-select mode with this message pre-selected - nil disables
+    /// the "Select" context-menu action entirely (matches `onReply`'s nil-disables convention).
+    let onSelect: (() -> Void)?
+    /// This message's current reactions (one per reactor), for the pill shown on its corner.
+    var reactions: [MessageStore.ReactionSnapshot] = []
+    /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
+    /// entirely (matches how `onReply` being nil already disables reply everywhere it's checked).
+    let onReact: ((String) -> Void)?
+    /// Shared across every bubble in the conversation (not per-bubble `@State`) so the list's own
+    /// tap-anywhere-to-dismiss gesture can close whichever bubble's bar is open from outside this
+    /// view entirely - see `ChatDetailView`'s `activeQuickReactionMessageId`.
+    @Binding var activeQuickReactionMessageId: UUID?
+    private var showQuickReactionBar: Bool {
+        activeQuickReactionMessageId == message.id
+    }
+    /// Tapping the reply quote (if any) jumps to and highlights the original message - nil
+    /// when `replyQuote` is nil, since there's nothing to jump to.
+    let onJumpToReply: (() -> Void)?
     /// Sender's KNS avatar (or nil for plain initials), matching broadcast rooms'
     /// `BroadcastMessageRow.avatarButton`.
     let avatarURLString: String?
     let avatarDisplayName: String
+    /// Parsed chess envelope, if `message.content` is one - mirrors `replyQuote`. `chessSummary`
+    /// is the current game state (nil only if `chessEnvelope` is nil), always reflecting the
+    /// *latest* message for that game, not necessarily this one - see `isLatestChessMessage`.
+    let chessEnvelope: ChessEnvelope?
+    let chessSummary: ChessGameSummary?
+    /// True only for the most recent chess message belonging to its game - that one renders as
+    /// the live status card; earlier moves in the same game render as a compact log line instead.
+    var isLatestChessMessage: Bool = false
+    /// Non-nil only for an incoming, not-yet-responded-to invite.
+    let onRespondToChessInvite: ((Bool) -> Void)?
+    let onOpenChessGame: (() -> Void)?
     /// Shared horizontal offset driven by the message list's swipe-left-to-reveal-timestamp
     /// gesture (see `ChatDetailView`'s drag gesture) - 0 at rest, negative while revealed.
     var revealOffset: CGFloat = 0
@@ -33,6 +63,11 @@ struct MessageBubbleView: View {
     var photosBlocked: Bool = false
     @State private var shimmerPhase: CGFloat = -1
     @State private var showFullText = false
+    /// Long-pressing a link surfaces this instead of `.contextMenu` (which never fires there -
+    /// `LinkifiedMessageTextView`'s own long-press recognizer claims and cancels the touch before
+    /// the ancestor `.contextMenu` gesture sees it), offering the same actions a confirmationDialog
+    /// can trigger imperatively.
+    @State private var linkMenuURL: URL?
 
     init(
         message: ChatMessage,
@@ -43,11 +78,21 @@ struct MessageBubbleView: View {
         replyQuote: MessageReplyContent? = nil,
         replySenderDisplayName: String? = nil,
         onReply: (() -> Void)? = nil,
+        onSelect: (() -> Void)? = nil,
+        reactions: [MessageStore.ReactionSnapshot] = [],
+        onReact: ((String) -> Void)? = nil,
+        activeQuickReactionMessageId: Binding<UUID?> = .constant(nil),
+        onJumpToReply: (() -> Void)? = nil,
         avatarURLString: String? = nil,
         avatarDisplayName: String = "",
         revealOffset: CGFloat = 0,
         maxRevealOffset: CGFloat = 64,
-        photosBlocked: Bool = false
+        photosBlocked: Bool = false,
+        chessEnvelope: ChessEnvelope? = nil,
+        chessSummary: ChessGameSummary? = nil,
+        isLatestChessMessage: Bool = false,
+        onRespondToChessInvite: ((Bool) -> Void)? = nil,
+        onOpenChessGame: (() -> Void)? = nil
     ) {
         self.message = message
         self.onCopy = onCopy
@@ -57,11 +102,21 @@ struct MessageBubbleView: View {
         self.replyQuote = replyQuote
         self.replySenderDisplayName = replySenderDisplayName
         self.onReply = onReply
+        self.onSelect = onSelect
+        self.reactions = reactions
+        self.onReact = onReact
+        self._activeQuickReactionMessageId = activeQuickReactionMessageId
+        self.onJumpToReply = onJumpToReply
         self.avatarURLString = avatarURLString
         self.avatarDisplayName = avatarDisplayName
         self.revealOffset = revealOffset
         self.maxRevealOffset = maxRevealOffset
         self.photosBlocked = photosBlocked
+        self.chessEnvelope = chessEnvelope
+        self.chessSummary = chessSummary
+        self.isLatestChessMessage = isLatestChessMessage
+        self.onRespondToChessInvite = onRespondToChessInvite
+        self.onOpenChessGame = onOpenChessGame
     }
 
     /// The reply's own text, or the raw content when this isn't a reply - matches broadcast
@@ -110,6 +165,25 @@ struct MessageBubbleView: View {
             }
 
             VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 4) {
+                // Sits directly above the bubble in normal layout flow (like `replyQuoteView`
+                // below) rather than as an `.overlay` with a manual offset - an offset popup that
+                // sticks out above its row gets cropped by the ScrollView's own clipping, which is
+                // exactly what made the emoji row render as sliced-off fragments before.
+                if showQuickReactionBar, let onReact {
+                    QuickReactionBarView(
+                        emojis: settingsViewModel.settings.effectiveQuickReactionEmojis,
+                        onReact: { emoji in
+                            onReact(emoji)
+                            activeQuickReactionMessageId = nil
+                        },
+                        onReply: {
+                            onReply?()
+                            activeQuickReactionMessageId = nil
+                        }
+                    )
+                    .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)
+                }
+
                 // Message type indicator for special messages
                 if shouldShowMessageTypeIndicator {
                     messageTypeIndicator
@@ -118,40 +192,73 @@ struct MessageBubbleView: View {
                 // Incoming handshake request with Accept/Decline actions
                 if message.messageType == .handshake && !message.isOutgoing && onAcceptHandshake != nil {
                     handshakeRequestBubble
+                } else if let chessEnvelope {
+                    chessBubble(chessEnvelope)
                 } else {
                     if let replyQuote {
                         replyQuoteView(replyQuote)
                     }
 
-                    if let media, media.isImage {
-                        // Double-tap-to-reply is handled inside LazyImageBubble itself (co-located
-                        // with its single-tap-to-preview gesture so SwiftUI can disambiguate the
-                        // two correctly) rather than here, unlike the audio/text cases below.
-                        LazyImageBubble(
-                            media: media,
-                            txId: message.txId,
-                            shouldShowRetry: shouldShowRetry,
-                            photosBlocked: photosBlocked && !message.isOutgoing,
-                            senderDisplayName: avatarDisplayName,
-                            onCopy: onCopy,
-                            onRetry: { onRetry?(message) },
-                            onReply: onReply
-                        )
-                    } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
-                        LazyAudioBubble(
-                            data: data,
-                            mimeType: media.mimeType,
-                            isOutgoing: message.isOutgoing,
-                            fileName: media.name,
-                            txId: message.txId,
-                            onCopy: onCopy,
-                            onRetry: shouldShowRetry ? { onRetry?(message) } : nil,
-                            onReply: onReply
-                        )
-                        .simultaneousGesture(TapGesture(count: 2).onEnded { onReply?() })
-                    } else {
-                        messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
-                            .simultaneousGesture(TapGesture(count: 2).onEnded { onReply?() })
+                    // Grouped separately from `replyQuote` above so the reaction pill's overlay
+                    // (attached to just this Group) anchors to the actual bubble's own corner -
+                    // attaching it to the whole VStack instead would size/position it against
+                    // whichever sibling is widest, which for a reply is usually the quote banner,
+                    // not the (often much narrower) bubble underneath it.
+                    Group {
+                        if let media, media.isImage {
+                            // Double-tap opens the quick-reaction bar (co-located inside
+                            // LazyImageBubble with its single-tap-to-preview gesture so SwiftUI can
+                            // disambiguate the two correctly) rather than here, unlike the audio/text
+                            // cases below.
+                            LazyImageBubble(
+                                media: media,
+                                txId: message.txId,
+                                shouldShowRetry: shouldShowRetry,
+                                photosBlocked: photosBlocked && !message.isOutgoing,
+                                senderDisplayName: avatarDisplayName,
+                                onCopy: onCopy,
+                                onRetry: { onRetry?(message) },
+                                onReply: onReply,
+                                onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil,
+                                onSelect: onSelect
+                            )
+                        } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
+                            LazyAudioBubble(
+                                data: data,
+                                mimeType: media.mimeType,
+                                isOutgoing: message.isOutgoing,
+                                fileName: media.name,
+                                txId: message.txId,
+                                onCopy: onCopy,
+                                onRetry: shouldShowRetry ? { onRetry?(message) } : nil,
+                                onReply: onReply,
+                                onSelect: onSelect
+                            )
+                            .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
+                        } else if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText), MessageTextRenderPlan.isEntirelyLink(displayText) {
+                            // Message is nothing but a link - the preview card replaces the plain-text
+                            // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
+                            // keeps the raw link visible/tappable if no preview data is ever found,
+                            // rather than the message rendering as nothing at all.
+                            LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText, onSelect: onSelect)
+                        } else {
+                            messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
+                                .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
+                        }
+                    }
+                    .overlay(alignment: message.isOutgoing ? .bottomLeading : .bottomTrailing) {
+                        if !reactions.isEmpty {
+                            ReactionPillView(emojis: reactions.map { $0.emoji })
+                                .offset(y: 10)
+                        }
+                    }
+
+                    // Only the plain-text-bubble case (no media, and not itself entirely a link,
+                    // both handled inside the Group above) gets this extra preview card below it.
+                    if media == nil,
+                       !MessageTextRenderPlan.isEntirelyLink(displayText),
+                       let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
+                        LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect)
                     }
                 }
 
@@ -197,21 +304,21 @@ struct MessageBubbleView: View {
             .lowercased()
         if matchesSinglePlaceholderFormat(
             normalizedContent: normalized,
-            localizedTemplate: NSLocalizedString("Sent %@ domain", comment: "Outgoing KNS domain transfer message")
+            localizedTemplate: AppLocalization.string("Sent %@ domain")
         ) {
             return true
         }
         if matchesSinglePlaceholderFormat(
             normalizedContent: normalized,
-            localizedTemplate: NSLocalizedString("Received %@ domain", comment: "Incoming KNS domain transfer message")
+            localizedTemplate: AppLocalization.string("Received %@ domain")
         ) {
             return true
         }
 
-        let localizedOutgoingFallback = NSLocalizedString("Sent domain transfer", comment: "Outgoing KNS domain transfer fallback")
+        let localizedOutgoingFallback = AppLocalization.string("Sent domain transfer")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        let localizedIncomingFallback = NSLocalizedString("Received domain transfer", comment: "Incoming KNS domain transfer fallback")
+        let localizedIncomingFallback = AppLocalization.string("Received domain transfer")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         if normalized == localizedOutgoingFallback || normalized == localizedIncomingFallback {
@@ -301,10 +408,10 @@ struct MessageBubbleView: View {
                     Label("Copy Message", systemImage: "doc.on.doc")
                 }
 
-                Button {
-                    handleCopy(message.txId, toast: "Transaction ID copied.")
-                } label: {
-                    Label("Copy Transaction ID", systemImage: "number")
+                if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
+                    Link(destination: url) {
+                        Label("View in Explorer", systemImage: "safari")
+                    }
                 }
 
                 if let onReply {
@@ -322,6 +429,34 @@ struct MessageBubbleView: View {
                         Label("Retry Send", systemImage: "arrow.clockwise")
                     }
                 }
+
+                if let onSelect {
+                    Button {
+                        onSelect()
+                    } label: {
+                        Label("Select", systemImage: "checkmark.circle")
+                    }
+                }
+            }
+            .tint(.accentColor)
+            .confirmationDialog(
+                "Link",
+                isPresented: Binding(get: { linkMenuURL != nil }, set: { if !$0 { linkMenuURL = nil } }),
+                presenting: linkMenuURL
+            ) { url in
+                Button("Open Link") {
+                    UIApplication.shared.open(url)
+                }
+                Button("Copy Link") {
+                    handleCopy(url.absoluteString, toast: "Link copied to clipboard.")
+                }
+                if let onReply {
+                    Button("Reply") {
+                        onReply()
+                    }
+                }
+            } message: { url in
+                Text(url.absoluteString)
             }
     }
 
@@ -341,6 +476,10 @@ struct MessageBubbleView: View {
         .background(Color(UIColor.tertiarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .frame(maxWidth: 240, alignment: message.isOutgoing ? .trailing : .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onJumpToReply?()
+        }
     }
 
     /// Above this, a message renders as a truncated, tap-to-expand preview instead of laying out
@@ -365,8 +504,9 @@ struct MessageBubbleView: View {
                 isOutgoing: message.isOutgoing,
                 isSingleEmojiOnly: isSingleEmojiOnly,
                 onLinkLongPress: { url in
-                    handleCopy(url.absoluteString, toast: "Link copied to clipboard.")
-                }
+                    linkMenuURL = url
+                },
+                onLinkDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : {}
             )
         } else {
             Text(displayText)
@@ -378,7 +518,14 @@ struct MessageBubbleView: View {
 
     private var truncatedMessageContent: some View {
         Button {
-            showFullText = true
+            // See LazyImageBubble.setShowImagePreview's doc comment - same risk (a modal-
+            // presenting boolean flipped from inside a scrollable, gesture-heavy message row),
+            // same defensive fix.
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                showFullText = true
+            }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(String(displayText.prefix(Self.truncatedPreviewLength)) + "…")
@@ -463,6 +610,141 @@ struct MessageBubbleView: View {
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .frame(maxWidth: 300)
+    }
+
+    @ViewBuilder
+    private func chessBubble(_ envelope: ChessEnvelope) -> some View {
+        switch envelope {
+        case .invite(let content):
+            chessInviteBubble(content)
+        case .response, .move, .resign:
+            if isLatestChessMessage, let chessSummary {
+                chessLiveCard(chessSummary)
+            } else {
+                chessLogEntry(envelope)
+            }
+        }
+    }
+
+    private func chessInviteBubble(_ content: ChessInviteContent) -> some View {
+        let showsResponseButtons = !message.isOutgoing
+            && onRespondToChessInvite != nil
+            && chessSummary?.status == .pendingResponse
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text("♟️")
+                    .font(.title3)
+                Text(message.isOutgoing ? "Chess game invite sent" : "Invited you to a game of chess")
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+            }
+
+            if showsResponseButtons {
+                HStack(spacing: 12) {
+                    Button {
+                        onRespondToChessInvite?(true)
+                    } label: {
+                        Text("Accept")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(kaspaBubbleColor)
+                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        onRespondToChessInvite?(false)
+                    } label: {
+                        Text("Decline")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(Color(.systemGray5))
+                            .foregroundColor(.secondary)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else if let chessSummary {
+                Text(chessSummary.statusText)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(12)
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .frame(maxWidth: 300)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard !showsResponseButtons else { return }
+            onOpenChessGame?()
+        }
+        .chessExplorerMenu(txId: message.txId, settingsViewModel: settingsViewModel, onRetry: shouldShowRetry ? { onRetry?(message) } : nil)
+    }
+
+    private func chessLiveCard(_ summary: ChessGameSummary) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ChessBoardThumbnail(board: summary.board)
+            Text(summary.statusText)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(summary.status.isGameOver ? .secondary : .primary)
+        }
+        .padding(10)
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onOpenChessGame?()
+        }
+        .chessExplorerMenu(txId: message.txId, settingsViewModel: settingsViewModel, onRetry: shouldShowRetry ? { onRetry?(message) } : nil)
+    }
+
+    private func chessLogEntry(_ envelope: ChessEnvelope) -> some View {
+        // A plain Unicode glyph character embedded in text renders in the ambient text color
+        // (see the see-through-white-pieces fix on ChessPiece.glyph), so it can't convey white
+        // vs black on its own - a move's piece is rendered via a real `ChessPieceGlyphView`
+        // (fill/outline colored by `piece.color`) placed next to the text instead.
+        let record = chessMoveRecord(for: envelope)
+        return HStack(spacing: 4) {
+            if let record {
+                ChessPieceGlyphView(piece: ChessPiece(type: record.pieceType, color: record.color), fontSize: 14)
+            }
+            Text(chessLogText(envelope))
+        }
+        .font(.caption)
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(.systemGray6))
+        .clipShape(Capsule())
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onOpenChessGame?()
+        }
+        .chessExplorerMenu(txId: message.txId, settingsViewModel: settingsViewModel, onRetry: shouldShowRetry ? { onRetry?(message) } : nil)
+    }
+
+    private func chessMoveRecord(for envelope: ChessEnvelope) -> ChessMoveRecord? {
+        guard case .move = envelope else { return nil }
+        return chessSummary?.moveHistory.first { $0.messageTxId == message.txId }
+    }
+
+    private func chessLogText(_ envelope: ChessEnvelope) -> String {
+        switch envelope {
+        case .move(let content):
+            let promotionSuffix = content.promotion.map { " (\($0.uppercased()))" } ?? ""
+            return "\(content.from) → \(content.to)\(promotionSuffix)"
+        case .resign:
+            return "Resigned"
+        case .response(let content):
+            return content.accepted ? "Accepted the game" : "Declined the game"
+        case .invite:
+            return "Chess invite"
+        }
     }
 
     @ViewBuilder
@@ -578,6 +860,10 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
     let isOutgoing: Bool
     let isSingleEmojiOnly: Bool
     let onLinkLongPress: (URL) -> Void
+    /// Double-tapping a link should still open the quick-reaction bar, matching the rest of the
+    /// bubble - without this, the link's own tap recognizer (which `cancelsTouchesInView`)
+    /// silently swallowed the touch before the bubble's ancestor double-tap gesture ever saw it.
+    var onLinkDoubleTap: () -> Void = {}
     /// When false, tapping a link does nothing - only the long-press menu can open it. Used in
     /// broadcast rooms, where links can come from anonymous public senders, so opening one
     /// should always require a deliberate long-press rather than a single accidental tap.
@@ -643,6 +929,7 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
         var parent: LinkifiedMessageTextView
         weak var textView: UITextView?
         private var tapRecognizer: UITapGestureRecognizer?
+        private var doubleTapRecognizer: UITapGestureRecognizer?
         private var longPressRecognizer: UILongPressGestureRecognizer?
         private var cachedText: String?
         private var cachedIsOutgoing = false
@@ -655,10 +942,22 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
 
         func configureGestureRecognizersIfNeeded() {
             guard let textView else { return }
-            if tapRecognizer == nil {
+            if doubleTapRecognizer == nil {
+                let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+                recognizer.delegate = self
+                recognizer.numberOfTapsRequired = 2
+                recognizer.cancelsTouchesInView = true
+                textView.addGestureRecognizer(recognizer)
+                doubleTapRecognizer = recognizer
+            }
+            if tapRecognizer == nil, let doubleTapRecognizer {
                 let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
                 recognizer.delegate = self
                 recognizer.cancelsTouchesInView = true
+                // A single tap only fires once the double-tap recognizer has had its chance and
+                // failed - otherwise the first tap of a double-tap would open the link immediately
+                // before the second tap ever lands.
+                recognizer.require(toFail: doubleTapRecognizer)
                 textView.addGestureRecognizer(recognizer)
                 tapRecognizer = recognizer
             }
@@ -725,6 +1024,14 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
         }
 
         @objc
+        private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended, let textView else { return }
+            let point = gesture.location(in: textView)
+            guard url(at: point, in: textView) != nil else { return }
+            parent.onLinkDoubleTap()
+        }
+
+        @objc
         private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
             guard gesture.state == .began, let textView else { return }
             let point = gesture.location(in: textView)
@@ -734,7 +1041,7 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
             guard let textView else { return false }
-            guard gestureRecognizer === tapRecognizer || gestureRecognizer === longPressRecognizer else {
+            guard gestureRecognizer === tapRecognizer || gestureRecognizer === doubleTapRecognizer || gestureRecognizer === longPressRecognizer else {
                 return true
             }
             let location = gestureRecognizer.location(in: textView)
@@ -852,7 +1159,10 @@ private enum PhotoRevealStore {
     }
 }
 
-private struct LazyImageBubble: View {
+/// Not `private` - reused by `GroupChatDetailView` so group photo messages render identically
+/// to 1:1 ones instead of duplicating this (thumbnail caching, reveal-gating, share sheet) logic.
+struct LazyImageBubble: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
     private static let thumbnailDisplaySize = CGSize(width: 220, height: 160)
 
     let media: MediaFile
@@ -863,6 +1173,11 @@ private struct LazyImageBubble: View {
     let onCopy: ((String, ToastStyle) -> Void)?
     let onRetry: (() -> Void)?
     let onReply: (() -> Void)?
+    /// Double-tap opens the quick-reaction bar rather than replying directly - nil disables it.
+    let onDoubleTap: (() -> Void)?
+    /// Enters the chat's message multi-select mode with this message pre-selected - nil disables
+    /// the "Select" context-menu action entirely, matching `onReply`'s nil-disables convention.
+    let onSelect: (() -> Void)?
 
     @State private var thumbnailState: (txId: String, image: UIImage)?
     @State private var previewImage: UIImage?
@@ -879,7 +1194,9 @@ private struct LazyImageBubble: View {
         senderDisplayName: String,
         onCopy: ((String, ToastStyle) -> Void)?,
         onRetry: (() -> Void)?,
-        onReply: (() -> Void)?
+        onReply: (() -> Void)?,
+        onDoubleTap: (() -> Void)? = nil,
+        onSelect: (() -> Void)? = nil
     ) {
         self.media = media
         self.txId = txId
@@ -889,6 +1206,8 @@ private struct LazyImageBubble: View {
         self.onCopy = onCopy
         self.onRetry = onRetry
         self.onReply = onReply
+        self.onDoubleTap = onDoubleTap
+        self.onSelect = onSelect
         _isRevealed = State(initialValue: PhotoRevealStore.isRevealed(txId))
     }
 
@@ -967,7 +1286,7 @@ private struct LazyImageBubble: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
-            onReply?()
+            onDoubleTap?()
         }
         .onTapGesture(count: 1) {
             openPreview()
@@ -979,10 +1298,10 @@ private struct LazyImageBubble: View {
                 Label("Copy File Name", systemImage: "doc.on.doc")
             }
 
-            Button {
-                handleCopy(txId, toast: "Transaction ID copied.")
-            } label: {
-                Label("Copy Transaction ID", systemImage: "number")
+            if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
+                Link(destination: url) {
+                    Label("View in Explorer", systemImage: "safari")
+                }
             }
 
             if let onReply {
@@ -1000,7 +1319,16 @@ private struct LazyImageBubble: View {
                     Label("Retry Send", systemImage: "arrow.clockwise")
                 }
             }
+
+            if let onSelect {
+                Button {
+                    onSelect()
+                } label: {
+                    Label("Select", systemImage: "checkmark.circle")
+                }
+            }
         }
+        .tint(.accentColor)
         .task(id: txId) {
             guard thumbnailState?.txId != txId else { return }
             guard let loadedThumbnail = await media.thumbnailImage(cacheKey: txId),
@@ -1031,9 +1359,26 @@ private struct LazyImageBubble: View {
             .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
     }
 
+    /// A tap opening the preview can land while a nearby row's swipe-to-reveal-timestamps drag
+    /// (`revealOffset`, shared across every visible row) is still mid-spring-back, or while the
+    /// list is still settling from a scroll - if that ambient animation transaction is still
+    /// active when `showImagePreview` flips, SwiftUI's animation engine can end up asked to
+    /// animate the `fullScreenCover` presentation using a timeline it's already mid-way through
+    /// for the unrelated offset, which has produced a hard freeze/crash (SwiftUI's internal
+    /// "Invalid sample ... with time ... > last time ..." assertion - a monotonicity violation
+    /// between two colliding animation transactions). This boolean flip should never itself be
+    /// animated, so explicitly disabling animation for it removes it from that collision.
+    private func setShowImagePreview(_ value: Bool) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            showImagePreview = value
+        }
+    }
+
     private func openPreview() {
         if previewImage != nil, sharePayload != nil {
-            showImagePreview = true
+            setShowImagePreview(true)
             return
         }
 
@@ -1044,7 +1389,7 @@ private struct LazyImageBubble: View {
             guard let loaded else { return }
             previewImage = loaded.image
             sharePayload = loaded.sharePayload
-            showImagePreview = true
+            setShowImagePreview(true)
         }
     }
 
@@ -1090,7 +1435,8 @@ private actor ImageDecodeLimiter {
     }
 }
 
-private struct MediaFile: Codable {
+/// Not `private` - reused by `GroupChatDetailView` for group photo/audio message rendering.
+struct MediaFile: Codable {
     let type: String
     let name: String
     let size: Int?
@@ -1483,7 +1829,8 @@ private final class AudioPlaybackHelper: NSObject, ObservableObject, AVAudioPlay
 }
 
 /// Wrapper that lazily creates AudioPlaybackHelper only when needed
-private struct LazyAudioBubble: View {
+/// Not `private` - reused by `GroupChatDetailView` for group audio message rendering.
+struct LazyAudioBubble: View {
     let data: Data
     let mimeType: String
     let isOutgoing: Bool
@@ -1492,6 +1839,7 @@ private struct LazyAudioBubble: View {
     let onCopy: ((String, ToastStyle) -> Void)?
     let onRetry: (() -> Void)?
     let onReply: (() -> Void)?
+    var onSelect: (() -> Void)? = nil
     @StateObject private var helper = AudioPlaybackHelper()
 
     var body: some View {
@@ -1504,12 +1852,14 @@ private struct LazyAudioBubble: View {
             txId: txId,
             onCopy: onCopy,
             onRetry: onRetry,
-            onReply: onReply
+            onReply: onReply,
+            onSelect: onSelect
         )
     }
 }
 
 private struct AudioBubble: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
     @ObservedObject var helper: AudioPlaybackHelper
     let data: Data
     let mimeType: String
@@ -1519,6 +1869,7 @@ private struct AudioBubble: View {
     let onCopy: ((String, ToastStyle) -> Void)?
     let onRetry: (() -> Void)?
     let onReply: (() -> Void)?
+    var onSelect: (() -> Void)? = nil
     @State private var showShareSheet = false
 
     var body: some View {
@@ -1561,12 +1912,10 @@ private struct AudioBubble: View {
                 Label("Save Audio", systemImage: "square.and.arrow.down")
             }
 
-            Button {
-                UIPasteboard.general.string = txId
-                Haptics.success()
-                onCopy?("Transaction ID copied.", .success)
-            } label: {
-                Label("Copy Transaction ID", systemImage: "number")
+            if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
+                Link(destination: url) {
+                    Label("View in Explorer", systemImage: "safari")
+                }
             }
 
             if let onReply {
@@ -1584,7 +1933,16 @@ private struct AudioBubble: View {
                     Label("Retry Send", systemImage: "arrow.clockwise")
                 }
             }
+
+            if let onSelect {
+                Button {
+                    onSelect()
+                } label: {
+                    Label("Select", systemImage: "checkmark.circle")
+                }
+            }
         }
+        .tint(.accentColor)
         .sheet(isPresented: $showShareSheet) {
             AudioShareSheet(data: data, fileName: fileName, mimeType: mimeType)
         }
@@ -2386,6 +2744,100 @@ private struct ShareableImage: Transferable {
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(exportedContentType: .image) { item in
             SentTransferredFile(try item.payload.writeTemporaryFile())
+        }
+    }
+}
+
+/// Small, non-interactive board render for the in-chat live game card. The full-screen
+/// `ChessGameView` has its own interactive board renderer (tap-to-select, highlights) rather than
+/// reusing this - different enough concerns (static thumbnail vs. tappable squares) that sharing
+/// the layout code wasn't worth the added complexity.
+private extension View {
+    /// Long-press "View in Explorer" for any chess bubble (invite/live card/log entry) - mirrors
+    /// `messageTextBubble`'s own `.contextMenu`, scoped down to just the one action since a
+    /// chess envelope's own JSON isn't meaningful to offer as "Copy Message".
+    func chessExplorerMenu(txId: String, settingsViewModel: SettingsViewModel, onRetry: (() -> Void)? = nil) -> some View {
+        contextMenu {
+            if let onRetry {
+                Button {
+                    onRetry()
+                } label: {
+                    Label("Retry Send", systemImage: "arrow.clockwise")
+                }
+            }
+            if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
+                Link(destination: url) {
+                    Label("View in Explorer", systemImage: "safari")
+                }
+            }
+        }
+    }
+}
+
+struct ChessBoardThumbnail: View {
+    let board: ChessBoard
+    var size: CGFloat = 160
+
+    /// Classic wood-tone board colors (matches chess.com/lichess's default theme) - shared with
+    /// the full-screen board in ChessGameView.
+    static let lightSquareColor = Color(red: 0.937, green: 0.851, blue: 0.706) // #EFD9B4
+    static let darkSquareColor = Color(red: 0.710, green: 0.533, blue: 0.388)  // #B58863
+
+    var body: some View {
+        let squareSize = size / 8
+        VStack(spacing: 0) {
+            ForEach((0..<8).reversed(), id: \.self) { rank in
+                HStack(spacing: 0) {
+                    ForEach(0..<8, id: \.self) { file in
+                        let isLight = !(file + rank).isMultiple(of: 2)
+                        ZStack {
+                            Rectangle().fill(isLight ? Self.lightSquareColor : Self.darkSquareColor)
+                            if let piece = board.piece(at: ChessSquare(file: file, rank: rank)) {
+                                ChessPieceGlyphView(piece: piece, fontSize: squareSize * 0.72)
+                            }
+                        }
+                        .frame(width: squareSize, height: squareSize)
+                    }
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+/// Renders a single chess piece glyph with an explicit white/black fill plus a crisp
+/// contrasting outline (four offset copies of the glyph drawn behind the fill, a standard
+/// lightweight text-stroke trick), rather than relying on the bare Unicode glyph's
+/// outline-vs-filled shape alone to distinguish sides - at typical board sizes that distinction
+/// was too subtle to read at a glance, especially on a same-toned square.
+struct ChessPieceGlyphView: View {
+    let piece: ChessPiece
+    var fontSize: CGFloat
+
+    private var fillColor: Color { piece.color == .white ? Color(white: 0.99) : Color(white: 0.07) }
+    private var outlineColor: Color { piece.color == .white ? Color(white: 0.07) : Color(white: 0.99) }
+
+    private static let outlineOffsets: [CGSize] = {
+        let d: CGFloat = 0.9
+        return [CGSize(width: d, height: 0), CGSize(width: -d, height: 0), CGSize(width: 0, height: d), CGSize(width: 0, height: -d)]
+    }()
+
+    private var glyphText: some View {
+        Text(piece.glyph)
+            .font(.system(size: fontSize))
+            .minimumScaleFactor(0.5)
+    }
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<Self.outlineOffsets.count, id: \.self) { index in
+                glyphText
+                    .foregroundColor(outlineColor)
+                    .offset(Self.outlineOffsets[index])
+            }
+            glyphText
+                .foregroundColor(fillColor)
         }
     }
 }

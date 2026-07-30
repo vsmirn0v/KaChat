@@ -62,6 +62,16 @@ final class UtxoSubscriptionManager: ObservableObject {
     /// Failover in progress
     private var isFailingOver = false
 
+    /// Consecutive failed failover attempts, and when the last one happened - drives backoff so
+    /// repeated failures don't re-trigger an immediate retry every healthCheckInterval (15s)
+    /// indefinitely. This matters most with a single manually-pinned node (nowhere else to fail
+    /// over to, so every attempt just retries the same node) - without it, a node that's
+    /// rejecting new streams (e.g. it's hit its own connection-capacity limit) gets hit with a
+    /// fresh attempt every 15s forever, independent of and not slowed by the connection-level
+    /// backoff in GRPCStreamConnection.scheduleAutoReconnect(). Reset to 0 on success.
+    private var failoverAttempts: Int = 0
+    private var lastFailoverAttemptAt: Date?
+
     // MARK: - Configuration
 
     /// Health check interval (ping every 15s)
@@ -104,7 +114,7 @@ final class UtxoSubscriptionManager: ObservableObject {
         // Clean up any existing subscription state before retrying
         if state != .disconnected {
             AppLog.log("[UtxoSub] Cleaning up previous subscription state before retry")
-            cleanupExistingSubscription()
+            await cleanupExistingSubscription()
         }
 
         self.subscribedAddresses = addresses
@@ -171,21 +181,35 @@ final class UtxoSubscriptionManager: ObservableObject {
     }
 
     /// Clean up existing subscription without changing state to disconnected
-    private func cleanupExistingSubscription() {
+    private func cleanupExistingSubscription() async {
         healthCheckTask?.cancel()
         healthCheckTask = nil
 
         // Remove notification handler from old connection
         if let conn = primaryConnection, let handlerId = primaryHandlerId {
-            Task {
-                await conn.removeNotificationHandler(handlerId)
-            }
+            await conn.removeNotificationHandler(handlerId)
+        }
+
+        // Actually close the old connection(s), not just drop our reference to them - a
+        // GRPCStreamConnection has no way to know it's being abandoned here, so it would
+        // otherwise keep believing it's "connected" (e.g. right after a WiFi<->cellular switch,
+        // before it's independently noticed the old socket is dead) and linger in the shared
+        // pool - and the node it was talking to may not release that connection slot until its
+        // own timeout eventually kicks in. Awaited (not fire-and-forget) so the immediately
+        // following subscribeOn() on this same endpoint can't race a stale in-flight connect.
+        if let conn = primaryConnection {
+            await conn.disconnect()
+        }
+        if let conn = standbyConnection, conn !== primaryConnection {
+            await conn.disconnect()
         }
 
         primaryConnection = nil
         standbyConnection = nil
         primaryHandlerId = nil
         primaryFailures = 0
+        failoverAttempts = 0
+        lastFailoverAttemptAt = nil
         isFailingOver = false
     }
 
@@ -254,16 +278,23 @@ final class UtxoSubscriptionManager: ObservableObject {
 
     /// Reconnect to lowest latency node if not already connected to it
     func reconnectToBestNodeIfNeeded() async {
-        // Only reconnect if currently subscribed
-        guard state == .subscribed else { return }
+        // Act whenever we're not actively mid-attempt - deliberately NOT gated on
+        // state == .subscribed only. This is called right after switching/clearing the trusted
+        // node (see NodePoolService.setTrustedNodeAddress); if the old pinned node was already
+        // broken (state .failed/.disconnected, e.g. it was rejecting connections), gating on
+        // .subscribed meant this silently did nothing, leaving the app never subscribed to the
+        // new node at all.
+        guard state != .connecting, state != .failover else { return }
         guard !subscribedAddresses.isEmpty else { return }
 
         // Get best nodes
         let eligibleNodes = await selector.eligibleNodes(for: .subscribeUtxosChanged)
         guard let bestNode = eligibleNodes.first else { return }
 
-        // Check if we're already connected to the best node
-        if let currentPrimary = primaryEndpoint, currentPrimary.key == bestNode.endpoint.key {
+        // Check if we're already connected to the best node - only meaningful when we're
+        // actually subscribed; a stale primaryEndpoint from a broken prior state isn't grounds
+        // to skip reconnecting.
+        if state == .subscribed, let currentPrimary = primaryEndpoint, currentPrimary.key == bestNode.endpoint.key {
             AppLog.log("[UtxoSub] Already connected to best node: %@", currentPrimary.key)
             return
         }
@@ -466,6 +497,16 @@ final class UtxoSubscriptionManager: ObservableObject {
 
     private func performFailover() async {
         guard !isFailingOver else { return }
+
+        // Capped exponential backoff (1, 2, 4, 8, 16, 30, 30...s) between attempts once at
+        // least one has already failed - see failoverAttempts' doc comment.
+        if failoverAttempts > 0, let lastAttempt = lastFailoverAttemptAt {
+            let backoff = min(30.0, pow(2.0, Double(failoverAttempts - 1)))
+            guard Date().timeIntervalSince(lastAttempt) >= backoff else { return }
+        }
+        failoverAttempts += 1
+        lastFailoverAttemptAt = Date()
+
         isFailingOver = true
         state = .failover
 
@@ -486,6 +527,7 @@ final class UtxoSubscriptionManager: ObservableObject {
 
                 state = .subscribed
                 primaryFailures = 0
+                failoverAttempts = 0
                 isFailingOver = false
 
                 AppLog.log("[UtxoSub] Failover to standby successful: %@", standby.key)
@@ -507,6 +549,7 @@ final class UtxoSubscriptionManager: ObservableObject {
 
                 state = .subscribed
                 primaryFailures = 0
+                failoverAttempts = 0
                 isFailingOver = false
 
                 AppLog.log("[UtxoSub] Failover to new primary: %@", selection.primary.key)
@@ -595,7 +638,13 @@ final class UtxoSubscriptionManager: ObservableObject {
     // MARK: - Epoch Changes
 
     private func handleEpochChange() async {
-        guard state == .subscribed else { return }
+        // Deliberately not gated on state == .subscribed - a WiFi<->cellular switch (or any
+        // other path change) can happen while the subscription is already broken for an
+        // unrelated reason (e.g. .failed/.disconnected), and that's exactly when resubscribing
+        // matters most. Gating on .subscribed only meant a phone that flips networks while
+        // already disconnected just stayed disconnected until something else happened to retry.
+        guard state != .connecting, state != .failover else { return }
+        guard !subscribedAddresses.isEmpty else { return }
 
         AppLog.log("[UtxoSub] Network epoch changed - resubscribing")
 

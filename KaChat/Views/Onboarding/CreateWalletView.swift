@@ -36,6 +36,15 @@ struct CreateWalletView: View {
             }
         }
         .toast(message: toastMessage, style: toastStyle)
+        .onDisappear {
+            // Safety net for the standard NavigationStack back button: if the user backs out
+            // after a wallet was created but before confirming "Continue to App", the flag set
+            // in `createWallet()` must not get stuck true forever - that would trap them on
+            // onboarding despite already having a valid, persisted wallet (see
+            // `LaunchRouter.route`/`WalletManager.isAwaitingSeedPhraseConfirmation`). They can
+            // still review the seed phrase later from Settings.
+            walletManager.isAwaitingSeedPhraseConfirmation = false
+        }
     }
 
     private var setupView: some View {
@@ -189,6 +198,8 @@ struct CreateWalletView: View {
 
             // Continue Button
             Button {
+                walletManager.justCreatedNewWallet = true
+                walletManager.isAwaitingSeedPhraseConfirmation = false
                 dismiss()
             } label: {
                 Text("Continue to App")

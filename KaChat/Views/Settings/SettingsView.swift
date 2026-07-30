@@ -9,7 +9,9 @@ struct SettingsView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var chatService: ChatService
+    @Environment(\.dismiss) private var dismiss
 
+    @State private var showSeedPhrase = false
     @State private var showDeleteConfirmation = false
     @State private var showWipeIncomingConfirmation = false
     @State private var showWipeAccountConfirmation = false
@@ -25,11 +27,9 @@ struct SettingsView: View {
     @State private var chatHistoryArchiveURL: URL?
     @State private var showChatHistoryShareSheet = false
     @State private var showChatHistoryImporter = false
-    @State private var showAddContact = false
     @State private var isPreparingDiagnostics = false
     @State private var isPreparingChatHistoryExport = false
     @State private var isImportingChatHistory = false
-    @State private var isResolvingDonateAddress = false
     @State private var showPhotoQualitySheet = false
     @AppStorage(MessageStore.dpiCorruptionWarningKey) private var dpiWarningActive = false
     @AppStorage(MessageStore.dpiCorruptionWarningEndpointKey) private var dpiWarningEndpoint = ""
@@ -38,19 +38,94 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Customization") {
+                    Picker("Appearance", selection: $settingsViewModel.settings.appearance) {
+                        ForEach(AppAppearance.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                    .onChange(of: settingsViewModel.settings.appearance) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+
+                    Picker("Language", selection: $settingsViewModel.settings.language) {
+                        ForEach(AppLanguage.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                    .onChange(of: settingsViewModel.settings.language) { newValue in
+                        settingsViewModel.saveSettings()
+                        settingsViewModel.applyLanguagePreference(newValue)
+                    }
+
+                    Picker("Currency", selection: $settingsViewModel.settings.currency) {
+                        ForEach(AppCurrency.allCases, id: \.self) { option in
+                            Text(option.displayName).tag(option)
+                        }
+                    }
+                    .onChange(of: settingsViewModel.settings.currency) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+
+                    NavigationLink {
+                        MenuVisibilityView()
+                    } label: {
+                        Label("Menu", systemImage: "list.bullet")
+                    }
+
+                    Toggle("Show Setup Guides", isOn: Binding(
+                        get: { walletManager.showSetupGuides },
+                        set: { walletManager.showSetupGuides = $0 }
+                    ))
+                }
+
+                Section("Security") {
+                    Toggle("Biometrics for Seed Phrase", isOn: $settingsViewModel.settings.biometricSeedPhraseEnabled)
+                        .onChange(of: settingsViewModel.settings.biometricSeedPhraseEnabled) { _ in
+                            settingsViewModel.saveSettings()
+                        }
+
+                    Toggle("Biometrics for Account Login", isOn: $settingsViewModel.settings.biometricAccountLoginEnabled)
+                        .onChange(of: settingsViewModel.settings.biometricAccountLoginEnabled) { _ in
+                            settingsViewModel.saveSettings()
+                        }
+
+                    Toggle("Biometrics for Address Private Keys", isOn: $settingsViewModel.settings.biometricSpendingKeyEnabled)
+                        .onChange(of: settingsViewModel.settings.biometricSpendingKeyEnabled) { _ in
+                            settingsViewModel.saveSettings()
+                        }
+                }
+
+                // Connection Section
+                Section("Connection") {
+                    NavigationLink {
+                        ConnectionSettingsView()
+                    } label: {
+                        HStack {
+                            Label("Connection Settings", systemImage: "network")
+                            Spacer()
+                            Text(settingsViewModel.settings.networkType.displayName)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    NavigationLink {
+                        KaspaExplorerSettingsView()
+                    } label: {
+                        HStack {
+                            Label("Kaspa Explorer", systemImage: "safari")
+                            Spacer()
+                            Text(settingsViewModel.settings.kaspaExplorer.displayName)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
                 Section("Chats") {
-                    Toggle("Estimate fees while composing", isOn: $settingsViewModel.settings.feeEstimationEnabled)
-                        .onChange(of: settingsViewModel.settings.feeEstimationEnabled) { _ in
-                            settingsViewModel.saveSettings()
-                        }
-
-                    Toggle("Hide auto-created payment chats", isOn: $settingsViewModel.settings.hideAutoCreatedPaymentChats)
-                        .onChange(of: settingsViewModel.settings.hideAutoCreatedPaymentChats) { _ in
-                            settingsViewModel.saveSettings()
-                        }
-
-                    Toggle("Show contact balance", isOn: $settingsViewModel.settings.showContactBalance)
-                        .onChange(of: settingsViewModel.settings.showContactBalance) { _ in
+                    Toggle("Show Fee Estimate", isOn: $settingsViewModel.settings.showFeeEstimate)
+                        .onChange(of: settingsViewModel.settings.showFeeEstimate) { _ in
                             settingsViewModel.saveSettings()
                         }
 
@@ -80,6 +155,17 @@ struct SettingsView: View {
                             Text(settingsViewModel.settings.chatPhotoQualityPreset.displayName)
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+                        }
+                    }
+
+                    NavigationLink {
+                        QuickReactionEmojisSettingsView(settingsViewModel: settingsViewModel)
+                    } label: {
+                        HStack {
+                            Label("Quick Reactions", systemImage: "face.smiling")
+                            Spacer()
+                            Text(settingsViewModel.settings.effectiveQuickReactionEmojis.joined())
+                                .font(.caption)
                         }
                     }
                 }
@@ -183,67 +269,6 @@ struct SettingsView: View {
                     .disabled(isPreparingChatHistoryExport || isImportingChatHistory)
                 }
 
-                // Connection Section
-                Section("Connection") {
-                    NavigationLink {
-                        ConnectionSettingsView()
-                    } label: {
-                        HStack {
-                            Label("Connection Settings", systemImage: "network")
-                            Spacer()
-                            Text(settingsViewModel.settings.networkType.displayName)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
-                // About Section
-                Section("About") {
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text(appVersionDisplay)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Link(destination: websiteURL) {
-                        HStack {
-                            Text("Website")
-                            Spacer()
-                            Text("linktr.ee/Kachat_")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Link(destination: supportEmailURL) {
-                        HStack {
-                            Text("Support Email")
-                            Spacer()
-                            Text("kaspasilver@gmail.com")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Button {
-                        Task {
-                            await donate()
-                        }
-                    } label: {
-                        HStack {
-                            Text("Donate")
-                            Spacer()
-                            if isResolvingDonateAddress {
-                                ProgressView()
-                            } else {
-                                Text("kachat.kas")
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    .disabled(isResolvingDonateAddress)
-                }
-
                 Section("Diagnostics") {
                     Button {
                         Task {
@@ -273,6 +298,20 @@ struct SettingsView: View {
                 }
 
                 // Danger Zone
+                Section("Actions") {
+                    Button {
+                        if settingsViewModel.settings.biometricSeedPhraseEnabled {
+                            DeviceAuth.authenticate(reason: "Unlock to view your seed phrase") {
+                                showSeedPhrase = true
+                            }
+                        } else {
+                            showSeedPhrase = true
+                        }
+                    } label: {
+                        Label("View Seed Phrase", systemImage: "key")
+                    }
+                }
+
                 Section("Danger Zone") {
                     if dpiWarningActive {
                         VStack(alignment: .leading, spacing: 8) {
@@ -352,6 +391,7 @@ struct SettingsView: View {
                         Text("This deletes all local data and CloudKit message records. This cannot be undone.")
                     }
                 }
+
             }
             .toast(message: toastMessage, style: toastStyle)
             .toolbar {
@@ -362,12 +402,13 @@ struct SettingsView: View {
                     balanceToolbarView
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showAddContact = true
-                    } label: {
-                        Image(systemName: "person.badge.plus")
+                    Button("Done") {
+                        dismiss()
                     }
                 }
+            }
+            .sheet(isPresented: $showSeedPhrase) {
+                SeedPhraseView()
             }
             .sheet(isPresented: $showDiagnosticsShareSheet) {
                 if let diagnosticsArchiveURL {
@@ -388,14 +429,6 @@ struct SettingsView: View {
             ) { result in
                 Task {
                     await importChatHistoryArchive(result: result)
-                }
-            }
-            .sheet(isPresented: $showAddContact) {
-                AddContactView { contact in
-                    _ = chatService.getOrCreateConversation(for: contact)
-                    showAddContact = false
-                    // Navigate to the new chat via the Chats tab
-                    NotificationCenter.default.post(name: .openChat, object: nil, userInfo: ["contactAddress": contact.address])
                 }
             }
             .confirmationDialog(
@@ -576,27 +609,6 @@ struct SettingsView: View {
                 showToast("Import failed: \(error.localizedDescription)", style: .error)
             }
         }
-    }
-
-    /// Resolves the KNS domain "kachat.kas" to its owner address and jumps straight to that
-    /// chat in payment mode, ready to send - matches the Android client's About screen Donate row.
-    private func donate() async {
-        if isResolvingDonateAddress { return }
-        isResolvingDonateAddress = true
-        defer { isResolvingDonateAddress = false }
-
-        guard let resolution = await KNSService.shared.resolveDomain("kachat.kas") else {
-            showToast("Couldn't resolve kachat.kas. Please try again later.", style: .error)
-            return
-        }
-
-        let contact = contactsManager.getOrCreateContact(address: resolution.ownerAddress, alias: resolution.domain)
-        _ = chatService.getOrCreateConversation(for: contact)
-        NotificationCenter.default.post(
-            name: .openChat,
-            object: nil,
-            userInfo: ["contactAddress": contact.address, "paymentMode": true]
-        )
     }
 
     private func exportDiagnosticsArchive() async {
@@ -787,30 +799,82 @@ struct SettingsView: View {
         return String(format: "%.8f", kas)
     }
 
-    private var appVersionDisplay: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
+}
 
-        switch (version?.trimmingCharacters(in: .whitespacesAndNewlines), build?.trimmingCharacters(in: .whitespacesAndNewlines)) {
-        case let (v?, b?) where !v.isEmpty && !b.isEmpty:
-            return "\(v) (\(b))"
-        case let (v?, _) where !v.isEmpty:
-            return v
-        case let (_, b?) where !b.isEmpty:
-            return b
-        default:
-            return "Unknown"
+/// Lets the user customize the 6 emojis shown in the double-tap quick-reaction bar
+/// (`QuickReactionBarView`/Android's `QuickReactionBar`) - defaults to
+/// `AppSettings.defaultQuickReactionEmojis` until changed here.
+struct QuickReactionEmojisSettingsView: View {
+    @ObservedObject var settingsViewModel: SettingsViewModel
+    @State private var editingSlotIndex: Int?
+
+    private var emojis: [String] {
+        settingsViewModel.settings.effectiveQuickReactionEmojis
+    }
+
+    var body: some View {
+        List {
+            Section {
+                HStack(spacing: 14) {
+                    ForEach(emojis.indices, id: \.self) { index in
+                        Button {
+                            editingSlotIndex = index
+                        } label: {
+                            Text(emojis[index])
+                                .font(.system(size: 30))
+                                .frame(width: 44, height: 44)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(Color(.systemGray5))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            } footer: {
+                Text("Tap an emoji to replace it with a different one.")
+            }
+
+            Section {
+                Button("Reset to Default", role: .destructive) {
+                    settingsViewModel.settings.quickReactionEmojis = AppSettings.defaultQuickReactionEmojis
+                    settingsViewModel.saveSettings()
+                }
+            }
+        }
+        .navigationTitle("Quick Reactions")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: Binding(
+            get: { editingSlotIndex.map { QuickReactionSlotSelection(index: $0) } },
+            set: { if $0 == nil { editingSlotIndex = nil } }
+        )) { selection in
+            NavigationStack {
+                DesktopEmojiPickerView { emoji in
+                    var updated = emojis
+                    updated[selection.index] = emoji
+                    settingsViewModel.settings.quickReactionEmojis = updated
+                    settingsViewModel.saveSettings()
+                    editingSlotIndex = nil
+                }
+                .padding()
+                .navigationTitle("Choose Emoji")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { editingSlotIndex = nil }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
         }
     }
+}
 
-    private var websiteURL: URL {
-        URL(string: "https://linktr.ee/Kachat_")!
-    }
-
-    private var supportEmailURL: URL {
-        URL(string: "mailto:kaspasilver@gmail.com")!
-    }
-
+private struct QuickReactionSlotSelection: Identifiable {
+    let index: Int
+    var id: Int { index }
 }
 
 struct NotificationsSettingsView: View {
@@ -1214,6 +1278,7 @@ struct SeedPhraseView: View {
     @EnvironmentObject var walletManager: WalletManager
     @State private var seedPhrase: SeedPhrase?
     @State private var isRevealed = false
+    @State private var revealToken = UUID()
     @State private var error: String?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
@@ -1287,6 +1352,13 @@ struct SeedPhraseView: View {
                     } else {
                         Button {
                             isRevealed = true
+                            let token = UUID()
+                            revealToken = token
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 7) {
+                                if revealToken == token {
+                                    isRevealed = false
+                                }
+                            }
                         } label: {
                             VStack(spacing: 12) {
                                 Image(systemName: "eye.slash.fill")
@@ -1362,20 +1434,55 @@ struct SeedPhraseView: View {
     }
 }
 
+struct KaspaExplorerSettingsView: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(KaspaExplorer.allCases, id: \.self) { explorer in
+                    Button {
+                        settingsViewModel.kaspaExplorer = explorer
+                    } label: {
+                        HStack {
+                            Text(explorer.displayName)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            if settingsViewModel.settings.kaspaExplorer == explorer {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.accentColor)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("Explorer")
+            } footer: {
+                Text("Used to build \"view transaction\" links throughout the app.")
+            }
+        }
+        .navigationTitle("Kaspa Explorer")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 struct ConnectionSettingsView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var nodePool = NodePoolService.shared
 
     @State private var networkType: NetworkType = .mainnet
     @State private var indexerURL: String = ""
     @State private var pushIndexerURL: String = ""
     @State private var knsBaseURL: String = ""
     @State private var kaspaRestAPIURL: String = ""
-    @State private var autoRefreshPool: Bool = true
-    @State private var customGrpcEndpoint: String = ""
-    @State private var nodeRecords: [NodeRecord] = []
-    @State private var isLoadingNodes = false
+    @State private var trustedNodeValidationError: String?
+
+    @State private var newSavedNodeLabel: String = ""
+    @State private var newSavedNodeAddress: String = ""
+    @State private var savedNodeAddressError: String?
+
+    @State private var toastMessage: String?
+    @State private var toastStyle: ToastStyle = .success
 
     var body: some View {
         Form {
@@ -1406,7 +1513,7 @@ struct ConnectionSettingsView: View {
                     Text("Indexer URL")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    TextField("https://indexer.kasia.fyi", text: $indexerURL)
+                    TextField("https://indexer.kasia.wtf", text: $indexerURL)
                         .font(.system(.body, design: .monospaced))
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
@@ -1469,222 +1576,101 @@ struct ConnectionSettingsView: View {
                 Text("REST API for transaction history and balance lookups")
             }
 
-            // Node Pool Section (POOLS_v2)
             Section {
-                // Pool Statistics by State
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Active")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                        Text("\(nodePool.activeCount)")
-                            .font(.headline)
-                            .foregroundColor(.green)
+                Picker(
+                    "Kaspa Node",
+                    selection: Binding(get: { nodeChoiceSelection }, set: { applyNodeChoice($0) })
+                ) {
+                    Text("Default (Recommended)").tag(NodeChoice.defaultNode)
+                    Text("Automatic Scan").tag(NodeChoice.automatic)
+                    ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
+                        Text(entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? entry.address : entry.label)
+                            .tag(NodeChoice.saved(entry.address))
                     }
-                    Spacer()
-                    VStack(alignment: .center, spacing: 2) {
-                        Text("Verified")
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                        Text("\(nodePool.verifiedCount)")
-                            .font(.headline)
-                            .foregroundColor(.blue)
-                    }
-                    Spacer()
-                    VStack(alignment: .center, spacing: 2) {
-                        Text("Profiled")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                        Text("\(nodePool.profiledCount)")
-                            .font(.headline)
-                            .foregroundColor(.orange)
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("Other")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("\(nodePool.candidateCount + nodePool.suspectCount)")
-                            .font(.headline)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
-
-                if let latency = nodePool.lastPingLatencyMs {
-                    HStack {
-                        Text("Primary Latency")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("\(latency) ms")
-                            .font(.caption)
-                            .foregroundColor(latency < 200 ? .green : (latency < 500 ? .orange : .red))
+                    if case .custom(let address) = nodeChoiceSelection {
+                        Text(address).tag(NodeChoice.custom(address))
                     }
                 }
 
-                HStack {
-                    Text("Pool Health")
+                if let trustedNodeValidationError {
+                    Text(trustedNodeValidationError)
                         .font(.caption)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    Text(poolHealthDescription)
+                        .foregroundColor(.red)
+                }
+
+                if !settingsViewModel.settings.trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Connected only to this node")
                         .font(.caption)
-                        .foregroundColor(poolHealthColor)
+                        .foregroundColor(.accentColor)
                 }
-
-                Toggle("Discover new peers", isOn: $autoRefreshPool)
-                    .onChange(of: autoRefreshPool) { newValue in
-                        settingsViewModel.settings.discoverNewPeers = newValue
-                        settingsViewModel.saveSettings()
-                    }
-
-                Button {
-                    Task {
-                        await nodePool.refreshPool()
-                    }
-                } label: {
-                    HStack {
-                        Text("Refresh Pool Now")
-                        Spacer()
-                        if nodePool.isRefreshing {
-                            ProgressView()
-                        }
-                    }
-                }
-                .disabled(nodePool.isRefreshing)
             } header: {
-                Text("Node Pool")
+                Text("Kaspa Node")
             } footer: {
-                if let lastRefresh = nodePool.lastRefreshDate {
-                    Text("Last refresh: \(formatRelativeDate(lastRefresh))")
-                } else {
-                    Text("Active = in use, Verified = ready, Profiled = checked, Other = candidates/suspect")
-                }
+                Text("Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Doesn't affect the Indexer/KNS/REST API URLs above. Add custom addresses to the IP Address Book below to select them here.")
             }
 
             Section {
+                TextField("Label (optional)", text: $newSavedNodeLabel)
+                    .autocapitalization(.words)
+
                 HStack {
-                    TextField("grpc://host:port", text: $customGrpcEndpoint)
+                    TextField("host:port or grpcs://host", text: $newSavedNodeAddress)
                         .font(.system(.body, design: .monospaced))
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                        .onChange(of: newSavedNodeAddress) { _ in
+                            savedNodeAddressError = nil
+                        }
 
                     Button {
-                        addCustomEndpoint()
+                        addSavedNodeAddress()
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .foregroundColor(.accentColor)
                     }
-                    .disabled(customGrpcEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(newSavedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
-            } header: {
-                Text("Custom Endpoint")
-            } footer: {
-                Text("Manual endpoints have highest priority and are never auto-removed")
-            }
 
-            Section {
-                if isLoadingNodes {
-                    ProgressView()
-                } else {
-                    let activeNodes = nodeRecords.filter { $0.state == .active }
-                        .sorted { a, b in
-                            let aLat = a.health.latencyMs.value ?? a.health.globalLatencyMs.value ?? .infinity
-                            let bLat = b.health.latencyMs.value ?? b.health.globalLatencyMs.value ?? .infinity
-                            return aLat < bLat
-                        }
-                    if activeNodes.isEmpty {
-                        Text("No active nodes")
-                            .foregroundColor(.secondary)
-                            .italic()
-                    } else {
-                        ForEach(activeNodes) { record in
-                            NodeRecordRow(record: record)
-                        }
-                        .onDelete { indexSet in
-                            deleteNodes(from: activeNodes, at: indexSet)
-                        }
-                    }
-                }
-            } header: {
-                HStack {
-                    Circle().fill(.green).frame(width: 8, height: 8)
-                    Text("Active Nodes")
-                    Spacer()
-                    Text("\(nodePool.activeCount)")
+                if let savedNodeAddressError {
+                    Text(savedNodeAddressError)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(.red)
                 }
-            } footer: {
-                Text("Nodes actively used for requests.")
-            }
 
-            Section {
-                let verifiedNodes = nodeRecords.filter { $0.state == .verified }
-                if verifiedNodes.isEmpty {
-                    Text("No verified nodes")
+                if settingsViewModel.settings.savedNodeAddresses.isEmpty {
+                    Text("No saved addresses")
                         .foregroundColor(.secondary)
                         .italic()
                 } else {
-                    ForEach(verifiedNodes) { record in
-                        NodeRecordRow(record: record)
+                    ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
+                        VStack(alignment: .leading, spacing: 2) {
+                            if !entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text(entry.label)
+                                Text(entry.address)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text(entry.address)
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            UIPasteboard.general.string = entry.address
+                            Haptics.success()
+                            showToast("Address copied.")
+                        }
                     }
                     .onDelete { indexSet in
-                        deleteNodes(from: verifiedNodes, at: indexSet)
+                        settingsViewModel.settings.savedNodeAddresses.remove(atOffsets: indexSet)
+                        settingsViewModel.saveSettings()
                     }
                 }
             } header: {
-                HStack {
-                    Circle().fill(.blue).frame(width: 8, height: 8)
-                    Text("Verified Nodes")
-                    Spacer()
-                    Text("\(nodePool.verifiedCount)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
+                Text("IP Address Book")
             } footer: {
-                Text("Synced and ready for promotion to active.")
-            }
-
-            Section {
-                let otherNodes = nodeRecords.filter { $0.state == .profiled || $0.state == .candidate || $0.state == .suspect }
-                if otherNodes.isEmpty {
-                    Text("No other nodes")
-                        .foregroundColor(.secondary)
-                        .italic()
-                } else {
-                    ForEach(otherNodes.prefix(20)) { record in
-                        NodeRecordRow(record: record)
-                    }
-                    .onDelete { indexSet in
-                        deleteNodes(from: Array(otherNodes.prefix(20)), at: indexSet)
-                    }
-                    if otherNodes.count > 20 {
-                        Text("+ \(otherNodes.count - 20) more nodes")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            } header: {
-                HStack {
-                    Circle().fill(.gray).frame(width: 8, height: 8)
-                    Text("Other Nodes")
-                    Spacer()
-                    Text("\(nodePool.profiledCount + nodePool.candidateCount + nodePool.suspectCount)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            } footer: {
-                Text("Profiled, candidate, and suspect nodes. Showing first 20.")
-            }
-
-            Section {
-                Button("Reset to Defaults") {
-                    resetToDefaults()
-                }
-                .foregroundColor(.red)
+                Text("Save your own node addresses here, then tap one to copy it and paste into the Kaspa Node field above.")
             }
         }
         .navigationTitle("Connection Settings")
@@ -1699,10 +1685,38 @@ struct ConnectionSettingsView: View {
         }
         .onAppear {
             loadCurrentSettings()
-            Task {
-                await loadNodes()
+        }
+        .toast(message: toastMessage, style: toastStyle)
+    }
+
+    private func showToast(_ message: String, style: ToastStyle = .success) {
+        toastMessage = nil
+        toastStyle = style
+        withAnimation {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation {
+                toastMessage = nil
             }
         }
+    }
+
+    private func addSavedNodeAddress() {
+        let trimmedAddress = newSavedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAddress.isEmpty else { return }
+        guard Endpoint(url: trimmedAddress) != nil else {
+            savedNodeAddressError = "Enter as host:port or grpcs://host"
+            return
+        }
+        savedNodeAddressError = nil
+        let trimmedLabel = newSavedNodeLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        settingsViewModel.settings.savedNodeAddresses.append(
+            SavedNodeAddress(label: trimmedLabel, address: trimmedAddress)
+        )
+        settingsViewModel.saveSettings()
+        newSavedNodeLabel = ""
+        newSavedNodeAddress = ""
     }
 
     private func loadCurrentSettings() {
@@ -1711,7 +1725,6 @@ struct ConnectionSettingsView: View {
         pushIndexerURL = settingsViewModel.settings.pushIndexerURL
         knsBaseURL = settingsViewModel.settings.knsBaseURL
         kaspaRestAPIURL = settingsViewModel.settings.kaspaRestAPIURL
-        autoRefreshPool = settingsViewModel.settings.discoverNewPeers
     }
 
     private func saveSettings() {
@@ -1720,215 +1733,144 @@ struct ConnectionSettingsView: View {
         settingsViewModel.settings.pushIndexerURL = pushIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.knsBaseURL = knsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.kaspaRestAPIURL = kaspaRestAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        settingsViewModel.settings.discoverNewPeers = autoRefreshPool
         settingsViewModel.saveSettings()
     }
 
-    private func resetToDefaults() {
-        indexerURL = AppSettings.defaultIndexerURL
-        pushIndexerURL = AppSettings.defaultPushIndexerURL
-        knsBaseURL = AppSettings.defaultKNSURL(for: networkType)
-        kaspaRestAPIURL = AppSettings.defaultKaspaRestURL(for: networkType)
-        autoRefreshPool = true
+    private enum NodeChoice: Hashable {
+        case automatic
+        case defaultNode
+        case saved(String)
+        /// A trusted node address that's currently active but matches neither the default nor any
+        /// saved address book entry (e.g. a one-off address typed into the field below) - shown so
+        /// the picker always reflects the real current state instead of misrepresenting it.
+        case custom(String)
     }
 
-    private func addCustomEndpoint() {
-        let url = customGrpcEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty else { return }
-        Task {
-            await nodePool.addEndpoint(url: url)
-            await loadNodes()
+    private var normalizedDefaultAddress: String {
+        AppSettings.defaultTrustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var nodeChoiceSelection: NodeChoice {
+        let normalizedTrustedAddress = settingsViewModel.settings.trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedTrustedAddress.isEmpty {
+            return .automatic
         }
-        customGrpcEndpoint = ""
-    }
-
-    private func deleteNodes(from nodes: [NodeRecord], at offsets: IndexSet) {
-        Task {
-            for index in offsets {
-                let record = nodes[index]
-                await nodePool.removeEndpoint(record.endpoint)
-            }
-            await loadNodes()
+        if normalizedTrustedAddress == normalizedDefaultAddress {
+            return .defaultNode
         }
-    }
-
-    private func loadNodes() async {
-        isLoadingNodes = true
-        nodeRecords = await nodePool.allNodeRecords()
-        isLoadingNodes = false
-    }
-
-    private var poolHealthDescription: String {
-        switch nodePool.poolHealth {
-        case .healthy: return "Healthy"
-        case .degraded: return "Degraded"
-        case .critical: return "Critical"
-        case .failed: return "Failed"
+        if let match = settingsViewModel.settings.savedNodeAddresses.first(where: {
+            $0.address.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTrustedAddress
+        }) {
+            return .saved(match.address)
         }
+        return .custom(normalizedTrustedAddress)
     }
 
-    private var poolHealthColor: Color {
-        switch nodePool.poolHealth {
-        case .healthy: return .green
-        case .degraded: return .orange
-        case .critical: return .red
-        case .failed: return .red
+    private func applyNodeChoice(_ choice: NodeChoice) {
+        let address: String
+        switch choice {
+        case .automatic: address = ""
+        case .defaultNode: address = AppSettings.defaultTrustedNodeAddress
+        case .saved(let addr): address = addr
+        case .custom(let addr): address = addr
         }
-    }
-
-    private func formatRelativeDate(_ date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: date, relativeTo: Date())
+        trustedNodeValidationError = settingsViewModel.applyTrustedNode(address)
     }
 }
 
-// MARK: - Node Record Row (POOLS_v2)
+// MARK: - Kaspa Node (quick access from Connection Status)
 
-private struct NodeRecordRow: View {
-    let record: NodeRecord
+/// A single dropdown for picking which node to connect to, right from the connection status
+/// sheet (tap the status dot) without navigating to Settings > Connection Settings: the default
+/// node (recommended), automatic discovery, or any address already saved in the IP Address Book
+/// there. Managing the address book itself (adding/removing/labeling entries) still lives in
+/// `ConnectionSettingsView` - this is a quick-select surface over that same underlying list, not
+/// a duplicate of it.
+struct KaspaNodeQuickAccessSections: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+    var onToast: (String, ToastStyle) -> Void
+
+    private enum NodeChoice: Hashable {
+        case automatic
+        case defaultNode
+        case saved(String)
+        /// A trusted node address that's currently active but matches neither the default nor any
+        /// saved address book entry (e.g. entered as free text in Settings > Connection Settings) -
+        /// shown so the picker always reflects the real current state instead of silently
+        /// misrepresenting it as "Automatic Scan".
+        case custom(String)
+    }
+
+    private var normalizedTrustedAddress: String {
+        settingsViewModel.settings.trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var normalizedDefaultAddress: String {
+        AppSettings.defaultTrustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var selection: NodeChoice {
+        if normalizedTrustedAddress.isEmpty {
+            return .automatic
+        }
+        if normalizedTrustedAddress == normalizedDefaultAddress {
+            return .defaultNode
+        }
+        if let match = settingsViewModel.settings.savedNodeAddresses.first(where: {
+            $0.address.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTrustedAddress
+        }) {
+            return .saved(match.address)
+        }
+        return .custom(normalizedTrustedAddress)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                // Origin indicator
-                switch record.origin {
-                case .userAdded:
-                    Image(systemName: "star.fill")
-                        .foregroundColor(.yellow)
-                        .font(.caption)
-                case .seed:
-                    Image(systemName: "shield.fill")
-                        .foregroundColor(.blue)
-                        .font(.caption)
-                case .discovered:
-                    Image(systemName: "antenna.radiowaves.left.and.right")
-                        .foregroundColor(.secondary)
-                        .font(.caption)
+        Section {
+            Picker(
+                "Kaspa Node",
+                selection: Binding(get: { selection }, set: { apply($0) })
+            ) {
+                Text("Default (Recommended)").tag(NodeChoice.defaultNode)
+                Text("Automatic Scan").tag(NodeChoice.automatic)
+                ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
+                    Text(entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? entry.address : entry.label)
+                        .tag(NodeChoice.saved(entry.address))
                 }
-
-                Text(verbatim: record.endpoint.key)
-                    .font(.system(.body, design: .monospaced))
-                    .lineLimit(1)
-
-                Spacer()
-
-                Text(record.state.displayName)
-                    .font(.caption2)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(stateColor.opacity(0.2))
-                    .foregroundColor(stateColor)
-                    .clipShape(Capsule())
-            }
-
-            HStack(spacing: 8) {
-                // Origin label
-                Text(record.origin.displayName)
-                    .font(.caption2)
-                    .foregroundColor(originColor)
-
-                // Latency
-                if let latency = record.health.latencyMs.value ?? record.health.globalLatencyMs.value {
-                    Text("\(Int(latency))ms")
-                        .font(.caption)
-                        .foregroundColor(latencyColor(Int(latency)))
-                }
-
-                // Geo distance
-                if let distKm = record.profile.geoDistanceKm {
-                    Text(formatDistance(distKm))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                // Country code
-                if let cc = record.profile.countryCode {
-                    Text(cc)
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-
-                // DPI check failed
-                if record.profile.peerInfoOk == false {
-                    HStack(spacing: 2) {
-                        Image(systemName: "network.slash")
-                            .font(.caption2)
-                        Text("DPI")
-                            .font(.caption2)
-                    }
-                    .foregroundColor(.red)
-                }
-
-                // Success/failure counts
-                if record.health.consecutiveSuccesses > 0 {
-                    Text("\(record.health.consecutiveSuccesses)✓")
-                        .font(.caption)
-                        .foregroundColor(.green)
-                }
-                if record.health.consecutiveFailures > 0 {
-                    Text("\(record.health.consecutiveFailures)✗")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                }
-
-                Spacer()
-
-                // DAA score (if available)
-                if let daa = record.profile.virtualDaaScore {
-                    Text("DAA: \(formatDaa(daa))")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+                if case .custom(let address) = selection {
+                    Text(address)
+                        .tag(NodeChoice.custom(address))
                 }
             }
-        }
-        .padding(.vertical, 2)
-    }
 
-    private var stateColor: Color {
-        switch record.state {
-        case .active: return .green
-        case .verified: return .blue
-        case .profiled: return .orange
-        case .candidate: return .gray
-        case .suspect: return .red
-        case .quarantined: return .red
-        }
-    }
-
-    private var originColor: Color {
-        switch record.origin {
-        case .userAdded: return .yellow
-        case .seed: return .blue
-        case .discovered: return .secondary
+            if case .automatic = selection {
+                // No extra row - automatic discovery is the default connection mode.
+            } else {
+                HStack {
+                    Text("Connected only to this node")
+                        .font(.caption)
+                        .foregroundColor(.accentColor)
+                    Spacer()
+                }
+            }
+        } header: {
+            Text("Kaspa Node")
+        } footer: {
+            Text("Automatic Scan discovers and connects to the best available nodes. Choosing a specific node connects only to it, without falling back to others. Manage saved addresses in Settings > Connection Settings > IP Address Book.")
         }
     }
 
-    private func latencyColor(_ latency: Int) -> Color {
-        if latency < 100 {
-            return .green
-        } else if latency < 200 {
-            return .primary
-        } else if latency < 500 {
-            return .orange
+    private func apply(_ choice: NodeChoice) {
+        let address: String
+        switch choice {
+        case .automatic: address = ""
+        case .defaultNode: address = AppSettings.defaultTrustedNodeAddress
+        case .saved(let addr): address = addr
+        case .custom(let addr): address = addr
+        }
+        if let error = settingsViewModel.applyTrustedNode(address) {
+            onToast(error, .error)
         } else {
-            return .red
-        }
-    }
-
-    private func formatDaa(_ daa: UInt64) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.groupingSeparator = ","
-        return formatter.string(from: NSNumber(value: daa)) ?? "\(daa)"
-    }
-
-    private func formatDistance(_ km: Double) -> String {
-        if km < 100 {
-            return "\(Int(km))km"
-        } else {
-            let thousands = km / 1000
-            return String(format: "%.1fk km", thousands)
+            onToast(choice == .automatic ? "Automatic scan enabled." : "Node updated.", .success)
         }
     }
 }
@@ -1978,7 +1920,6 @@ struct ConnectionStatusDetailView: View {
     @StateObject private var nodePool = NodePoolService.shared
     @Environment(\.dismiss) private var dismiss
 
-    @State private var customGrpcEndpoint: String = ""
     @State private var isReconnecting: Bool = false
     @State private var nodeRecords: [NodeRecord] = []
     @State private var showClearPoolConfirm: Bool = false
@@ -2190,28 +2131,7 @@ struct ConnectionStatusDetailView: View {
                     }
                 }
 
-                // Custom Endpoint Section
-                Section {
-                    HStack {
-                        TextField("grpc://host:port", text: $customGrpcEndpoint)
-                            .font(.system(.body, design: .monospaced))
-                            .autocapitalization(.none)
-                            .autocorrectionDisabled()
-                            .keyboardType(.URL)
-
-                        Button {
-                            addCustomEndpoint()
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .foregroundColor(.accentColor)
-                        }
-                        .disabled(customGrpcEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    }
-                } header: {
-                    Text("Add Custom Endpoint")
-                } footer: {
-                    Text("Manual endpoints have highest priority")
-                }
+                KaspaNodeQuickAccessSections(onToast: showToast)
 
                 // Active Nodes Section
                 Section {
@@ -2394,16 +2314,6 @@ struct ConnectionStatusDetailView: View {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())
-    }
-
-    private func addCustomEndpoint() {
-        let url = customGrpcEndpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !url.isEmpty else { return }
-        Task {
-            await nodePool.addEndpoint(url: url)
-            await reloadNodeRecords()
-        }
-        customGrpcEndpoint = ""
     }
 
     private func showToast(_ message: String, style: ToastStyle = .success) {

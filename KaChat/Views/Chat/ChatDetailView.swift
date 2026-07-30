@@ -6,11 +6,15 @@ import PhotosUI
 import YbridOpus
 #endif
 
-struct ChatDetailView: View {
-    private final class ScrollViewReference {
-        weak var scrollView: UIScrollView?
-    }
+/// Holds a weak reference to the raw `UIScrollView` backing a SwiftUI `ScrollView`, resolved via
+/// `ScrollViewIntrospector` below - shared by `ChatDetailView` and `GroupChatDetailView` (each
+/// keeps its own instance) since both need to drive the real scroll view directly during a
+/// keyboard-focus transition, where `ScrollViewProxy.scrollTo` alone doesn't reliably land.
+final class ScrollViewReference {
+    weak var scrollView: UIScrollView?
+}
 
+struct ChatDetailView: View {
     private struct PrependViewportSnapshot {
         let contentHeight: CGFloat
         let offsetY: CGFloat
@@ -18,6 +22,11 @@ struct ChatDetailView: View {
 
     @State private var contact: Contact
     @State private var showChatInfo = false
+    /// Local-only multi-select for deleting individual messages (never the whole conversation -
+    /// see `deleteConversation` for that) - toggled from the toolbar's "Select" button.
+    @State private var isSelectingMessages = false
+    @State private var selectedMessageIDs: Set<String> = []
+    @State private var showDeleteMessagesConfirmation = false
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -27,6 +36,8 @@ struct ChatDetailView: View {
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @ObservedObject private var knsService = KNSService.shared
+    @ObservedObject private var portfolioViewModel = PortfolioViewModel.shared
+    @StateObject private var fiatAmountState = KaspaFiatAmountState()
 
     private var myAddress: String? {
         walletManager.currentWallet?.publicAddress
@@ -46,6 +57,12 @@ struct ChatDetailView: View {
     @State private var messagePageSize = 40
     @State private var totalStoredMessages = 0
     @State private var normalizedMessages: [ChatMessage] = []
+    /// Rebuilt only when `normalizedMessages` actually changes (see `rebuildMessageSnapshotIfNeeded`),
+    /// not on every render - `messageRow` looks this up instead of calling `ChessGameService.summarize`
+    /// itself, which replays the whole game and was previously being re-run for every visible chess
+    /// row on every keystroke (any `@State` change on this view re-invokes `body`, and `messageRow`
+    /// is a plain function inlined into it, not an independently-diffed `View`).
+    @State private var chessSummaryCache: [String: ChessGameSummary] = [:]
     @State private var previousMessagesCount = 0
     @State private var lastMessageSnapshotDigest: Int?
     @State private var snapshotRebuildTask: Task<Void, Never>?
@@ -58,6 +75,11 @@ struct ChatDetailView: View {
     @State private var topVisibleMessageId: UUID?
     @State private var isBottomAnchorVisible = false
     @State private var isTopAnchorVisible = false
+    /// Measured live from `replyBanner`'s own layout (rather than a guessed constant) so the
+    /// scroll-to-bottom button's offset above it stays accurate regardless of how many lines the
+    /// quoted preview text wraps to - previously a fixed offset, which left the button sitting on
+    /// top of the reply banner's own Cancel (X) button whenever a reply was active.
+    @State private var replyBannerHeight: CGFloat = 0
     @State private var bottomAnchorVisibilityWorkItem: DispatchWorkItem?
     @State private var topAnchorVisibilityWorkItem: DispatchWorkItem?
     @State private var isUserInteractingWithScroll = false
@@ -76,10 +98,28 @@ struct ChatDetailView: View {
     @State private var feeEstimateSompi: UInt64?
     @State private var isEstimatingFee = false
     @State private var feeEstimateTask: Task<Void, Never>?
+    /// User-set fee, from tapping the fee pill - overrides the live estimate for both display
+    /// and the actual send, cleared once that send completes (matches Android's `feeRateOverride`
+    /// reset-on-send, though Android's is rate-based; this is a flat sompi total - see
+    /// KasiaTransactionBuilder.selectUtxosForContextualMessage's `feeOverride` param).
+    @State private var feeOverrideSompi: UInt64?
+    @State private var showFeeEditor = false
+    @State private var feeEditorText = ""
     @State private var revealOffset: CGFloat = 0
     private let maxRevealOffset: CGFloat = 64
+    /// Tap-a-reply-quote-to-jump-to-original - mirrors `GroupChatDetailView`/
+    /// `BroadcastChannelView`'s identical pair. `pendingJumpToTxId` is set from inside a message
+    /// row (no `ScrollViewProxy` in scope there) and consumed by an `.onChange` inside the
+    /// `ScrollViewReader` closure, which does have the proxy.
+    @State private var pendingJumpToTxId: String?
+    /// Which message (if any) currently has its double-tap quick-reaction bar open - shared
+    /// across all rows (not per-bubble state) so a single tap-anywhere-to-dismiss gesture on the
+    /// message list can close it regardless of which row it belongs to.
+    @State private var activeQuickReactionMessageId: UUID?
+    @State private var highlightedMessageID: UUID?
     @State private var inputMode: InputMode = .message
     @State private var amountText = ""
+    @State private var spendingBalanceSompi: UInt64?
     @State private var recordedAudioURL: URL?
     @State private var recordedAudioPreviewURL: URL?
     @State private var isRecording = false
@@ -96,6 +136,8 @@ struct ChatDetailView: View {
     @State private var isEncodingAudio = false
     @State private var recorderDelegate = AudioRecorderDelegate()
     @State private var photoPickerItem: PhotosPickerItem?
+    @State private var showPhotoPickerFromMenu = false
+    @State private var showCamera = false
     @State private var pendingPhotoImage: UIImage?
     @State private var isCompressingPhoto = false
     @State private var hasPerformedInitialSetup = false
@@ -106,6 +148,7 @@ struct ChatDetailView: View {
     @State private var viewportResetTrigger = UUID()
     @State private var showDustWarning = false
     @State private var pendingDustAmountSompi: UInt64 = 0
+    @State private var activeChessGameId: String?
     @FocusState private var isPaymentFocused: Bool
 
     private let maxRecordingDuration: TimeInterval = 10 // seconds
@@ -117,23 +160,16 @@ struct ChatDetailView: View {
         chatService.conversations.first { $0.contact.address == contact.address }
     }
 
-    private var isFeeEstimationEnabled: Bool {
-        settingsViewModel.settings.feeEstimationEnabled
-    }
-
-    private var contactBalanceSompi: UInt64? {
-        if let wallet = walletManager.currentWallet, wallet.publicAddress == contact.address {
-            return wallet.balanceSompi
-        }
-        return contactsManager.balanceSompi(for: contact.address)
-    }
-
-    private var walletBalanceSompi: UInt64? {
-        walletManager.currentWallet?.balanceSompi
-    }
-
     private var messages: [ChatMessage] {
         normalizedMessages
+    }
+
+    /// Drives the toolbar's quick-access chess icon - nil hides it entirely. Reuses
+    /// `chessSummaryCache` (already rebuilt whenever `messages` changes, see
+    /// `rebuildMessageSnapshotIfNeeded`) instead of re-scanning, so this stays cheap even though
+    /// it's read on every toolbar re-render.
+    private var activeChessGame: ChessGameSummary? {
+        chessSummaryCache.values.first { !$0.status.isGameOver }
     }
 
     private var shouldShowTopPaginationSpinner: Bool {
@@ -196,6 +232,22 @@ struct ChatDetailView: View {
         }
         let deduped = byTxId.values.sorted(by: isMessageOrderedBefore)
         normalizedMessages = deduped
+
+        if let myAddress {
+            let gameIds = Set(deduped.compactMap { ChessCodec.parseAny(MessageReplyCodec.unwrappedText($0.content))?.gameId })
+            if gameIds.isEmpty {
+                if !chessSummaryCache.isEmpty { chessSummaryCache = [:] }
+            } else {
+                var updated: [String: ChessGameSummary] = [:]
+                for gameId in gameIds {
+                    updated[gameId] = ChessGameService.summarize(gameId: gameId, in: deduped, myAddress: myAddress, contactAddress: contact.address)
+                }
+                chessSummaryCache = updated
+            }
+        } else if !chessSummaryCache.isEmpty {
+            chessSummaryCache = [:]
+        }
+
         hasIncomingHandshakeMessage = deduped.contains {
             $0.messageType == .handshake && !$0.isOutgoing && $0.deliveryStatus != .failed
         }
@@ -270,12 +322,6 @@ struct ChatDetailView: View {
         return hasOutgoingHandshakeMessage && !chatService.hasTheirAlias(for: contact.address)
     }
 
-    private var handshakeComplete: Bool {
-        let bothMessages = hasIncomingHandshakeMessage && hasOutgoingHandshakeMessage
-        let hasRouting = chatService.hasRoutingState(for: contact.address)
-        return bothMessages || hasRouting || (chatService.hasOurAlias(for: contact.address) && chatService.hasTheirAlias(for: contact.address))
-    }
-
     private var isDeclined: Bool {
         chatService.isConversationDeclined(contact.address)
     }
@@ -341,6 +387,10 @@ struct ChatDetailView: View {
                                 case .message(let index, let message):
                                     messageRow(message)
                                         .id(message.id)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .fill(highlightedMessageID == message.id ? Color.accentColor.opacity(0.18) : Color.clear)
+                                        )
                                         .onAppear {
                                             if index == 0 {
                                                 topVisibleMessageId = message.id
@@ -435,12 +485,22 @@ struct ChatDetailView: View {
                                 }
                             }
                             .padding(.trailing, 12)
-                            .padding(.bottom, 76)
+                            // Base 76pt clears the composer alone; when a reply is active, the
+                            // reply banner sits above the composer too, so its live-measured
+                            // height (+ the input bar's own 8pt VStack spacing) is added on top -
+                            // otherwise this button sits directly on the reply banner's Cancel (X).
+                            .padding(.bottom, 76 + (chatService.replyingTo != nil ? replyBannerHeight + 8 : 0))
                             .transition(.opacity.combined(with: .scale(scale: 0.8)))
                             .animation(.easeInOut(duration: 0.2), value: isBottomAnchorVisible)
+                            .animation(.easeInOut(duration: 0.2), value: chatService.replyingTo != nil)
                         }
                     }
                     .scrollDismissesKeyboard(.interactively)
+                    .onChange(of: pendingJumpToTxId) { txId in
+                        guard let txId else { return }
+                        jumpToReplyOriginal(txId: txId, using: proxy)
+                        pendingJumpToTxId = nil
+                    }
                     .onAppear {
                         positionInitialViewport(using: proxy)
                     }
@@ -459,11 +519,20 @@ struct ChatDetailView: View {
                             didInitialScroll = true
                             return
                         }
-                        if isBottomAnchorVisible && !isUserInteractingWithScroll {
+                        if messages.last?.isOutgoing == true {
+                            // A message *you* just sent should always land smoothly at the
+                            // bottom, unconditionally - matching group chat/broadcast rooms'
+                            // identical unconditional scroll-on-new-message. The
+                            // isBottomAnchorVisible/isUserInteractingWithScroll/throttle gates
+                            // below exist to avoid yanking your position for an *incoming*
+                            // message while you're reading up top; they don't apply to your own.
+                            lastAutoBottomScrollAt = Date()
+                            scrollToBottom(using: proxy, animated: true)
+                        } else if isBottomAnchorVisible && !isUserInteractingWithScroll {
                             let now = Date()
                             if now.timeIntervalSince(lastAutoBottomScrollAt) > 0.12 {
                                 lastAutoBottomScrollAt = now
-                                scrollToBottom(using: proxy, animated: false)
+                                scrollToBottom(using: proxy, animated: true)
                             }
                         } else {
                             newMessagesWhileScrolledUp += 1
@@ -511,6 +580,17 @@ struct ChatDetailView: View {
                                 }
                             }
                     )
+                    .simultaneousGesture(
+                        // Tapping anywhere in the message list dismisses whichever bubble's
+                        // quick-reaction bar is currently open, same as tapping outside a menu
+                        // elsewhere in this app dismisses it - runs alongside (not instead of)
+                        // whatever else that tap does, since this is a `simultaneousGesture`.
+                        TapGesture().onEnded {
+                            if activeQuickReactionMessageId != nil {
+                                activeQuickReactionMessageId = nil
+                            }
+                        }
+                    )
             }
         }
         .onDrop(
@@ -525,46 +605,81 @@ struct ChatDetailView: View {
                 ConnectionStatusIndicator()
             }
             ToolbarItem(placement: .principal) {
-                VStack(spacing: 2) {
-                    Button {
-                        UIPasteboard.general.string = contact.address
-                        Haptics.success()
-                        showToast("Address copied to clipboard.")
-                    } label: {
+                Button {
+                    showChatInfo = true
+                } label: {
+                    VStack(spacing: 2) {
+                        KNSAvatarView(
+                            avatarURLString: knsService.profileCache[contact.address]?.avatarURL,
+                            fallbackText: contact.alias,
+                            size: 36
+                        )
                         Text(contact.alias)
                             .font(.headline)
                             .foregroundColor(.primary)
                     }
-
-                    if settingsViewModel.settings.showContactBalance, let sompi = contactBalanceSompi {
-                        let exact = formatKaspaExact(sompi)
-                        let isWallet = walletManager.currentWallet?.publicAddress == contact.address
-                        ShimmeringText(
-                            text: "\(exact) KAS",
-                            font: .caption,
-                            color: .secondary,
-                            isShimmering: isWallet && walletManager.isBalanceRefreshing
-                        )
-                        .onTapGesture {
-                            UIPasteboard.general.string = exact
-                            Haptics.success()
-                            showToast("Balance copied to clipboard.")
-                            showChatInfo = true
+                }
+            }
+            if let activeChessGame, !isSelectingMessages {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        activeChessGameId = activeChessGame.gameId
+                    } label: {
+                        Image(systemName: "checkerboard.rectangle")
+                            .font(.caption)
+                            .frame(width: 22, height: 22)
+                            .background(Circle().fill(Color.secondary.opacity(0.15)))
+                    }
+                    .accessibilityLabel(Text("Open active chess game"))
+                }
+            }
+            // Entry point into select mode is a message's long-press "Select" menu item (see
+            // `enterSelectMode(with:)`), not a toolbar button - this only ever shows Cancel/Delete
+            // once already selecting.
+            if isSelectingMessages {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack(spacing: 16) {
+                        Button("Cancel") {
+                            isSelectingMessages = false
+                            selectedMessageIDs = []
                         }
+                        Button {
+                            showDeleteMessagesConfirmation = true
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .foregroundColor(.red)
+                        .disabled(selectedMessageIDs.isEmpty)
                     }
                 }
             }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showChatInfo = true
-                } label: {
-                    Image(systemName: "info.circle")
-                }
+        }
+        .alert(
+            deleteMessagesAlertTitle,
+            isPresented: $showDeleteMessagesConfirmation
+        ) {
+            Button("Delete", role: .destructive) {
+                chatService.deleteMessages(selectedMessageIDs, from: contact)
+                isSelectingMessages = false
+                selectedMessageIDs = []
             }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This only deletes the message from this device - the recipient still has their own copy, and the encrypted transaction remains permanently on the Kaspa blockchain, visible to anyone but unreadable without your keys. This cannot be undone.")
         }
         .sheet(isPresented: $showChatInfo) {
             ChatInfoView(contact: $contact)
                 .environmentObject(contactsManager)
+        }
+        .fullScreenCover(isPresented: Binding(
+            get: { activeChessGameId != nil },
+            set: { if !$0 { activeChessGameId = nil } }
+        )) {
+            if let activeChessGameId {
+                ChessGameView(gameId: activeChessGameId, contact: contact)
+                    .environmentObject(chatService)
+                    .environmentObject(walletManager)
+            }
         }
         .alert("Failed to Send", isPresented: .constant(error != nil)) {
             Button("OK") { error = nil }
@@ -590,22 +705,20 @@ struct ChatDetailView: View {
         } message: {
             Text("Sending less than 0.1 KAS may fail due to the network dust protection limit.")
         }
+        .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
+            TextField("Fee (KAS)", text: $feeEditorText)
+                .keyboardType(.decimalPad)
+            Button("Save") { commitFeeOverride() }
+            Button("Use Default") {
+                feeOverrideSompi = nil
+                scheduleFeeEstimate(for: messageText)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("If the network is busy, a higher fee can help your transaction confirm faster.")
+        }
         .onChange(of: amountText) { newValue in
             schedulePaymentFee(for: newValue)
-        }
-        .onChange(of: settingsViewModel.settings.feeEstimationEnabled) { enabled in
-            if enabled {
-                switch inputMode {
-                case .message:
-                    scheduleFeeEstimate(for: messageText)
-                case .payment:
-                    schedulePaymentFee(for: amountText)
-                case .audio:
-                    updateRecordingFee()
-                }
-            } else {
-                clearFeeEstimationState()
-            }
         }
         .onAppear {
             if !hasPerformedInitialSetup {
@@ -664,14 +777,24 @@ struct ChatDetailView: View {
             // automatically on navigation pop, and on tab switches we want
             // to preserve the scroll position and loaded message count.
         }
-        .onChange(of: chatService.replyingTo) { _ in
+        .onChange(of: chatService.replyingTo) { newValue in
             scheduleFeeEstimate(for: messageText)
+            if newValue == nil {
+                replyBannerHeight = 0
+            }
         }
         .task(id: myAddress) {
             // Matches broadcast rooms' room-level own-avatar fetch - resolves regardless of who's
             // messaged, since it's always needed for our own outgoing bubbles.
             guard let myAddress, knsService.profileCache[myAddress] == nil else { return }
             _ = await knsService.fetchProfile(for: myAddress)
+        }
+        .task(id: inputMode) {
+            // Payments spend from the current spending (primary) address, not the chatting
+            // address - the "Available" bubble shown while composing a payment should match,
+            // not the identity wallet's own balance.
+            guard inputMode == .payment else { return }
+            await loadSpendingBalance()
         }
         .task(id: contact.address) {
             guard knsService.profileCache[contact.address] == nil else { return }
@@ -691,6 +814,17 @@ struct ChatDetailView: View {
                 target = nil
             }
             guard let newContact = target else { return }
+            // Dismiss any active sheet/fullScreenCover before swapping contacts - this view
+            // instance is reused in place (no `.id()`, to preserve scroll position) rather than
+            // torn down and rebuilt, so a still-presented modal whose content is scoped to the
+            // OLD contact (chess chief among them - its gameId won't exist in the new contact's
+            // conversation, so `ChessGameView` would spin on a `nil` summary forever) would
+            // otherwise stay stuck on screen, silently swallowing this navigation.
+            activeChessGameId = nil
+            showChatInfo = false
+            showFeeEditor = false
+            showDustWarning = false
+            showCamera = false
             // Tear down current conversation (same as onDisappear)
             chatService.setDraft(messageText, for: contact.address)
             chatService.leaveConversation()
@@ -712,6 +846,7 @@ struct ChatDetailView: View {
             messageText = ""
             inputMode = startInPaymentMode ? .payment : .message
             amountText = ""
+            fiatAmountState.reset()
             initialViewportPositioned = false
             didInitialScroll = false
             topVisibleMessageId = nil
@@ -1035,7 +1170,7 @@ struct ChatDetailView: View {
                 .foregroundStyle(.orange)
                 .font(.subheadline)
                 .padding(.top, 1)
-            Text("When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, click the hand icon to send a request to communicate which will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)")
+            Text("This message will not be seen by the recipient until they also try to chat with you, or you can send a handshake to ping them. Handshakes send 0.2 KAS, which is returned if they accept your request.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1067,11 +1202,6 @@ struct ChatDetailView: View {
                         desktopEmojiButton
                     }
 
-                    if !isDeclined && inputMode == .message && pendingPhotoImage == nil
-                        && messageText.isEmpty {
-                        photoPickerButton
-                    }
-
                     sendButtonArea
                 }
 
@@ -1082,11 +1212,11 @@ struct ChatDetailView: View {
                         }
                         if shouldShowAvailableBalanceBubble {
                             availableBalanceBubble
+                                .allowsHitTesting(false)
                         }
                     }
                     .offset(x: 32, y: -26)
                     .transition(.opacity)
-                    .allowsHitTesting(false)
                 }
             }
         }
@@ -1101,6 +1231,24 @@ struct ChatDetailView: View {
             }
         }
         .background(pendingPhotoReturnShortcutButton)
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraCaptureView(
+                onCapture: { data in
+                    showCamera = false
+                    _ = attachImageData(data)
+                },
+                onCancel: { showCamera = false }
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    private func takePhoto() {
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            showCamera = true
+        } else {
+            self.error = "Camera not available on this device."
+        }
     }
 
     @ViewBuilder
@@ -1150,6 +1298,8 @@ struct ChatDetailView: View {
         Group {
             if isDeclined {
                 EmptyView()
+            } else if inputMode == .message && pendingPhotoImage == nil && messageText.isEmpty {
+                composerPlusMenu
             } else if shouldShowComposerQuickActions {
                 composerQuickActions
             } else if shouldShowAudioModeSwitchActions {
@@ -1169,16 +1319,56 @@ struct ChatDetailView: View {
         }
     }
 
-    private var photoPickerButton: some View {
-        PhotosPicker(selection: $photoPickerItem, matching: .images) {
-            Image(systemName: "photo")
+    /// Entry point for every "other than a plain text message" thing you can send — matches
+    /// Android 3.0's "+" composer menu (Pay in Kaspa / Photo / Audio Message / Send Handshake),
+    /// replacing the old row of always-visible quick-action pills + a separate standalone photo
+    /// button that used to clutter this same spot.
+    private var composerPlusMenu: some View {
+        Menu {
+            Button {
+                showPhotoPickerFromMenu = true
+            } label: {
+                Label("Send Photo", systemImage: "photo")
+            }
+            Button {
+                switchMode(.audio)
+                startRecording()
+            } label: {
+                Label("Send Audio Message", systemImage: "mic.circle.fill")
+            }
+            Button {
+                switchMode(.payment)
+            } label: {
+                Label {
+                    Text("Send Kaspa")
+                } icon: {
+                    Image("KaspaLogo")
+                        .resizable()
+                        .scaledToFit()
+                }
+            }
+            Button {
+                startChessGame()
+            } label: {
+                Label("Play Chess", systemImage: "checkerboard.rectangle")
+            }
+            if canSendRequestToCommunicate {
+                Button {
+                    sendHandshake()
+                } label: {
+                    Label("Send Handshake", systemImage: "hand.wave")
+                }
+            }
+        } label: {
+            Image(systemName: "plus")
                 .font(.title3)
-                .foregroundColor(.primary)
+                .foregroundColor(.accentColor)
                 .frame(width: 44, height: 44)
                 .background(glassBackground(cornerRadius: 14))
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text("Attach photo"))
+        .tint(.accentColor)
+        .accessibilityLabel(Text("More options"))
+        .photosPicker(isPresented: $showPhotoPickerFromMenu, selection: $photoPickerItem, matching: .images)
         .onChange(of: photoPickerItem) { newItem in
             guard let newItem else { return }
             Task {
@@ -1242,43 +1432,21 @@ struct ChatDetailView: View {
         isRecording || isEncodingAudio || recordedAudioPreviewURL != nil || recordedAudioURL != nil
     }
 
+    /// Always available in the "+" menu on iOS, even once the handshake exchange has already
+    /// completed - unlike Android, which still hides it at that point. Still gated on
+    /// `!isRespondingHandshake` alone, purely to prevent a double-tap firing two sends while one
+    /// is already in flight, not to hide the option itself.
     private var canSendRequestToCommunicate: Bool {
-        guard !hasOutgoingHandshakeMessage && !hasIncomingHandshakeMessage && !isRespondingHandshake else {
-            return false
-        }
-        // Already communicating successfully without ever using a formal handshake (e.g. an
-        // auto-added contact from a payment) - offering to send one at this point would be
-        // redundant, since both sides can clearly already reach each other.
-        let hasOutgoingMessage = normalizedMessages.contains { $0.isOutgoing && $0.deliveryStatus != .failed }
-        return !(hasAnyIncomingMessage && hasOutgoingMessage)
+        !isRespondingHandshake
     }
 
+    /// Only ever reached for `.payment` now — the `.message` entry point moved to
+    /// composerPlusMenu, and `.audio` has nothing to show here (see shouldShowComposerQuickActions).
     private var composerQuickActions: some View {
         HStack(spacing: 8) {
             switch inputMode {
-            case .message:
-                composerQuickActionButton(
-                    title: "Send KAS",
-                    icon: "k.circle.fill"
-                ) {
-                    switchMode(.payment)
-                }
-
-                composerQuickActionButton(
-                    title: "Send audio",
-                    icon: "mic.circle.fill"
-                ) {
-                    switchMode(.audio)
-                }
-
-                if canSendRequestToCommunicate {
-                    composerQuickActionButton(
-                        title: "Request to communicate",
-                        icon: "hand.wave"
-                    ) {
-                        sendHandshake()
-                    }
-                }
+            case .message, .audio:
+                EmptyView()
             case .payment:
                 composerQuickActionButton(
                     title: "Send message",
@@ -1293,8 +1461,6 @@ struct ChatDetailView: View {
                 ) {
                     switchMode(.audio)
                 }
-            case .audio:
-                EmptyView()
             }
         }
     }
@@ -1310,7 +1476,8 @@ struct ChatDetailView: View {
 
             composerQuickActionButton(
                 title: "Send KAS",
-                icon: "k.circle.fill"
+                icon: "KaspaLogo",
+                isAssetImage: true
             ) {
                 switchMode(.payment)
             }
@@ -1320,14 +1487,24 @@ struct ChatDetailView: View {
     private func composerQuickActionButton(
         title: LocalizedStringKey,
         icon: String,
+        isAssetImage: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundColor(.accentColor)
-                .frame(width: 44, height: 44)
-                .background(glassBackground(cornerRadius: 14))
+            Group {
+                if isAssetImage {
+                    Image(icon)
+                        .resizable()
+                        .scaledToFit()
+                        .padding(8)
+                } else {
+                    Image(systemName: icon)
+                        .font(.title3)
+                        .foregroundColor(.accentColor)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .background(glassBackground(cornerRadius: 14))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(title))
@@ -1349,6 +1526,11 @@ struct ChatDetailView: View {
             if isSendActionBusy {
                 ProgressView()
                     .font(.title)
+            } else if inputMode == .payment {
+                Image("KaspaLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .padding(9)
             } else {
                 Image(systemName: currentButtonIcon)
                     .font(.title)
@@ -1360,6 +1542,17 @@ struct ChatDetailView: View {
     private var currentButtonIcon: String {
         if inputMode == .payment {
             return "k.circle.fill"
+        }
+        if inputMode == .audio {
+            // While recording, this button's only job is "stop early" - in case the full
+            // ~10s auto-cutoff is more than the user wants. Once there's a finished preview,
+            // it's a real send action, so it should read as send, not still show a mic.
+            if isRecording {
+                return "stop.circle.fill"
+            }
+            if recordedAudioPreviewURL != nil {
+                return "arrow.up.circle.fill"
+            }
         }
         return inputMode.icon
     }
@@ -1455,12 +1648,14 @@ struct ChatDetailView: View {
 
         messageText = ""
         chatService.clearDraft(for: contact.address)
+        let feeOverride = feeOverrideSompi
         feeEstimateSompi = nil
+        feeOverrideSompi = nil
         isEstimatingFee = false
 
         Task {
             do {
-                try await chatService.sendMessage(to: contact, content: text)
+                try await chatService.sendMessage(to: contact, content: text, feeOverride: feeOverride)
             } catch {
                 if shouldPromptGiftClaim(for: error) {
                     await MainActor.run {
@@ -1478,22 +1673,55 @@ struct ChatDetailView: View {
 
     private var paymentField: some View {
         HStack {
-            TextField("Amount (KAS)", text: $amountText)
+            // Toggles KAS/fiat entry mode, matching Cold Storage's send flow - the leading icon is
+            // the toggle now, so the conversion label further along is purely informational.
+            Button {
+                fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
+            } label: {
+                if fiatAmountState.isFiatMode {
+                    Text(currencySymbol(for: portfolioViewModel.currentCurrency))
+                        .font(.title3.weight(.semibold))
+                        .foregroundColor(.accentColor)
+                        .frame(width: 22, height: 22)
+                } else {
+                    Image("KaspaLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 22, height: 22)
+                }
+            }
+            .buttonStyle(.plain)
+
+            TextField(
+                fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : "Amount (KAS)",
+                text: Binding(
+                    get: { fiatAmountState.displayText },
+                    set: { newValue in
+                        let sanitized = sanitizedAmount(newValue)
+                        amountText = fiatAmountState.onDisplayTextChange(sanitized, priceInCurrency: portfolioViewModel.currentPriceUsd)
+                    }
+                )
+            )
                 .keyboardType(.decimalPad)
                 .focused($isPaymentFocused)
-                .onChange(of: amountText) { newValue in
-                    amountText = sanitizedAmount(newValue)
-                }
+            if let conversionLabel = fiatAmountState.conversionLabelText(
+                priceInCurrency: portfolioViewModel.currentPriceUsd,
+                currency: portfolioViewModel.currentCurrency
+            ) {
+                Text(conversionLabel)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
             Button("Max") {
                 Task {
                     do {
                         let maxSompi = try await chatService.estimateMaxPaymentAmount(to: contact)
                         await MainActor.run {
                             let kas = Double(maxSompi) / 100_000_000.0
-                            amountText = String(format: "%.8f", kas)
+                            amountText = fiatAmountState.setMaxKas(kas, priceInCurrency: portfolioViewModel.currentPriceUsd)
                         }
                     } catch {
-                        print("[ChatDetail] Max calculation failed: \(error)")
+                        AppLog.log("[ChatDetail] Max calculation failed: %@", error.localizedDescription)
                     }
                 }
             }
@@ -1511,24 +1739,39 @@ struct ChatDetailView: View {
                 if let pendingPhotoImage {
                     pendingPhotoRow(pendingPhotoImage)
                 } else {
-                    ComposerTextView(
-                        text: $messageText,
-                        isFocused: $isMessageFocused,
-                        onTextChange: { newValue in
-                            scheduleFeeEstimate(for: newValue)
-                            if inputMode == .message {
-                                chatService.setDraft(newValue, for: contact.address)
-                            }
-                        },
-                        onSubmit: { handleSend() },
-                        insertionRequest: emojiInsertionRequest,
-                        onInsertionHandled: { requestID in
-                            if emojiInsertionRequest?.id == requestID {
-                                emojiInsertionRequest = nil
-                            }
-                        },
-                        onPasteImageData: handlePastedImageData
-                    )
+                    HStack(spacing: 4) {
+                        ComposerTextView(
+                            text: $messageText,
+                            isFocused: $isMessageFocused,
+                            onTextChange: { newValue in
+                                scheduleFeeEstimate(for: newValue)
+                                if inputMode == .message {
+                                    chatService.setDraft(newValue, for: contact.address)
+                                }
+                            },
+                            onSubmit: { handleSend() },
+                            insertionRequest: emojiInsertionRequest,
+                            onInsertionHandled: { requestID in
+                                if emojiInsertionRequest?.id == requestID {
+                                    emojiInsertionRequest = nil
+                                }
+                            },
+                            onPasteImageData: handlePastedImageData
+                        )
+
+                        // Quick-access camera, replacing what used to be a "Camera" entry in the
+                        // "+" menu - living right in the compose bubble instead since it's the
+                        // most common non-text action.
+                        Button {
+                            takePhoto()
+                        } label: {
+                            Image(systemName: "camera")
+                                .font(.body)
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text("Take Photo"))
+                    }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(glassBackground(cornerRadius: 20))
@@ -1622,8 +1865,9 @@ struct ChatDetailView: View {
         HStack(spacing: 6) {
             if isEstimatingFee {
                 Text("fee: -------- KAS")
-            } else if let fee = feeEstimateSompi ?? recordingFeeSompi {
+            } else if let fee = feeOverrideSompi ?? feeEstimateSompi ?? recordingFeeSompi {
                 Text(localizedFeeText(fee))
+                    .underline()
             } else {
                 Text("fee: -- KAS")
             }
@@ -1640,6 +1884,12 @@ struct ChatDetailView: View {
                     .allowsHitTesting(false)
             }
         }
+        .allowsHitTesting(true)
+        .onTapGesture {
+            guard !isEstimatingFee, let currentFee = feeOverrideSompi ?? feeEstimateSompi ?? recordingFeeSompi else { return }
+            feeEditorText = formatKaspaExact(currentFee)
+            showFeeEditor = true
+        }
         .onAppear {
             updateFeeShimmer()
         }
@@ -1650,7 +1900,7 @@ struct ChatDetailView: View {
 
     private var availableBalanceBubble: some View {
         HStack(spacing: 6) {
-            if let balanceSompi = walletBalanceSompi {
+            if let balanceSompi = spendingBalanceSompi {
                 Text(localizedAvailableBalanceText(balanceSompi))
             } else {
                 Text(localizedAvailableBalanceText(nil))
@@ -1698,7 +1948,10 @@ struct ChatDetailView: View {
 
         feeEstimateSompi = nil
         isEstimatingFee = false
-        if mode != .payment { amountText = "" }
+        if mode != .payment {
+            amountText = ""
+            fiatAmountState.reset()
+        }
         if mode != .message { messageText = "" }
         if mode != .audio {
             cancelRecording()
@@ -1797,9 +2050,13 @@ struct ChatDetailView: View {
                 try await chatService.sendPayment(to: contact, amountSompi: amountSompi, note: "")
                 await MainActor.run {
                     amountText = ""
+                    fiatAmountState.reset()
                     feeEstimateSompi = nil
                     isEstimatingFee = false
                 }
+                // The active spending address rotates to a fresh one after a successful send -
+                // refresh so "Available" reflects that new address, not the one just spent from.
+                await loadSpendingBalance()
             } catch {
                 await MainActor.run {
                     self.error = displayErrorMessage(error)
@@ -1809,6 +2066,15 @@ struct ChatDetailView: View {
                 isSending = false
             }
         }
+    }
+
+    private func loadSpendingBalance() async {
+        guard let address = walletManager.currentSpendingAddress() else {
+            spendingBalanceSompi = nil
+            return
+        }
+        let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
+        spendingBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
     }
 
     private func pinToBottomThroughKeyboardTransition() {
@@ -1852,6 +2118,39 @@ struct ChatDetailView: View {
         tick()
     }
 
+    /// Tap-a-reply-quote-to-jump-to-original. `displayedMessages` is a suffix window of `messages`
+    /// (see `loadedMessageCount`) - if the target isn't currently windowed in, grow the window to
+    /// include it before scrolling, rather than requiring the user to manually paginate up first.
+    private func jumpToReplyOriginal(txId: String, using proxy: ScrollViewProxy) {
+        if let target = displayedMessages.first(where: { $0.txId == txId }) {
+            scrollAndHighlight(target.id, using: proxy)
+            return
+        }
+        guard let targetIndex = messages.firstIndex(where: { $0.txId == txId }) else {
+            showToast("Original message not available.", style: .error)
+            return
+        }
+        let target = messages[targetIndex]
+        loadedMessageCount = max(loadedMessageCount, messages.count - targetIndex)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            scrollAndHighlight(target.id, using: proxy)
+        }
+    }
+
+    private func scrollAndHighlight(_ id: UUID, using proxy: ScrollViewProxy) {
+        withAnimation {
+            proxy.scrollTo(id, anchor: .center)
+        }
+        highlightedMessageID = id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            withAnimation(.easeOut(duration: 0.5)) {
+                if highlightedMessageID == id {
+                    highlightedMessageID = nil
+                }
+            }
+        }
+    }
+
     private func scrollToBottom(
         using proxy: ScrollViewProxy,
         animated: Bool,
@@ -1887,7 +2186,20 @@ struct ChatDetailView: View {
             && !isDeclined
         let replyQuote = MessageReplyCodec.parse(message.content)
         let senderAddress = message.isOutgoing ? myAddress : contact.address
-        MessageBubbleView(
+        let chessEnvelope = ChessCodec.parseAny(MessageReplyCodec.unwrappedText(message.content))
+        let chessSummary = chessEnvelope.flatMap { chessSummaryCache[$0.gameId] }
+        // Equivalent to ChessGameService.isLatestChessMessage(message, in: messages), but reuses
+        // the cached summary's lastMessageTxId (set during the same replay) instead of a fresh
+        // O(N) scan over every message per row per render.
+        let isLatestChess = chessEnvelope != nil && message.txId == chessSummary?.lastMessageTxId
+
+        // Built as its own statement (rather than inline inside the ZStack below) so the type
+        // checker isn't solving this already-huge multi-argument call *together* with the
+        // selection-overlay's conditional content in one expression - that combination is what
+        // triggered "unable to type-check in reasonable time" once the overlay was added. Further
+        // split from its own trailing modifiers (a second statement below) for the same reason -
+        // the combined call-plus-modifiers was still too much for the checker on its own.
+        let rawBubble = MessageBubbleView(
             message: message,
             onCopy: showToast,
             onRetry: retryOutgoingMessage,
@@ -1896,12 +2208,98 @@ struct ChatDetailView: View {
             replyQuote: replyQuote,
             replySenderDisplayName: replyQuote.map { replyDisplayName(for: $0.replyToSender) },
             onReply: { chatService.startReplyTo(message) },
+            onSelect: { enterSelectMode(with: message.txId) },
+            reactions: chatService.reactionsByTxId[message.txId] ?? [],
+            onReact: { emoji in
+                let myAddress = walletManager.currentWallet?.publicAddress ?? ""
+                let existing = chatService.reactionsByTxId[message.txId]?.first { $0.reactorAddress == myAddress }
+                let action = existing?.emoji == emoji ? "remove" : "add"
+                Task {
+                    try? await chatService.sendReaction(to: contact, targetTxId: message.txId, emoji: emoji, action: action)
+                }
+            },
+            activeQuickReactionMessageId: $activeQuickReactionMessageId,
+            onJumpToReply: replyQuote != nil ? { pendingJumpToTxId = replyQuote?.replyToId } : nil,
             avatarURLString: senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
             avatarDisplayName: replyDisplayName(for: senderAddress ?? contact.address),
             revealOffset: revealOffset,
             maxRevealOffset: maxRevealOffset,
-            photosBlocked: !contactsManager.shouldAutoDisplayPhotos(for: contact, settings: settingsViewModel.settings)
+            photosBlocked: !contactsManager.shouldAutoDisplayPhotos(for: contact, settings: settingsViewModel.settings),
+            chessEnvelope: chessEnvelope,
+            chessSummary: chessSummary,
+            isLatestChessMessage: isLatestChess,
+            onRespondToChessInvite: (chessEnvelope != nil && !message.isOutgoing)
+                ? { accepted in respondToChessInvite(gameId: chessEnvelope!.gameId, accepted: accepted) }
+                : nil,
+            onOpenChessGame: chessEnvelope != nil ? { activeChessGameId = chessEnvelope!.gameId } : nil
         )
+        let bubble = rawBubble
+            .allowsHitTesting(!isSelectingMessages)
+            .padding(.leading, isSelectingMessages ? 28 : 0)
+
+        ZStack(alignment: .leading) {
+            bubble
+            selectionOverlay(for: message.txId)
+        }
+    }
+
+    /// Selection-mode tap catcher + indicator, split out of `messageRow` (see its own comment) -
+    /// disables the bubble's own gestures (link taps, double-tap-to-react, long-press menu) while
+    /// selecting, since those would otherwise fire alongside/instead of toggling selection.
+    ///
+    /// Entry point into select mode - triggered from a message's long-press "Select" menu item
+    /// (not a toolbar button), pre-selecting whichever message was long-pressed.
+    private func enterSelectMode(with txId: String) {
+        isSelectingMessages = true
+        selectedMessageIDs.insert(txId)
+    }
+
+    /// Pulled out of the `.alert(...)` call site as a plain computed property - an inline ternary
+    /// nested inside string interpolation there was making the compiler unable to type-check the
+    /// `.alert` expression in reasonable time (same fix as `ChatListView`'s bulk-delete alert).
+    private var deleteMessagesAlertTitle: String {
+        "Delete \(selectedMessageIDs.count) Message\(selectedMessageIDs.count == 1 ? "" : "s")?"
+    }
+
+    @ViewBuilder
+    private func selectionOverlay(for txId: String) -> some View {
+        if isSelectingMessages {
+            HStack(spacing: 8) {
+                Image(systemName: selectedMessageIDs.contains(txId) ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(selectedMessageIDs.contains(txId) ? .accentColor : .secondary)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if selectedMessageIDs.contains(txId) {
+                    selectedMessageIDs.remove(txId)
+                } else {
+                    selectedMessageIDs.insert(txId)
+                }
+            }
+        }
+    }
+
+    private func respondToChessInvite(gameId: String, accepted: Bool) {
+        Task {
+            try? await ChessGameService.respond(gameId: gameId, accepted: accepted, to: contact)
+        }
+    }
+
+    /// Starting a new game always supersedes whichever one is currently active against this
+    /// contact - only one active chess game per contact is allowed, so an existing in-progress/
+    /// pending-response game is auto-resigned first rather than left orphaned alongside a second
+    /// one. Uses `ChessGameService.activeGame` (not `chessSummaryCache`) so this check is correct
+    /// even if the cache hasn't rebuilt since the very latest message yet.
+    private func startChessGame() {
+        Task {
+            if let myAddress = walletManager.currentWallet?.publicAddress,
+               let existing = ChessGameService.activeGame(in: messages, myAddress: myAddress, contactAddress: contact.address) {
+                try? await ChessGameService.resign(gameId: existing.gameId, to: contact)
+            }
+            try? await ChessGameService.startGame(with: contact)
+        }
     }
 
     /// "You" for our own address, else the contact's alias - matches broadcast rooms'
@@ -1910,7 +2308,7 @@ struct ChatDetailView: View {
         if address == walletManager.currentWallet?.publicAddress {
             return "You"
         }
-        return contact.alias.isEmpty ? String(address.suffix(10)) : contact.alias
+        return contact.alias.isEmpty ? Contact.generateDefaultAlias(from: address) : contact.alias
     }
 
     private func replyBanner(for reply: ChatMessage) -> some View {
@@ -1942,6 +2340,13 @@ struct ChatDetailView: View {
         .padding(.vertical, 8)
         .background(Color(UIColor.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { replyBannerHeight = proxy.size.height }
+                    .onChange(of: proxy.size.height) { replyBannerHeight = $0 }
+            }
+        )
     }
 
     private func daySeparator(_ day: Date) -> some View {
@@ -1985,7 +2390,7 @@ struct ChatDetailView: View {
     }
 
     private var shouldShowFeeBubble: Bool {
-        guard isFeeEstimationEnabled else { return false }
+        guard settingsViewModel.settings.showFeeEstimate else { return false }
         switch inputMode {
         case .message:
             return pendingPhotoImage != nil || !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -2004,13 +2409,14 @@ struct ChatDetailView: View {
         shouldShowFeeBubble || shouldShowAvailableBalanceBubble
     }
 
+    private func commitFeeOverride() {
+        guard let kas = Double(feeEditorText), kas >= 0 else { return }
+        feeOverrideSompi = UInt64((kas * 100_000_000).rounded())
+        scheduleFeeEstimate(for: messageText)
+    }
+
     private func scheduleFeeEstimate(for text: String) {
         feeEstimateTask?.cancel()
-        guard isFeeEstimationEnabled else {
-            feeEstimateSompi = nil
-            isEstimatingFee = false
-            return
-        }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -2026,7 +2432,7 @@ struct ChatDetailView: View {
             try? await Task.sleep(nanoseconds: 200_000_000)
             if Task.isCancelled { return }
             do {
-                let estimate = try await chatService.estimateMessageFee(to: contact, content: trimmed)
+                let estimate = try await chatService.estimateMessageFee(to: contact, content: trimmed, feeOverride: feeOverrideSompi)
                 if Task.isCancelled { return }
                 await MainActor.run {
                     feeEstimateSompi = estimate
@@ -2046,11 +2452,6 @@ struct ChatDetailView: View {
     /// formula - the real send always measures the actual compressed bytes.
     private func schedulePhotoFeeEstimate() {
         feeEstimateTask?.cancel()
-        guard isFeeEstimationEnabled else {
-            feeEstimateSompi = nil
-            isEstimatingFee = false
-            return
-        }
         guard let wallet = walletManager.currentWallet,
               let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) else {
             feeEstimateSompi = nil
@@ -2072,11 +2473,6 @@ struct ChatDetailView: View {
 
     private func schedulePaymentFee(for text: String) {
         feeEstimateTask?.cancel()
-        guard isFeeEstimationEnabled else {
-            feeEstimateSompi = nil
-            isEstimatingFee = false
-            return
-        }
 
         let normalized = text.replacingOccurrences(of: ",", with: ".").trimmingCharacters(in: .whitespacesAndNewlines)
         guard inputMode == .payment else { return }
@@ -2180,7 +2576,7 @@ struct ChatDetailView: View {
                     self.recordingDuration = 0
                     self.feeEstimateSompi = nil
                     self.recordingFeeSompi = nil
-                    self.isEstimatingFee = self.isFeeEstimationEnabled
+                    self.isEstimatingFee = true
                     startRecordingTimer()
                     stopPreview()
                     previewLabel = "--:--"
@@ -2440,14 +2836,6 @@ struct ChatDetailView: View {
 
     private func updateRecordingFee() {
         recordingFeeTask?.cancel()
-        guard isFeeEstimationEnabled else {
-            recordingFeeSompi = nil
-            if inputMode == .audio {
-                feeEstimateSompi = nil
-            }
-            isEstimatingFee = false
-            return
-        }
 
         // During recording, estimate based on duration
         // After encoding, use actual file data
@@ -2522,7 +2910,7 @@ struct ChatDetailView: View {
 
     private func encodeRecording(from url: URL) async {
         await MainActor.run {
-            self.isEstimatingFee = self.isFeeEstimationEnabled
+            self.isEstimatingFee = true
             self.isEncodingAudio = true
         }
         await waitForRecordingFile(url)
@@ -2610,20 +2998,14 @@ struct ChatDetailView: View {
     }
 
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
-        let template = NSLocalizedString(
-            "fee: %@ KAS",
-            comment: "Fee label with resolved fee amount in KAS"
-        )
-        return String(format: template, locale: Locale.current, formatKaspaExact(feeSompi))
+        let template = AppLocalization.string("fee: %@ KAS")
+        return String(format: template, locale: AppLocalization.locale, formatKaspaExact(feeSompi))
     }
 
     private func localizedAvailableBalanceText(_ balanceSompi: UInt64?) -> String {
-        let template = NSLocalizedString(
-            "available: %@ KAS",
-            comment: "Available wallet balance helper label near fee bubble in payment mode"
-        )
+        let template = AppLocalization.string("available: %@ KAS")
         let value = balanceSompi.map(formatKaspaExact) ?? "--"
-        return String(format: template, locale: Locale.current, value)
+        return String(format: template, locale: AppLocalization.locale, value)
     }
 
     private func parseAmountSompi(_ text: String) -> UInt64 {
@@ -2757,9 +3139,11 @@ struct ChatDetailView: View {
     }
 
     private func shouldShowRetryHint(for message: String) -> Bool {
-        let template = NSLocalizedString(
-            "Planned spend %@ KAS, but available balance %@ KAS is less than required.",
-            comment: "Shown when balance is below required spend for send operation"
+        // Must match `ChatService+Conversations.formatInsufficientBalanceError`'s own lookup
+        // (`AppLocalization`, not `NSLocalizedString`) - that's the language `message` was
+        // actually generated in, which isn't necessarily the device's system language.
+        let template = AppLocalization.string(
+            "Planned spend %@ KAS, but available balance %@ KAS is less than required."
         ).lowercased()
         let parts = template.components(separatedBy: "%@").filter { !$0.isEmpty }
         if parts.isEmpty { return true }
@@ -2797,7 +3181,7 @@ private extension View {
     }
 }
 
-private struct ScrollViewIntrospector: UIViewRepresentable {
+struct ScrollViewIntrospector: UIViewRepresentable {
     let onResolve: (UIScrollView) -> Void
 
     func makeUIView(context: Context) -> ScrollViewIntrospectorView {
@@ -2812,7 +3196,7 @@ private struct ScrollViewIntrospector: UIViewRepresentable {
     }
 }
 
-private final class ScrollViewIntrospectorView: UIView {
+final class ScrollViewIntrospectorView: UIView {
     var onResolve: ((UIScrollView) -> Void)?
     private weak var resolvedScrollView: UIScrollView?
 

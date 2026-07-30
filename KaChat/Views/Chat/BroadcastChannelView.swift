@@ -12,6 +12,7 @@ struct BroadcastChannelView: View {
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
     @ObservedObject private var knsService = KNSService.shared
     @StateObject private var recorder = BroadcastAudioRecorder()
 
@@ -33,6 +34,15 @@ struct BroadcastChannelView: View {
     @State private var feeShimmerPhase: CGFloat = -1
     @State private var revealOffset: CGFloat = 0
     private let maxRevealOffset: CGFloat = 64
+    /// User-set fee, from tapping the fee pill - see ChatDetailView.feeOverrideSompi's doc comment.
+    @State private var feeOverrideSompi: UInt64?
+    @State private var showFeeEditor = false
+    @State private var feeEditorText = ""
+    /// Tap-a-reply-quote-to-jump-to-original - mirrors `ChatDetailView`/`GroupChatDetailView`'s
+    /// identical pair. `BroadcastMessage.id` is already the wire txId, unlike 1:1/group's `UUID`
+    /// row ids, so this stays a `String` throughout.
+    @State private var pendingJumpToTxId: String?
+    @State private var highlightedMessageID: String?
 
     private var myAddress: String? {
         walletManager.currentWallet?.publicAddress
@@ -79,6 +89,18 @@ struct BroadcastChannelView: View {
             }
         }
         .toast(message: toastMessage, style: .success)
+        .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
+            TextField("Fee (KAS)", text: $feeEditorText)
+                .keyboardType(.decimalPad)
+            Button("Save") { commitFeeOverride() }
+            Button("Use Default") {
+                feeOverrideSompi = nil
+                scheduleFeeEstimate(for: messageText)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("If the network is busy, a higher fee can help your transaction confirm faster.")
+        }
         .onAppear {
             broadcastService.acquire(channelName)
         }
@@ -155,15 +177,16 @@ struct BroadcastChannelView: View {
                                             UIPasteboard.general.string = displayContent(for: message).text
                                             showToast("Message copied.")
                                         },
-                                        onCopyTxId: {
-                                            UIPasteboard.general.string = message.id
-                                            showToast("Transaction ID copied.")
-                                        },
                                         onRetry: { broadcastService.retryBroadcast(message) },
+                                        onJumpToReply: messageReplyQuote != nil ? { pendingJumpToTxId = messageReplyQuote?.replyToId } : nil,
                                         revealOffset: revealOffset,
                                         maxRevealOffset: maxRevealOffset
                                     )
                                     .id(message.id)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(highlightedMessageID == message.id ? Color.accentColor.opacity(0.18) : Color.clear)
+                                    )
                                     .task(id: message.senderAddress) {
                                         // Own address is always fetched by the room-level `.task`
                                         // above; this only opts *other* senders in when the
@@ -201,6 +224,11 @@ struct BroadcastChannelView: View {
                         }
                         .onChange(of: messages.count) { _ in
                             scrollToBottom(using: proxy, animated: true)
+                        }
+                        .onChange(of: pendingJumpToTxId) { id in
+                            guard let id else { return }
+                            jumpToReplyOriginal(id: id, in: messages, using: proxy)
+                            pendingJumpToTxId = nil
                         }
                         .onAppear {
                             scrollToBottom(using: proxy, animated: false)
@@ -247,6 +275,27 @@ struct BroadcastChannelView: View {
                             .animation(.easeInOut(duration: 0.2), value: isBottomAnchorVisible)
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /// Tap-a-reply-quote-to-jump-to-original - broadcast has no pagination (the full room
+    /// history is already in `messages`), so a jump either finds the target right away or it's
+    /// genuinely gone (pruned/undelivered).
+    private func jumpToReplyOriginal(id: String, in messages: [BroadcastMessage], using proxy: ScrollViewProxy) {
+        guard messages.contains(where: { $0.id == id }) else {
+            showToast("Original message not available.")
+            return
+        }
+        withAnimation {
+            proxy.scrollTo(id, anchor: .center)
+        }
+        highlightedMessageID = id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            withAnimation(.easeOut(duration: 0.5)) {
+                if highlightedMessageID == id {
+                    highlightedMessageID = nil
                 }
             }
         }
@@ -312,7 +361,7 @@ struct BroadcastChannelView: View {
         if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
             return knsName
         }
-        return String(address.suffix(10))
+        return Contact.generateDefaultAlias(from: address)
     }
 
     private var emptyState: some View {
@@ -376,7 +425,6 @@ struct BroadcastChannelView: View {
                     feeBubble
                         .offset(x: 32, y: -26)
                         .transition(.opacity)
-                        .allowsHitTesting(false)
                 }
             }
         }
@@ -459,6 +507,7 @@ struct BroadcastChannelView: View {
     }
 
     private var shouldShowFeeBubble: Bool {
+        guard settingsViewModel.settings.showFeeEstimate else { return false }
         if recorder.state == .recording || recorder.state == .encoding { return true }
         return !messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -467,8 +516,9 @@ struct BroadcastChannelView: View {
         Group {
             if isEstimatingFee {
                 Text("fee: -------- KAS")
-            } else if let feeEstimateSompi {
-                Text(localizedFeeText(feeEstimateSompi))
+            } else if let fee = feeOverrideSompi ?? feeEstimateSompi {
+                Text(localizedFeeText(fee))
+                    .underline()
             } else {
                 Text("fee: -- KAS")
             }
@@ -485,6 +535,12 @@ struct BroadcastChannelView: View {
                     .allowsHitTesting(false)
             }
         }
+        .allowsHitTesting(true)
+        .onTapGesture {
+            guard !isEstimatingFee, let currentFee = feeOverrideSompi ?? feeEstimateSompi else { return }
+            feeEditorText = formatKaspaExact(currentFee)
+            showFeeEditor = true
+        }
         .onAppear {
             updateFeeShimmer()
         }
@@ -493,12 +549,15 @@ struct BroadcastChannelView: View {
         }
     }
 
+    private func commitFeeOverride() {
+        guard let kas = Double(feeEditorText), kas >= 0 else { return }
+        feeOverrideSompi = UInt64((kas * 100_000_000).rounded())
+        scheduleFeeEstimate(for: messageText)
+    }
+
     private func localizedFeeText(_ feeSompi: UInt64) -> String {
-        let template = NSLocalizedString(
-            "fee: %@ KAS",
-            comment: "Fee label with resolved fee amount in KAS"
-        )
-        return String(format: template, locale: Locale.current, formatKaspaExact(feeSompi))
+        let template = AppLocalization.string("fee: %@ KAS")
+        return String(format: template, locale: AppLocalization.locale, formatKaspaExact(feeSompi))
     }
 
     private func updateFeeShimmer() {
@@ -525,7 +584,7 @@ struct BroadcastChannelView: View {
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }
             do {
-                let estimate = try await broadcastService.estimateBroadcastFee(channel: channelName, content: trimmed)
+                let estimate = try await broadcastService.estimateBroadcastFee(channel: channelName, content: trimmed, feeOverride: feeOverrideSompi)
                 guard !Task.isCancelled else { return }
                 feeEstimateSompi = estimate
                 isEstimatingFee = false
@@ -639,9 +698,12 @@ struct BroadcastChannelView: View {
         guard !trimmed.isEmpty else { return }
         messageText = ""
         isSending = true
+        let feeOverride = feeOverrideSompi
+        feeEstimateSompi = nil
+        feeOverrideSompi = nil
         Task {
             do {
-                try await broadcastService.sendBroadcast(channel: channelName, content: trimmed)
+                try await broadcastService.sendBroadcast(channel: channelName, content: trimmed, feeOverride: feeOverride)
             } catch {
                 showToast("Failed to send: \(error.localizedDescription)")
             }
@@ -686,6 +748,7 @@ struct BroadcastChannelView: View {
 }
 
 private struct BroadcastMessageRow: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
     let message: BroadcastMessage
     let isOwnMessage: Bool
     let avatarURLString: String?
@@ -699,8 +762,10 @@ private struct BroadcastMessageRow: View {
     let onHideSender: () -> Void
     let onReply: () -> Void
     let onCopyMessage: () -> Void
-    let onCopyTxId: () -> Void
     let onRetry: () -> Void
+    /// Tapping the reply quote (if any) jumps to and highlights the original message - nil when
+    /// `replyQuote` is nil, since there's nothing to jump to.
+    var onJumpToReply: (() -> Void)?
     let revealOffset: CGFloat
     let maxRevealOffset: CGFloat
 
@@ -790,7 +855,13 @@ private struct BroadcastMessageRow: View {
                 Button {
                     onPayInKaspa()
                 } label: {
-                    Label("Pay in Kaspa", systemImage: "k.circle.fill")
+                    Label {
+                        Text("Pay in Kaspa")
+                    } icon: {
+                        Image("KaspaLogo")
+                            .resizable()
+                            .scaledToFit()
+                    }
                 }
             }
             if !isOwnMessage {
@@ -803,6 +874,7 @@ private struct BroadcastMessageRow: View {
         } label: {
             KNSAvatarView(avatarURLString: avatarURLString, fallbackText: displayName, size: 32)
         }
+        .tint(.accentColor)
     }
 
     private func replyQuoteView(_ reply: MessageReplyContent) -> some View {
@@ -821,6 +893,10 @@ private struct BroadcastMessageRow: View {
         .background(Color(UIColor.tertiarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .frame(maxWidth: 240, alignment: isOwnMessage ? .trailing : .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onJumpToReply?()
+        }
     }
 
     /// The first link in the message, if any - offered as "Open Link"/"Copy Link" entries in the
@@ -913,10 +989,10 @@ private struct BroadcastMessageRow: View {
                         Label("Copy Message", systemImage: "doc.on.doc")
                     }
                 }
-                Button {
-                    onCopyTxId()
-                } label: {
-                    Label("Copy Transaction ID", systemImage: "number")
+                if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.id) {
+                    Link(destination: url) {
+                        Label("View in Explorer", systemImage: "safari")
+                    }
                 }
                 if isOwnMessage && message.deliveryStatus == .failed {
                     Button {
@@ -926,6 +1002,7 @@ private struct BroadcastMessageRow: View {
                     }
                 }
             }
+            .tint(.accentColor)
             // `.simultaneousGesture` rather than `.onTapGesture(count: 2)`: the latter is a
             // discrete, exclusive gesture that a Button descendant (the truncated-text preview's
             // "Show More" tap target) would always win the race against, since a Button's tap

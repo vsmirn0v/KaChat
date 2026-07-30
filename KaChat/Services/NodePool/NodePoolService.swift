@@ -71,6 +71,17 @@ final class NodePoolService: ObservableObject {
             .assign(to: &$networkQuality)
 
         // Bind subscription state when manager is created
+
+        // Reset per-node health stats (latency EWMA, error rates) on a network path change
+        // (WiFi<->cellular, VPN toggle) - a node's observed latency/error history from the old
+        // path is meaningless on the new one and would otherwise bias selection with stale data.
+        // The only other place this was wired up (KaspaRPCRouter) is dead code that's never
+        // instantiated, so this was never actually happening.
+        epochMonitor.onEpochChange { [weak self] newEpochId in
+            Task {
+                await self?.registry.resetEpochStats(newEpochId: newEpochId)
+            }
+        }
     }
 
     // MARK: - Lifecycle
@@ -105,19 +116,34 @@ final class NodePoolService: ObservableObject {
         // Load persisted records FIRST
         await registry.load()
 
-        // Check if we have cached active nodes - if yes, we can be ready immediately
+        // Initialize seed nodes
+        await registry.initializeSeeds(for: network)
+
+        // Migrate from old format if needed
+        await migrateFromOldFormat()
+
+        // Apply a pinned trusted node (Kaspium-style fixed-node mode) before any
+        // discovery/quickBoot work starts, so nothing else gets a chance to upsert.
+        let trustedAddress = AppSettings.load().trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trustedEndpoint = trustedAddress.isEmpty ? nil : Endpoint(url: trustedAddress)
+        if let trustedEndpoint {
+            await registry.setTrustedNode(trustedEndpoint)
+        }
+
+        // Check if we have cached active nodes - if yes, we can be ready immediately.
+        // Computed AFTER setTrustedNode above (not before): setTrustedNode discards every
+        // record but the pinned one, so counting active nodes from the pre-pin registry
+        // could see leftover discovered/seed nodes from a prior normal-discovery session and
+        // wrongly conclude the pool was already healthy - skipping the trusted node's own
+        // direct-probe path below even though the pinned node itself had never been probed,
+        // which left it stuck showing "candidate" forever (quickBoot() never reaches
+        // .userAdded-origin nodes - see the branch below).
         let cachedActiveCount = await registry.stateCounts()[.active] ?? 0
         let hasCachedActiveNodes = cachedActiveCount > 0
 
         if hasCachedActiveNodes {
             AppLog.log("[NodePool] Found %d cached active nodes - ready for immediate connection", cachedActiveCount)
         }
-
-        // Initialize seed nodes
-        await registry.initializeSeeds(for: network)
-
-        // Migrate from old format if needed
-        await migrateFromOldFormat()
 
         // Create profiler
         profiler = NodeProfiler(
@@ -175,6 +201,25 @@ final class NodePoolService: ObservableObject {
                 await self.updatePoolStats()
                 AppLog.log("[NodePool] Background quickBoot complete")
             }
+        } else if let trustedEndpoint {
+            // Trusted mode with no cached active state (first pin, or a fresh install
+            // already defaulted to one): quickBoot()'s discovery loops only ever consider
+            // .seed/.discovered origin candidates, and registry.upsert() rejects every
+            // endpoint but this one while pinned, so quickBoot would find nothing and just
+            // burn several seconds polling for seeds that can never arrive. Probe the
+            // pinned node directly instead, bypassing the priority/interval gate that
+            // selectNodesForProbing() uses to throttle a large discovery pool (which would
+            // otherwise leave a freshly-added node sitting in .candidate for minutes) -
+            // twice, so it clears the two-consecutive-success bar rebalanceActivePool()
+            // requires before promoting anything out of .candidate.
+            AppLog.log("[NodePool] Trusted node pinned - probing directly instead of quickBoot")
+            await profiler?.profileEndpoint(trustedEndpoint)
+            await profiler?.profileEndpoint(trustedEndpoint)
+            await registry.rebalanceActivePool()
+            await updatePoolStats()
+            isInitialized = true
+            isInitializing = false
+            isReady = true
         } else {
             // No cached nodes - must wait for quickBoot
             AppLog.log("[NodePool] No cached active nodes - waiting for quickBoot")
@@ -676,7 +721,7 @@ final class NodePoolService: ObservableObject {
 
         let hedgeDelay = epochMonitor.networkQuality.hedgeDelayMs * 1_000_000
 
-        let value = await withTaskGroup(of: T?.self, returning: T?.self) { group in
+        let value = await withTaskGroup(of: Result<T, Error>.self, returning: Result<T, Error>.self) { group in
             for (index, endpoint) in selectedEndpoints.enumerated() {
                 // Connected endpoints get no delay, unconnected get longer delays
                 let isConnected = connectedKeys.contains(endpoint.key)
@@ -694,7 +739,7 @@ final class NodePoolService: ObservableObject {
                     }
 
                     if Task.isCancelled {
-                        return nil
+                        return .failure(CancellationError())
                     }
 
                     let conn = await self.connectionPool.connection(for: endpoint)
@@ -716,7 +761,7 @@ final class NodePoolService: ObservableObject {
                             isError: false
                         )
 
-                        return result
+                        return .success(result)
                     } catch {
                         let isTimeout = error.localizedDescription.lowercased().contains("timeout")
                         await self.registry.recordResult(
@@ -727,26 +772,37 @@ final class NodePoolService: ObservableObject {
                             isError: true
                         )
                         AppLog.log("[NodePool] Hedged request failed on %@: %@", endpoint.key, error.localizedDescription)
-                        return nil
+                        return .failure(error)
                     }
                 }
             }
 
-            while let result = await group.next() {
-                if let value = result {
+            // Every node can reject a genuinely invalid transaction (bad fee, bad signature,
+            // mass over the limit) just as consistently as they'd all fail to connect - losing
+            // that real per-node error behind a generic "All hedged requests failed" made both
+            // cases look identical and impossible to tell apart from the error alone. Surface
+            // whichever real error came back last instead.
+            var lastError: Error = KasiaError.networkError("All hedged requests failed")
+            while let outcome = await group.next() {
+                switch outcome {
+                case .success(let value):
                     group.cancelAll()
-                    return value
+                    return .success(value)
+                case .failure(let error):
+                    lastError = error
                 }
             }
 
-            return nil
+            return .failure(lastError)
         }
 
         await updatePoolStats()
-        guard let value else {
-            throw KasiaError.networkError("All hedged requests failed")
+        switch value {
+        case .success(let result):
+            return result
+        case .failure(let error):
+            throw error
         }
-        return value
     }
 
     // MARK: - Pool Stats
@@ -1087,5 +1143,44 @@ extension NodePoolService {
     func removeEndpoint(url: String) async {
         guard let endpoint = Endpoint(url: url) else { return }
         await removeEndpoint(endpoint)
+    }
+
+    /// Pin the pool to exactly one node (Kaspium-style fixed-node mode), or clear the pin
+    /// and resume normal discovery when `address` is empty/blank.
+    func setTrustedNodeAddress(_ address: String?) async {
+        let trimmed = address?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var staleEndpoint: Endpoint?
+        if trimmed.isEmpty {
+            staleEndpoint = await registry.setTrustedNode(nil)
+            await updatePoolStats()
+            await forceProbeAll()
+        } else if let endpoint = Endpoint(url: trimmed) {
+            staleEndpoint = await registry.setTrustedNode(endpoint)
+            await updatePoolStats()
+            // Probe directly rather than forceProbeAll()/selectNodesForProbing() - that
+            // path gates a freshly-added node on a several-minute cold-start interval meant
+            // to throttle probing across a large discovery pool, which would leave this
+            // one just-pinned node stuck in .candidate. Twice, so it clears the
+            // two-consecutive-success bar rebalanceActivePool() requires before promoting
+            // anything out of .candidate.
+            await profiler?.profileEndpoint(endpoint)
+            await profiler?.profileEndpoint(endpoint)
+            await registry.rebalanceActivePool()
+            await updatePoolStats()
+        }
+
+        // A GRPCStreamConnection has no idea it's no longer trusted/relevant and will otherwise
+        // keep reconnecting to it forever in the background, completely independently of
+        // whatever we do next - this is what was causing a node to keep seeing repeated
+        // connection attempts (and "resource exhausted" rejections) minutes after being
+        // cleared/switched away from in Settings.
+        if let staleEndpoint {
+            await connectionPool.removeConnection(for: staleEndpoint)
+        }
+
+        // A subscription already open on a now-unpinned node won't notice on its own - its
+        // health ping would keep succeeding against a perfectly reachable node that just
+        // isn't the trusted one anymore, so force it to re-evaluate against the pinned registry.
+        await subscriptionManager?.reconnectToBestNodeIfNeeded()
     }
 }

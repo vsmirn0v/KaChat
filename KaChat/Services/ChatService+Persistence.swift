@@ -151,6 +151,10 @@ extension ChatService {
         AppLog.log("[ChatService] loadMessagesFromStore: %d messages (%d with content, %d placeholder)",
               messages.count, withContent, placeholder)
 
+        // Grouping by contact/txId only needs `messages` (no actor-isolated state) - done here,
+        // ahead of the background hop below, purely to know which contacts are involved, since
+        // that drives the two MainActor-only lookups (contact lookup, pending-read cursor) just
+        // after it. Those are cheap - one call per *conversation*, not per message.
         var grouped: [String: [String: ChatMessage]] = [:]
         for stored in messages {
             let contactAddress = stored.contactAddress
@@ -160,18 +164,97 @@ extension ChatService {
             }
             var bucket = grouped[contactAddress, default: [:]]
             if let existing = bucket[txId] {
-                bucket[txId] = preferMessage(existing, stored.message)
+                bucket[txId] = Self.preferMessage(existing, stored.message)
             } else {
                 bucket[txId] = stored.message
             }
             grouped[contactAddress] = bucket
         }
 
-        var loaded: [Conversation] = []
         let allContactAddresses = Set(grouped.keys).union(meta.keys)
+        var contactsByAddress: [String: Contact] = [:]
+        var pendingReadBlockTimeByAddress: [String: Int64] = [:]
         for contactAddress in allContactAddresses {
+            contactsByAddress[contactAddress] = contactsManager.getOrCreateContact(address: contactAddress)
+            // Also consider a just-recorded read still sitting in ReadStatusSyncManager's
+            // in-memory pending marker (cheap dictionary lookup, no Core Data query) - its actual
+            // CDReadMarker write is debounced up to 15s, so without this a read from moments ago
+            // can still look unread here and wrongly resurrect messages as "new".
+            pendingReadBlockTimeByAddress[contactAddress] = ReadStatusSyncManager.shared.pendingReadCursor(for: contactAddress)?.blockTime ?? 0
+        }
+        let existingConversations = conversations
+        let currentActiveConversationAddress = activeConversationAddress
+
+        // The actual O(total messages in the wallet) sort/dedupe/trim/merge work used to run
+        // synchronously right here on the main actor, on every debounced CloudKit remote-change
+        // tick - not just for the one conversation that changed, the *entire* wallet's history,
+        // every time. That's what caused a multi-second UI freeze while actively texting. It's
+        // pure computation (no actor-isolated state), so it's safe to run off the main actor via
+        // `Task.detached`; only assigning the result back to `conversations` needs to happen here.
+        let merged = await Task.detached(priority: .userInitiated) {
+            Self.buildMergedConversations(
+                grouped: grouped,
+                meta: meta,
+                contactsByAddress: contactsByAddress,
+                pendingReadBlockTimeByAddress: pendingReadBlockTimeByAddress,
+                allContactAddresses: allContactAddresses,
+                existingConversations: existingConversations,
+                activeConversationAddress: currentActiveConversationAddress
+            )
+        }.value
+
+        guard !merged.isEmpty else { return }
+        resetOlderHistoryPaginationState(for: allContactAddresses)
+
+        // `merged` was built from `existingConversations`, a snapshot of `conversations` taken
+        // *before* the `Task.detached` await above - if anything mutated the live `conversations`
+        // on the main actor during that gap (pagination splicing in older history via
+        // `loadOlderMessagesPageInternal`, or a new/updated message landing via
+        // `addMessageToConversation`), a blind overwrite here would silently discard it: pagination
+        // would look like the viewport "jumping" back to wherever this stale merge thinks history
+        // ends, and a message whose real content arrived mid-gap could revert to whatever
+        // placeholder `merged` still has for it. Re-merge one more time against `conversations` as
+        // it stands *right now* (not the stale pre-gap snapshot) before assigning - this second
+        // pass is cheap (dedupe/sort of already-small, already-deduped in-memory arrays, not a
+        // disk read), so doing it unconditionally here doesn't reintroduce the original freeze.
+        let latestByAddress = Dictionary(uniqueKeysWithValues: conversations.map { ($0.contact.address, $0) })
+        let reconciled: [Conversation] = merged.map { conv in
+            guard let latest = latestByAddress[conv.contact.address] else { return conv }
+            let combinedMessages = Self.dedupeMessages(latest.messages + conv.messages)
+            let shouldTrim = conv.contact.address != activeConversationAddress
+            let finalMessages = shouldTrim ? Self.trimMessagesForMemory(combinedMessages) : combinedMessages
+            return Conversation(
+                id: conv.id,
+                contact: conv.contact,
+                messages: finalMessages,
+                unreadCount: max(conv.unreadCount, latest.unreadCount)
+            )
+        }
+        let reconciledAddresses = Set(reconciled.map { $0.contact.address })
+        let liveOnly = conversations.filter { !reconciledAddresses.contains($0.contact.address) }
+
+        conversations = (reconciled + liveOnly).sorted { ($0.lastMessage?.timestamp ?? .distantPast) < ($1.lastMessage?.timestamp ?? .distantPast) }
+        rebuildPendingOutgoingQueue()
+        cleanupSuppressedPaymentMessages()
+    }
+
+    /// The heavy per-conversation sort/dedupe/trim/merge work behind `_loadMessagesFromStoreIfNeeded`
+    /// - `nonisolated static` (only value-type parameters, no actor-isolated state) so it can run
+    /// on a background thread via `Task.detached` instead of blocking the main actor. See that
+    /// function's doc comment for why this was split out.
+    nonisolated static func buildMergedConversations(
+        grouped: [String: [String: ChatMessage]],
+        meta: [String: ConversationMeta],
+        contactsByAddress: [String: Contact],
+        pendingReadBlockTimeByAddress: [String: Int64],
+        allContactAddresses: Set<String>,
+        existingConversations: [Conversation],
+        activeConversationAddress: String?
+    ) -> [Conversation] {
+        var loaded: [Conversation] = []
+        for contactAddress in allContactAddresses {
+            guard let contact = contactsByAddress[contactAddress] else { continue }
             let byTxId = grouped[contactAddress] ?? [:]
-            let contact = contactsManager.getOrCreateContact(address: contactAddress)
             let conversationId = meta[contactAddress]?.id ?? UUID()
             let sorted = byTxId.values.sorted(by: isMessageOrderedBefore)
             let dedupedFull = dedupeMessages(sorted)
@@ -180,11 +263,7 @@ extension ChatService {
             // Compute unread count from lastReadBlockTime if available (CloudKit-synced)
             // This ensures read status from other devices is honored
             let convMeta = meta[contactAddress]
-            // Also consider a just-recorded read still sitting in ReadStatusSyncManager's
-            // in-memory pending marker (cheap dictionary lookup, no Core Data query) - its actual
-            // CDReadMarker write is debounced up to 15s, so without this a read from moments ago
-            // can still look unread here and wrongly resurrect messages as "new".
-            let pendingReadBlockTime = ReadStatusSyncManager.shared.pendingReadCursor(for: contactAddress)?.blockTime ?? 0
+            let pendingReadBlockTime = pendingReadBlockTimeByAddress[contactAddress] ?? 0
             let lastReadBlockTime = max(convMeta?.lastReadBlockTime ?? 0, pendingReadBlockTime)
             let unreadCount: Int
             if lastReadBlockTime > 0 {
@@ -200,75 +279,71 @@ extension ChatService {
             loaded.append(Conversation(id: conversationId, contact: contact, messages: dedupedWindow, unreadCount: unreadCount))
         }
 
-        if !loaded.isEmpty {
-            resetOlderHistoryPaginationState(for: allContactAddresses)
-            if conversations.isEmpty {
-                conversations = loaded.sorted { ($0.lastMessage?.timestamp ?? .distantPast) < ($1.lastMessage?.timestamp ?? .distantPast) }
-                rebuildPendingOutgoingQueue()
-                cleanupSuppressedPaymentMessages()
-                return
-            }
+        guard !loaded.isEmpty else { return [] }
 
-            var existingByAddress: [String: Conversation] = [:]
-            for conversation in conversations {
-                existingByAddress[conversation.contact.address] = conversation
-            }
-
-            var merged: [Conversation] = []
-            var seenAddresses: Set<String> = []
-
-            for loadedConv in loaded {
-                let address = loadedConv.contact.address
-                seenAddresses.insert(address)
-                if var existing = existingByAddress[address] {
-                    let mergedMessages = dedupeMessages(existing.messages + loadedConv.messages)
-                    let shouldTrim = address != activeConversationAddress
-                    let combinedMessages = shouldTrim
-                        ? trimMessagesForMemory(mergedMessages)
-                        : mergedMessages
-
-                    // Determine unread count:
-                    // - If CloudKit has a read status (lastReadBlockTime > 0), use computed count from loaded
-                    // - Otherwise prefer in-memory value to prevent race conditions
-                    let convMeta = meta[address]
-                    // See the equivalent comment above (first-load branch) - also fold in any
-                    // just-recorded read still sitting in ReadStatusSyncManager's debounced queue.
-                    let pendingReadBlockTime = ReadStatusSyncManager.shared.pendingReadCursor(for: address)?.blockTime ?? 0
-                    let cloudKitLastReadBlockTime = max(convMeta?.lastReadBlockTime ?? 0, pendingReadBlockTime)
-                    let unreadCount: Int
-                    if cloudKitLastReadBlockTime > 0 {
-                        // CloudKit has read status - recompute unread from combined messages
-                        unreadCount = combinedMessages.filter { msg in
-                            !msg.isOutgoing && Int64(msg.blockTime) > cloudKitLastReadBlockTime
-                        }.count
-                    } else {
-                        // No CloudKit read status - prefer in-memory value
-                        unreadCount = existing.unreadCount
-                    }
-
-                    existing = Conversation(
-                        id: existing.id,
-                        contact: existing.contact,
-                        messages: combinedMessages,
-                        unreadCount: unreadCount
-                    )
-                    merged.append(existing)
-                } else {
-                    merged.append(loadedConv)
-                }
-            }
-
-            for conversation in conversations where !seenAddresses.contains(conversation.contact.address) {
-                merged.append(conversation)
-            }
-
-            conversations = merged.sorted { ($0.lastMessage?.timestamp ?? .distantPast) < ($1.lastMessage?.timestamp ?? .distantPast) }
-            rebuildPendingOutgoingQueue()
-            cleanupSuppressedPaymentMessages()
+        if existingConversations.isEmpty {
+            return loaded
         }
+
+        var existingByAddress: [String: Conversation] = [:]
+        for conversation in existingConversations {
+            existingByAddress[conversation.contact.address] = conversation
+        }
+
+        var merged: [Conversation] = []
+        var seenAddresses: Set<String> = []
+
+        for loadedConv in loaded {
+            let address = loadedConv.contact.address
+            seenAddresses.insert(address)
+            if var existing = existingByAddress[address] {
+                let mergedMessages = dedupeMessages(existing.messages + loadedConv.messages)
+                let shouldTrim = address != activeConversationAddress
+                let combinedMessages = shouldTrim
+                    ? trimMessagesForMemory(mergedMessages)
+                    : mergedMessages
+
+                // Determine unread count:
+                // - If CloudKit has a read status (lastReadBlockTime > 0), use computed count from loaded
+                // - Otherwise prefer in-memory value to prevent race conditions
+                let convMeta = meta[address]
+                let pendingReadBlockTime = pendingReadBlockTimeByAddress[address] ?? 0
+                let cloudKitLastReadBlockTime = max(convMeta?.lastReadBlockTime ?? 0, pendingReadBlockTime)
+                let unreadCount: Int
+                if cloudKitLastReadBlockTime > 0 {
+                    // CloudKit has read status - recompute unread from combined messages
+                    unreadCount = combinedMessages.filter { msg in
+                        !msg.isOutgoing && Int64(msg.blockTime) > cloudKitLastReadBlockTime
+                    }.count
+                } else {
+                    // No CloudKit read status - prefer in-memory value
+                    unreadCount = existing.unreadCount
+                }
+
+                existing = Conversation(
+                    id: existing.id,
+                    contact: existing.contact,
+                    messages: combinedMessages,
+                    unreadCount: unreadCount
+                )
+                merged.append(existing)
+            } else {
+                merged.append(loadedConv)
+            }
+        }
+
+        for conversation in existingConversations where !seenAddresses.contains(conversation.contact.address) {
+            merged.append(conversation)
+        }
+
+        return merged
     }
 
-    func isMessageOrderedBefore(_ lhs: ChatMessage, _ rhs: ChatMessage) -> Bool {
+    // `nonisolated static` (not instance methods) - these are pure functions of their arguments
+    // with no dependence on any actor-isolated state, which lets `buildMergedConversations` call
+    // them from a `Task.detached` background thread instead of the main actor. See that function's
+    // doc comment for why that matters.
+    nonisolated static func isMessageOrderedBefore(_ lhs: ChatMessage, _ rhs: ChatMessage) -> Bool {
         if lhs.blockTime != rhs.blockTime {
             return lhs.blockTime < rhs.blockTime
         }
@@ -281,7 +356,7 @@ extension ChatService {
         return lhs.txId < rhs.txId
     }
 
-    func preferMessage(_ existing: ChatMessage, _ candidate: ChatMessage) -> ChatMessage {
+    nonisolated static func preferMessage(_ existing: ChatMessage, _ candidate: ChatMessage) -> ChatMessage {
         let existingPlaceholder = isPlaceholderContent(existing.content)
         let candidatePlaceholder = isPlaceholderContent(candidate.content)
 
@@ -298,11 +373,11 @@ extension ChatService {
         return isMessageOrderedBefore(existing, candidate) ? candidate : existing
     }
 
-    func isPlaceholderContent(_ content: String) -> Bool {
+    nonisolated static func isPlaceholderContent(_ content: String) -> Bool {
         content == "📤 Sent via another device" || content == "[Encrypted message]"
     }
 
-    func dedupeMessages(_ messages: [ChatMessage]) -> [ChatMessage] {
+    nonisolated static func dedupeMessages(_ messages: [ChatMessage]) -> [ChatMessage] {
         var byId: [UUID: ChatMessage] = [:]
         for message in messages {
             if let existing = byId[message.id] {
@@ -326,7 +401,7 @@ extension ChatService {
 
     /// Reduce in-memory history while preserving protocol-critical/system-critical messages.
     /// Keeps all handshakes and unsent messages, plus a rolling window of recent regular messages.
-    func trimMessagesForMemory(_ messages: [ChatMessage]) -> [ChatMessage] {
+    nonisolated static func trimMessagesForMemory(_ messages: [ChatMessage]) -> [ChatMessage] {
         guard messages.count > inMemoryConversationWindowSize else { return messages }
 
         let sticky = messages.filter { message in
@@ -345,7 +420,7 @@ extension ChatService {
         for conversation in conversations {
             let pending = conversation.messages
                 .filter { $0.isOutgoing && $0.deliveryStatus != .sent }
-                .sorted(by: isMessageOrderedBefore)
+                .sorted(by: Self.isMessageOrderedBefore)
             guard !pending.isEmpty else { continue }
             let contactAddress = conversation.contact.address
             pendingOutgoingQueue[contactAddress] = pending.map {
@@ -1069,6 +1144,7 @@ extension ChatService {
 
     func updateAppBadge() {
         let totalUnread = conversations.reduce(0) { $0 + max(0, $1.unreadCount) }
+            + GroupChatService.shared.totalGroupUnreadCount
         SharedDataManager.setUnreadCount(totalUnread)
         if #available(iOS 16.0, *) {
             UNUserNotificationCenter.current().setBadgeCount(totalUnread)

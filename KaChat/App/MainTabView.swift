@@ -5,51 +5,39 @@ struct MainTabView: View {
     @State private var lastActiveChatAddress: String?
     @State private var isChatReturnArmed = false
     @State private var showGiftSheet = false
+    @State private var showWelcomeGuide = false
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var giftService: GiftService
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
 
     var body: some View {
         TabView(selection: tabSelection) {
-            SettingsView()
-                .tabItem {
-                    Label("Settings", systemImage: "gear")
-                }
-                .tag(0)
-
-            ChatListView()
-                .tabItem {
-                    Label("Chats", systemImage: "bubble.left.and.bubble.right")
-                }
-                .tag(1)
-
-            ProfileView()
-                .tabItem {
-                    Label("Profile", systemImage: "person.crop.circle")
-                }
-                .tag(2)
+            ForEach(AppTab.visible(from: settingsViewModel.settings)) { tab in
+                tabContent(for: tab)
+                    .tabItem {
+                        Label(tab.label, systemImage: tab.icon)
+                    }
+                    .tag(tab.tag)
+            }
         }
         .tint(.accentColor)
         .onAppear {
             chatService.startPolling()
             preloadProfileResources()
-            // Show gift sheet only when wallet balance is zero and gift is not yet claimed.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                presentGiftSheetIfEligibleForZeroBalance()
+            if walletManager.justCreatedNewWallet {
+                walletManager.justCreatedNewWallet = false
+                showWelcomeGuide = true
             }
         }
         .sheet(isPresented: $showGiftSheet) {
             GiftClaimView()
         }
+        .fullScreenCover(isPresented: $showWelcomeGuide) {
+            WelcomeGuideView(onFinished: { showWelcomeGuide = false })
+        }
         .onChange(of: walletManager.currentWallet?.publicAddress) { _ in
             preloadProfileResources()
-        }
-        .onChange(of: walletManager.currentWallet?.balanceSompi) { newValue in
-            guard newValue == 0 else { return }
-            presentGiftSheetIfEligibleForZeroBalance()
-        }
-        .onChange(of: giftService.claimState) { _ in
-            presentGiftSheetIfEligibleForZeroBalance()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { _ in
             // Switch to Chats tab when notification is tapped
@@ -83,6 +71,24 @@ struct MainTabView: View {
             }
         } message: { warning in
             Text("\(warning.contactAlias) has produced \(warning.txCount) transactions in the last minute that are not relevant to you. This consumes battery and network resources.\n\nDisable real-time updates for this contact? Messages will still be fetched periodically.")
+        }
+    }
+
+    @ViewBuilder
+    private func tabContent(for tab: AppTab) -> some View {
+        switch tab {
+        case .portfolio:
+            PortfolioView()
+        case .coldStorage:
+            NavigationStack {
+                ColdStorageListView()
+            }
+        case .chats:
+            ChatListView()
+        case .swap:
+            SwapView()
+        case .profile:
+            ProfileView()
         }
     }
 
@@ -124,6 +130,11 @@ struct MainTabView: View {
         )
     }
 
+    /// Only reached reactively now, via `.showGiftClaim` (posted from `ChatDetailView` when a
+    /// send fails for insufficient funds) - the unprompted auto-popup this used to also fire from
+    /// on every launch/balance-zero/claim-state change was removed since the Welcome Guide's
+    /// funding step now offers the same claim inline for new accounts, the moment they'd actually
+    /// need it.
     private func presentGiftSheetIfEligibleForZeroBalance() {
         guard walletManager.currentWallet?.balanceSompi == 0 else { return }
 

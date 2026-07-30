@@ -878,7 +878,8 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
                 primaryDomain: nil,
                 primaryInscriptionId: nil,
                 allDomains: [],
-                fetchedAt: Date()
+                fetchedAt: Date(),
+                explicitPrimaryDomain: primaryDomain
             )
             updateCache(info, address: address)
             return (info, false)
@@ -894,7 +895,8 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
             primaryDomain: finalPrimary,
             primaryInscriptionId: finalPrimaryInscriptionId,
             allDomains: allDomains,
-            fetchedAt: Date()
+            fetchedAt: Date(),
+            explicitPrimaryDomain: primaryDomain
         )
         updateCache(info, address: address)
         return (info, false)
@@ -1048,6 +1050,11 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
         for (address, info) in decoded {
             let primary = normalizeDomainName(info.primaryDomain)
+            // Pass through verbatim (normalized, but never falling back to domains.first) -
+            // unlike primaryDomain above, this must stay nil when there's genuinely no explicit
+            // primary, or every cache reload would silently re-derive a fallback value and
+            // defeat the whole point of this field (see its doc comment on KNSAddressInfo).
+            let explicitPrimary = normalizeDomainName(info.explicitPrimaryDomain)
             let primaryInscriptionId = info.primaryInscriptionId?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             let domains = info.allDomains.compactMap { domain -> KNSDomain? in
@@ -1072,7 +1079,8 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
                 primaryDomain: finalPrimary,
                 primaryInscriptionId: finalPrimaryInscriptionId,
                 allDomains: domains,
-                fetchedAt: info.fetchedAt
+                fetchedAt: info.fetchedAt,
+                explicitPrimaryDomain: explicitPrimary
             )
             sanitized[address] = cleaned
             if cleaned != info {
@@ -1170,6 +1178,10 @@ final class KNSProfileWriteService: ObservableObject {
         guard let privateKey = WalletManager.shared.getPrivateKey() else {
             throw KasiaError.keychainError("Could not get private key")
         }
+        // KNS activity is funded and settled entirely on the chatting/identity address - no
+        // spending-address split, so nothing ends up scattered across two addresses.
+        let fundingAddress = wallet.publicAddress
+        let fundingPrivateKey = privateKey
 
         var operation = KNSProfileUpdateOperation(
             id: UUID(),
@@ -1200,17 +1212,18 @@ final class KNSProfileWriteService: ObservableObject {
             let payloadJSON = try JSONEncoder().encode(addProfilePayload)
             log("PAYLOAD field=\(key.rawValue) jsonBytes=\(payloadJSON.count)")
 
-            let fetchedUtxos = try await nodePool.getUtxosByAddresses([wallet.publicAddress])
+            let fetchedUtxos = try await nodePool.getUtxosByAddresses([fundingAddress])
             let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
             let totalSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
             log("UTXO field=\(key.rawValue) total=\(fetchedUtxos.count) spendable=\(utxos.count) sumSompi=\(totalSompi)")
             guard !utxos.isEmpty else {
-                throw KasiaError.networkError("No spendable UTXOs available for KNS update")
+                throw KasiaError.networkError("No spendable UTXOs available in your chatting address for this KNS update")
             }
 
             let (commitTx, commitContext) = try KasiaTransactionBuilder.buildKNSAddProfileCommitTx(
-                from: wallet.publicAddress,
-                senderPrivateKey: privateKey,
+                ownerAddress: wallet.publicAddress,
+                fundingAddress: fundingAddress,
+                fundingPrivateKey: fundingPrivateKey,
                 payloadJSON: payloadJSON,
                 utxos: utxos
             )
@@ -1228,8 +1241,9 @@ final class KNSProfileWriteService: ObservableObject {
             inFlightOperation = operation
 
             let revealTx = try KasiaTransactionBuilder.buildKNSAddProfileRevealTx(
-                walletAddress: wallet.publicAddress,
-                senderPrivateKey: privateKey,
+                ownerAddress: wallet.publicAddress,
+                ownerPrivateKey: privateKey,
+                changeAddress: fundingAddress,
                 commitTxId: commitTxId,
                 commitContext: commitContext,
                 revealTargetAddress: wallet.publicAddress
@@ -1319,6 +1333,10 @@ final class KNSDomainInscribeService: ObservableObject {
         guard let privateKey = walletManager.getPrivateKey() else {
             throw KasiaError.keychainError("Could not get private key")
         }
+        // KNS activity is funded and settled entirely on the chatting/identity address - no
+        // spending-address split, so nothing ends up scattered across two addresses.
+        let fundingAddress = wallet.publicAddress
+        let fundingPrivateKey = privateKey
         guard let label = knsService.normalizeDomainLabel(rawLabel) else {
             throw KasiaError.apiError("Invalid domain label")
         }
@@ -1346,16 +1364,17 @@ final class KNSDomainInscribeService: ObservableObject {
         let payload = KNSCreateDomainPayload(op: "create", p: "domain", v: label)
         let payloadJSON = try JSONEncoder().encode(payload)
 
-        let fetchedUtxos = try await nodePool.getUtxosByAddresses([wallet.publicAddress])
+        let fetchedUtxos = try await nodePool.getUtxosByAddresses([fundingAddress])
         let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
         guard !utxos.isEmpty else {
-            throw KasiaError.networkError("No spendable UTXOs available for KNS inscription")
+            throw KasiaError.networkError("No spendable UTXOs available in your chatting address for KNS inscription")
         }
         log("UTXO domain=\(fullDomain) total=\(fetchedUtxos.count) spendable=\(utxos.count)")
 
         let (commitTx, commitContext) = try KasiaTransactionBuilder.buildKNSAddProfileCommitTx(
-            from: wallet.publicAddress,
-            senderPrivateKey: privateKey,
+            ownerAddress: wallet.publicAddress,
+            fundingAddress: fundingAddress,
+            fundingPrivateKey: fundingPrivateKey,
             payloadJSON: payloadJSON,
             utxos: utxos,
             title: "kns",
@@ -1374,8 +1393,9 @@ final class KNSDomainInscribeService: ObservableObject {
             isReservedDomain: availability.isReservedDomain
         )
         let revealTx = try KasiaTransactionBuilder.buildKNSAddProfileRevealTx(
-            walletAddress: wallet.publicAddress,
-            senderPrivateKey: privateKey,
+            ownerAddress: wallet.publicAddress,
+            ownerPrivateKey: privateKey,
+            changeAddress: fundingAddress,
             commitTxId: commitTxId,
             commitContext: commitContext,
             revealTargetAddress: revealTarget
@@ -1518,7 +1538,8 @@ final class KNSDomainTransferService: ObservableObject {
     func transferDomain(
         domain fullDomain: String,
         assetId rawAssetId: String,
-        to rawRecipient: String
+        to rawRecipient: String,
+        priorityFeeSompi: UInt64 = 2_000_000
     ) async throws -> KNSDomainTransferResult {
         guard !isSubmitting else {
             throw KasiaError.apiError("Another KNS domain transfer is already running")
@@ -1529,6 +1550,10 @@ final class KNSDomainTransferService: ObservableObject {
         guard let privateKey = walletManager.getPrivateKey() else {
             throw KasiaError.keychainError("Could not get private key")
         }
+        // KNS activity is funded and settled entirely on the identity/chatting address chain -
+        // no spending-address split, same as submitAddProfile/inscribeDomain.
+        let fundingAddress = wallet.publicAddress
+        let fundingPrivateKey = privateKey
 
         let assetId = rawAssetId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !assetId.isEmpty else {
@@ -1561,10 +1586,10 @@ final class KNSDomainTransferService: ObservableObject {
         let payloadJSON = try JSONEncoder().encode(payload)
         log("PAYLOAD domain=\(domain) jsonBytes=\(payloadJSON.count)")
 
-        let fetchedUtxos = try await nodePool.getUtxosByAddresses([wallet.publicAddress])
+        let fetchedUtxos = try await nodePool.getUtxosByAddresses([fundingAddress])
         let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
         guard !utxos.isEmpty else {
-            throw KasiaError.networkError("No spendable UTXOs available for KNS transfer")
+            throw KasiaError.networkError("No spendable UTXOs available in your chatting address for KNS transfer")
         }
         log("UTXO domain=\(domain) total=\(fetchedUtxos.count) spendable=\(utxos.count)")
 
@@ -1574,8 +1599,9 @@ final class KNSDomainTransferService: ObservableObject {
         log("AMOUNTS domain=\(domain) revealSompi=\(revealSompi) commitSompi=\(commitSompi)")
 
         let (commitTx, commitContext) = try KasiaTransactionBuilder.buildKNSAddProfileCommitTx(
-            from: wallet.publicAddress,
-            senderPrivateKey: privateKey,
+            ownerAddress: wallet.publicAddress,
+            fundingAddress: fundingAddress,
+            fundingPrivateKey: fundingPrivateKey,
             payloadJSON: payloadJSON,
             utxos: utxos,
             title: "kns",
@@ -1590,11 +1616,13 @@ final class KNSDomainTransferService: ObservableObject {
         )
 
         let revealTx = try KasiaTransactionBuilder.buildKNSAddProfileRevealTx(
-            walletAddress: wallet.publicAddress,
-            senderPrivateKey: privateKey,
+            ownerAddress: wallet.publicAddress,
+            ownerPrivateKey: privateKey,
+            changeAddress: fundingAddress,
             commitTxId: commitTxId,
             commitContext: commitContext,
-            revealTargetAddress: wallet.publicAddress
+            revealTargetAddress: wallet.publicAddress,
+            revealPriorityFeeSompi: priorityFeeSompi
         )
         let (revealTxId, _) = try await submitRevealWithFallback(revealTx)
         log("REVEAL_SUBMITTED domain=\(domain) txId=\(revealTxId)")
@@ -1704,6 +1732,16 @@ struct KNSAddressInfo: Equatable, Codable {
     let primaryInscriptionId: String?
     let allDomains: [KNSDomain]
     let fetchedAt: Date
+    /// The raw, pre-fallback result of the `/primary-name/{address}` reverse lookup - unlike
+    /// `primaryDomain`, this is `nil` whenever the address never called `setPrimaryDomain`, even
+    /// if it owns domains (`primaryDomain` falls back to `allDomains.first` in that case - see
+    /// `fetchInfoInternal`). Needed to distinguish "has an explicit primary" for @mention
+    /// eligibility, which the fallback-inclusive `primaryDomain` can't answer on its own.
+    /// `var`, not `let`: a `let` with a default value is excluded from both the synthesized
+    /// memberwise initializer and Codable's decoding (silently keeping the default forever) -
+    /// `var` is required for existing/new call sites to be able to pass an explicit value and
+    /// for old cached JSON to actually decode this field.
+    var explicitPrimaryDomain: String? = nil
 
     /// Display name - primary domain without .kas suffix, or nil
     var displayName: String? {

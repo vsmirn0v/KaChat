@@ -1716,6 +1716,15 @@ extension ChatService {
             print("[ChatService] Got \(sortedMessages.count) outgoing contextual messages to \(contactAddress)")
 
             for contextMsg in sortedMessages {
+                // A reaction's own transaction never gets a CDMessage row - the device that
+                // actually decrypted it converted it straight into a CDReaction and returned
+                // before ever creating a message (see addMessageToConversation). Re-discovering
+                // that same outgoing tx here (this wallet's own catch-up sync) would otherwise
+                // create a "📤 Sent via another device" placeholder that can never resolve, since
+                // no real message content will ever arrive for it - skip it outright instead.
+                if isKnownReaction(txId: contextMsg.txId) {
+                    continue
+                }
                 // Outgoing messages are encrypted for the recipient, we can't decrypt them
                 // Check if we have this message stored locally with content
                 let existingMessage = findLocalMessage(txId: contextMsg.txId)
@@ -2114,7 +2123,6 @@ extension ChatService {
     ) async {
         let direction = isOutgoing ? "outgoing" : "incoming"
         AppLog.log("[ChatService] === PROCESSING %d %@ PAYMENTS ===", payments.count, direction)
-        let hideAutoCreatedPaymentChats = SettingsViewModel.loadSettings().hideAutoCreatedPaymentChats
 
         var needsFullSync = false
 
@@ -2287,18 +2295,6 @@ extension ChatService {
                 }
             }
 
-            let existingContact = contactsManager.getContact(byAddress: contactAddress)
-            let hasExistingConversation = conversations.contains { $0.contact.address == contactAddress }
-            if hideAutoCreatedPaymentChats && existingContact == nil && !hasExistingConversation {
-                AppLog.log("[ChatService] Skipping payment %@ - auto-created payment chats disabled for %@",
-                      String(payment.txId.prefix(16)),
-                      String(contactAddress.suffix(20)))
-                if let blockTime = payment.blockTime, blockTime > lastPollTime {
-                    updateLastPollTime(blockTime)
-                }
-                continue
-            }
-
             // Decode payment message
             let content = paymentContent(payment, isOutgoing: isOutgoing)
 
@@ -2376,6 +2372,15 @@ extension ChatService {
         return findLocalMessage(txId: txId) != nil
     }
 
+    /// True if `txId` is a reaction's own transaction, not a real message - see
+    /// `MessageStore.isReactionTransaction`'s doc comment for why this must be checked before
+    /// ever falling back to the "📤 Sent via another device" placeholder for an outgoing tx this
+    /// device has no local content for for: a reaction will never get real message content to
+    /// replace that placeholder with, since it was never meant to be a message at all.
+    func isKnownReaction(txId: String) -> Bool {
+        messageStore.isReactionTransaction(txId: txId)
+    }
+
     func addOutgoingMessageFromPush(
         txId: String,
         sender: String,
@@ -2385,6 +2390,14 @@ extension ChatService {
         guard let privateKey = WalletManager.shared.getPrivateKey() else {
             AppLog.log("[ChatService] Outgoing push: missing private key")
             return false
+        }
+
+        // A reaction's own transaction never gets a CDMessage row (see isKnownReaction's doc
+        // comment) - nothing below this point could ever resolve real "message" content for it,
+        // so treat it as already handled rather than falling through to the placeholder.
+        if isKnownReaction(txId: txId) {
+            AppLog.log("[ChatService] Outgoing push is a reaction, not a message: %@", txId)
+            return true
         }
 
         // Check if message already exists with content (not placeholder)
@@ -2573,6 +2586,35 @@ extension ChatService {
         if contactsManager.isAddressDeleted(contactAddress) {
             return
         }
+
+        // Reactions are never shown as their own chat bubble - just attached to the message they
+        // target - so intercept and route to the reactions store before this ever becomes a
+        // conversation update. Covers both incoming reactions (contactAddress is the sender) and
+        // our own outgoing reaction messages if they're ever independently re-fetched -
+        // `sendReaction` already applies the optimistic local update at send time, so this is a
+        // safety net for that direction, not its primary path.
+        if let reaction = MessageReactionCodec.parse(message.content) {
+            let reactorAddress = message.isOutgoing
+                ? (WalletManager.shared.currentWallet?.publicAddress ?? message.senderAddress)
+                : message.senderAddress
+            if reaction.action == "add" {
+                applyLocalReaction(targetTxId: reaction.targetTxId, reactorAddress: reactorAddress, emoji: reaction.emoji)
+                if let key = messageEncryptionKey() {
+                    messageStore.upsertReaction(
+                        targetTxId: reaction.targetTxId, reactorAddress: reactorAddress, contactAddress: contactAddress,
+                        emoji: reaction.emoji, reactionTxId: message.txId, blockTime: Int64(message.blockTime), encryptionKey: key
+                    )
+                }
+            } else {
+                removeLocalReaction(targetTxId: reaction.targetTxId, reactorAddress: reactorAddress)
+                messageStore.removeReaction(targetTxId: reaction.targetTxId, reactorAddress: reactorAddress)
+            }
+            // Same self-triggered-notification suppression as every other local Core Data write -
+            // see `ChatService+Reactions.swift`'s identical call for why this matters.
+            recordLocalSave()
+            return
+        }
+
         let contact = contactsManager.getOrCreateContact(address: contactAddress)
         if message.isOutgoing {
             contactsManager.markHasSentOutgoingMessage(address: contactAddress)
@@ -2783,7 +2825,7 @@ extension ChatService {
         var conversation = originalConversation
         update(&conversation)
         if normalizeMessages {
-            conversation.messages = dedupeMessages(conversation.messages)
+            conversation.messages = Self.dedupeMessages(conversation.messages)
         }
         guard conversation != originalConversation else { return }
         updatedConversations[index] = conversation
@@ -2862,36 +2904,36 @@ extension ChatService {
             if let payload = decodePaymentPayload(payment.messagePayload),
                !payload.message.isEmpty {
                 let template = isOutgoing
-                    ? NSLocalizedString("Sent %@ KAS — %@", comment: "Outgoing payment with note")
-                    : NSLocalizedString("Received %@ KAS — %@", comment: "Incoming payment with note")
+                    ? AppLocalization.string("Sent %@ KAS — %@")
+                    : AppLocalization.string("Received %@ KAS — %@")
                 return String(format: template, formatted, payload.message)
             }
             let template = isOutgoing
-                ? NSLocalizedString("Sent %@ KAS", comment: "Outgoing payment without note")
-                : NSLocalizedString("Received %@ KAS", comment: "Incoming payment without note")
+                ? AppLocalization.string("Sent %@ KAS")
+                : AppLocalization.string("Received %@ KAS")
             return String(format: template, formatted)
         }
 
         if let payload = decodePaymentPayload(payment.messagePayload) {
             let formatted = formatKasAmount(payload.amount)
-            let template = NSLocalizedString("Payment: %@ KAS — %@", comment: "Fallback payment content with amount and note")
+            let template = AppLocalization.string("Payment: %@ KAS — %@")
             return String(format: template, formatted, payload.message)
         }
 
-        return NSLocalizedString("[Payment]", comment: "Fallback payment label")
+        return AppLocalization.string("[Payment]")
     }
 
     func localizedKNSTransferMessage(domainName: String?, isOutgoing: Bool) -> String {
         let trimmedDomain = domainName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDomain.isEmpty {
             let template = isOutgoing
-                ? NSLocalizedString("Sent %@ domain", comment: "Outgoing KNS domain transfer message")
-                : NSLocalizedString("Received %@ domain", comment: "Incoming KNS domain transfer message")
+                ? AppLocalization.string("Sent %@ domain")
+                : AppLocalization.string("Received %@ domain")
             return String(format: template, trimmedDomain)
         }
         return isOutgoing
-            ? NSLocalizedString("Sent domain transfer", comment: "Outgoing KNS domain transfer fallback")
-            : NSLocalizedString("Received domain transfer", comment: "Incoming KNS domain transfer fallback")
+            ? AppLocalization.string("Sent domain transfer")
+            : AppLocalization.string("Received domain transfer")
     }
 
     func formatKasAmount(_ sompi: UInt64) -> String {

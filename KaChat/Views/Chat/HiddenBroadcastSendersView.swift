@@ -63,7 +63,7 @@ struct HiddenBroadcastSendersView: View {
         if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
             return knsName
         }
-        return String(address.suffix(10))
+        return Contact.generateDefaultAlias(from: address)
     }
 
     private func reload() {

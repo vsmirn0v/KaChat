@@ -253,7 +253,8 @@ final class BroadcastService: ObservableObject {
     /// Estimate the on-chain fee for sending `content` as a broadcast right now, matching how
     /// 1:1 chat shows a live "fee: N sompi" preview while typing (`ChatService.estimateMessageFee`).
     /// Accounts for an active reply, since replies wrap the content in a larger envelope.
-    func estimateBroadcastFee(channel rawChannel: String, content: String) async throws -> UInt64 {
+    func estimateBroadcastFee(channel rawChannel: String, content: String, feeOverride: UInt64? = nil) async throws -> UInt64 {
+        if let feeOverride { return feeOverride }
         let channel = BroadcastChannelName.normalize(rawChannel)
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -334,7 +335,7 @@ final class BroadcastService: ObservableObject {
         try await sendBroadcast(channel: channel, content: jsonString)
     }
 
-    func sendBroadcast(channel rawChannel: String, content: String) async throws {
+    func sendBroadcast(channel rawChannel: String, content: String, feeOverride: UInt64? = nil) async throws {
         let channel = BroadcastChannelName.normalize(rawChannel)
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard BroadcastChannelName.isValid(channel) else {
@@ -383,7 +384,8 @@ final class BroadcastService: ObservableObject {
                     content: payload,
                     walletAddress: wallet.publicAddress,
                     privateKey: privateKey,
-                    pendingId: pendingId
+                    pendingId: pendingId,
+                    feeOverride: feeOverride
                 )
             }
             replyingTo = nil
@@ -479,7 +481,8 @@ final class BroadcastService: ObservableObject {
         content: String,
         walletAddress: String,
         privateKey: Data,
-        pendingId: String
+        pendingId: String,
+        feeOverride: UInt64? = nil
     ) async throws {
         let chatService = ChatService.shared
 
@@ -498,7 +501,8 @@ final class BroadcastService: ObservableObject {
             channel: channel,
             content: content,
             senderPrivateKey: privateKey,
-            utxos: candidateUtxos
+            utxos: candidateUtxos,
+            feeOverride: feeOverride
         )
         let spentUtxos = chatService.spentMessageUtxos(from: tx, candidates: candidateUtxos)
         let usesUnconfirmedInputs = spentUtxos.contains { $0.blockDaaScore == 0 }

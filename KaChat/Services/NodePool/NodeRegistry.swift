@@ -57,6 +57,8 @@ actor NodeRegistry {
     private let store: NodeStore?
     private var isDirty = false
     private var saveTask: Task<Void, Never>?
+    /// When set (Kaspium-style fixed-node mode), `upsert` refuses every endpoint except this one.
+    private var trustedNodeKey: String?
 
     // Configuration
     private let maxNodes = 3000
@@ -118,8 +120,46 @@ actor NodeRegistry {
         records.values.filter { $0.canHandle(op) }
     }
 
+    /// Pins the registry to exactly one node (Kaspium-style fixed-node mode) - clears
+    /// every other record and refuses to add any other one until cleared.
+    ///
+    /// Returns the endpoint that WAS pinned before this call, if any and if it's actually
+    /// changing - a `GRPCStreamConnection` has no concept of "trusted" and will otherwise keep
+    /// reconnecting to a node that's no longer relevant forever, so the caller needs this to
+    /// close that now-orphaned connection (see NodePoolService.setTrustedNodeAddress).
+    @discardableResult
+    func setTrustedNode(_ endpoint: Endpoint?) -> Endpoint? {
+        let previousEndpoint = trustedNodeKey.flatMap { records[$0]?.endpoint }
+
+        guard let endpoint else {
+            // Drop the now-stale pinned record too, so it doesn't linger with origin
+            // .userAdded (which forces it "active" unconditionally - see
+            // NodeRecord.updateState()) even after it's no longer actually pinned.
+            if let trustedNodeKey {
+                records.removeValue(forKey: trustedNodeKey)
+            }
+            trustedNodeKey = nil
+            scheduleSave()
+            return previousEndpoint
+        }
+
+        guard previousEndpoint?.key != endpoint.key else {
+            // Re-pinning the same endpoint - nothing stale to report.
+            return nil
+        }
+
+        trustedNodeKey = endpoint.key
+        records = records.filter { $0.key == endpoint.key }
+        if records[endpoint.key] == nil {
+            records[endpoint.key] = NodeRecord(endpoint: endpoint, origin: .userAdded)
+        }
+        scheduleSave()
+        return previousEndpoint
+    }
+
     /// Insert or update a node record
     func upsert(endpoint: Endpoint, origin: NodeOrigin = .discovered) {
+        if let trustedNodeKey, endpoint.key != trustedNodeKey { return }
         if var existing = records[endpoint.key] {
             existing.lastSeenAt = Date()
             records[endpoint.key] = existing
@@ -160,6 +200,13 @@ actor NodeRegistry {
 
         if isError || isTimeout {
             record.health.recordFailure(isTimeout: isTimeout, epochId: epochId)
+            // A pinned trusted node is always used regardless of health (see
+            // NodePoolService.setTrustedNodeAddress / registry.upsert's trusted-only guard) -
+            // quarantine is meaningless for it and was previously showing up, and blocking
+            // isActiveEligible, after a handful of transient probe failures.
+            if endpoint.key == trustedNodeKey {
+                record.health.quarantineUntil = nil
+            }
         } else if let latencyMs = latencyMs {
             record.health.recordSuccess(latencyMs: latencyMs, epochId: epochId)
         }
@@ -492,6 +539,13 @@ actor NodeRegistry {
 
     /// Current pool health
     func poolHealth() -> PoolHealth {
+        // A manually-pinned node is meant to always be treated as "it's working" (see
+        // NodeRecord.updateState()) - the 5/2/1/0-active-node healthy/degraded/critical/failed
+        // thresholds below are tuned for a large auto-discovered pool and would otherwise show
+        // "Critical" for a single pinned node that's actually working completely fine.
+        if trustedNodeKey != nil {
+            return .healthy
+        }
         let activeCount = records.values.filter { $0.state == .active }.count
         return PoolHealth(activeCount: activeCount)
     }

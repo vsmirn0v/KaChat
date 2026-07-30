@@ -323,3 +323,4 @@
 "Small Amount" = "Valor pequeno";
 "Send Anyway" = "Enviar mesmo assim";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "O envio de menos de 0,1 KAS pode falhar devido ao limite de proteção contra dust da rede.";
+"You were added to \"%@\"" = "Você foi adicionado a \"%@\"";

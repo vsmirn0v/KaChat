@@ -170,6 +170,13 @@ actor GRPCStreamConnection {
     /// Last activity timestamp (for idle connection pruning)
     private(set) var lastActivityAt: Date = Date()
 
+    /// Consecutive auto-reconnect attempts since the last successful connect - drives backoff
+    /// so a node that's actively rejecting connections (e.g. gRPC RESOURCE_EXHAUSTED, a real
+    /// status a smaller/personal node can send under load) gets breathing room instead of being
+    /// hammered with a new attempt every ~100ms-1s indefinitely, which risks perpetuating
+    /// exactly the resource pressure causing the rejections in the first place.
+    private var reconnectAttempts: Int = 0
+
     // MARK: - Initialization
 
     init(endpoint: Endpoint, eventLoopGroup: EventLoopGroup) {
@@ -235,6 +242,7 @@ actor GRPCStreamConnection {
             connectedAt = Date()
             lastActivityAt = Date()
             circuitBreaker.reset()
+            reconnectAttempts = 0
 
             // Suppress noisy connection logs
 
@@ -258,8 +266,18 @@ actor GRPCStreamConnection {
         // Use ClientConnection instead of GRPCChannelPool to avoid retain cycle memory leaks
         // GRPCChannelPool.with() creates internal ConnectionManager/ConnectionPool objects
         // that have retain cycles (connectivityDelegate -> CYCLE BACK) and never get released
-        let channel = ClientConnection.insecure(group: sharedGroup)
-            .connect(host: endpoint.host, port: endpoint.port)
+        let channel: GRPCChannel
+        if endpoint.secure {
+            // TLS-terminated nodes (e.g. Kaspium's own - see Endpoint.secure's doc comment)
+            // reject plaintext HTTP/2 entirely, so a plain .insecure() connection to one of
+            // these never completes. Default NIOSSL configuration (.makeClientConfigurationBackedByNIOSSL())
+            // validates against the system trust store and uses `host` for SNI/hostname verification.
+            channel = ClientConnection.usingTLSBackedByNIOSSL(on: sharedGroup)
+                .connect(host: endpoint.host, port: endpoint.port)
+        } else {
+            channel = ClientConnection.insecure(group: sharedGroup)
+                .connect(host: endpoint.host, port: endpoint.port)
+        }
         self.channel = channel
 
         // Create RPC client
@@ -303,6 +321,21 @@ actor GRPCStreamConnection {
         connectedAt = nil
         stream = nil
 
+        // ClientConnection (unlike `stream`, the bidi RPC layered on top of it) is a
+        // persistent, self-reconnecting abstraction - grpc-swift keeps retrying to
+        // re-establish it in the background on its own until explicitly closed. Overwriting
+        // `channel` in performConnect() below without closing this one first would abandon it
+        // still retrying forever, completely independently of (and in addition to) the new
+        // channel - every stream drop leaked one more of these, which is exactly how a node
+        // ends up seeing a growing pile of concurrent connection attempts from us and starts
+        // refusing them for exceeding its connection capacity.
+        if let ch = channel {
+            channel = nil
+            Task {
+                _ = try? await ch.close().get()
+            }
+        }
+
         scheduleAutoReconnect()
     }
 
@@ -318,12 +351,24 @@ actor GRPCStreamConnection {
     /// `.disconnected` itself first, so `handleStreamClosed`'s guard fails and this never fires
     /// for intentional disconnects (pool teardown, wallet switch, etc).
     private func scheduleAutoReconnect() {
+        reconnectAttempts += 1
+        let attempt = reconnectAttempts
         Task { [weak self] in
             guard let self else { return }
-            // Small jitter in case many connections drop in the same instant (observed: ~20+
-            // sockets aborting within the same second on a network path change), so reconnects
-            // don't all slam the network at once.
-            try? await Task.sleep(nanoseconds: UInt64.random(in: 100_000_000...1_000_000_000))
+            // First attempt: small jitter only, in case many connections drop in the same
+            // instant (observed: ~20+ sockets aborting within the same second on a network path
+            // change), so reconnects don't all slam the network at once. Later attempts: capped
+            // exponential backoff (1, 2, 4, 8, 16, 30, 30...s) - a node that's actively rejecting
+            // connections (e.g. gRPC RESOURCE_EXHAUSTED) needs breathing room, not a retry every
+            // ~100ms-1s forever, which just keeps re-triggering the same rejection.
+            let delaySeconds: Double
+            if attempt <= 1 {
+                delaySeconds = Double.random(in: 0.1...1.0)
+            } else {
+                let backoff = min(30.0, pow(2.0, Double(attempt - 2)))
+                delaySeconds = backoff + Double.random(in: 0...0.3) * backoff
+            }
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
             guard await self.state == .disconnected else { return }
             try? await self.connect()
         }
@@ -353,6 +398,7 @@ actor GRPCStreamConnection {
 
         state = .disconnected
         connectedAt = nil
+        reconnectAttempts = 0
 
         AppLog.log("[GRPCStream] Disconnected from %@", endpoint.key)
     }

@@ -350,11 +350,37 @@ final class MessageStore {
         loadPersistentStores(primaryDescription: description, completion: completion)
     }
 
-    /// Switch wallet store asynchronously
+    /// Switch wallet store asynchronously. `container.loadPersistentStores` (invoked inside the
+    /// completion-based overload below) has no built-in timeout - CloudKit schema initialization
+    /// on a fresh install/first-ever launch can genuinely take a very long time, or effectively
+    /// hang, waiting on Apple's servers under degraded network conditions. Without a cap here,
+    /// this `await` (and everything downstream of it, e.g. `WalletManager.importWallet` during
+    /// account creation) blocks indefinitely with no visible error - matching reports of account
+    /// creation "hanging on loading" on a fresh install until the app is force-quit and reopened.
+    /// The store keeps loading in the background regardless of the timeout; this only stops
+    /// making the caller wait on it past a point where something is clearly wrong.
     func setCurrentWallet(_ walletAddress: String?) async {
-        await withCheckedContinuation { continuation in
-            setCurrentWallet(walletAddress) {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeLock = NSLock()
+            var hasResumed = false
+            func resumeOnce() {
+                resumeLock.lock()
+                let alreadyResumed = hasResumed
+                hasResumed = true
+                resumeLock.unlock()
+                guard !alreadyResumed else { return }
                 continuation.resume()
+            }
+
+            let timeoutWorkItem = DispatchWorkItem { [weak self] in
+                self?.logInfo("[MessageStore] setCurrentWallet timed out waiting for the persistent store to finish loading - proceeding anyway.")
+                resumeOnce()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 12, execute: timeoutWorkItem)
+
+            setCurrentWallet(walletAddress) {
+                timeoutWorkItem.cancel()
+                resumeOnce()
             }
         }
     }
@@ -707,6 +733,67 @@ final class MessageStore {
                 }
             }
         }
+    }
+
+    /// True if `txId` is a reaction's own transaction id (`CDReaction.reactionTxId`) rather than a
+    /// real message - a reaction never gets a `CDMessage` row on the device that actually decrypts
+    /// it (see `MessageReactionCodec.parse` interception in `addMessageToConversation`), so when
+    /// this wallet's own outgoing-message catch-up sync later re-discovers that same transaction
+    /// from the indexer, it has no local content to find and would otherwise fall back to the
+    /// "📤 Sent via another device" placeholder - permanently, since no real `CDMessage` will ever
+    /// arrive to replace it. Checking this first lets the caller skip creating that placeholder
+    /// entirely for a transaction that was always a reaction, never a message.
+    func isReactionTransaction(txId: String) -> Bool {
+        guard ensureStoreLoaded() else { return false }
+        var result = false
+        let context = container.newBackgroundContext()
+        context.performAndWait {
+            let request = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
+            request.predicate = NSPredicate(format: "reactionTxId == %@", txId)
+            request.fetchLimit = 1
+            let count = (try? context.count(for: request)) ?? 0
+            result = count > 0
+        }
+        return result
+    }
+
+    /// One-time cleanup for placeholder messages already stuck from this bug before the fix:
+    /// deletes any `CDMessage` whose txId is actually a reaction's own transaction id (per
+    /// `isReactionTransaction`) - these can never resolve to real content since a reaction was
+    /// never meant to be a message in the first place. Safe to call unconditionally on every
+    /// launch; it's a no-op once a wallet's stuck placeholders (if any) have been cleared.
+    /// Returns the txIds of whatever it deleted, so the caller can also drop them from any
+    /// in-memory conversation state it's already loaded (this only touches Core Data).
+    @discardableResult
+    func deleteStuckReactionPlaceholderMessages() -> [String] {
+        guard ensureStoreLoaded() else { return [] }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        var deletedTxIds: [String] = []
+        context.performAndWait {
+            let reactionRequest = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
+            guard let reactionTxIds = try? context.fetch(reactionRequest).compactMap({ $0.reactionTxId }),
+                  !reactionTxIds.isEmpty else { return }
+
+            let messageRequest = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+            if let walletAddr {
+                messageRequest.predicate = NSPredicate(format: "txId IN %@ AND (walletAddress == %@ OR walletAddress == nil)", reactionTxIds, walletAddr)
+            } else {
+                messageRequest.predicate = NSPredicate(format: "txId IN %@", reactionTxIds)
+            }
+            guard let stuckMessages = try? context.fetch(messageRequest), !stuckMessages.isEmpty else { return }
+            for message in stuckMessages {
+                deletedTxIds.append(message.txId)
+                context.delete(message)
+            }
+            do {
+                try context.save()
+                self.logInfo("[MessageStore] Cleaned up %d stuck reaction-placeholder messages", stuckMessages.count)
+            } catch {
+                self.logInfo("[MessageStore] Failed to clean up stuck reaction placeholders: \(error)")
+            }
+        }
+        return deletedTxIds
     }
 
     /// Refresh the view context to pick up any CloudKit changes.
@@ -1187,66 +1274,88 @@ final class MessageStore {
     ///   - lastReadBlockTime: blockTime of the last read message
     ///   - lastReadAt: When the message was read
     ///   - forceUpdate: If true, skip the blockTime comparison (used for CloudKit sync when remote is authoritative)
+    /// Fire-and-forget wrapper, kept for callers that don't need the write durably committed
+    /// before continuing - see `updateReadStatusAndWait` for callers that do (e.g.
+    /// `ChatService.markConversationAsRead`, where a force-quit racing this write used to be
+    /// able to revert the read cursor to its old value on next launch).
     func updateReadStatus(contactAddress: String, lastReadTxId: String?, lastReadBlockTime: Int64, lastReadAt: Date? = nil, forceUpdate: Bool = false) {
+        Task {
+            await updateReadStatusAndWait(
+                contactAddress: contactAddress,
+                lastReadTxId: lastReadTxId,
+                lastReadBlockTime: lastReadBlockTime,
+                lastReadAt: lastReadAt,
+                forceUpdate: forceUpdate
+            )
+        }
+    }
+
+    /// Awaitable version of `updateReadStatus` - resumes only once the Core Data save has
+    /// actually completed, so a caller can be sure the read cursor is durably on disk (and safe
+    /// from being lost to a force-quit) before it returns.
+    func updateReadStatusAndWait(contactAddress: String, lastReadTxId: String?, lastReadBlockTime: Int64, lastReadAt: Date? = nil, forceUpdate: Bool = false) async {
         guard ensureStoreLoaded() else { return }
         let walletAddr = currentWalletAddress
-        let context = container.newBackgroundContext()
-        context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
-        context.perform {
-            let request = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
-            if let walletAddr = walletAddr {
-                request.predicate = NSPredicate(
-                    format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)",
-                    contactAddress,
-                    walletAddr
-                )
-            } else {
-                request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
-            }
-
-            do {
-                var conversations = try context.fetch(request)
-                if conversations.isEmpty {
-                    conversations = [self.fetchOrCreateConversation(contactAddress: contactAddress, walletAddress: walletAddr, in: context)]
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let context = container.newBackgroundContext()
+            context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+            context.perform {
+                defer { continuation.resume() }
+                let request = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
+                if let walletAddr = walletAddr {
+                    request.predicate = NSPredicate(
+                        format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)",
+                        contactAddress,
+                        walletAddr
+                    )
+                } else {
+                    request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
                 }
 
-                var didChange = false
-                var skippedExistingBlockTime: Int64?
-                for conv in conversations {
-                    // Usually we only advance when blockTime increases, but allow equal-blockTime
-                    // updates to repair stale unread counters after store merges/reloads.
-                    let existingBlockTime = conv.lastReadBlockTime
-                    let hasSameBlockTimeUpdate = lastReadBlockTime == existingBlockTime &&
-                        (conv.unreadCount > 0 || conv.lastReadTxId != lastReadTxId)
-                    guard forceUpdate || lastReadBlockTime > existingBlockTime || hasSameBlockTimeUpdate else {
-                        skippedExistingBlockTime = existingBlockTime
-                        continue
+                do {
+                    var conversations = try context.fetch(request)
+                    if conversations.isEmpty {
+                        conversations = [self.fetchOrCreateConversation(contactAddress: contactAddress, walletAddress: walletAddr, in: context)]
                     }
 
-                    conv.lastReadTxId = lastReadTxId
-                    conv.lastReadBlockTime = lastReadBlockTime
-                    conv.lastReadAt = lastReadAt ?? Date()
-                    conv.updatedAt = Date()
+                    var didChange = false
+                    var skippedExistingBlockTime: Int64?
+                    for conv in conversations {
+                        // Usually we only advance when blockTime increases, but allow equal-blockTime
+                        // updates to repair stale unread counters after store merges/reloads.
+                        let existingBlockTime = conv.lastReadBlockTime
+                        let hasSameBlockTimeUpdate = lastReadBlockTime == existingBlockTime &&
+                            (conv.unreadCount > 0 || conv.lastReadTxId != lastReadTxId)
+                        guard forceUpdate || lastReadBlockTime > existingBlockTime || hasSameBlockTimeUpdate else {
+                            skippedExistingBlockTime = existingBlockTime
+                            continue
+                        }
 
-                    // Also update unreadCount to 0 since we've read up to this point
-                    conv.unreadCount = 0
+                        conv.lastReadTxId = lastReadTxId
+                        conv.lastReadBlockTime = lastReadBlockTime
+                        conv.lastReadAt = lastReadAt ?? Date()
+                        conv.updatedAt = Date()
 
-                    if let walletAddr = walletAddr {
-                        conv.walletAddress = walletAddr
+                        // Also update unreadCount to 0 since we've read up to this point
+                        conv.unreadCount = 0
+
+                        if let walletAddr = walletAddr {
+                            conv.walletAddress = walletAddr
+                        }
+                        didChange = true
                     }
-                    didChange = true
-                }
 
-                guard didChange else {
-                    self.logInfo("[MessageStore] Skipping read status update for %@ (existing: %lld, new: %lld)",
-                          String(contactAddress.suffix(8)), skippedExistingBlockTime ?? 0, lastReadBlockTime)
-                    return
+                    guard didChange else {
+                        self.logInfo("[MessageStore] Skipping read status update for %@ (existing: %lld, new: %lld)",
+                              String(contactAddress.suffix(8)), skippedExistingBlockTime ?? 0, lastReadBlockTime)
+                        return
+                    }
+                    try context.save()
+                    self.logInfo("[MessageStore] Updated read status for %@: blockTime=%lld",
+                          String(contactAddress.suffix(8)), lastReadBlockTime)
+                } catch {
+                    self.logInfo("[MessageStore] Failed to update read status: \(error)")
                 }
-                try context.save()
-                self.logInfo("[MessageStore] Updated read status for %@: blockTime=%lld",
-                      String(contactAddress.suffix(8)), lastReadBlockTime)
-            } catch {
-                self.logInfo("[MessageStore] Failed to update read status: \(error)")
             }
         }
     }
@@ -2710,6 +2819,176 @@ final class MessageStore {
         )
     }
 
+    // MARK: - Reactions (CDReaction)
+
+    /// One reaction on a message, decrypted and safe to pass across contexts/threads.
+    struct ReactionSnapshot: Identifiable, Equatable {
+        var id: String { "\(targetTxId)-\(reactorAddress)" }
+        let targetTxId: String
+        let reactorAddress: String
+        let emoji: String
+    }
+
+    /// Replaces any existing reaction `reactorAddress` left on `targetTxId` with `emoji` - one
+    /// reaction per (message, reactor). No uniqueness constraint at the Core Data level (CloudKit
+    /// doesn't support them, same as `CDReadMarker`) - any duplicate found during the
+    /// fetch-then-upsert is folded into the first result and the rest deleted.
+    func upsertReaction(targetTxId: String, reactorAddress: String, contactAddress: String, emoji: String, reactionTxId: String?, blockTime: Int64, encryptionKey: SymmetricKey) {
+        guard ensureStoreLoaded() else { return }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        context.mergePolicy = NSMergeByPropertyStoreTrumpMergePolicy
+        context.perform {
+            let request = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
+            if let walletAddr {
+                request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)", targetTxId, reactorAddress, walletAddr)
+            } else {
+                request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@", targetTxId, reactorAddress)
+            }
+            let existing = (try? context.fetch(request)) ?? []
+            let reaction = existing.first ?? CDReaction(context: context)
+            for duplicate in existing.dropFirst() {
+                context.delete(duplicate)
+            }
+            reaction.targetTxId = targetTxId
+            reaction.reactorAddress = reactorAddress
+            reaction.contactAddress = contactAddress
+            reaction.reactionTxId = reactionTxId
+            reaction.blockTime = blockTime
+            reaction.updatedAt = Date()
+            if let walletAddr {
+                reaction.walletAddress = walletAddr
+            }
+            if let encrypted = self.encryptContent(emoji, key: encryptionKey) {
+                reaction.emojiEncrypted = encrypted
+            }
+            do {
+                try context.save()
+            } catch {
+                self.logInfo("[MessageStore] Failed to upsert reaction: \(error)")
+            }
+        }
+    }
+
+    /// Deletes `reactorAddress`'s reaction on `targetTxId`, if any.
+    func removeReaction(targetTxId: String, reactorAddress: String) {
+        guard ensureStoreLoaded() else { return }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        context.perform {
+            let request = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
+            if let walletAddr {
+                request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)", targetTxId, reactorAddress, walletAddr)
+            } else {
+                request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@", targetTxId, reactorAddress)
+            }
+            do {
+                let existing = try context.fetch(request)
+                for record in existing {
+                    context.delete(record)
+                }
+                try context.save()
+            } catch {
+                self.logInfo("[MessageStore] Failed to remove reaction: \(error)")
+            }
+        }
+    }
+
+    /// All reactions for `contactAddress`, decrypted and grouped by the message they target -
+    /// loaded once when a conversation opens; kept live afterward by the caller applying the same
+    /// upsert/remove calls to its own in-memory copy, the same way `ChatService` already keeps its
+    /// published conversation state in sync without a Core Data change-notification round trip for
+    /// every update.
+    func fetchReactions(contactAddress: String, decryptionKey: SymmetricKey) async -> [String: [ReactionSnapshot]] {
+        guard ensureStoreLoaded() else { return [:] }
+        let walletAddress = currentWalletAddress
+        return await withCheckedContinuation { (continuation: CheckedContinuation<[String: [ReactionSnapshot]], Never>) in
+            container.performBackgroundTask { context in
+                let request = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
+                if let walletAddress {
+                    request.predicate = NSPredicate(format: "contactAddress == %@ AND (walletAddress == %@ OR walletAddress == nil)", contactAddress, walletAddress)
+                } else {
+                    request.predicate = NSPredicate(format: "contactAddress == %@", contactAddress)
+                }
+                var grouped: [String: [ReactionSnapshot]] = [:]
+                if let results = try? context.fetch(request) {
+                    for record in results {
+                        guard let emojiData = record.emojiEncrypted,
+                              let emoji = self.decryptContent(emojiData, key: decryptionKey) else { continue }
+                        let snapshot = ReactionSnapshot(targetTxId: record.targetTxId, reactorAddress: record.reactorAddress, emoji: emoji)
+                        grouped[record.targetTxId, default: []].append(snapshot)
+                    }
+                }
+                continuation.resume(returning: grouped)
+            }
+        }
+    }
+
+    /// One conversation's most recent reaction across all its messages, with enough context to
+    /// render a chat-list preview ("Reacted to your message" etc.) without a second round trip.
+    struct LatestReactionPreview {
+        let emoji: String
+        let reactorAddress: String
+        let blockTime: Int64
+        /// Whether the message *being reacted to* (not the reaction itself) was sent by this
+        /// wallet - nil if the target message couldn't be found (e.g. pruned by message
+        /// retention settings while the reaction itself was kept).
+        let targetMessageIsOutgoing: Bool?
+    }
+
+    /// The single newest reaction per contact, across every message in that conversation - not
+    /// scoped to one already-open conversation like `fetchReactions` (which needs a live
+    /// conversation's `reactionsByTxId` to already be populated). Used to show reaction activity
+    /// in the chat list preview when it's more recent than the last real message, which otherwise
+    /// has no visibility into reactions at all (they're applied as a pill, never inserted as a
+    /// message). `decryptionKey` is the same wallet-wide at-rest key `messageEncryptionKey()`
+    /// returns for every conversation (not a per-contact shared secret), so this can scan across
+    /// all contacts in one pass.
+    func fetchLatestReactionPerContact(decryptionKey: SymmetricKey) async -> [String: LatestReactionPreview] {
+        guard ensureStoreLoaded() else { return [:] }
+        let walletAddress = currentWalletAddress
+        return await withCheckedContinuation { (continuation: CheckedContinuation<[String: LatestReactionPreview], Never>) in
+            container.performBackgroundTask { context in
+                let request = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
+                if let walletAddress {
+                    request.predicate = NSPredicate(format: "(walletAddress == %@ OR walletAddress == nil)", walletAddress)
+                }
+                guard let allReactions = try? context.fetch(request), !allReactions.isEmpty else {
+                    continuation.resume(returning: [:])
+                    return
+                }
+
+                // Newest reaction per contact, by blockTime.
+                var latestByContact: [String: CDReaction] = [:]
+                for reaction in allReactions {
+                    if let existing = latestByContact[reaction.contactAddress], existing.blockTime >= reaction.blockTime {
+                        continue
+                    }
+                    latestByContact[reaction.contactAddress] = reaction
+                }
+
+                let targetMessagesByTxId = self.batchFetchMessages(
+                    txIds: latestByContact.values.map { $0.targetTxId },
+                    walletAddress: walletAddress,
+                    in: context
+                )
+
+                var result: [String: LatestReactionPreview] = [:]
+                for (contactAddress, reaction) in latestByContact {
+                    guard let emojiData = reaction.emojiEncrypted,
+                          let emoji = self.decryptContent(emojiData, key: decryptionKey) else { continue }
+                    result[contactAddress] = LatestReactionPreview(
+                        emoji: emoji,
+                        reactorAddress: reaction.reactorAddress,
+                        blockTime: reaction.blockTime,
+                        targetMessageIsOutgoing: targetMessagesByTxId[reaction.targetTxId]?.isOutgoing
+                    )
+                }
+                continuation.resume(returning: result)
+            }
+        }
+    }
+
     private static func makeModel() -> NSManagedObjectModel {
         let model = NSManagedObjectModel()
 
@@ -2728,6 +3007,10 @@ final class MessageStore {
         let syncMarkerEntity = NSEntityDescription()
         syncMarkerEntity.name = CDSyncMarker.entityName
         syncMarkerEntity.managedObjectClassName = NSStringFromClass(CDSyncMarker.self)
+
+        let reactionEntity = NSEntityDescription()
+        reactionEntity.name = CDReaction.entityName
+        reactionEntity.managedObjectClassName = NSStringFromClass(CDReaction.self)
 
         messageEntity.properties = [
             makeAttribute(name: "messageId", type: .UUIDAttributeType, optional: true),
@@ -2780,7 +3063,22 @@ final class MessageStore {
             makeAttribute(name: "updatedAt", type: .dateAttributeType, optional: true)
         ]
 
-        model.entities = [messageEntity, conversationEntity, readMarkerEntity, syncMarkerEntity]
+        // CDReaction: one row per (targetTxId, reactorAddress, walletAddress) - picking a new
+        // emoji replaces the row's emojiEncrypted rather than adding a second row; removing a
+        // reaction deletes the row outright. No uniqueness constraint (CloudKit doesn't support
+        // them, same as CDReadMarker above) - dedup is handled manually before insert.
+        reactionEntity.properties = [
+            makeAttribute(name: "targetTxId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "reactorAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "contactAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "emojiEncrypted", type: .binaryDataAttributeType, optional: true),
+            makeAttribute(name: "reactionTxId", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "blockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            makeAttribute(name: "updatedAt", type: .dateAttributeType, optional: true),
+            makeAttribute(name: "walletAddress", type: .stringAttributeType, optional: true)
+        ]
+
+        model.entities = [messageEntity, conversationEntity, readMarkerEntity, syncMarkerEntity, reactionEntity]
         return model
     }
 
@@ -3342,6 +3640,24 @@ final class CDReadMarker: NSManagedObject {
     @NSManaged var lastReadBlockTime: Int64
     /// When this marker was last updated (for stale cleanup)
     @NSManaged var updatedAt: Date?
+}
+
+/// A reaction (tapback) sent or received on a 1:1 message - see `MessageReactionContent`. One row
+/// per (targetTxId, reactorAddress, walletAddress); `reactionTxId` is the reaction message's own
+/// transaction id, kept for reference (not used for dedup - the fetch-then-upsert in
+/// `MessageStore.upsertReaction` already prevents duplicates).
+@objc(CDReaction)
+final class CDReaction: NSManagedObject {
+    static let entityName = "CDReaction"
+
+    @NSManaged var targetTxId: String
+    @NSManaged var reactorAddress: String
+    @NSManaged var contactAddress: String
+    @NSManaged var emojiEncrypted: Data?
+    @NSManaged var reactionTxId: String?
+    @NSManaged var blockTime: Int64
+    @NSManaged var updatedAt: Date?
+    @NSManaged var walletAddress: String?
 }
 
 @objc(CDSyncMarker)

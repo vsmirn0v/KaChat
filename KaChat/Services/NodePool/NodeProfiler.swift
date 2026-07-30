@@ -961,22 +961,32 @@ actor NodeProfiler {
 
             let latencyMs = Date().timeIntervalSince(startTime) * 1000
 
-            // Get block DAG info for DAA score
-            var dagMsg = Protowire_KaspadMessage()
-            dagMsg.getBlockDagInfoRequest = Protowire_GetBlockDagInfoRequestMessage()
-
-            let dagResponse = try await conn.sendRequest(
-                dagMsg,
-                type: .getBlockDagInfo,
-                timeout: OperationClass.profileGetBlockDagInfo.timeout
-            )
-
+            // Get block DAG info for DAA score. A separate, heavier RPC than GetInfo - a node
+            // that just answered GetInfo is unambiguously reachable and synced regardless of
+            // whether this second call succeeds, so don't let it alone throw us into the outer
+            // catch below and discard that real success (which previously meant
+            // registry.updateProfile - the only thing that clears a record out of .candidate -
+            // was never reached, leaving an otherwise-healthy node stuck showing "candidate"
+            // forever). Its fields just come back nil if it fails.
             var virtualDaaScore: UInt64?
             var networkName: String?
+            do {
+                var dagMsg = Protowire_KaspadMessage()
+                dagMsg.getBlockDagInfoRequest = Protowire_GetBlockDagInfoRequestMessage()
 
-            if case .getBlockDagInfoResponse(let dagInfo) = dagResponse.payload {
-                virtualDaaScore = dagInfo.virtualDaaScore
-                networkName = dagInfo.networkName
+                let dagResponse = try await conn.sendRequest(
+                    dagMsg,
+                    type: .getBlockDagInfo,
+                    timeout: OperationClass.profileGetBlockDagInfo.timeout
+                )
+
+                if case .getBlockDagInfoResponse(let dagInfo) = dagResponse.payload {
+                    virtualDaaScore = dagInfo.virtualDaaScore
+                    networkName = dagInfo.networkName
+                }
+            } catch {
+                AppLog.log("[NodeProfiler] GetBlockDagInfo failed for %@ (GetInfo still OK): %@",
+                      endpoint.key, error.localizedDescription)
             }
 
             // Update profile with basic info

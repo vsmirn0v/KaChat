@@ -72,7 +72,13 @@ enum MessageDaySeparatorFormatter {
         return calendar.isDate(date, inSameDayAs: referenceDate)
     }
 
+    /// Checks the in-app selected language (see `AppLocalization`) before falling back to the
+    /// device's own preferred-localization resolution, so day-separator labels ("Today",
+    /// month/weekday names) follow an in-app language switch immediately too, not just `Text`.
     private static var preferredLocale: Locale {
+        if let appLocale = AppSettings.load().language.locale {
+            return appLocale
+        }
         if let localization = Bundle.main.preferredLocalizations.first,
            localization != "Base" {
             return Locale(identifier: localization)

@@ -24,6 +24,7 @@ final class SharedDataManager {
 
     private enum Keys {
         static let contacts = "shared_contacts"
+        static let groups = "shared_groups"
         static let sharedSecrets = "shared_secrets"
         static let pendingMessages = "pending_messages"
         static let storedMessages = "stored_messages"
@@ -33,6 +34,7 @@ final class SharedDataManager {
         static let unreadCount = "shared_unread_count"
         static let incomingNotificationSoundEnabled = "incoming_notification_sound_enabled"
         static let incomingNotificationVibrationEnabled = "incoming_notification_vibration_enabled"
+        static let groupMentionsOnlyNotifications = "shared_group_mentions_only"
     }
 
     // MARK: - Contact Sync
@@ -55,6 +57,50 @@ final class SharedDataManager {
 
         sharedDefaults?.set(data, forKey: Keys.contacts)
         AppLog.log("[SharedData] Synced %d contacts to shared container", contacts.count)
+    }
+
+    // MARK: - Group Sync
+
+    /// Sync group rosters to the shared container for the notification extension. The NSE has no
+    /// Core Data access (that's where `GroupStore` lives), so this is the only way it can learn
+    /// which members belong to which group - needed to recompute candidate `blinded_group_id`s
+    /// and identify an incoming `group_message` push's sender. Group *secrets* (blindingKey,
+    /// groupRootEpoch) are deliberately not duplicated here - the NSE already reads those
+    /// straight from `GroupBag` via the Keychain access group both targets already share.
+    @MainActor
+    static func syncGroupsForExtension() {
+        let groups = GroupChatService.shared.groups.map { group in
+            SharedGroup(
+                groupId: group.id,
+                name: group.name,
+                adminAddress: group.adminAddress,
+                members: group.members.map { SharedGroupMember(address: $0.address, xOnlyPubKeyHex: $0.xOnlyPubKeyHex, displayName: $0.displayName) }
+            )
+        }
+
+        guard let data = try? JSONEncoder().encode(groups) else {
+            AppLog.log("[SharedData] Failed to encode groups")
+            return
+        }
+
+        sharedDefaults?.set(data, forKey: Keys.groups)
+        AppLog.log("[SharedData] Synced %d groups to shared container", groups.count)
+
+        // Groups with "Only Notify if I'm Mentioned" on - the NSE checks this after decrypting a
+        // group_message push, to decide whether to suppress it when the text doesn't mention the
+        // wallet's own address (already shared separately via `syncWalletAddressForExtension`).
+        if let mentionsData = try? JSONEncoder().encode(GroupChatService.shared.groupMentionsOnlyNotifications) {
+            sharedDefaults?.set(mentionsData, forKey: Keys.groupMentionsOnlyNotifications)
+        }
+    }
+
+    /// Get all groups from shared container (called from notification extension)
+    static func getAllGroups() -> [SharedGroup] {
+        guard let data = sharedDefaults?.data(forKey: Keys.groups),
+              let groups = try? JSONDecoder().decode([SharedGroup].self, from: data) else {
+            return []
+        }
+        return groups
     }
 
     /// Sync notification defaults used by the notification service extension.
@@ -412,6 +458,23 @@ struct SharedContact: Codable {
     let address: String
     let alias: String
     let notificationModeOverride: ContactNotificationMode?
+}
+
+/// Group roster info shared with notification extension (see `syncGroupsForExtension`).
+struct SharedGroup: Codable {
+    let groupId: String
+    let name: String
+    let adminAddress: String
+    let members: [SharedGroupMember]
+}
+
+struct SharedGroupMember: Codable {
+    let address: String
+    let xOnlyPubKeyHex: String
+    /// Snapshot of whoever added this member's own contact alias for them at add-time (see
+    /// `GroupMember.displayName`) - lets the notification extension show a real name for the
+    /// sender of a group message instead of falling back to their raw address.
+    let displayName: String?
 }
 
 /// Pending message that needs to be fetched

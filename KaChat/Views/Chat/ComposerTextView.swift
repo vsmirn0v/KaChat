@@ -85,6 +85,10 @@ struct ComposerTextView: UIViewRepresentable {
     struct TextInsertionRequest: Equatable {
         let id: UUID
         let text: String
+        /// When true, the insertion replaces the in-progress "@query" token at the cursor
+        /// (see `onMentionQuery`) instead of inserting at a zero-length range - used by the
+        /// @mention autocomplete to swap what's being typed for the selected suggestion.
+        var replacesMentionToken: Bool = false
     }
 
     @Binding var text: String
@@ -96,6 +100,10 @@ struct ComposerTextView: UIViewRepresentable {
     var insertionRequest: TextInsertionRequest? = nil
     var onInsertionHandled: ((UUID) -> Void)? = nil
     var onPasteImageData: ((Data) -> Bool)? = nil
+    /// Reports the text after an unclosed "@" run ending at the cursor (e.g. typing "@ali"
+    /// reports "ali"; a bare "@" reports ""), or nil when the cursor isn't inside such a run -
+    /// drives the @mention autocomplete overlay.
+    var onMentionQuery: ((String?) -> Void)? = nil
 
     private static let placeholderTag = 999
 
@@ -173,8 +181,19 @@ struct ComposerTextView: UIViewRepresentable {
         if let request = insertionRequest,
            context.coordinator.lastHandledInsertionID != request.id {
             context.coordinator.lastHandledInsertionID = request.id
-            context.coordinator.insert(text: request.text, into: uiView)
-            onInsertionHandled?(request.id)
+            // Deferred to the next run loop tick, matching the focus-sync dispatch below -
+            // insert() writes to the `text` @Binding, and doing that synchronously from within
+            // updateUIView is a SwiftUI/UIKit interop hazard: it can trigger a re-entrant update
+            // pass that reads a stale `text` value and re-syncs uiView.text back to it, silently
+            // reverting what was just inserted. This was especially likely to surface for the
+            // @mention picker specifically, since selecting a suggestion also removes a whole
+            // sibling view (the suggestions overlay) from the composer's layout in the same
+            // update, which appears to trigger exactly that re-entrancy.
+            let coordinator = context.coordinator
+            DispatchQueue.main.async {
+                coordinator.insert(text: request.text, into: uiView, replacesMentionToken: request.replacesMentionToken)
+                onInsertionHandled?(request.id)
+            }
         }
 
         // Focus sync
@@ -215,20 +234,22 @@ struct ComposerTextView: UIViewRepresentable {
             self.parent = parent
         }
 
-        func insert(text insertedText: String, into textView: UITextView) {
+        func insert(text insertedText: String, into textView: UITextView, replacesMentionToken: Bool = false) {
             let original = textView.text ?? ""
             let nsText = original as NSString
-            let insertionLocation: Int
-            if textView.isFirstResponder {
+            let insertionRange: NSRange
+            if replacesMentionToken, let tokenRange = mentionTokenRange(in: textView) {
+                insertionRange = NSRange(tokenRange, in: original)
+            } else if textView.isFirstResponder {
                 let selected = textView.selectedRange
                 // Picker taps should insert additional emoji, not replace selected content.
-                insertionLocation = min(max(selected.location + selected.length, 0), nsText.length)
+                let insertionLocation = min(max(selected.location + selected.length, 0), nsText.length)
+                insertionRange = NSRange(location: insertionLocation, length: 0)
             } else {
-                insertionLocation = nsText.length
+                insertionRange = NSRange(location: nsText.length, length: 0)
             }
-            let insertionRange = NSRange(location: insertionLocation, length: 0)
             let updated = nsText.replacingCharacters(in: insertionRange, with: insertedText)
-            let newCursorLocation = insertionLocation + (insertedText as NSString).length
+            let newCursorLocation = insertionRange.location + (insertedText as NSString).length
 
             isProgrammaticChange = true
             textView.text = updated
@@ -243,6 +264,34 @@ struct ComposerTextView: UIViewRepresentable {
             textView.invalidateIntrinsicContentSize()
         }
 
+        /// Range of the unclosed "@query" run ending at a collapsed cursor, if any - e.g. with
+        /// the cursor right after "...hey @ali", returns the range covering "@ali". Returns nil
+        /// when there's an active (non-empty) selection, or the cursor isn't right after such a
+        /// run (no "@", or it's separated from the cursor by whitespace).
+        private func mentionTokenRange(in textView: UITextView) -> Range<String.Index>? {
+            guard let text = textView.text, textView.selectedRange.length == 0,
+                  let cursor = Range(textView.selectedRange, in: text)?.lowerBound else {
+                return nil
+            }
+            var start = cursor
+            while start > text.startIndex {
+                let before = text.index(before: start)
+                if text[before].isWhitespace || text[before].isNewline { break }
+                start = before
+            }
+            guard start < cursor, text[start] == "@" else { return nil }
+            return start..<cursor
+        }
+
+        private func reportMentionQuery(for textView: UITextView) {
+            guard let text = textView.text, let range = mentionTokenRange(in: textView) else {
+                parent.onMentionQuery?(nil)
+                return
+            }
+            let query = String(text[text.index(after: range.lowerBound)..<range.upperBound])
+            parent.onMentionQuery?(query)
+        }
+
         func textViewDidChange(_ textView: UITextView) {
             guard !isProgrammaticChange else { return }
             let newText = textView.text ?? ""
@@ -252,6 +301,12 @@ struct ComposerTextView: UIViewRepresentable {
                 label.isHidden = !newText.isEmpty
             }
             textView.invalidateIntrinsicContentSize()
+            reportMentionQuery(for: textView)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard !isProgrammaticChange else { return }
+            reportMentionQuery(for: textView)
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) {

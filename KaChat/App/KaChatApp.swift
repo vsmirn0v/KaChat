@@ -13,6 +13,7 @@ struct KaChatApp: App {
     @StateObject private var pushManager = PushNotificationManager.shared
     @StateObject private var giftService = GiftService.shared
     @StateObject private var broadcastService = BroadcastService.shared
+    @StateObject private var groupChatService = GroupChatService.shared
     @State private var pendingOutboundShareId: String?
     @State private var isProcessingOutboundShare = false
     @State private var lastActiveResyncAt: Date?
@@ -46,6 +47,7 @@ struct KaChatApp: App {
                 .environmentObject(pushManager)
                 .environmentObject(giftService)
                 .environmentObject(broadcastService)
+                .environmentObject(groupChatService)
                 .onAppear {
                     ChatService.shared.settingsViewModel = settingsViewModel
                     if #available(iOS 16.0, macCatalyst 16.0, *) {
@@ -67,6 +69,8 @@ struct KaChatApp: App {
                 .onOpenURL { url in
                     handleIncomingURL(url)
                 }
+                .preferredColorScheme(settingsViewModel.settings.appearance.colorScheme)
+                .environment(\.locale, settingsViewModel.settings.language.locale ?? .autoupdatingCurrent)
         }
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(to: newPhase)
@@ -176,6 +180,7 @@ struct KaChatApp: App {
                     }
                     // Run catch-up sync with push-reliability gating.
                     await ChatService.shared.maybeRunCatchUpSync(trigger: .appActive)
+                    await GroupChatService.shared.performCatchUpSync()
 
                     // One-time migration to per-device read markers (only when store is ready)
                     if MessageStore.shared.isStoreLoaded && MessageStore.shared.currentWalletAddress != nil {
@@ -191,6 +196,7 @@ struct KaChatApp: App {
             }
             SharedDataManager.syncWalletAddressForExtension()
             SharedDataManager.syncNotificationSettingsForExtension()
+            SharedDataManager.syncGroupsForExtension()
         case .inactive:
             break
         @unknown default:
@@ -466,8 +472,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             let contact = contactAddress.flatMap { ContactsManager.shared.getContact(byAddress: $0) }
             let isActiveConversation = activeAddress != nil &&
                 (activeAddress == sender || (!threadId.isEmpty && activeAddress == threadId))
+            // Group push's threadIdentifier is "group:<groupId>" (see NotificationService.swift's
+            // handleGroupPush) - mirrors the 1:1 check above using GroupChatService's own
+            // currently-open-group tracking (GroupChatDetailView's .task/.onDisappear), which
+            // already existed for the read-state auto-mark but was never consulted here.
+            let isActiveGroup = threadId.hasPrefix("group:") &&
+                GroupChatService.shared.activeGroupId == String(threadId.dropFirst("group:".count))
 
-            if sender == ourAddress || (isActiveConversation && UIApplication.shared.applicationState == .active) {
+            if sender == ourAddress || ((isActiveConversation || isActiveGroup) && UIApplication.shared.applicationState == .active) {
                 completionHandler([])
             } else if !settings.shouldDeliverIncomingNotification(for: contact) {
                 completionHandler([])
@@ -498,8 +510,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 response.notification.request.content.userInfo
             )
         }
-        // The threadIdentifier contains the contact address, or "broadcast:<channel>" for a
-        // broadcast room notification (see `BroadcastService.notifyIfEnabled`).
+        // The threadIdentifier contains the contact address, "broadcast:<channel>" for a
+        // broadcast room notification (see `BroadcastService.notifyIfEnabled`), or
+        // "group:<groupId>" for a group chat notification.
         let threadIdentifier = response.notification.request.content.threadIdentifier
         if threadIdentifier.hasPrefix("broadcast:") {
             let channel = String(threadIdentifier.dropFirst("broadcast:".count))
@@ -514,6 +527,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                     name: .openBroadcast,
                     object: nil,
                     userInfo: ["channel": channel]
+                )
+            }
+        } else if threadIdentifier.hasPrefix("group:") {
+            let groupId = String(threadIdentifier.dropFirst("group:".count))
+            if !groupId.isEmpty {
+                // Store pending navigation for cold start scenario
+                Task { @MainActor in
+                    GroupChatService.shared.pendingGroupNavigation = groupId
+                }
+
+                // Also post notification for already-running views
+                NotificationCenter.default.post(
+                    name: .openGroup,
+                    object: nil,
+                    userInfo: ["groupId": groupId]
                 )
             }
         } else if !threadIdentifier.isEmpty {
@@ -548,5 +576,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 extension Notification.Name {
     static let openChat = Notification.Name("openChat")
     static let openBroadcast = Notification.Name("openBroadcast")
+    static let openGroup = Notification.Name("openGroup")
     static let showGiftClaim = Notification.Name("showGiftClaim")
 }

@@ -27,7 +27,16 @@ struct KasiaTransactionBuilder {
 
     // Kaspa constants
     static let handshakeAmount: UInt64 = 20_000_000 // 0.2 KAS handshake amount
-    static let dustThreshold: UInt64 = 10_000 // Minimum output value for P2PKH (0.0001 KAS)
+    /// Below this, an output's own KIP-9 storage mass alone (C / amount, C = 10^12) already
+    /// exceeds a safe standard-mass budget, regardless of how small/simple the rest of the
+    /// transaction is - a leftover change output anywhere near the old 10,000-sompi threshold
+    /// could single-handedly blow a transaction's total mass past the network's real 500,000
+    /// cap and get it flat-out rejected ("transaction storage mass ... larger than max allowed
+    /// size"), even for a plain 3-input send. Matches the proven, field-tested value from the
+    /// KasSigner firmware's own `kspt.rs` (DUST_THRESHOLD), not a value picked from this file
+    /// alone.
+    static let dustThreshold: UInt64 = 20_000_000 // 0.2 KAS
+
     static let standardSubnetworkId = Data(repeating: 0, count: 20)
     private static let selfStashScope = "saved_handshake"
 
@@ -48,7 +57,8 @@ struct KasiaTransactionBuilder {
         message: String,
         senderPrivateKey: Data,
         recipientPublicKey: Data,
-        utxos: [UTXO]
+        utxos: [UTXO],
+        feeOverride: UInt64? = nil
     ) throws -> KaspaRpcTransaction {
         // 1. Encrypt the message for the recipient
         let kasiaPayload = try buildContextualMessagePayload(
@@ -66,7 +76,8 @@ struct KasiaTransactionBuilder {
         let selection = try selectUtxosForContextualMessage(
             utxos: utxos,
             payload: kasiaPayload,
-            senderScriptPubKey: senderScriptPubKey
+            senderScriptPubKey: senderScriptPubKey,
+            feeOverride: feeOverride
         )
         let selectedUtxos = selection.utxos
         let outputAmount = selection.totalInput - selection.fee
@@ -118,7 +129,8 @@ struct KasiaTransactionBuilder {
         channel: String,
         content: String,
         senderPrivateKey: Data,
-        utxos: [UTXO]
+        utxos: [UTXO],
+        feeOverride: UInt64? = nil
     ) throws -> KaspaRpcTransaction {
         let payload = buildBroadcastPayload(channel: channel, content: content)
 
@@ -129,7 +141,8 @@ struct KasiaTransactionBuilder {
         let selection = try selectUtxosForContextualMessage(
             utxos: utxos,
             payload: payload,
-            senderScriptPubKey: senderScriptPubKey
+            senderScriptPubKey: senderScriptPubKey,
+            feeOverride: feeOverride
         )
         let selectedUtxos = selection.utxos
         let outputAmount = selection.totalInput - selection.fee
@@ -171,6 +184,65 @@ struct KasiaTransactionBuilder {
     /// Build the plaintext broadcast payload: ciph_msg:1:bcast:<channel>:<content>
     static func buildBroadcastPayload(channel: String, content: String) -> Data {
         Data("ciph_msg:1:bcast:\(channel):\(content)".utf8)
+    }
+
+    /// Build a group chat message (`gcomm`) or control (`gctl`) transaction. Same self-stash
+    /// shape as a broadcast/contextual message - the payload string is fully built ahead of time
+    /// by GroupChatService/GroupCipher, this just wraps it in a signed tx.
+    static func buildGroupPayloadTx(
+        from senderAddress: String,
+        payloadString: String,
+        senderPrivateKey: Data,
+        utxos: [UTXO],
+        feeOverride: UInt64? = nil
+    ) throws -> KaspaRpcTransaction {
+        let payload = Data(payloadString.utf8)
+
+        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: senderAddress) else {
+            throw KasiaError.invalidAddress
+        }
+
+        let selection = try selectUtxosForContextualMessage(
+            utxos: utxos,
+            payload: payload,
+            senderScriptPubKey: senderScriptPubKey,
+            feeOverride: feeOverride
+        )
+        let selectedUtxos = selection.utxos
+        let outputAmount = selection.totalInput - selection.fee
+
+        let outputs = [KaspaRpcTransactionOutput(
+            value: outputAmount,
+            scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
+        )]
+
+        let unsignedTx = KaspaRpcTransaction(
+            version: 0,
+            inputs: selectedUtxos.map { utxo in
+                KaspaRpcTransactionInput(
+                    previousOutpoint: utxo.outpoint,
+                    signatureScript: Data(),
+                    sequence: 0,
+                    sigOpCount: 1
+                )
+            },
+            outputs: outputs,
+            lockTime: 0,
+            subnetworkId: standardSubnetworkId,
+            gas: 0,
+            payload: payload
+        )
+
+        return try signTransaction(unsignedTx, privateKey: senderPrivateKey, utxos: selectedUtxos)
+    }
+
+    /// Estimate fee for a group message (compose-bar fee preview)
+    static func estimateGroupPayloadFee(payload: Data, inputCount: Int, senderScriptPubKey: Data) -> UInt64 {
+        let output = KaspaRpcTransactionOutput(
+            value: 0,
+            scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
+        )
+        return estimateFee(payload: payload, inputCount: inputCount, outputs: [output]) + 3
     }
 
     /// Parse a decoded transaction payload string back into (channel, content).
@@ -241,7 +313,8 @@ struct KasiaTransactionBuilder {
         note: String,
         senderPrivateKey: Data,
         recipientPublicKey: Data,
-        utxos: [UTXO]
+        utxos: [UTXO],
+        changeAddress: String? = nil
     ) throws -> KaspaRpcTransaction {
         guard amount > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
@@ -266,6 +339,19 @@ struct KasiaTransactionBuilder {
         }
         guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: senderAddress) else {
             throw KasiaError.invalidAddress
+        }
+        // A standard P2PK output script is the same size for any address, so which specific
+        // address change lands on doesn't affect fee estimation (selectUtxosForPayment below
+        // still sizes against senderScriptPubKey) - only which script the actual change output
+        // ends up using.
+        let changeScriptPubKey: Data
+        if let changeAddress {
+            guard let script = KaspaAddress.scriptPublicKey(from: changeAddress) else {
+                throw KasiaError.invalidAddress
+            }
+            changeScriptPubKey = script
+        } else {
+            changeScriptPubKey = senderScriptPubKey
         }
 
         let selection = try selectUtxosForPayment(
@@ -300,7 +386,7 @@ struct KasiaTransactionBuilder {
         if selection.change > dustThreshold {
             outputs.append(KaspaRpcTransactionOutput(
                 value: selection.change,
-                scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
+                scriptPublicKey: KaspaScriptPublicKey(version: 0, script: changeScriptPubKey)
             ))
         }
 
@@ -327,6 +413,236 @@ struct KasiaTransactionBuilder {
 
         let signedTx = try signTransaction(unsignedTx, privateKey: senderPrivateKey, utxos: selection.utxos)
         return signedTx
+    }
+
+    /// Build a plain KAS transfer transaction — no KaChat protocol payload, just a payment
+    /// to an arbitrary address (used by the Profile "Withdraw Kaspa" flow). Reuses the same
+    /// UTXO-selection/fee/signing machinery as buildPaymentTx, just without requiring a
+    /// recipient public key or attaching an encrypted payload.
+    static func buildPlainTransferTx(
+        from senderAddress: String,
+        to recipientAddress: String,
+        amount: UInt64,
+        senderPrivateKey: Data,
+        utxos: [UTXO],
+        manualUtxos: [UTXO]? = nil,
+        extraFeeSompi: UInt64 = 0,
+        changeAddress: String? = nil
+    ) throws -> KaspaRpcTransaction {
+        guard amount > 0 else {
+            throw KasiaError.networkError("Amount must be greater than zero")
+        }
+
+        guard let recipientScriptPubKey = KaspaAddress.scriptPublicKey(from: recipientAddress) else {
+            throw KasiaError.invalidAddress
+        }
+        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: senderAddress) else {
+            throw KasiaError.invalidAddress
+        }
+        // A standard P2PK output script is the same size for any address, so which specific
+        // address change lands on doesn't affect fee estimation — only which script the
+        // actual change output below uses.
+        let changeScriptPubKey: Data
+        if let changeAddress {
+            guard let script = KaspaAddress.scriptPublicKey(from: changeAddress) else {
+                throw KasiaError.invalidAddress
+            }
+            changeScriptPubKey = script
+        } else {
+            changeScriptPubKey = senderScriptPubKey
+        }
+
+        let selection: PaymentSelection
+        if let manualUtxos, !manualUtxos.isEmpty {
+            selection = try selectManualUtxosForPayment(
+                utxos: manualUtxos,
+                amount: amount,
+                payload: Data(),
+                recipientScriptPubKey: recipientScriptPubKey,
+                senderScriptPubKey: senderScriptPubKey,
+                extraFeeSompi: extraFeeSompi
+            )
+        } else {
+            selection = try selectUtxosForPayment(
+                utxos: utxos,
+                amount: amount,
+                payload: Data(),
+                recipientScriptPubKey: recipientScriptPubKey,
+                senderScriptPubKey: senderScriptPubKey,
+                extraFeeSompi: extraFeeSompi
+            )
+        }
+
+        var outputs: [KaspaRpcTransactionOutput] = [
+            KaspaRpcTransactionOutput(
+                value: amount,
+                scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)
+            )
+        ]
+        if selection.change > dustThreshold {
+            outputs.append(KaspaRpcTransactionOutput(
+                value: selection.change,
+                scriptPublicKey: KaspaScriptPublicKey(version: 0, script: changeScriptPubKey)
+            ))
+        }
+
+        let unsignedTx = KaspaRpcTransaction(
+            version: 0,
+            inputs: selection.utxos.map { utxo in
+                KaspaRpcTransactionInput(
+                    previousOutpoint: utxo.outpoint,
+                    signatureScript: Data(),
+                    sequence: 0,
+                    sigOpCount: 1
+                )
+            },
+            outputs: outputs,
+            lockTime: 0,
+            subnetworkId: standardSubnetworkId,
+            gas: 0,
+            payload: Data()
+        )
+
+        return try signTransaction(unsignedTx, privateKey: senderPrivateKey, utxos: selection.utxos)
+    }
+
+    /// Result of building (but not signing) a transfer — used for cold storage / watch-only
+    /// sends where no private key is available locally; signing happens on an external device
+    /// (KasSigner) via the KSPT QR round trip.
+    struct UnsignedTransferResult {
+        let transaction: KaspaRpcTransaction
+        /// Same order as transaction.inputs — needed since a RawInput alone (just an outpoint +
+        /// empty signatureScript) doesn't carry the amount/scriptPublicKey a signer needs.
+        let inputUtxos: [UTXO]
+        let feeSompi: UInt64
+        let changeSompi: UInt64
+    }
+
+    /// Same UTXO selection/fee logic as buildPlainTransferTx, but stops short of signing and
+    /// returns the unsigned transaction plus the UTXOs it spends. KasSigner's KSPT wire format
+    /// carries no BIP32 derivation path per input — the device presumably resolves a signing key
+    /// per input by matching its scriptPublicKey against its own derived address set, but
+    /// nothing in the format lets KaChat *tell* it which path to use. To stay unambiguous, every
+    /// input in a single send is sourced from exactly one address (the `from` address), never
+    /// aggregated across several.
+    static func buildUnsignedPlainTransferTx(
+        from senderAddress: String,
+        to recipientAddress: String,
+        amount: UInt64,
+        utxos: [UTXO],
+        extraFeeSompi: UInt64 = 0,
+        changeAddress: String? = nil
+    ) throws -> UnsignedTransferResult {
+        guard amount > 0 else {
+            throw KasiaError.networkError("Amount must be greater than zero")
+        }
+
+        guard let recipientScriptPubKey = KaspaAddress.scriptPublicKey(from: recipientAddress) else {
+            throw KasiaError.invalidAddress
+        }
+        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: senderAddress) else {
+            throw KasiaError.invalidAddress
+        }
+        let changeScriptPubKey: Data
+        if let changeAddress {
+            guard let script = KaspaAddress.scriptPublicKey(from: changeAddress) else {
+                throw KasiaError.invalidAddress
+            }
+            changeScriptPubKey = script
+        } else {
+            changeScriptPubKey = senderScriptPubKey
+        }
+
+        let selection = try selectUtxosForPayment(
+            utxos: utxos,
+            amount: amount,
+            payload: Data(),
+            recipientScriptPubKey: recipientScriptPubKey,
+            senderScriptPubKey: senderScriptPubKey,
+            extraFeeSompi: extraFeeSompi
+        )
+
+        var outputs: [KaspaRpcTransactionOutput] = [
+            KaspaRpcTransactionOutput(
+                value: amount,
+                scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)
+            )
+        ]
+        var changeSompi: UInt64 = 0
+        if selection.change > dustThreshold {
+            changeSompi = selection.change
+            outputs.append(KaspaRpcTransactionOutput(
+                value: selection.change,
+                scriptPublicKey: KaspaScriptPublicKey(version: 0, script: changeScriptPubKey)
+            ))
+        }
+
+        let unsignedTx = KaspaRpcTransaction(
+            version: 0,
+            inputs: selection.utxos.map { utxo in
+                KaspaRpcTransactionInput(
+                    previousOutpoint: utxo.outpoint,
+                    signatureScript: Data(),
+                    sequence: 0,
+                    sigOpCount: 1
+                )
+            },
+            outputs: outputs,
+            lockTime: 0,
+            subnetworkId: standardSubnetworkId,
+            gas: 0,
+            payload: Data()
+        )
+
+        let totalIn = try selection.utxos.reduce(UInt64(0)) { try addSompiChecked($0, $1.amount, context: "unsigned transfer total") }
+        let fee = totalIn - amount - changeSompi
+
+        return UnsignedTransferResult(
+            transaction: unsignedTx,
+            inputUtxos: selection.utxos,
+            feeSompi: fee,
+            changeSompi: changeSompi
+        )
+    }
+
+    /// Estimate fee for a plain transfer (no payload). `extraFeeSompi` is the same optional
+    /// priority tip accepted by buildPlainTransferTx, reflected here so the UI can show the
+    /// real total the user will pay before sending.
+    static func estimatePlainTransferFee(
+        utxos: [UTXO],
+        amount: UInt64,
+        recipientScriptPubKey: Data,
+        senderScriptPubKey: Data,
+        manualUtxos: [UTXO]? = nil,
+        extraFeeSompi: UInt64 = 0
+    ) throws -> UInt64 {
+        let selection: PaymentSelection
+        if let manualUtxos, !manualUtxos.isEmpty {
+            selection = try selectManualUtxosForPayment(
+                utxos: manualUtxos,
+                amount: amount,
+                payload: Data(),
+                recipientScriptPubKey: recipientScriptPubKey,
+                senderScriptPubKey: senderScriptPubKey,
+                extraFeeSompi: extraFeeSompi
+            )
+        } else {
+            selection = try selectUtxosForPayment(
+                utxos: utxos,
+                amount: amount,
+                payload: Data(),
+                recipientScriptPubKey: recipientScriptPubKey,
+                senderScriptPubKey: senderScriptPubKey,
+                extraFeeSompi: extraFeeSompi
+            )
+        }
+        var outputs: [KaspaRpcTransactionOutput] = [
+            KaspaRpcTransactionOutput(value: amount, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey))
+        ]
+        if selection.change > dustThreshold {
+            outputs.append(KaspaRpcTransactionOutput(value: selection.change, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)))
+        }
+        return estimateFee(payload: Data(), inputCount: selection.utxos.count, outputs: outputs) + extraFeeSompi
     }
 
     /// Estimate payment fee based on payload and utxo set
@@ -357,14 +673,23 @@ struct KasiaTransactionBuilder {
 
     /// Estimate fee for send-all transaction (all UTXOs, single output, no change)
     /// Uses 2 outputs in calculation to be conservative (matches selectUtxosForPayment behavior)
-    static func estimateSendAllFee(utxos: [UTXO], payload: Data, recipientScriptPubKey: Data, senderScriptPubKey: Data) -> UInt64 {
-        let spendable = utxos.filter { !$0.isCoinbase }
+    static func estimateSendAllFee(
+        utxos: [UTXO],
+        payload: Data,
+        recipientScriptPubKey: Data,
+        senderScriptPubKey: Data,
+        manualUtxos: [UTXO]? = nil,
+        extraFeeSompi: UInt64 = 0
+    ) -> UInt64 {
+        // With coin control active, "max" means "max spendable from the selected UTXOs", not
+        // from the whole address - use exactly the manual set instead of every spendable UTXO.
+        let spendable = (manualUtxos?.isEmpty == false ? manualUtxos! : utxos).filter { !$0.isCoinbase }
         // Calculate with 2 outputs to match selectUtxosForPayment which always estimates with change first
         let outputs = [
             KaspaRpcTransactionOutput(value: 0, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)),
             KaspaRpcTransactionOutput(value: 0, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey))
         ]
-        return estimateFee(payload: payload, inputCount: spendable.count, outputs: outputs) + 3
+        return estimateFee(payload: payload, inputCount: spendable.count, outputs: outputs) + 3 + extraFeeSompi
     }
 
     /// Build the contextual message payload used by Kasia transactions
@@ -584,10 +909,17 @@ struct KasiaTransactionBuilder {
         let commitOutputIndex: UInt32
     }
 
-    /// Build commit transaction for a KNS `addProfile` inscription.
+    /// Build commit transaction for a KNS `addProfile` inscription. `ownerAddress`'s pubkey
+    /// is embedded in the redeem script — that's what the KNS indexer treats as the
+    /// domain/profile's owner. `fundingAddress`/`fundingPrivateKey` only pay for the commit
+    /// output (UTXO inputs, change) and sign this transaction; they never touch ownership.
+    /// Matches Android's buildAndSubmitCommit(fundingAddress:fundingPrivateKey:ownerPrivateKey:)
+    /// split, letting a spending address fund domain/profile writes while the identity
+    /// address remains the resolved owner.
     static func buildKNSAddProfileCommitTx(
-        from senderAddress: String,
-        senderPrivateKey: Data,
+        ownerAddress: String,
+        fundingAddress: String,
+        fundingPrivateKey: Data,
         payloadJSON: Data,
         utxos: [UTXO],
         title: String = "kns",
@@ -598,18 +930,18 @@ struct KasiaTransactionBuilder {
             throw KasiaError.networkError("KNS commit amount must be positive")
         }
 
-        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: senderAddress) else {
+        guard let fundingScriptPubKey = KaspaAddress.scriptPublicKey(from: fundingAddress) else {
             throw KasiaError.invalidAddress
         }
 
         let redeemScript = try buildKNSRedeemScript(
-            walletAddress: senderAddress,
+            walletAddress: ownerAddress,
             title: title,
             payloadJSON: payloadJSON
         )
         let commitAddress = try makeKNSCommitAddress(
             redeemScript: redeemScript,
-            walletAddress: senderAddress
+            walletAddress: ownerAddress
         )
         guard let commitScriptPubKey = KaspaAddress.scriptPublicKey(from: commitAddress) else {
             throw KasiaError.invalidAddress
@@ -620,7 +952,7 @@ struct KasiaTransactionBuilder {
             amount: commitAmountSompi,
             payload: Data(),
             recipientScriptPubKey: commitScriptPubKey,
-            senderScriptPubKey: senderScriptPubKey
+            senderScriptPubKey: fundingScriptPubKey
         )
 
         var outputs: [KaspaRpcTransactionOutput] = [
@@ -633,7 +965,7 @@ struct KasiaTransactionBuilder {
             outputs.append(
                 KaspaRpcTransactionOutput(
                     value: selection.change,
-                    scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
+                    scriptPublicKey: KaspaScriptPublicKey(version: 0, script: fundingScriptPubKey)
                 )
             )
         }
@@ -654,7 +986,7 @@ struct KasiaTransactionBuilder {
             gas: 0,
             payload: Data()
         )
-        let signedTx = try signTransaction(unsignedTx, privateKey: senderPrivateKey, utxos: selection.utxos)
+        let signedTx = try signTransaction(unsignedTx, privateKey: fundingPrivateKey, utxos: selection.utxos)
         let context = KNSCommitContext(
             redeemScript: redeemScript,
             commitAddress: commitAddress,
@@ -666,21 +998,27 @@ struct KasiaTransactionBuilder {
         return (signedTx, context)
     }
 
-    /// Build reveal transaction that spends the commit output and reveals KNS data.
+    /// Build reveal transaction that spends the commit output and reveals KNS data. The
+    /// commit output's redeem script requires a signature from `ownerAddress`'s key (the
+    /// identity address — see buildKNSAddProfileCommitTx), so `ownerPrivateKey` must always
+    /// be that key regardless of which address funded the commit. `changeAddress` is where
+    /// any leftover value (commit amount minus reveal amount minus fee) lands — pass the
+    /// funding/spending address here so leftover value returns to spending, not identity.
     static func buildKNSAddProfileRevealTx(
-        walletAddress: String,
-        senderPrivateKey: Data,
+        ownerAddress: String,
+        ownerPrivateKey: Data,
+        changeAddress: String,
         commitTxId: String,
         commitContext: KNSCommitContext,
         revealTargetAddress: String? = nil,
         revealPriorityFeeSompi: UInt64 = 2_000_000
     ) throws -> KaspaRpcTransaction {
-        let targetAddress = revealTargetAddress ?? walletAddress
+        let targetAddress = revealTargetAddress ?? ownerAddress
 
         guard let targetScriptPubKey = KaspaAddress.scriptPublicKey(from: targetAddress) else {
             throw KasiaError.invalidAddress
         }
-        guard let changeScriptPubKey = KaspaAddress.scriptPublicKey(from: walletAddress) else {
+        guard let changeScriptPubKey = KaspaAddress.scriptPublicKey(from: changeAddress) else {
             throw KasiaError.invalidAddress
         }
 
@@ -769,7 +1107,7 @@ struct KasiaTransactionBuilder {
 
         return try signKNSRevealTransaction(
             unsignedTx,
-            privateKey: senderPrivateKey,
+            privateKey: ownerPrivateKey,
             utxoScriptPubKey: commitContext.commitScriptPubKey,
             redeemScript: commitContext.redeemScript,
             commitAmountSompi: commitContext.commitAmountSompi
@@ -883,7 +1221,8 @@ struct KasiaTransactionBuilder {
     private static func selectUtxosForContextualMessage(
         utxos: [UTXO],
         payload: Data,
-        senderScriptPubKey: Data
+        senderScriptPubKey: Data,
+        feeOverride: UInt64? = nil
     ) throws -> ContextualSelection {
         let spendable = utxos.filter { !$0.isCoinbase }
         let pending = spendable
@@ -899,8 +1238,14 @@ struct KasiaTransactionBuilder {
             scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
         )
 
+        // A user-set fee (see ChatDetailView/BroadcastChannelView/GroupChatDetailView's tappable
+        // fee pill) always wins over the computed estimate, regardless of input count.
+        let feeFor: (Int) -> UInt64 = { inputCount in
+            feeOverride ?? (estimateFee(payload: payload, inputCount: inputCount, outputs: [outputTemplate]) + 3)
+        }
+
         // Prefer chaining on a single pending self-change UTXO when it can cover fee+dust.
-        let singleInputFee = estimateFee(payload: payload, inputCount: 1, outputs: [outputTemplate]) + 3
+        let singleInputFee = feeFor(1)
         if let pendingSingle = pending.first(where: { $0.amount > singleInputFee && ($0.amount - singleInputFee) > dustThreshold }) {
             return ContextualSelection(utxos: [pendingSingle], totalInput: pendingSingle.amount, fee: singleInputFee)
         }
@@ -926,8 +1271,7 @@ struct KasiaTransactionBuilder {
             selected.append(utxo)
             total = try addSompiChecked(total, utxo.amount, context: "contextual selection")
 
-            // Add a tiny constant to avoid under-fee rejection (observed 3-sompi gap)
-            let fee = estimateFee(payload: payload, inputCount: selected.count, outputs: [outputTemplate]) + 3
+            let fee = feeFor(selected.count)
             guard total > fee else { continue }
 
             let outputAmount = total - fee
@@ -939,13 +1283,16 @@ struct KasiaTransactionBuilder {
         throw KasiaError.networkError("Insufficient funds after fee")
     }
 
-    /// Select minimal UTXOs to cover payment and fee
+    /// Select minimal UTXOs to cover payment and fee. `extraFeeSompi` is an optional
+    /// priority tip added on top of the computed minimum-standard fee, for callers that let
+    /// the user pay more during network congestion (e.g. the Withdraw Kaspa fee selector).
     private static func selectUtxosForPayment(
         utxos: [UTXO],
         amount: UInt64,
         payload: Data,
         recipientScriptPubKey: Data,
-        senderScriptPubKey: Data
+        senderScriptPubKey: Data,
+        extraFeeSompi: UInt64 = 0
     ) throws -> PaymentSelection {
         // Sort largest first to reduce input count (lower mass)
         let sorted = utxos.sorted { $0.amount > $1.amount }
@@ -962,7 +1309,7 @@ struct KasiaTransactionBuilder {
                 scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)
             )
 
-            // Estimate with change output (+ buffer to avoid under-fee rejection)
+            // Estimate with change output (+ buffer to avoid under-fee rejection, + priority tip)
             let feeWithChange = estimateFee(
                 payload: payload,
                 inputCount: selected.count,
@@ -970,7 +1317,7 @@ struct KasiaTransactionBuilder {
                     recipientOutput,
                     KaspaRpcTransactionOutput(value: 0, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey))
                 ]
-            ) + 3
+            ) + 3 + extraFeeSompi
 
             if total <= amount || total - amount < feeWithChange {
                 continue
@@ -981,12 +1328,61 @@ struct KasiaTransactionBuilder {
                 return PaymentSelection(utxos: selected, change: change)
             }
 
-            // Try without change (treat dust as fee, + buffer)
-            let feeNoChange = estimateFee(payload: payload, inputCount: selected.count, outputs: [recipientOutput]) + 3
+            // Try without change (treat dust as fee, + buffer, + priority tip)
+            let feeNoChange = estimateFee(payload: payload, inputCount: selected.count, outputs: [recipientOutput]) + 3 + extraFeeSompi
             if total > amount && total - amount >= feeNoChange {
                 change = total - amount - feeNoChange
                 return PaymentSelection(utxos: selected, change: change)
             }
+        }
+
+        throw KasiaError.networkError("Insufficient funds for payment")
+    }
+
+    /// Coin-control counterpart to `selectUtxosForPayment` - uses exactly the given `utxos` as
+    /// the transaction's input set (no incremental growth/sorting) rather than greedily picking
+    /// a subset, since the whole point of coin control is letting the caller fix which specific
+    /// inputs a send spends. Same "with change, else without change, else fail" fee logic as the
+    /// greedy selector, just evaluated once against the fixed set instead of per candidate added.
+    private static func selectManualUtxosForPayment(
+        utxos: [UTXO],
+        amount: UInt64,
+        payload: Data,
+        recipientScriptPubKey: Data,
+        senderScriptPubKey: Data,
+        extraFeeSompi: UInt64 = 0
+    ) throws -> PaymentSelection {
+        let usable = utxos.filter { !$0.isCoinbase }
+        guard !usable.isEmpty else {
+            throw KasiaError.networkError("Insufficient funds for payment")
+        }
+        let total = try usable.reduce(UInt64(0)) { try addSompiChecked($0, $1.amount, context: "manual payment selection") }
+
+        let recipientOutput = KaspaRpcTransactionOutput(
+            value: amount,
+            scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)
+        )
+
+        let feeWithChange = estimateFee(
+            payload: payload,
+            inputCount: usable.count,
+            outputs: [
+                recipientOutput,
+                KaspaRpcTransactionOutput(value: 0, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey))
+            ]
+        ) + 3 + extraFeeSompi
+
+        if total > amount, total - amount >= feeWithChange {
+            let change = total - amount - feeWithChange
+            if change > dustThreshold {
+                return PaymentSelection(utxos: usable, change: change)
+            }
+        }
+
+        // Try without change (treat dust/leftover as fee, + buffer, + priority tip)
+        let feeNoChange = estimateFee(payload: payload, inputCount: usable.count, outputs: [recipientOutput]) + 3 + extraFeeSompi
+        if total > amount, total - amount >= feeNoChange {
+            return PaymentSelection(utxos: usable, change: total - amount - feeNoChange)
         }
 
         throw KasiaError.networkError("Insufficient funds for payment")
