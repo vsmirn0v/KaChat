@@ -1402,6 +1402,12 @@ struct AppSettings: Codable {
     var chatPhotoQualityPreset: ChatPhotoQualityPreset
     var requirePhotoApprovalForNewContacts: Bool
     var showFeeEstimate: Bool
+    /// Optional (unlike most fields here) - this struct has no custom `init(from:)`, so a newly
+    /// added *required* field would fail this whole struct's decode for anyone with a
+    /// pre-existing settings blob saved before it existed, silently resetting every other setting
+    /// back to `.default` (see `AppSettings.load()`'s `try?`). Nil/wrong-count means "never
+    /// customized" - read via `effectiveQuickReactionEmojis`, never this raw property directly.
+    var quickReactionEmojis: [String]?
 
     // Customization
     var appearance: AppAppearance
@@ -1472,6 +1478,20 @@ struct AppSettings: Codable {
     /// instead) - TLS-secured, hence the `grpcs://` scheme (see Endpoint.secure/Endpoint(url:)).
     static let defaultTrustedNodeAddress = "grpcs://toccata.kaspium.io"
 
+    /// Fixed tapback-style default set - matches Android's `QUICK_REACTION_EMOJIS`'s default.
+    static let defaultQuickReactionEmojis = ["👍", "❤️", "😂", "😮", "😢", "🙏"]
+
+    /// What the double-tap quick-reaction bar should actually show - falls back to the default
+    /// set if never customized, or if a customization somehow ended up with the wrong count
+    /// (the settings UI only ever writes exactly 6, but this stays defensive against any other
+    /// path that might not).
+    var effectiveQuickReactionEmojis: [String] {
+        guard let quickReactionEmojis, quickReactionEmojis.count == 6 else {
+            return AppSettings.defaultQuickReactionEmojis
+        }
+        return quickReactionEmojis
+    }
+
     static func defaultKNSURL(for network: NetworkType) -> String {
         network == .mainnet ? defaultKNSMainnetURL : defaultKNSTestnetURL
     }
@@ -1497,6 +1517,7 @@ struct AppSettings: Codable {
             chatPhotoQualityPreset: .default,
             requirePhotoApprovalForNewContacts: true,
             showFeeEstimate: true,
+            quickReactionEmojis: defaultQuickReactionEmojis,
             appearance: .system,
             language: .system,
             currency: .usDollar,
@@ -1539,6 +1560,7 @@ struct AppSettings: Codable {
         case chatPhotoQualityPreset
         case requirePhotoApprovalForNewContacts
         case showFeeEstimate
+        case quickReactionEmojis
         case appearance
         case language
         case currency
@@ -1589,6 +1611,7 @@ struct AppSettings: Codable {
         chatPhotoQualityPreset: ChatPhotoQualityPreset = .default,
         requirePhotoApprovalForNewContacts: Bool = true,
         showFeeEstimate: Bool = true,
+        quickReactionEmojis: [String]? = nil,
         appearance: AppAppearance = .system,
         language: AppLanguage = .system,
         currency: AppCurrency = .usDollar,
@@ -1629,6 +1652,7 @@ struct AppSettings: Codable {
         self.chatPhotoQualityPreset = chatPhotoQualityPreset
         self.requirePhotoApprovalForNewContacts = requirePhotoApprovalForNewContacts
         self.showFeeEstimate = showFeeEstimate
+        self.quickReactionEmojis = quickReactionEmojis
         self.appearance = appearance
         self.language = language
         self.currency = currency
@@ -1696,6 +1720,7 @@ struct AppSettings: Codable {
         ) ?? .default
         requirePhotoApprovalForNewContacts = try container.decodeIfPresent(Bool.self, forKey: .requirePhotoApprovalForNewContacts) ?? true
         showFeeEstimate = try container.decodeIfPresent(Bool.self, forKey: .showFeeEstimate) ?? true
+        quickReactionEmojis = try container.decodeIfPresent([String].self, forKey: .quickReactionEmojis)
         appearance = try container.decodeIfPresent(AppAppearance.self, forKey: .appearance) ?? .system
         language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .system
         currency = try container.decodeIfPresent(AppCurrency.self, forKey: .currency) ?? .usDollar
@@ -1762,6 +1787,7 @@ struct AppSettings: Codable {
         try container.encode(chatPhotoQualityPreset, forKey: .chatPhotoQualityPreset)
         try container.encode(requirePhotoApprovalForNewContacts, forKey: .requirePhotoApprovalForNewContacts)
         try container.encode(showFeeEstimate, forKey: .showFeeEstimate)
+        try container.encodeIfPresent(quickReactionEmojis, forKey: .quickReactionEmojis)
         try container.encode(appearance, forKey: .appearance)
         try container.encode(language, forKey: .language)
         try container.encode(currency, forKey: .currency)

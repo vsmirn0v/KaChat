@@ -2030,7 +2030,9 @@ private struct ColdStorageAddressTransactionHistoryView: View {
 
     private func loadTransactions() async {
         isLoading = true
-        transactions = await ChatService.shared.fetchFullTransactionsPaginated(for: entry.address, pageSize: 50, maxTransactions: 200)
+        // Confirmed live against api.kaspa.org that limit=500 works fine in a single call
+        // (~0.7s) - cuts this from up to 4 sequential round trips down to 1.
+        transactions = await ChatService.shared.fetchFullTransactionsPaginated(for: entry.address, pageSize: 200, maxTransactions: 200)
         isLoading = false
     }
 

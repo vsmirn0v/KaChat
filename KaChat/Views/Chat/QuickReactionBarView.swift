@@ -1,21 +1,20 @@
 import SwiftUI
 
-/// Fixed tapback-style set, not a full emoji keyboard - keeps this identical on iOS/Android (see
-/// Android's matching `QUICK_REACTION_EMOJIS`).
-let quickReactionEmojis = ["👍", "❤️", "😂", "😮", "😢", "🙏"]
-
 /// The popup shown when a message bubble is double-tapped: a row of common emoji to react with,
 /// plus a reply shortcut in the corner - replaces the old behavior where double-tap jumped
 /// straight into reply mode, giving an explicit choice between reacting and replying instead.
-/// Matches Android's `QuickReactionBar`.
+/// Matches Android's `QuickReactionBar`. `emojis` is caller-supplied (rather than a fixed global
+/// constant) so it reflects the user's Settings > Chats > Quick Reactions customization -
+/// defaults to `AppSettings.defaultQuickReactionEmojis` if a caller doesn't have settings handy.
 struct QuickReactionBarView: View {
+    var emojis: [String] = AppSettings.defaultQuickReactionEmojis
     let onReact: (String) -> Void
     let onReply: () -> Void
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 8) {
             HStack(spacing: 10) {
-                ForEach(quickReactionEmojis, id: \.self) { emoji in
+                ForEach(emojis, id: \.self) { emoji in
                     Button {
                         onReact(emoji)
                     } label: {

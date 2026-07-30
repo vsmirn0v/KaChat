@@ -53,6 +53,11 @@ final class ChatService: ObservableObject {
     /// incoming-reaction interception in `addMessageToConversation` applying updates directly,
     /// rather than a Core Data change-notification round trip for every update.
     @Published var reactionsByTxId: [String: [MessageStore.ReactionSnapshot]] = [:]
+    /// Newest reaction per contact, across every message in that conversation - not scoped to
+    /// whichever single conversation is currently open (unlike `reactionsByTxId`), since the chat
+    /// list needs this for every row at once. Refreshed by `refreshLatestReactionPreviews()`; see
+    /// `ChatListView`'s `ConversationRow` for where it's compared against `lastMessage.timestamp`.
+    @Published var latestReactionByContact: [String: MessageStore.LatestReactionPreview] = [:]
     var settingsViewModel: SettingsViewModel?
     var cachedSettings = SettingsViewModel.loadSettings()
     @Published var activeConversationAddress: String?
@@ -364,6 +369,19 @@ final class ChatService: ObservableObject {
         migrateLegacyMessagesIfNeeded()
         Task { @MainActor [weak self] in
             await self?.loadMessagesFromStoreIfNeeded(onlyIfEmpty: true)
+            // One-time retroactive fix for messages stuck as "📤 Sent via another device"
+            // placeholders that were actually reactions, not real messages, from before
+            // `isKnownReaction`'s guards existed - see MessageStore.deleteStuckReactionPlaceholderMessages.
+            // The Core Data rows are already gone; also drop them from the in-memory
+            // conversations array already loaded above, so the UI doesn't keep showing them
+            // until the next full reload.
+            guard let self else { return }
+            let deletedTxIds = self.messageStore.deleteStuckReactionPlaceholderMessages()
+            guard !deletedTxIds.isEmpty else { return }
+            let deletedSet = Set(deletedTxIds)
+            for index in self.conversations.indices {
+                self.conversations[index].messages.removeAll { deletedSet.contains($0.txId) }
+            }
         }
         loadMessageDrafts()
         loadConversationAliases()

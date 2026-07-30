@@ -901,8 +901,9 @@ private struct SwapAddressPickerView: View {
 }
 
 /// Ticker -> `Assets.xcassets` imageset name for coins with real brand art (sourced from the
-/// Tangem wallet app's bundled network logos). Tickers not listed here (xmr, zec, usdt) have no
-/// available art and fall back to the plain ticker-text circle.
+/// Tangem wallet app's bundled network logos, via its own remote icon CDN -
+/// `s3.eu-central-1.amazonaws.com/tangem.api/coins/large/{coingecko-id}.png`). Tickers not listed
+/// here have no available art and fall back to the plain ticker-text circle.
 private let swapCoinLogoAssetNames: [String: String] = [
     "btc": "CoinBtc",
     "eth": "CoinEth",
@@ -916,7 +917,10 @@ private let swapCoinLogoAssetNames: [String: String] = [
     "ada": "CoinAda",
     "bch": "CoinBch",
     "etc": "CoinEtc",
-    "usdc": "CoinUsdc"
+    "usdc": "CoinUsdc",
+    "usdt": "CoinUsdt",
+    "zec": "CoinZec",
+    "xmr": "CoinXmr"
 ]
 
 /// KAS and the tickers in `swapCoinLogoAssetNames` get their real brand marks; everything else

@@ -203,6 +203,19 @@ final class GroupStore {
         }
     }
 
+    /// Deletes a specific message by txId, local-only - mirrors `MessageStore.deleteMessage(txId:)`.
+    func deleteMessage(txId: String) {
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDGroupMessage>(entityName: CDGroupMessage.entityName)
+            request.predicate = NSPredicate(format: "txId == %@", txId)
+            request.fetchLimit = 1
+            guard let message = (try? context.fetch(request))?.first else { return }
+            context.delete(message)
+            save(context)
+        }
+    }
+
     func markMessageFailed(pendingId: String) {
         let context = viewContext
         context.performAndWait {

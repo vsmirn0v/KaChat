@@ -24,7 +24,15 @@ struct DesktopEmojiPickerView: View {
             emojiGrid
         }
         .padding(12)
+        #if targetEnvironment(macCatalyst)
+        // Fixed size for the Catalyst composer's `.popover` presentation (its only caller until
+        // Settings > Chats > Quick Reactions started reusing this view on iPhone/iPad too, where
+        // a fixed 420pt width would overflow a narrower sheet - `.frame(maxWidth: .infinity)`
+        // there instead lets it fill whatever sheet/container it's placed in).
         .frame(width: 420, height: 360)
+        #else
+        .frame(maxWidth: .infinity, minHeight: 320, maxHeight: 420)
+        #endif
     }
 
     private var categoryBar: some View {

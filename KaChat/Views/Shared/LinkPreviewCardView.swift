@@ -17,16 +17,20 @@ struct LinkPreviewCardView: View {
     /// when used alongside a real text bubble, where showing nothing on failure is correct since
     /// the message's own text is already visible.
     var fallbackText: String?
+    /// Enters the chat's message multi-select mode with this message pre-selected - nil disables
+    /// the "Select" context-menu action entirely, matching every other bubble type's convention.
+    var onSelect: (() -> Void)?
 
     @State private var preview: LinkPreviewData?
     @State private var hasFinishedLoading: Bool
     @Environment(\.openURL) private var openURL
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
 
-    init(url: URL, txId: String, fallbackText: String? = nil) {
+    init(url: URL, txId: String, fallbackText: String? = nil, onSelect: (() -> Void)? = nil) {
         self.url = url
         self.txId = txId
         self.fallbackText = fallbackText
+        self.onSelect = onSelect
         // If this exact URL was already resolved earlier (e.g. scrolled past once already, or
         // another row with the same link), seed state with the final result immediately instead
         // of starting in the "loading" state and waiting for `.task` to come back - avoids a
@@ -173,6 +177,13 @@ struct LinkPreviewCardView: View {
         if let explorerURL = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
             Link(destination: explorerURL) {
                 Label("View in Explorer", systemImage: "safari")
+            }
+        }
+        if let onSelect {
+            Button {
+                onSelect()
+            } label: {
+                Label("Select", systemImage: "checkmark.circle")
             }
         }
     }

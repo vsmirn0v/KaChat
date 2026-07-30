@@ -53,6 +53,11 @@ struct GroupChatDetailView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @State private var draft = ""
     @State private var showInfo = false
+    /// Local-only multi-select for deleting individual messages (never the whole group - see
+    /// `GroupChatInfoView`'s delete for that) - toggled from the toolbar's "Select" button.
+    @State private var isSelectingMessages = false
+    @State private var selectedMessageIDs: Set<String> = []
+    @State private var showDeleteMessagesConfirmation = false
     @State private var errorMessage: String?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
@@ -193,45 +198,17 @@ struct GroupChatDetailView: View {
                             case .daySeparator(let day):
                                 daySeparator(day)
                             case .message(let message):
-                                GroupMessageBubbleRow(
-                                    message: message,
-                                    group: group,
-                                    avatarURLString: message.senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
-                                    senderDisplayName: message.senderAddress.map { $0 == myAddress ? "You" : displayName(for: $0) } ?? "Unknown",
-                                    myAvatarURLString: myAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
-                                    replySenderDisplayName: MessageReplyCodec.parse(message.content).map { replyDisplayName(for: $0.replyToSender) },
-                                    onCopy: showToast,
-                                    onViewProfile: viewProfile,
-                                    onOpenChat: { openChat(with: $0) },
-                                    onPayInKaspa: { openChat(with: $0, paymentMode: true) },
-                                    onCopyAddress: copyAddress,
-                                    onHideSender: { hideSender($0) },
-                                    onMuteSender: { muteSender($0) },
-                                    onRetry: { retry(message) },
-                                    onReply: { groupChatService.startReplyTo(message) },
-                                    reactions: groupChatService.reactionsByGroupId[group.id]?[message.txId] ?? [],
-                                    onReact: { emoji in
-                                        let existing = groupChatService.reactionsByGroupId[group.id]?[message.txId]?.first { $0.reactorAddress == myAddress }
-                                        let action = existing?.emoji == emoji ? "remove" : "add"
-                                        Task {
-                                            try? await groupChatService.sendGroupReaction(targetTxId: message.txId, groupId: group.id, emoji: emoji, action: action)
-                                        }
-                                    },
-                                    activeQuickReactionMessageId: $activeQuickReactionMessageId,
-                                    onJumpToReply: { pendingJumpToTxId = $0 },
-                                    revealOffset: revealOffset,
-                                    maxRevealOffset: maxRevealOffset
-                                )
-                                .id(message.id)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(highlightedMessageID == message.id ? Color.accentColor.opacity(0.18) : Color.clear)
-                                )
-                                .task(id: message.senderAddress) {
-                                    guard let address = message.senderAddress, address != myAddress,
-                                          knsService.profileCache[address] == nil else { return }
-                                    _ = await knsService.fetchProfile(for: address)
-                                }
+                                groupMessageRow(message)
+                                    .id(message.id)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(highlightedMessageID == message.id ? Color.accentColor.opacity(0.18) : Color.clear)
+                                    )
+                                    .task(id: message.senderAddress) {
+                                        guard let address = message.senderAddress, address != myAddress,
+                                              knsService.profileCache[address] == nil else { return }
+                                        _ = await knsService.fetchProfile(for: address)
+                                    }
                             }
                         }
                         // Debounced rather than setting `isBottomAnchorVisible` directly, matching
@@ -349,13 +326,48 @@ struct GroupChatDetailView: View {
             ToolbarItem(placement: .navigationBarLeading) {
                 ConnectionStatusIndicator()
             }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showInfo = true
-                } label: {
-                    Image(systemName: "info.circle")
+            if !isSelectingMessages {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showInfo = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }
                 }
             }
+            // Entry point into select mode is a message's long-press "Select" menu item (see
+            // `enterSelectMode(with:)`), not a toolbar button - this only ever shows Cancel/Delete
+            // once already selecting.
+            if isSelectingMessages {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack(spacing: 16) {
+                        Button("Cancel") {
+                            isSelectingMessages = false
+                            selectedMessageIDs = []
+                        }
+                        Button {
+                            showDeleteMessagesConfirmation = true
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .foregroundColor(.red)
+                        .disabled(selectedMessageIDs.isEmpty)
+                    }
+                }
+            }
+        }
+        .alert(
+            deleteMessagesAlertTitle,
+            isPresented: $showDeleteMessagesConfirmation
+        ) {
+            Button("Delete", role: .destructive) {
+                groupChatService.deleteMessages(selectedMessageIDs, groupId: group.id)
+                isSelectingMessages = false
+                selectedMessageIDs = []
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This only deletes the message from this device - other members still have their own copy, and the encrypted transaction remains permanently on the Kaspa blockchain, visible to anyone but unreadable without your keys. This cannot be undone.")
         }
         .sheet(isPresented: $showInfo) {
             GroupChatInfoView(group: group, onDeleted: {
@@ -1182,6 +1194,87 @@ struct GroupChatDetailView: View {
 
     /// "Today"/"Yesterday"/date pill between message groups - visually identical to 1:1 chat's
     /// `ChatDetailView.daySeparator(_:)`.
+    /// Built as its own function (rather than inlined in the `ForEach`'s switch case) so the type
+    /// checker isn't solving this already-huge multi-argument `GroupMessageBubbleRow` call
+    /// *together* with the selection-overlay's conditional content in one expression - matches
+    /// 1:1 chat's identical `messageRow`/`selectionOverlay` split in `ChatDetailView.swift`, which
+    /// fixed the same "unable to type-check in reasonable time" once the overlay was added there.
+    private func groupMessageRow(_ message: GroupMessage) -> some View {
+        let bubble = GroupMessageBubbleRow(
+            message: message,
+            group: group,
+            avatarURLString: message.senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
+            senderDisplayName: message.senderAddress.map { $0 == myAddress ? "You" : displayName(for: $0) } ?? "Unknown",
+            myAvatarURLString: myAddress.flatMap { knsService.profileCache[$0]?.avatarURL },
+            replySenderDisplayName: MessageReplyCodec.parse(message.content).map { replyDisplayName(for: $0.replyToSender) },
+            onCopy: showToast,
+            onViewProfile: viewProfile,
+            onOpenChat: { openChat(with: $0) },
+            onPayInKaspa: { openChat(with: $0, paymentMode: true) },
+            onCopyAddress: copyAddress,
+            onHideSender: { hideSender($0) },
+            onMuteSender: { muteSender($0) },
+            onRetry: { retry(message) },
+            onReply: { groupChatService.startReplyTo(message) },
+            onSelect: { enterSelectMode(with: message.txId) },
+            reactions: groupChatService.reactionsByGroupId[group.id]?[message.txId] ?? [],
+            onReact: { emoji in
+                let existing = groupChatService.reactionsByGroupId[group.id]?[message.txId]?.first { $0.reactorAddress == myAddress }
+                let action = existing?.emoji == emoji ? "remove" : "add"
+                Task {
+                    try? await groupChatService.sendGroupReaction(targetTxId: message.txId, groupId: group.id, emoji: emoji, action: action)
+                }
+            },
+            activeQuickReactionMessageId: $activeQuickReactionMessageId,
+            onJumpToReply: { pendingJumpToTxId = $0 },
+            revealOffset: revealOffset,
+            maxRevealOffset: maxRevealOffset
+        )
+        .allowsHitTesting(!isSelectingMessages)
+        .padding(.leading, isSelectingMessages ? 28 : 0)
+
+        return ZStack(alignment: .leading) {
+            bubble
+            groupSelectionOverlay(for: message.txId)
+        }
+    }
+
+    /// Entry point into select mode - triggered from a message's long-press "Select" menu item
+    /// (not a toolbar button), pre-selecting whichever message was long-pressed.
+    private func enterSelectMode(with txId: String) {
+        isSelectingMessages = true
+        selectedMessageIDs.insert(txId)
+    }
+
+    /// Pulled out of the `.alert(...)` call site as a plain computed property - an inline ternary
+    /// nested inside string interpolation there was making the compiler unable to type-check the
+    /// `.alert` expression in reasonable time (same fix as `ChatListView`'s bulk-delete alert).
+    private var deleteMessagesAlertTitle: String {
+        "Delete \(selectedMessageIDs.count) Message\(selectedMessageIDs.count == 1 ? "" : "s")?"
+    }
+
+    /// Selection-mode tap catcher + indicator, split out of `groupMessageRow` (see its own
+    /// comment) - disables the bubble's own gestures while selecting.
+    @ViewBuilder
+    private func groupSelectionOverlay(for txId: String) -> some View {
+        if isSelectingMessages {
+            HStack(spacing: 8) {
+                Image(systemName: selectedMessageIDs.contains(txId) ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(selectedMessageIDs.contains(txId) ? .accentColor : .secondary)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if selectedMessageIDs.contains(txId) {
+                    selectedMessageIDs.remove(txId)
+                } else {
+                    selectedMessageIDs.insert(txId)
+                }
+            }
+        }
+    }
+
     private func daySeparator(_ day: Date) -> some View {
         let isToday = MessageDaySeparatorFormatter.isToday(day)
         let label = MessageDaySeparatorFormatter.label(for: day)
@@ -1232,6 +1325,9 @@ private struct GroupMessageBubbleRow: View {
     let onMuteSender: (String) -> Void
     let onRetry: () -> Void
     let onReply: () -> Void
+    /// Enters the chat's message multi-select mode with this message pre-selected - nil disables
+    /// the "Select" context-menu action entirely (matches 1:1 chat's identical convention).
+    var onSelect: (() -> Void)? = nil
     /// This message's current reactions (one per reactor), for the pill shown on its corner.
     var reactions: [GroupStore.ReactionSnapshot] = []
     /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
@@ -1335,6 +1431,7 @@ private struct GroupMessageBubbleRow: View {
                 // ScrollView's own clipping instead of rendering cleanly above the row.
                 if showQuickReactionBar, let onReact {
                     QuickReactionBarView(
+                        emojis: settingsViewModel.settings.effectiveQuickReactionEmojis,
                         onReact: { emoji in
                             onReact(emoji)
                             activeQuickReactionMessageId.wrappedValue = nil
@@ -1372,7 +1469,8 @@ private struct GroupMessageBubbleRow: View {
                             onCopy: onCopy,
                             onRetry: shouldShowRetry ? { onRetry() } : nil,
                             onReply: onReply,
-                            onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil
+                            onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil,
+                            onSelect: onSelect
                         )
                     } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
                         LazyAudioBubble(
@@ -1383,7 +1481,8 @@ private struct GroupMessageBubbleRow: View {
                             txId: message.txId,
                             onCopy: onCopy,
                             onRetry: shouldShowRetry ? { onRetry() } : nil,
-                            onReply: onReply
+                            onReply: onReply,
+                            onSelect: onSelect
                         )
                         .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId.wrappedValue = message.id })
                     } else if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent), MessageTextRenderPlan.isEntirelyLink(displayContent) {
@@ -1391,7 +1490,7 @@ private struct GroupMessageBubbleRow: View {
                         // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
                         // keeps the raw link visible/tappable if no preview data is ever found,
                         // rather than the message rendering as nothing at all.
-                        LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayContent)
+                        LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayContent, onSelect: onSelect)
                     } else {
                         Group {
                             if MessageTextRenderPlan.requiresLinkTextView(displayContent) {
@@ -1439,6 +1538,13 @@ private struct GroupMessageBubbleRow: View {
                                     Label("Retry Send", systemImage: "arrow.clockwise")
                                 }
                             }
+                            if let onSelect {
+                                Button {
+                                    onSelect()
+                                } label: {
+                                    Label("Select", systemImage: "checkmark.circle")
+                                }
+                            }
                         }
                         .tint(.accentColor)
                         .confirmationDialog(
@@ -1471,7 +1577,7 @@ private struct GroupMessageBubbleRow: View {
                 if media == nil,
                    !MessageTextRenderPlan.isEntirelyLink(displayContent),
                    let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent) {
-                    LinkPreviewCardView(url: linkURL, txId: message.txId)
+                    LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect)
                 }
 
                 if message.isOutgoing {

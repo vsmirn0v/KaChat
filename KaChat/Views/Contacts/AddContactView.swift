@@ -35,7 +35,7 @@ struct AddContactView: View {
     /// Tapping a collapsed entry re-expands it; committing the expanded one via "Add Address"
     /// collapses it and expands a fresh blank entry in its place.
     @State private var editingGroupEntryID: UUID?
-    private static let maxGroupMembers = 10
+    private static let maxGroupMembers = 50
 
     /// One row in the group-member address list - supports both a raw Kaspa address and a KNS
     /// domain (resolved the same way the single-contact flow resolves `addressInput`).
@@ -543,6 +543,22 @@ struct AddContactView: View {
         return contactsManager.isValidKaspaAddress(entry.trimmedText)
     }
 
+    /// Lowercased effective addresses that appear more than once across all entries - catches the
+    /// same raw address typed twice, the same KNS domain typed twice, and two different KNS
+    /// domains that happen to resolve to the same owner address, so the same person can't end up
+    /// added to the group twice under a different-looking entry.
+    private var duplicateEffectiveAddresses: Set<String> {
+        let addresses = groupAddressEntries.compactMap { $0.effectiveAddress?.lowercased() }
+        var seen = Set<String>()
+        var duplicates = Set<String>()
+        for address in addresses {
+            if !seen.insert(address).inserted {
+                duplicates.insert(address)
+            }
+        }
+        return duplicates
+    }
+
     /// Commits the given entry (must already resolve to a valid address) and opens the next
     /// blank slot for editing, or collapses everything if the member cap is reached.
     private func commitGroupEntry(_ id: UUID) {
@@ -600,6 +616,14 @@ struct AddContactView: View {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundColor(.red)
                 Text(knsError)
+                    .font(.caption)
+                    .foregroundColor(.red)
+            }
+        } else if let effective = entry.effectiveAddress, duplicateEffectiveAddresses.contains(effective.lowercased()) {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.red)
+                Text("Already added to this group")
                     .font(.caption)
                     .foregroundColor(.red)
             }
@@ -688,7 +712,8 @@ struct AddContactView: View {
         guard !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let nonEmptyEntries = groupAddressEntries.filter { !$0.trimmedText.isEmpty }
         guard !nonEmptyEntries.isEmpty else { return false }
-        return nonEmptyEntries.allSatisfy(isValidGroupEntry)
+        guard nonEmptyEntries.allSatisfy(isValidGroupEntry) else { return false }
+        return duplicateEffectiveAddresses.isEmpty
     }
 
     private func createGroupChat() {
@@ -701,6 +726,10 @@ struct AddContactView: View {
         }
         guard !nonEmptyEntries.isEmpty else {
             error = "Add at least one address."
+            return
+        }
+        guard duplicateEffectiveAddresses.isEmpty else {
+            error = "The same address or KNS domain is added more than once."
             return
         }
         var addresses: [String] = []

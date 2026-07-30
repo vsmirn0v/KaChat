@@ -21,6 +21,9 @@ struct MessageBubbleView: View {
     let replyQuote: MessageReplyContent?
     let replySenderDisplayName: String?
     let onReply: (() -> Void)?
+    /// Enters the chat's message multi-select mode with this message pre-selected - nil disables
+    /// the "Select" context-menu action entirely (matches `onReply`'s nil-disables convention).
+    let onSelect: (() -> Void)?
     /// This message's current reactions (one per reactor), for the pill shown on its corner.
     var reactions: [MessageStore.ReactionSnapshot] = []
     /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
@@ -75,6 +78,7 @@ struct MessageBubbleView: View {
         replyQuote: MessageReplyContent? = nil,
         replySenderDisplayName: String? = nil,
         onReply: (() -> Void)? = nil,
+        onSelect: (() -> Void)? = nil,
         reactions: [MessageStore.ReactionSnapshot] = [],
         onReact: ((String) -> Void)? = nil,
         activeQuickReactionMessageId: Binding<UUID?> = .constant(nil),
@@ -98,6 +102,7 @@ struct MessageBubbleView: View {
         self.replyQuote = replyQuote
         self.replySenderDisplayName = replySenderDisplayName
         self.onReply = onReply
+        self.onSelect = onSelect
         self.reactions = reactions
         self.onReact = onReact
         self._activeQuickReactionMessageId = activeQuickReactionMessageId
@@ -166,6 +171,7 @@ struct MessageBubbleView: View {
                 // exactly what made the emoji row render as sliced-off fragments before.
                 if showQuickReactionBar, let onReact {
                     QuickReactionBarView(
+                        emojis: settingsViewModel.settings.effectiveQuickReactionEmojis,
                         onReact: { emoji in
                             onReact(emoji)
                             activeQuickReactionMessageId = nil
@@ -213,7 +219,8 @@ struct MessageBubbleView: View {
                                 onCopy: onCopy,
                                 onRetry: { onRetry?(message) },
                                 onReply: onReply,
-                                onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil
+                                onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil,
+                                onSelect: onSelect
                             )
                         } else if let media, media.isAudio, let data = media.fileData(cacheKey: message.txId) {
                             LazyAudioBubble(
@@ -224,7 +231,8 @@ struct MessageBubbleView: View {
                                 txId: message.txId,
                                 onCopy: onCopy,
                                 onRetry: shouldShowRetry ? { onRetry?(message) } : nil,
-                                onReply: onReply
+                                onReply: onReply,
+                                onSelect: onSelect
                             )
                             .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
                         } else if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText), MessageTextRenderPlan.isEntirelyLink(displayText) {
@@ -232,7 +240,7 @@ struct MessageBubbleView: View {
                             // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
                             // keeps the raw link visible/tappable if no preview data is ever found,
                             // rather than the message rendering as nothing at all.
-                            LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText)
+                            LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText, onSelect: onSelect)
                         } else {
                             messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
                                 .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
@@ -250,7 +258,7 @@ struct MessageBubbleView: View {
                     if media == nil,
                        !MessageTextRenderPlan.isEntirelyLink(displayText),
                        let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
-                        LinkPreviewCardView(url: linkURL, txId: message.txId)
+                        LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect)
                     }
                 }
 
@@ -419,6 +427,14 @@ struct MessageBubbleView: View {
                         onRetry?(message)
                     } label: {
                         Label("Retry Send", systemImage: "arrow.clockwise")
+                    }
+                }
+
+                if let onSelect {
+                    Button {
+                        onSelect()
+                    } label: {
+                        Label("Select", systemImage: "checkmark.circle")
                     }
                 }
             }
@@ -1159,6 +1175,9 @@ struct LazyImageBubble: View {
     let onReply: (() -> Void)?
     /// Double-tap opens the quick-reaction bar rather than replying directly - nil disables it.
     let onDoubleTap: (() -> Void)?
+    /// Enters the chat's message multi-select mode with this message pre-selected - nil disables
+    /// the "Select" context-menu action entirely, matching `onReply`'s nil-disables convention.
+    let onSelect: (() -> Void)?
 
     @State private var thumbnailState: (txId: String, image: UIImage)?
     @State private var previewImage: UIImage?
@@ -1176,7 +1195,8 @@ struct LazyImageBubble: View {
         onCopy: ((String, ToastStyle) -> Void)?,
         onRetry: (() -> Void)?,
         onReply: (() -> Void)?,
-        onDoubleTap: (() -> Void)? = nil
+        onDoubleTap: (() -> Void)? = nil,
+        onSelect: (() -> Void)? = nil
     ) {
         self.media = media
         self.txId = txId
@@ -1187,6 +1207,7 @@ struct LazyImageBubble: View {
         self.onRetry = onRetry
         self.onReply = onReply
         self.onDoubleTap = onDoubleTap
+        self.onSelect = onSelect
         _isRevealed = State(initialValue: PhotoRevealStore.isRevealed(txId))
     }
 
@@ -1296,6 +1317,14 @@ struct LazyImageBubble: View {
                     onRetry?()
                 } label: {
                     Label("Retry Send", systemImage: "arrow.clockwise")
+                }
+            }
+
+            if let onSelect {
+                Button {
+                    onSelect()
+                } label: {
+                    Label("Select", systemImage: "checkmark.circle")
                 }
             }
         }
@@ -1810,6 +1839,7 @@ struct LazyAudioBubble: View {
     let onCopy: ((String, ToastStyle) -> Void)?
     let onRetry: (() -> Void)?
     let onReply: (() -> Void)?
+    var onSelect: (() -> Void)? = nil
     @StateObject private var helper = AudioPlaybackHelper()
 
     var body: some View {
@@ -1822,7 +1852,8 @@ struct LazyAudioBubble: View {
             txId: txId,
             onCopy: onCopy,
             onRetry: onRetry,
-            onReply: onReply
+            onReply: onReply,
+            onSelect: onSelect
         )
     }
 }
@@ -1838,6 +1869,7 @@ private struct AudioBubble: View {
     let onCopy: ((String, ToastStyle) -> Void)?
     let onRetry: (() -> Void)?
     let onReply: (() -> Void)?
+    var onSelect: (() -> Void)? = nil
     @State private var showShareSheet = false
 
     var body: some View {
@@ -1899,6 +1931,14 @@ private struct AudioBubble: View {
                     onRetry()
                 } label: {
                     Label("Retry Send", systemImage: "arrow.clockwise")
+                }
+            }
+
+            if let onSelect {
+                Button {
+                    onSelect()
+                } label: {
+                    Label("Select", systemImage: "checkmark.circle")
                 }
             }
         }

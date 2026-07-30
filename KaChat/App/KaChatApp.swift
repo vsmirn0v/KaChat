@@ -472,8 +472,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             let contact = contactAddress.flatMap { ContactsManager.shared.getContact(byAddress: $0) }
             let isActiveConversation = activeAddress != nil &&
                 (activeAddress == sender || (!threadId.isEmpty && activeAddress == threadId))
+            // Group push's threadIdentifier is "group:<groupId>" (see NotificationService.swift's
+            // handleGroupPush) - mirrors the 1:1 check above using GroupChatService's own
+            // currently-open-group tracking (GroupChatDetailView's .task/.onDisappear), which
+            // already existed for the read-state auto-mark but was never consulted here.
+            let isActiveGroup = threadId.hasPrefix("group:") &&
+                GroupChatService.shared.activeGroupId == String(threadId.dropFirst("group:".count))
 
-            if sender == ourAddress || (isActiveConversation && UIApplication.shared.applicationState == .active) {
+            if sender == ourAddress || ((isActiveConversation || isActiveGroup) && UIApplication.shared.applicationState == .active) {
                 completionHandler([])
             } else if !settings.shouldDeliverIncomingNotification(for: contact) {
                 completionHandler([])

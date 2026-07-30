@@ -1716,6 +1716,15 @@ extension ChatService {
             print("[ChatService] Got \(sortedMessages.count) outgoing contextual messages to \(contactAddress)")
 
             for contextMsg in sortedMessages {
+                // A reaction's own transaction never gets a CDMessage row - the device that
+                // actually decrypted it converted it straight into a CDReaction and returned
+                // before ever creating a message (see addMessageToConversation). Re-discovering
+                // that same outgoing tx here (this wallet's own catch-up sync) would otherwise
+                // create a "📤 Sent via another device" placeholder that can never resolve, since
+                // no real message content will ever arrive for it - skip it outright instead.
+                if isKnownReaction(txId: contextMsg.txId) {
+                    continue
+                }
                 // Outgoing messages are encrypted for the recipient, we can't decrypt them
                 // Check if we have this message stored locally with content
                 let existingMessage = findLocalMessage(txId: contextMsg.txId)
@@ -2363,6 +2372,15 @@ extension ChatService {
         return findLocalMessage(txId: txId) != nil
     }
 
+    /// True if `txId` is a reaction's own transaction, not a real message - see
+    /// `MessageStore.isReactionTransaction`'s doc comment for why this must be checked before
+    /// ever falling back to the "📤 Sent via another device" placeholder for an outgoing tx this
+    /// device has no local content for for: a reaction will never get real message content to
+    /// replace that placeholder with, since it was never meant to be a message at all.
+    func isKnownReaction(txId: String) -> Bool {
+        messageStore.isReactionTransaction(txId: txId)
+    }
+
     func addOutgoingMessageFromPush(
         txId: String,
         sender: String,
@@ -2372,6 +2390,14 @@ extension ChatService {
         guard let privateKey = WalletManager.shared.getPrivateKey() else {
             AppLog.log("[ChatService] Outgoing push: missing private key")
             return false
+        }
+
+        // A reaction's own transaction never gets a CDMessage row (see isKnownReaction's doc
+        // comment) - nothing below this point could ever resolve real "message" content for it,
+        // so treat it as already handled rather than falling through to the placeholder.
+        if isKnownReaction(txId: txId) {
+            AppLog.log("[ChatService] Outgoing push is a reaction, not a message: %@", txId)
+            return true
         }
 
         // Check if message already exists with content (not placeholder)

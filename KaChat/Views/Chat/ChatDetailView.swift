@@ -22,6 +22,11 @@ struct ChatDetailView: View {
 
     @State private var contact: Contact
     @State private var showChatInfo = false
+    /// Local-only multi-select for deleting individual messages (never the whole conversation -
+    /// see `deleteConversation` for that) - toggled from the toolbar's "Select" button.
+    @State private var isSelectingMessages = false
+    @State private var selectedMessageIDs: Set<String> = []
+    @State private var showDeleteMessagesConfirmation = false
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -615,7 +620,7 @@ struct ChatDetailView: View {
                     }
                 }
             }
-            if let activeChessGame {
+            if let activeChessGame, !isSelectingMessages {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         activeChessGameId = activeChessGame.gameId
@@ -628,6 +633,39 @@ struct ChatDetailView: View {
                     .accessibilityLabel(Text("Open active chess game"))
                 }
             }
+            // Entry point into select mode is a message's long-press "Select" menu item (see
+            // `enterSelectMode(with:)`), not a toolbar button - this only ever shows Cancel/Delete
+            // once already selecting.
+            if isSelectingMessages {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    HStack(spacing: 16) {
+                        Button("Cancel") {
+                            isSelectingMessages = false
+                            selectedMessageIDs = []
+                        }
+                        Button {
+                            showDeleteMessagesConfirmation = true
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .foregroundColor(.red)
+                        .disabled(selectedMessageIDs.isEmpty)
+                    }
+                }
+            }
+        }
+        .alert(
+            deleteMessagesAlertTitle,
+            isPresented: $showDeleteMessagesConfirmation
+        ) {
+            Button("Delete", role: .destructive) {
+                chatService.deleteMessages(selectedMessageIDs, from: contact)
+                isSelectingMessages = false
+                selectedMessageIDs = []
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This only deletes the message from this device - the recipient still has their own copy, and the encrypted transaction remains permanently on the Kaspa blockchain, visible to anyone but unreadable without your keys. This cannot be undone.")
         }
         .sheet(isPresented: $showChatInfo) {
             ChatInfoView(contact: $contact)
@@ -776,6 +814,17 @@ struct ChatDetailView: View {
                 target = nil
             }
             guard let newContact = target else { return }
+            // Dismiss any active sheet/fullScreenCover before swapping contacts - this view
+            // instance is reused in place (no `.id()`, to preserve scroll position) rather than
+            // torn down and rebuilt, so a still-presented modal whose content is scoped to the
+            // OLD contact (chess chief among them - its gameId won't exist in the new contact's
+            // conversation, so `ChessGameView` would spin on a `nil` summary forever) would
+            // otherwise stay stuck on screen, silently swallowing this navigation.
+            activeChessGameId = nil
+            showChatInfo = false
+            showFeeEditor = false
+            showDustWarning = false
+            showCamera = false
             // Tear down current conversation (same as onDisappear)
             chatService.setDraft(messageText, for: contact.address)
             chatService.leaveConversation()
@@ -2143,7 +2192,14 @@ struct ChatDetailView: View {
         // the cached summary's lastMessageTxId (set during the same replay) instead of a fresh
         // O(N) scan over every message per row per render.
         let isLatestChess = chessEnvelope != nil && message.txId == chessSummary?.lastMessageTxId
-        MessageBubbleView(
+
+        // Built as its own statement (rather than inline inside the ZStack below) so the type
+        // checker isn't solving this already-huge multi-argument call *together* with the
+        // selection-overlay's conditional content in one expression - that combination is what
+        // triggered "unable to type-check in reasonable time" once the overlay was added. Further
+        // split from its own trailing modifiers (a second statement below) for the same reason -
+        // the combined call-plus-modifiers was still too much for the checker on its own.
+        let rawBubble = MessageBubbleView(
             message: message,
             onCopy: showToast,
             onRetry: retryOutgoingMessage,
@@ -2152,6 +2208,7 @@ struct ChatDetailView: View {
             replyQuote: replyQuote,
             replySenderDisplayName: replyQuote.map { replyDisplayName(for: $0.replyToSender) },
             onReply: { chatService.startReplyTo(message) },
+            onSelect: { enterSelectMode(with: message.txId) },
             reactions: chatService.reactionsByTxId[message.txId] ?? [],
             onReact: { emoji in
                 let myAddress = walletManager.currentWallet?.publicAddress ?? ""
@@ -2176,6 +2233,52 @@ struct ChatDetailView: View {
                 : nil,
             onOpenChessGame: chessEnvelope != nil ? { activeChessGameId = chessEnvelope!.gameId } : nil
         )
+        let bubble = rawBubble
+            .allowsHitTesting(!isSelectingMessages)
+            .padding(.leading, isSelectingMessages ? 28 : 0)
+
+        ZStack(alignment: .leading) {
+            bubble
+            selectionOverlay(for: message.txId)
+        }
+    }
+
+    /// Selection-mode tap catcher + indicator, split out of `messageRow` (see its own comment) -
+    /// disables the bubble's own gestures (link taps, double-tap-to-react, long-press menu) while
+    /// selecting, since those would otherwise fire alongside/instead of toggling selection.
+    ///
+    /// Entry point into select mode - triggered from a message's long-press "Select" menu item
+    /// (not a toolbar button), pre-selecting whichever message was long-pressed.
+    private func enterSelectMode(with txId: String) {
+        isSelectingMessages = true
+        selectedMessageIDs.insert(txId)
+    }
+
+    /// Pulled out of the `.alert(...)` call site as a plain computed property - an inline ternary
+    /// nested inside string interpolation there was making the compiler unable to type-check the
+    /// `.alert` expression in reasonable time (same fix as `ChatListView`'s bulk-delete alert).
+    private var deleteMessagesAlertTitle: String {
+        "Delete \(selectedMessageIDs.count) Message\(selectedMessageIDs.count == 1 ? "" : "s")?"
+    }
+
+    @ViewBuilder
+    private func selectionOverlay(for txId: String) -> some View {
+        if isSelectingMessages {
+            HStack(spacing: 8) {
+                Image(systemName: selectedMessageIDs.contains(txId) ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(selectedMessageIDs.contains(txId) ? .accentColor : .secondary)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if selectedMessageIDs.contains(txId) {
+                    selectedMessageIDs.remove(txId)
+                } else {
+                    selectedMessageIDs.insert(txId)
+                }
+            }
+        }
     }
 
     private func respondToChessInvite(gameId: String, accepted: Bool) {

@@ -18,6 +18,18 @@ extension ChatService {
         }
     }
 
+    /// Refreshes `latestReactionByContact` for the whole chat list - called from `ChatListView`
+    /// on appear/pull-to-refresh, mirroring how `fetchKNSDomainsForAllContacts` keeps the list's
+    /// avatars/names warm the same way. Cheap: one Core Data scan across every reaction row, not
+    /// per-conversation, since the underlying key is wallet-wide rather than per-contact.
+    func refreshLatestReactionPreviews() async {
+        guard let key = messageEncryptionKey() else { return }
+        let latest = await messageStore.fetchLatestReactionPerContact(decryptionKey: key)
+        await MainActor.run {
+            latestReactionByContact = latest
+        }
+    }
+
     /// Applies a reaction to the in-memory index immediately (optimistic UI on send, live update
     /// on receipt) - replaces `reactorAddress`'s previous entry for `targetTxId` if any, since
     /// there's only ever one reaction per (message, reactor).

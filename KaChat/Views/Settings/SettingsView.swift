@@ -157,6 +157,17 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+
+                    NavigationLink {
+                        QuickReactionEmojisSettingsView(settingsViewModel: settingsViewModel)
+                    } label: {
+                        HStack {
+                            Label("Quick Reactions", systemImage: "face.smiling")
+                            Spacer()
+                            Text(settingsViewModel.settings.effectiveQuickReactionEmojis.joined())
+                                .font(.caption)
+                        }
+                    }
                 }
 
                 Section("Contacts") {
@@ -788,6 +799,82 @@ struct SettingsView: View {
         return String(format: "%.8f", kas)
     }
 
+}
+
+/// Lets the user customize the 6 emojis shown in the double-tap quick-reaction bar
+/// (`QuickReactionBarView`/Android's `QuickReactionBar`) - defaults to
+/// `AppSettings.defaultQuickReactionEmojis` until changed here.
+struct QuickReactionEmojisSettingsView: View {
+    @ObservedObject var settingsViewModel: SettingsViewModel
+    @State private var editingSlotIndex: Int?
+
+    private var emojis: [String] {
+        settingsViewModel.settings.effectiveQuickReactionEmojis
+    }
+
+    var body: some View {
+        List {
+            Section {
+                HStack(spacing: 14) {
+                    ForEach(emojis.indices, id: \.self) { index in
+                        Button {
+                            editingSlotIndex = index
+                        } label: {
+                            Text(emojis[index])
+                                .font(.system(size: 30))
+                                .frame(width: 44, height: 44)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(Color(.systemGray5))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+            } footer: {
+                Text("Tap an emoji to replace it with a different one.")
+            }
+
+            Section {
+                Button("Reset to Default", role: .destructive) {
+                    settingsViewModel.settings.quickReactionEmojis = AppSettings.defaultQuickReactionEmojis
+                    settingsViewModel.saveSettings()
+                }
+            }
+        }
+        .navigationTitle("Quick Reactions")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: Binding(
+            get: { editingSlotIndex.map { QuickReactionSlotSelection(index: $0) } },
+            set: { if $0 == nil { editingSlotIndex = nil } }
+        )) { selection in
+            NavigationStack {
+                DesktopEmojiPickerView { emoji in
+                    var updated = emojis
+                    updated[selection.index] = emoji
+                    settingsViewModel.settings.quickReactionEmojis = updated
+                    settingsViewModel.saveSettings()
+                    editingSlotIndex = nil
+                }
+                .padding()
+                .navigationTitle("Choose Emoji")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { editingSlotIndex = nil }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+}
+
+private struct QuickReactionSlotSelection: Identifiable {
+    let index: Int
+    var id: Int { index }
 }
 
 struct NotificationsSettingsView: View {

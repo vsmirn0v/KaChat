@@ -137,7 +137,7 @@ class NotificationService: UNNotificationServiceExtension {
         case "contextual":
             if let payloadHex,
                let decrypted = decryptContextualMessage(payloadHex: payloadHex) {
-                content.body = chessPreviewText(for: decrypted) ?? unwrapReplyText(decrypted)
+                content.body = reactionPreviewText(for: decrypted) ?? chessPreviewText(for: decrypted) ?? unwrapReplyText(decrypted)
                 storeDecryptedMessage(
                     txId: txId,
                     sender: senderAddress,
@@ -221,7 +221,7 @@ class NotificationService: UNNotificationServiceExtension {
                 suppressGroupNotification(content)
                 return
             }
-            let displayBody = unwrapReplyText(match.plaintext)
+            let displayBody = reactionPreviewText(for: match.plaintext) ?? unwrapReplyText(match.plaintext)
             // "Only Notify if I'm Mentioned" - a reply to one of MY messages counts the same as
             // an explicit @mention (checked against the raw, still-wrapped plaintext, since
             // `displayBody` already dropped the reply envelope down to just its own text). Still
@@ -476,9 +476,17 @@ class NotificationService: UNNotificationServiceExtension {
         return false
     }
 
+    /// Mirrors the main app's `Contact.generateDefaultAlias(from:)` (this extension target doesn't
+    /// compile Models.swift) exactly - "kaspa:xxxx....xxxx" - so a contact with no alias/KNS name
+    /// yet shows the same fallback everywhere instead of this extension's own, different-looking
+    /// last-8-characters shorthand.
     private func formatAddress(_ address: String) -> String {
-        guard address.count > 8 else { return address }
-        return String(address.suffix(8))
+        let parts = address.split(separator: ":", maxSplits: 1)
+        guard parts.count == 2 else { return address }
+        let prefix = parts[0]
+        let body = parts[1]
+        guard body.count > 12 else { return "\(prefix):\(body)" }
+        return "\(prefix):\(body.prefix(4))....\(body.suffix(4))"
     }
 
     /// Minimal local mirror of the main app's `MessageReplyContent`/`MessageReplyCodec` (this
@@ -496,7 +504,13 @@ class NotificationService: UNNotificationServiceExtension {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return content }
         guard let parsed = try? JSONDecoder().decode(PushReplyEnvelope.self, from: data),
-              parsed.type == "reply" else { return content }
+              parsed.type == "reply" else {
+            // Not a reply envelope - still worth a mime-type sniff, since a *direct* (non-reply)
+            // photo/audio/video/file send is exactly this same raw-JSON-envelope shape and would
+            // otherwise fall through untouched, showing `{"mimeType":"image/...",...}` verbatim
+            // in the notification instead of "Sent a photo".
+            return inlineAttachmentPreview(for: content)
+        }
         return inlineAttachmentPreview(for: parsed.text)
     }
 
@@ -547,6 +561,26 @@ class NotificationService: UNNotificationServiceExtension {
         }
     }
 
+    /// Local mirror of the main app's `MessageReactionContent`/`MessageReactionCodec` (this
+    /// extension target doesn't compile Models.swift) - maps a reaction envelope to friendly push
+    /// text instead of showing the raw `{"type":"reaction",...}` JSON, matching `PushReplyEnvelope`'s
+    /// same reasoning. Same JSON shape for both 1:1 and group reactions, so this covers both.
+    private struct PushReactionEnvelope: Decodable {
+        let type: String
+        let emoji: String
+        let action: String
+    }
+
+    private func reactionPreviewText(for content: String) -> String? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(PushReactionEnvelope.self, from: data),
+              parsed.type == "reaction" else { return nil }
+        return parsed.action == "remove"
+            ? "Removed their \(parsed.emoji) reaction"
+            : "Reacted \(parsed.emoji) to your message"
+    }
+
     private func inlineAttachmentPreview(for text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
@@ -554,8 +588,12 @@ class NotificationService: UNNotificationServiceExtension {
               let mimeType = (json["mimeType"] as? String)?.lowercased() else {
             return text
         }
-        if mimeType.hasPrefix("audio/") { return "🎤 Audio message" }
-        if mimeType.hasPrefix("image/") { return "📷 Photo" }
+        // Matches the main app's `ChatService.formatNotificationBody` wording exactly (its title
+        // already carries the sender's name, so the body doesn't repeat it - same here, since the
+        // notification's own title/subtitle already is the sender's name by the time this runs).
+        if mimeType.hasPrefix("image/") { return "Sent a photo" }
+        if mimeType.hasPrefix("audio/") { return "Sent a voice message" }
+        if mimeType.hasPrefix("video/") { return "Sent a video" }
         return text
     }
 

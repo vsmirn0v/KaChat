@@ -530,6 +530,17 @@ final class GroupChatService: ObservableObject {
         updateScanningStateIfNeeded()
     }
 
+    /// Deletes the given messages from this device only - purely local (Core Data + in-memory),
+    /// never on-chain. Mirrors `ChatService.deleteMessages(_:from:)` - see its doc comment for why
+    /// this distinction is surfaced to the user in the confirmation alert.
+    func deleteMessages(_ txIds: Set<String>, groupId: String) {
+        guard !txIds.isEmpty else { return }
+        groupMessages[groupId]?.removeAll { txIds.contains($0.txId) }
+        for txId in txIds {
+            store.deleteMessage(txId: txId)
+        }
+    }
+
     private func rotateEpoch(groupId: String, reason: GroupCipher.EpochChangeReason, mutateRoster: (inout [GroupMember]) throws -> Void) async throws {
         guard var group = store.group(id: groupId), group.isAdmin else {
             throw KasiaError.networkError("Only the group admin can change membership.")

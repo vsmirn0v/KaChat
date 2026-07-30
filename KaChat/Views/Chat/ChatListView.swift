@@ -306,6 +306,7 @@ struct ChatListView: View {
         .task {
             await contactsManager.fetchKNSDomainsForAllContacts()
             await preloadAvatarsForAllChats(forceProfileRefresh: false)
+            await chatService.refreshLatestReactionPreviews()
         }
         .onChange(of: chatService.pendingChatNavigation) { newValue in
             if newValue != nil {
@@ -794,6 +795,7 @@ struct ChatListView: View {
                         showBulkDeleteConfirmation = true
                     } label: {
                         Image(systemName: "trash")
+                            .foregroundColor(.red)
                             .frame(maxWidth: .infinity)
                     }
                     .disabled(selectedContactIDs.isEmpty)
@@ -822,6 +824,7 @@ struct ChatListView: View {
                         showBulkDeleteConfirmation = true
                     } label: {
                         Image(systemName: "trash")
+                            .foregroundColor(.red)
                             .frame(maxWidth: .infinity)
                     }
                     .disabled(selectedGroupIDs.isEmpty)
@@ -1148,6 +1151,7 @@ private struct BroadcastListNavigationDestination: ViewModifier {
 struct ConversationRow: View {
     let conversation: Conversation
     @EnvironmentObject var chatService: ChatService
+    @EnvironmentObject var walletManager: WalletManager
     @ObservedObject private var knsService = KNSService.shared
     private static let previewCache: NSCache<NSString, NSString> = {
         let cache = NSCache<NSString, NSString>()
@@ -1224,7 +1228,7 @@ struct ConversationRow: View {
                             }
                         }
 
-                        Text(formatPreview(lastMessage.content))
+                        Text(reactionPreviewText ?? formatPreview(lastMessage.content))
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .lineLimit(1)
@@ -1269,6 +1273,28 @@ struct ConversationRow: View {
             return "Yesterday"
         } else {
             return SharedFormatting.chatDay.string(from: date)
+        }
+    }
+
+    /// A reaction more recent than `lastMessage` gets shown instead of the message preview -
+    /// reactions never become messages (they're applied as a corner pill), so without this the
+    /// chat list would just silently show whatever the last real message was, even if the truly
+    /// most recent activity was someone reacting to something older. `nil` when there's no
+    /// reaction newer than the last message.
+    private var reactionPreviewText: String? {
+        guard let preview = chatService.latestReactionByContact[conversation.contact.address] else { return nil }
+        let reactionDate = Date(timeIntervalSince1970: TimeInterval(preview.blockTime) / 1000.0)
+        if let lastMessage = conversation.lastMessage, lastMessage.timestamp >= reactionDate {
+            return nil
+        }
+        let myAddress = walletManager.currentWallet?.publicAddress
+        let reactedByMe = preview.reactorAddress == myAddress
+        let targetIsMine = preview.targetMessageIsOutgoing ?? false
+        switch (reactedByMe, targetIsMine) {
+        case (true, true): return "You reacted to your message"
+        case (true, false): return "You reacted to their message"
+        case (false, true): return "Reacted to your message"
+        case (false, false): return "Reacted to their message"
         }
     }
 

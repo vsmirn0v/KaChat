@@ -2720,6 +2720,34 @@ extension ChatService {
         chatFetchFailed.remove(address)
     }
 
+    /// Deletes the given messages from this device only - purely local (Core Data + in-memory),
+    /// never on-chain. The recipient still has their own copy, and the underlying transaction
+    /// remains permanently visible/scannable on the Kaspa blockchain - see the confirmation
+    /// alert's wording in `ChatDetailView` for why that distinction is surfaced to the user.
+    /// `unreadCount` isn't explicitly adjusted here even if a deleted message was unread - it's a
+    /// stored counter, but self-corrects the next time `buildMergedConversations` runs (a cold
+    /// start/reload), since it recomputes by filtering messages against `lastReadBlockTime` and a
+    /// deleted message simply won't be there to count anymore.
+    func deleteMessages(_ txIds: Set<String>, from contact: Contact) {
+        guard !txIds.isEmpty,
+              let index = conversations.firstIndex(where: { $0.contact.address == contact.address }) else { return }
+
+        updateConversation(at: index, persist: false) { updated in
+            updated.messages.removeAll { txIds.contains($0.txId) }
+        }
+
+        for txId in txIds {
+            messageStore.deleteMessage(txId: txId)
+        }
+
+        // Contact.lastMessageAt is a stored/denormalized field that's only ever bumped forward
+        // elsewhere - recompute it down here in case the deleted message(s) included the most
+        // recent one, so Chat Info / contact sort order don't keep showing a deleted message's time.
+        if let newest = conversations[index].messages.map({ $0.timestamp }).max() {
+            contactsManager.updateContactLastMessage(contact.id, at: newest)
+        }
+    }
+
     func isConversationVisibleInChatList(_ conversation: Conversation, settings: AppSettings? = nil) -> Bool {
         !isConversationDeclined(conversation.contact.address)
     }
@@ -3335,7 +3363,11 @@ extension ChatService {
                     inMemoryBlockTime,
                     storeBlockTime
                 )
-                ReadStatusSyncManager.shared.markAsRead(
+                // Awaited (not fire-and-forget) so this function's caller only returns once the
+                // read cursor is durably on disk - otherwise a force-quit landing between "read
+                // the chat" and the still-in-flight Core Data save could lose it, and a whole
+                // batch of already-read messages would come back as unread on next launch.
+                await ReadStatusSyncManager.shared.markAsReadAndWait(
                     contactAddress: conversation.contact.address,
                     lastReadTxId: targetTxId,
                     lastReadBlockTime: UInt64(targetBlockTime)
