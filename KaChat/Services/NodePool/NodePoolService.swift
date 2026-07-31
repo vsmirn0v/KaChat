@@ -277,6 +277,43 @@ final class NodePoolService: ObservableObject {
         AppLog.log("[NodePool] Shutdown complete")
     }
 
+    /// True while discovery/probe loops are paused via `pauseDiscovery()` (e.g. off the chat tab).
+    private(set) var isDiscoveryPaused = false
+
+    /// Pauses the node discovery/probe loops (the aggressive background scanning), the periodic
+    /// stats loop, and any in-flight quickBoot - WITHOUT tearing the pool down. The registry, the
+    /// cached active nodes, the connection pool, the epoch monitor and any live UTXO subscription
+    /// all stay intact, so on-demand work (sending, balance refresh, transaction history) and
+    /// message/balance delivery keep working; only the background scanning stops. Idempotent.
+    /// Used to stop scanning while the user is away from the chat tab. Contrast with `shutdown()`,
+    /// which is the destructive all-or-nothing teardown.
+    func pauseDiscovery() async {
+        guard isInitialized, !isDiscoveryPaused else { return }
+        isDiscoveryPaused = true
+        quickBootTask?.cancel()
+        quickBootTask = nil
+        statsUpdateTask?.cancel()
+        statsUpdateTask = nil
+        await profiler?.stop()
+        AppLog.log("[NodePool] Discovery paused (pool + subscription kept alive)")
+    }
+
+    /// Resumes the loops paused by `pauseDiscovery()`. Mirrors `initialize`'s cached-nodes path:
+    /// restarts the profiler loops + stats loop and kicks a background quickBoot to restore
+    /// DNS/peer discovery (which `profiler.stop()` cancelled). No-op if not initialized or not paused.
+    func resumeDiscovery() async {
+        guard isInitialized, isDiscoveryPaused else { return }
+        isDiscoveryPaused = false
+        await profiler?.start(network: networkType)
+        startPeriodicStatsUpdate()
+        quickBootTask?.cancel()
+        quickBootTask = Task {
+            await self.profiler?.quickBoot()
+            await self.updatePoolStats()
+        }
+        AppLog.log("[NodePool] Discovery resumed")
+    }
+
     /// Start node discovery early (before wallet is created/imported)
     /// This pre-warms the node pool so it's ready when the user finishes onboarding
     func startEarlyDiscovery(network: NetworkType = .mainnet) async {

@@ -110,8 +110,23 @@ struct MainTabView: View {
         let previousValue = selectedTab
         selectedTab = newValue
 
-        guard previousValue == 1, newValue == 1 else { return }
-        handleChatsTabReselection()
+        if previousValue == 1, newValue == 1 {
+            handleChatsTabReselection()
+            return
+        }
+
+        // Off-chat-tab power saving: the chat tab (tag 1) is the only screen that needs live
+        // message scanning, so pause the node pool's aggressive discovery/probe loops and the
+        // fallback message-poll timer when leaving it, and resume on return. The pool stays
+        // initialized and the UTXO subscription stays live, so sending, on-demand balance/history
+        // and push all keep working - this only stops the background scanning.
+        if newValue == 1 {
+            Task { await NodePoolService.shared.resumeDiscovery() }
+            chatService.startPolling()
+        } else if previousValue == 1 {
+            Task { await NodePoolService.shared.pauseDiscovery() }
+            chatService.stopPollingTimerOnly()
+        }
     }
 
     private func handleChatsTabReselection() {
