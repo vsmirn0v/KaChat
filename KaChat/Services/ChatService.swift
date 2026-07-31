@@ -432,10 +432,16 @@ final class ChatService: ObservableObject {
             }
     }
 
-    /// Observe NodePoolService ping latency for real-time latency updates
+    /// Observe NodePoolService ping latency for real-time latency updates.
+    /// Throttled + de-duplicated: the raw latency EWMA changes many times/second while the node
+    /// pool fires RPCs during the initial sync, and each change published `currentNodeLatencyMs`
+    /// (@Published) → a `ChatService.objectWillChange` recomputing every observer. The value is only
+    /// shown in the connection-detail sheet, so once every 2s (latest value) is plenty and keeps
+    /// this off the per-frame hot path.
     private func observePingLatency() {
         pingLatencyCancellable = NodePoolService.shared.$lastPingLatencyMs
-            .receive(on: DispatchQueue.main)
+            .throttle(for: .seconds(2), scheduler: DispatchQueue.main, latest: true)
+            .removeDuplicates()
             .sink { [weak self] latencyMs in
                 guard let latency = latencyMs else { return }
                 self?.currentNodeLatencyMs = latency

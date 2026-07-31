@@ -8,7 +8,11 @@ import UniformTypeIdentifiers
 
 struct ProfileView: View {
     @EnvironmentObject var walletManager: WalletManager
-    @EnvironmentObject var chatService: ChatService
+    // Deliberately NOT observing ChatService here: this screen only *calls* it in an action (via
+    // ChatService.shared), it never reads its @Published state in the body. Observing it made the
+    // whole Profile scroll recompute on ChatService's high-frequency sync churn (per-message
+    // `conversations` mutations, per-RPC node-latency updates) for the first ~15s after login,
+    // which was the scroll jank. The connection dot is its own small view with its own observation.
     @EnvironmentObject var giftService: GiftService
     @EnvironmentObject var contactsManager: ContactsManager
 
@@ -1121,7 +1125,7 @@ struct ProfileView: View {
         }
 
         let contact = contactsManager.getOrCreateContact(address: resolution.ownerAddress, alias: resolution.domain)
-        _ = chatService.getOrCreateConversation(for: contact)
+        _ = ChatService.shared.getOrCreateConversation(for: contact)
         NotificationCenter.default.post(
             name: .openChat,
             object: nil,

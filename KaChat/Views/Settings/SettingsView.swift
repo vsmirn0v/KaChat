@@ -8,7 +8,11 @@ struct SettingsView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var contactsManager: ContactsManager
-    @EnvironmentObject var chatService: ChatService
+    // Deliberately NOT observing ChatService here: this screen only *calls* it in actions (via
+    // ChatService.shared), it never reads its @Published state in the Form body. Observing it made
+    // the whole Settings Form recompute on ChatService's high-frequency sync churn for the first
+    // ~15s after login, which was the scroll jank. The connection-status views are separate and
+    // keep their own observation.
     @Environment(\.dismiss) private var dismiss
 
     @State private var showSeedPhrase = false
@@ -564,7 +568,7 @@ struct SettingsView: View {
         defer { isPreparingChatHistoryExport = false }
 
         do {
-            let fileURL = try await chatService.exportChatHistoryArchive()
+            let fileURL = try await ChatService.shared.exportChatHistoryArchive()
             chatHistoryArchiveURL = fileURL
             showChatHistoryShareSheet = true
         } catch {
@@ -591,7 +595,7 @@ struct SettingsView: View {
 
             do {
                 let data = try Data(contentsOf: fileURL)
-                let summary = try await chatService.importChatHistoryArchive(data)
+                let summary = try await ChatService.shared.importChatHistoryArchive(data)
                 refreshMessageStoreSize()
                 if summary.filledSentContentCount > 0 {
                     showToast(
