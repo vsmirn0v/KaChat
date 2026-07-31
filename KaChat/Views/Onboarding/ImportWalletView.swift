@@ -9,6 +9,7 @@ struct ImportWalletView: View {
     @State private var words: [String] = Array(repeating: "", count: 24)
     @State private var showPassphraseStep = false
     @State private var error: String?
+    @FocusState private var aliasFocused: Bool
 
     private var slots: [String] { Array(words.prefix(seedWordCount)) }
     private var seedPhraseText: String { slots.joined(separator: " ") }
@@ -29,6 +30,9 @@ struct ImportWalletView: View {
                     .foregroundColor(.secondary)
                 TextField("Enter account name", text: $alias)
                     .textFieldStyle(.roundedBorder)
+                    .focused($aliasFocused)
+                    .submitLabel(.done)
+                    .onSubmit { aliasFocused = false }
             }
 
             // Word-count selector
@@ -69,6 +73,22 @@ struct ImportWalletView: View {
         .padding()
         .navigationTitle("Import Account")
         .navigationBarTitleDisplayMode(.inline)
+        // The seed uses the in-app keyboard; the only native keyboard here is the account-name
+        // field. Give it the standard dismissal affordances it otherwise lacks (there's no
+        // ScrollView to swipe): a downward swipe anywhere, plus a "Done" button above the keyboard.
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { aliasFocused = false }
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20).onEnded { value in
+                if aliasFocused && value.translation.height > 20 {
+                    aliasFocused = false
+                }
+            }
+        )
         .navigationDestination(isPresented: $showPassphraseStep) {
             PassphraseOptionView(mode: .importExisting) { passphrase in
                 try await commitImport(passphrase: passphrase)
