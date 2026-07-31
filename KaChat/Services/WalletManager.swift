@@ -238,8 +238,10 @@ final class WalletManager: ObservableObject {
         // guard that backs this up if a stale task still slips through.
         ChatService.shared.stopPolling()
 
-        // Derive keys from seed phrase
-        let (publicKey, publicAddress) = try deriveKeysFromSeed(seedPhrase)
+        // Derive keys from seed phrase (once - the private key is reused for storage below and
+        // cached in memory so the initial sync doesn't re-read the keychain per message).
+        let (publicKey, publicAddress, privateKeyData) = try deriveKeysFromSeed(seedPhrase)
+        cachedPrivateKey = (publicAddress, privateKeyData)
 
         // Determine whether this import is switching to a different account.
         // When user logs out, `currentWallet` is nil but keychain still has the
@@ -259,7 +261,7 @@ final class WalletManager: ObservableObject {
         snapshotStoredWalletIfPossible()
 
         // Save wallet
-        try await saveWallet(wallet, seedPhrase: seedPhrase)
+        try await saveWallet(wallet, seedPhrase: seedPhrase, privateKey: privateKeyData)
 
         var updated = wallet
         if let cached = loadCachedBalance(for: wallet.publicAddress) {
@@ -365,6 +367,7 @@ final class WalletManager: ObservableObject {
 
         updateSavedAccounts(from: wallet)
         currentWallet = nil
+        cachedPrivateKey = nil
         isBalanceRefreshing = false
         isLoggedOut = true
         UserDefaults.standard.set(true, forKey: logoutFlagKey)
@@ -516,14 +519,30 @@ final class WalletManager: ObservableObject {
         return try keychainService.loadSeedPhrase()
     }
 
+    /// In-memory cache of the active wallet's private key, keyed by address. Avoids a keychain read
+    /// (and, if the stored key were ever missing, a full PBKDF2 re-derivation) on every
+    /// `getPrivateKey()` call - which the initial sync makes once per handshake/message. The address
+    /// key makes serving a stale key after a wallet switch impossible; it's also cleared on logout.
+    private var cachedPrivateKey: (address: String, key: Data)?
+
     /// Get the private key data for the current wallet (used for decryption)
     func getPrivateKey() -> Data? {
+        if let cached = cachedPrivateKey, cached.address == currentWallet?.publicAddress {
+            return cached.key
+        }
         do {
+            let key: Data?
             if let privateKey = try keychainService.loadPrivateKey() {
-                return privateKey
+                key = privateKey
+            } else if let seedPhrase = try getSeedPhrase() {
+                key = derivePrivateKeyFromSeed(seedPhrase)
+            } else {
+                key = nil
             }
-            guard let seedPhrase = try getSeedPhrase() else { return nil }
-            return derivePrivateKeyFromSeed(seedPhrase)
+            if let key, let address = currentWallet?.publicAddress {
+                cachedPrivateKey = (address, key)
+            }
+            return key
         } catch {
             print("[WalletManager] Failed to get private key: \(error.localizedDescription)")
             return nil
@@ -776,7 +795,7 @@ final class WalletManager: ObservableObject {
         return addressIndex.key
     }
 
-    private func deriveKeysFromSeed(_ seedPhrase: SeedPhrase) throws -> (publicKey: String, publicAddress: String) {
+    private func deriveKeysFromSeed(_ seedPhrase: SeedPhrase) throws -> (publicKey: String, publicAddress: String, privateKey: Data) {
         // Derive seed using BIP39 standard (PBKDF2 with 2048 iterations). The optional BIP39
         // passphrase carried on the SeedPhrase changes the derived account entirely; reading it
         // here (rather than hardcoding "") is what makes relaunch, reconciliation and
@@ -812,7 +831,10 @@ final class WalletManager: ObservableObject {
         // Public key as hex
         let publicKeyHex = publicKeyData.map { String(format: "%02x", $0) }.joined()
 
-        return (publicKeyHex, publicAddress)
+        // Return the private key too so callers (import/create) don't re-run the whole
+        // PBKDF2 + BIP32 derivation a second time just to persist it - that double derivation on
+        // the main actor was a measurable stutter at sign-in.
+        return (publicKeyHex, publicAddress, privateKeyData)
     }
 
     private func logPrivateKeyStorageStatus() {
@@ -976,13 +998,13 @@ final class WalletManager: ObservableObject {
 
     // MARK: - Storage
 
-    private func saveWallet(_ wallet: Wallet, seedPhrase: SeedPhrase) async throws {
+    private func saveWallet(_ wallet: Wallet, seedPhrase: SeedPhrase, privateKey: Data) async throws {
         try keychainService.saveWallet(wallet)
         try keychainService.saveSeedPhrase(seedPhrase)
-        if let privateKey = derivePrivateKeyFromSeed(seedPhrase) {
-            try keychainService.savePrivateKey(privateKey)
-            try keychainService.saveAccountSnapshot(wallet: wallet, seedPhrase: seedPhrase, privateKey: privateKey)
-        }
+        // Private key is derived once by the caller (deriveKeysFromSeed) and passed in, rather than
+        // re-deriving it here (a second full PBKDF2 + BIP32 pass on the main actor).
+        try keychainService.savePrivateKey(privateKey)
+        try keychainService.saveAccountSnapshot(wallet: wallet, seedPhrase: seedPhrase, privateKey: privateKey)
     }
 
     func saveWalletOnly(_ wallet: Wallet) async throws {

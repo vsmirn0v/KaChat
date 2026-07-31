@@ -7,6 +7,10 @@ final class BIP39 {
     static let shared = BIP39()
 
     private var wordList: [String] = []
+    /// word -> index, built once alongside `wordList`, so validation/lookup is O(1) instead of an
+    /// O(2048) linear scan per word (validating a 24-word phrase was ~100k string compares on the
+    /// main actor at import).
+    private var wordIndex: [String: Int] = [:]
 
     private init() {
         loadWordList()
@@ -19,6 +23,7 @@ final class BIP39 {
             preconditionFailure("BIP39 english.txt missing or invalid (expected exactly 2048 words).")
         }
         wordList = bundled
+        wordIndex = Dictionary(uniqueKeysWithValues: bundled.enumerated().map { ($0.element, $0.offset) })
     }
 
     // MARK: - Mnemonic Generation
@@ -103,17 +108,10 @@ final class BIP39 {
 
         precondition(wordList.count == 2048, "BIP39 word list is not loaded.")
 
-        // Verify all words are in the list
-        for word in words {
-            guard wordList.contains(word) else {
-                return false
-            }
-        }
-
-        // Convert words to indices
+        // Convert words to indices via the O(1) index (this also validates membership).
         var indices: [Int] = []
         for word in words {
-            guard let index = wordList.firstIndex(of: word) else {
+            guard let index = wordIndex[word] else {
                 return false
             }
             indices.append(index)
@@ -224,7 +222,7 @@ final class BIP39 {
 
     /// Get index of word
     func getIndex(of word: String) -> Int? {
-        return wordList.firstIndex(of: word.lowercased())
+        return wordIndex[word.lowercased()]
     }
 }
 
