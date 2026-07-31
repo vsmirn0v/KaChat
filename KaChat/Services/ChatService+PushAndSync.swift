@@ -294,6 +294,15 @@ extension ChatService {
             return
         }
 
+        // An initial sync is already running (the task exists and hasn't been cancelled by a wallet
+        // switch/logout). Don't cancel + restart it: repeated startPolling() calls - e.g. re-entering
+        // the chat tab, or app-active resyncs - would otherwise keep restarting the heavy 4-phase sync
+        // from scratch, hammering the main actor and freezing the UI. Let the in-flight run finish.
+        if let task = initialSyncTask, !task.isCancelled {
+            AppLog.log("[ChatService] Initial sync already in progress - not restarting")
+            return
+        }
+
         stopPollingTimerOnly()
         subscriptionRetryTask?.cancel()
         subscriptionRetryTask = nil

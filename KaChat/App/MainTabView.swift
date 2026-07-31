@@ -4,6 +4,8 @@ struct MainTabView: View {
     @State private var selectedTab = 1
     @State private var lastActiveChatAddress: String?
     @State private var isChatReturnArmed = false
+    /// Debounces the off-chat-tab discovery pause/resume so rapid tab-flipping can't thrash it.
+    @State private var tabWorkTask: Task<Void, Never>?
     @State private var showGiftSheet = false
     @State private var showWelcomeGuide = false
     @EnvironmentObject var chatService: ChatService
@@ -115,17 +117,22 @@ struct MainTabView: View {
             return
         }
 
-        // Off-chat-tab power saving: the chat tab (tag 1) is the only screen that needs live
-        // message scanning, so pause the node pool's aggressive discovery/probe loops and the
-        // fallback message-poll timer when leaving it, and resume on return. The pool stays
-        // initialized and the UTXO subscription stays live, so sending, on-demand balance/history
-        // and push all keep working - this only stops the background scanning.
-        if newValue == 1 {
-            Task { await NodePoolService.shared.resumeDiscovery() }
-            chatService.startPolling()
-        } else if previousValue == 1 {
-            Task { await NodePoolService.shared.pauseDiscovery() }
-            chatService.stopPollingTimerOnly()
+        // Off-chat-tab power saving, DEBOUNCED so rapidly flipping tabs can't thrash start/stop
+        // (which was restarting the initial sync and freezing the UI). Only the settled tab - after
+        // a short quiet period - pauses or resumes the node pool's aggressive discovery/probe loops
+        // and the fallback message-poll timer. The pool + UTXO subscription stay live, so sending,
+        // on-demand balance/history and push keep working; only background scanning stops.
+        tabWorkTask?.cancel()
+        tabWorkTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return }
+            if newValue == 1 {
+                await NodePoolService.shared.resumeDiscovery()
+                chatService.startPolling()
+            } else {
+                await NodePoolService.shared.pauseDiscovery()
+                chatService.stopPollingTimerOnly()
+            }
         }
     }
 
