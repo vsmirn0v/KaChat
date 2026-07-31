@@ -73,16 +73,6 @@ struct ImportWalletView: View {
         .padding()
         .navigationTitle("Import Account")
         .navigationBarTitleDisplayMode(.inline)
-        // The seed uses the in-app keyboard; the only native keyboard here is the account-name
-        // field. Its return key (the checkmark) dismisses it; also allow a downward swipe since
-        // there's no ScrollView to interactively dismiss from.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 20).onEnded { value in
-                if aliasFocused && value.translation.height > 20 {
-                    aliasFocused = false
-                }
-            }
-        )
         .navigationDestination(isPresented: $showPassphraseStep) {
             PassphraseOptionView(mode: .importExisting) { passphrase in
                 try await commitImport(passphrase: passphrase)
