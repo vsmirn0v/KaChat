@@ -74,14 +74,8 @@ struct ImportWalletView: View {
         .navigationTitle("Import Account")
         .navigationBarTitleDisplayMode(.inline)
         // The seed uses the in-app keyboard; the only native keyboard here is the account-name
-        // field. Give it the standard dismissal affordances it otherwise lacks (there's no
-        // ScrollView to swipe): a downward swipe anywhere, plus a "Done" button above the keyboard.
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { aliasFocused = false }
-            }
-        }
+        // field. Its return key (the checkmark) dismisses it; also allow a downward swipe since
+        // there's no ScrollView to interactively dismiss from.
         .simultaneousGesture(
             DragGesture(minimumDistance: 20).onEnded { value in
                 if aliasFocused && value.translation.height > 20 {
