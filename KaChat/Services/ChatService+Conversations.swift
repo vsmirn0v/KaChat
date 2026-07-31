@@ -3365,6 +3365,9 @@ extension ChatService {
             // Sync read status to CloudKit (debounced)
             let targetBlockTime = max(inMemoryBlockTime, storeBlockTime)
             if targetBlockTime > 0 {
+                // Keep the in-memory read cursor current so a later full re-sync doesn't re-mark
+                // these just-read messages as unread (see `readCursorByAddress`).
+                readCursorByAddress[conversation.contact.address] = max(readCursorByAddress[conversation.contact.address] ?? 0, targetBlockTime)
                 let targetTxId: String?
                 if storeBlockTime > inMemoryBlockTime {
                     targetTxId = storeCursor?.txId

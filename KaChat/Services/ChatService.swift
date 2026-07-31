@@ -67,6 +67,14 @@ final class ChatService: ObservableObject {
     }
     @Published var chatFetchStates: [String: ChatFetchState] = [:]
 
+    /// Per-contact last-read blockTime, seeded from the persisted read cursor when messages are
+    /// loaded from the store and advanced when a chat is read. `addMessageToConversation` consults
+    /// it so the initial full re-sync (which re-fetches all history with `lastPollTime == 0`) never
+    /// counts an already-read message as unread - the txId dedup alone misses messages re-fetched
+    /// below the trimmed in-memory window. Unseeded contacts default to 0 (no gating), preserving
+    /// existing behavior. Cleared on wallet switch.
+    var readCursorByAddress: [String: Int64] = [:]
+
     enum ContactFetchResult {
         case success(added: Bool)
         case failure
@@ -584,6 +592,7 @@ final class ChatService: ObservableObject {
         declinedContacts = []
         lastPollTime = 0
         syncObjectCursors = [:]
+        readCursorByAddress = [:]
         syncObjectCursorsDirty = false
         lastPaymentFetchTime = 0
         isConfigured = false

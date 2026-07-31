@@ -344,19 +344,24 @@ extension ChatService {
                 AppLog.log("[ChatService] Phase 3: Waiting for CloudKit sync to complete...")
                 await messageStore.waitForCloudKitSync(timeout: 0) // 0 = no timeout
                 AppLog.log("[ChatService] Phase 3 complete - CloudKit sync done")
-
-                // Phase 3.5: Load CloudKit-synced messages BEFORE indexer sync
-                // This ensures we have any messages sent from other devices before
-                // the indexer creates placeholder entries for them
-                AppLog.log("[ChatService] Phase 3.5: Loading CloudKit-synced messages...")
-                await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
-
-                // Brief pause to allow any in-flight CloudKit syncs to complete
-                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
-                AppLog.log("[ChatService] Phase 3.5 complete")
             } else {
                 AppLog.log("[ChatService] Phase 3 skipped - CloudKit disabled")
             }
+
+            // Phase 3.5: Hydrate memory from the LOCAL store before the indexer re-sync - ALWAYS,
+            // not just when iCloud is on. The local Core Data store holds existing messages and,
+            // critically, their persisted read cursors (`CDConversation.lastReadBlockTime`). Loading
+            // it first means Phase 4's full re-fetch short-circuits on already-known messages
+            // (`addMessageToConversation`'s txId check) instead of recounting every historical
+            // message as unread from an empty list. Skipping this when iCloud message storage was
+            // OFF is exactly why previously-read chats reappeared unread after logout->login.
+            AppLog.log("[ChatService] Phase 3.5: Loading messages from local store...")
+            await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+            if cloudKitEnabled {
+                // Brief pause to allow any in-flight CloudKit syncs to complete.
+                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s
+            }
+            AppLog.log("[ChatService] Phase 3.5 complete")
 
             // Phase 4: Full indexer sync (diff-only writes to reduce DB churn)
             // NOTE: syncFromConversations() will preserve CloudKit content and not

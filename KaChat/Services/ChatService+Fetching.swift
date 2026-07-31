@@ -2678,7 +2678,10 @@ extension ChatService {
                     if !message.isOutgoing {
                         if isUserViewing {
                             conversation.unreadCount = 0
-                        } else {
+                        } else if Int64(message.blockTime) > (readCursorByAddress[contactAddress] ?? 0) {
+                            // Only bump for messages newer than the persisted read cursor - a
+                            // re-fetched already-read message (initial full re-sync) must not
+                            // resurrect unread. See `readCursorByAddress`.
                             conversation.unreadCount += 1
                         }
                     }
@@ -2693,7 +2696,8 @@ extension ChatService {
             isNewMessage = true
             isNewConversation = true
             if !message.isOutgoing {
-                conversation.unreadCount = isUserViewing ? 0 : 1
+                let isAlreadyRead = Int64(message.blockTime) <= (readCursorByAddress[contactAddress] ?? 0)
+                conversation.unreadCount = (isUserViewing || isAlreadyRead) ? 0 : 1
             }
             conversations.append(conversation)
             markConversationDirty(contactAddress)

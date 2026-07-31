@@ -181,6 +181,11 @@ extension ChatService {
             // CDReadMarker write is debounced up to 15s, so without this a read from moments ago
             // can still look unread here and wrongly resurrect messages as "new".
             pendingReadBlockTimeByAddress[contactAddress] = ReadStatusSyncManager.shared.pendingReadCursor(for: contactAddress)?.blockTime ?? 0
+            // Seed the in-memory read cursor from the persisted marker (+ any just-recorded pending
+            // read) so the initial re-sync's `addMessageToConversation` won't re-mark already-read
+            // history as unread. Never lower an existing seed.
+            let seededCursor = max(meta[contactAddress]?.lastReadBlockTime ?? 0, pendingReadBlockTimeByAddress[contactAddress] ?? 0)
+            readCursorByAddress[contactAddress] = max(readCursorByAddress[contactAddress] ?? 0, seededCursor)
         }
         let existingConversations = conversations
         let currentActiveConversationAddress = activeConversationAddress
