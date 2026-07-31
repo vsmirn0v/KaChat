@@ -213,6 +213,15 @@ final class BIP39 {
         return wordList[index]
     }
 
+    /// The full BIP39 English wordlist (2048 words). Exposed for the in-app import keyboard's
+    /// prefix-match autocomplete so the seed phrase can be typed without the OS keyboard.
+    var englishWordList: [String] { wordList }
+
+    /// True if `word` is an exact BIP39 English word.
+    func isValidWord(_ word: String) -> Bool {
+        return wordList.contains(word.lowercased())
+    }
+
     /// Get index of word
     func getIndex(of word: String) -> Int? {
         return wordList.firstIndex(of: word.lowercased())
