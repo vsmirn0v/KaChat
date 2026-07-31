@@ -409,7 +409,7 @@ final class GroupStore {
 }
 
 /// Plain snapshot of a `CDGroupMessage` row, safe to pass across contexts/actors.
-struct CDGroupMessageSnapshot {
+struct CDGroupMessageSnapshot: Sendable {
     let txId: String
     let groupId: String
     let senderAddress: String?

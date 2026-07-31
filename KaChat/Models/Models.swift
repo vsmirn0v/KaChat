@@ -2158,7 +2158,7 @@ struct GroupMember: Codable, Identifiable, Equatable, Hashable {
 
 /// Local secret+state bag for a group, persisted in Keychain (device-specific, SE-wrapped,
 /// never CloudKit-synced) - mirrors the reference implementation's `GroupBag` schema.
-struct GroupBag: Codable {
+struct GroupBag: Codable, Sendable {
     let groupId: String              // hex
     var groupSeed: String?           // hex, admin-only, nil for non-admin members
     var groupRootEpoch: String       // hex, current epoch's root key
@@ -2182,7 +2182,7 @@ struct GroupChat: Identifiable, Equatable, Hashable {
 }
 
 /// A decrypted group chat message (mirrors ChatMessage's shape for reuse in UI/bubble views).
-struct GroupMessage: Identifiable, Equatable {
+struct GroupMessage: Identifiable, Equatable, Sendable {
     let id: UUID
     let groupId: String
     let txId: String

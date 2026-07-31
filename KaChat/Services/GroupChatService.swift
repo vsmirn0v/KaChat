@@ -355,8 +355,17 @@ final class GroupChatService: ObservableObject {
         groups = walletAddress == nil ? [] : store.allGroups()
         groupMessages.removeAll()
         replyingTo = nil
-        for group in groups {
-            loadMessages(for: group.id)
+        // Load every group's history off the main actor (see loadMessages), one group per run-loop
+        // tick, so a wallet with group history doesn't freeze the UI on login/launch. This used to
+        // be a synchronous decrypt storm (3 HKDF + ChaChaPoly per message, every group, inline).
+        let targetWallet = walletAddress
+        Task { [weak self] in
+            guard let self else { return }
+            for group in self.groups {
+                guard self.currentWalletAddress == targetWallet else { return }
+                self.loadMessages(for: group.id)
+                await Task.yield()
+            }
         }
         updateScanningStateIfNeeded()
         ChatService.shared.scheduleBadgeUpdate()
@@ -935,27 +944,25 @@ final class GroupChatService: ObservableObject {
     // MARK: - Message loading (decrypt-on-read from stored ciphertext)
 
     func loadMessages(for groupId: String) {
+        // Non-blocking: fetch the ciphertext rows on the main actor (fast Core Data read), then
+        // decrypt OFF the main actor and publish the result back on main. Decrypting inline froze
+        // the UI - especially in `setCurrentWallet`, which loads every group on login/launch.
+        let targetWallet = currentWalletAddress
         guard let bag = try? keychain.loadGroupBag(groupId: groupId),
               let gid = Data(hexString: groupId) else {
             groupMessages[groupId] = []
             return
         }
         let rows = store.messageRows(forGroup: groupId)
-        var decoded: [GroupMessage] = []
-        for row in rows {
-            guard let msgId = Data(hexString: row.msgIdHex),
-                  let root = groupRootEpoch(for: row.epoch, bag: bag, groupId: gid) else { continue }
-            let senderId = Data(hexString: row.senderIdHex) ?? Data()
-            guard let plaintext = try? GroupCipher.decryptMessage(
-                ciphertextWithTag: row.contentEncrypted, groupRootEpoch: root, groupId: gid, epoch: row.epoch, senderId: senderId, msgId: msgId
-            ) else { continue }
-            decoded.append(GroupMessage(
-                id: UUID(), groupId: groupId, txId: row.txId, senderAddress: row.senderAddress,
-                senderIdHex: row.senderIdHex, content: plaintext, timestamp: Date(timeIntervalSince1970: Double(row.blockTime) / 1000),
-                blockTime: row.blockTime, isOutgoing: row.isOutgoing, deliveryStatus: row.deliveryStatus
-            ))
+        Task { [weak self] in
+            let decoded = await Task.detached(priority: .userInitiated) {
+                Self.decryptGroupRows(rows, groupId: groupId, gid: gid, bag: bag)
+            }.value
+            // Discard if the wallet changed while we were decrypting (avoids a stale group's
+            // messages landing under a different account).
+            guard let self, self.currentWalletAddress == targetWallet else { return }
+            self.groupMessages[groupId] = decoded
         }
-        groupMessages[groupId] = decoded
     }
 
     /// Admins can derive any past epoch's root on demand (they hold groupSeed); non-admins only
@@ -969,6 +976,41 @@ final class GroupChatService: ObservableObject {
             return GroupCipher.deriveGroupRootEpoch(groupSeed: seed, groupId: groupId, epoch: epoch)
         }
         return nil
+    }
+
+    // MARK: - Off-main decrypt (nonisolated statics so they run on a background executor)
+
+    /// `groupRootEpoch`, but callable off the main actor (pure crypto, value-type inputs only).
+    nonisolated private static func rootEpoch(for epoch: UInt64, bag: GroupBag, groupId: Data) -> Data? {
+        if epoch == bag.currentEpoch, let root = Data(hexString: bag.groupRootEpoch) {
+            return root
+        }
+        if let seedHex = bag.groupSeed, let seed = Data(hexString: seedHex) {
+            return GroupCipher.deriveGroupRootEpoch(groupSeed: seed, groupId: groupId, epoch: epoch)
+        }
+        return nil
+    }
+
+    /// Decrypts a group's stored ciphertext rows into plaintext messages. Pure/value-type only, so
+    /// it runs off the main actor - decryption (3 HKDF + ChaChaPoly per message) is the dominant
+    /// cost that used to freeze login/launch when done inline for every group.
+    nonisolated private static func decryptGroupRows(_ rows: [CDGroupMessageSnapshot], groupId: String, gid: Data, bag: GroupBag) -> [GroupMessage] {
+        var decoded: [GroupMessage] = []
+        decoded.reserveCapacity(rows.count)
+        for row in rows {
+            guard let msgId = Data(hexString: row.msgIdHex),
+                  let root = rootEpoch(for: row.epoch, bag: bag, groupId: gid) else { continue }
+            let senderId = Data(hexString: row.senderIdHex) ?? Data()
+            guard let plaintext = try? GroupCipher.decryptMessage(
+                ciphertextWithTag: row.contentEncrypted, groupRootEpoch: root, groupId: gid, epoch: row.epoch, senderId: senderId, msgId: msgId
+            ) else { continue }
+            decoded.append(GroupMessage(
+                id: UUID(), groupId: groupId, txId: row.txId, senderAddress: row.senderAddress,
+                senderIdHex: row.senderIdHex, content: plaintext, timestamp: Date(timeIntervalSince1970: Double(row.blockTime) / 1000),
+                blockTime: row.blockTime, isOutgoing: row.isOutgoing, deliveryStatus: row.deliveryStatus
+            ))
+        }
+        return decoded
     }
 
     // MARK: - Block-scan discovery lifecycle
