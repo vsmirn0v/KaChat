@@ -2078,45 +2078,29 @@ struct ChatDetailView: View {
     }
 
     private func pinToBottomThroughKeyboardTransition() {
-        // `ScrollViewProxy.scrollTo` resolves against the LazyVStack's id-based anchor
-        // bookkeeping, which measured no different behavior at all when this used to retry on
-        // a delay - strong evidence the id lookup itself is what's failing to take effect while
-        // the keyboard-driven safe-area change is still settling, not just the timing. Drive the
-        // real UIScrollView directly instead (the same technique `restoreViewportFromPrependSnapshotIfPossible`
-        // already relies on for exactly this "SwiftUI's own scroll API isn't landing" situation),
-        // and log what's actually happening so if this still doesn't hold, the next repro has
-        // real state to diagnose from instead of another guess.
-        let deadline = Date().addingTimeInterval(1.2)
-        func tick() {
-            defer {
-                if Date() < deadline {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: tick)
-                }
-            }
-            guard let scrollView = scrollViewReference.scrollView else {
-                AppLog.log("[ChatDetailView] keyboard-pin: no scrollView reference yet")
-                return
-            }
+        // Keeps the chat pinned to the bottom when the composer gains focus and the keyboard rises.
+        // A previous version snapped `contentOffset` at 30 Hz for 1.2 s, which fought SwiftUI's
+        // keyboard-driven safe-area animation frame-by-frame and produced a sustained screen shake
+        // on iOS 18 (it fires more intermediate inset updates during the transition). Instead scroll
+        // to the bottom once, after the keyboard-raise animation has settled, so the OS animation
+        // and our scroll never disagree. `scrollViewReference` is the raw UIScrollView because
+        // `ScrollViewProxy.scrollTo` doesn't reliably land mid-transition.
+        DispatchQueue.main.asyncAfter(deadline: .now() + keyboardPinSettleDelay) {
+            guard let scrollView = scrollViewReference.scrollView else { return }
             let minOffsetY = -scrollView.adjustedContentInset.top
             let maxOffsetY = max(
                 minOffsetY,
                 scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
             )
-            AppLog.log(
-                "[ChatDetailView] keyboard-pin: displayedMessages=%d initialViewportPositioned=%d contentSize=%.1f bounds=%.1f offsetY=%.1f target=%.1f",
-                displayedMessages.count,
-                initialViewportPositioned ? 1 : 0,
-                scrollView.contentSize.height,
-                scrollView.bounds.height,
-                scrollView.contentOffset.y,
-                maxOffsetY
-            )
             if abs(scrollView.contentOffset.y - maxOffsetY) > 0.5 {
-                scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: maxOffsetY), animated: false)
+                scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: maxOffsetY), animated: true)
             }
         }
-        tick()
     }
+
+    /// Delay before the one-shot keyboard bottom-pin, chosen to land just after the keyboard-raise
+    /// / safe-area animation settles (~0.25s) so the pin never overlaps and shakes the transition.
+    private var keyboardPinSettleDelay: TimeInterval { 0.35 }
 
     /// Tap-a-reply-quote-to-jump-to-original. `displayedMessages` is a suffix window of `messages`
     /// (see `loadedMessageCount`) - if the target isn't currently windowed in, grow the window to

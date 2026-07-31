@@ -1112,13 +1112,10 @@ struct GroupChatDetailView: View {
     /// doesn't reliably land while the keyboard-driven safe-area change is still settling -
     /// verbatim copy of `ChatDetailView`'s identical fix for the same problem there.
     private func pinToBottomThroughKeyboardTransition() {
-        let deadline = Date().addingTimeInterval(1.2)
-        func tick() {
-            defer {
-                if Date() < deadline {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: tick)
-                }
-            }
+        // Single settle-then-scroll instead of a 30 Hz snapping loop, to avoid fighting SwiftUI's
+        // keyboard-driven safe-area animation (which shook the screen on iOS 18). Verbatim copy of
+        // `ChatDetailView`'s fix - see there for the full rationale.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             guard let scrollView = scrollViewReference.scrollView else { return }
             let minOffsetY = -scrollView.adjustedContentInset.top
             let maxOffsetY = max(
@@ -1126,10 +1123,9 @@ struct GroupChatDetailView: View {
                 scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
             )
             if abs(scrollView.contentOffset.y - maxOffsetY) > 0.5 {
-                scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: maxOffsetY), animated: false)
+                scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: maxOffsetY), animated: true)
             }
         }
-        tick()
     }
 
     /// Group chat has no pagination (the full history is already in `messages`, unlike 1:1's
