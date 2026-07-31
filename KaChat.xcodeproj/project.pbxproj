@@ -71,6 +71,7 @@
 		E81000112D4C000100000009 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000102D4C000100000009 /* OnboardingView.swift */; };
 		E81000132D4C00010000000A /* CreateWalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000122D4C00010000000A /* CreateWalletView.swift */; };
 		E81000152D4C00010000000B /* ImportWalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000142D4C00010000000B /* ImportWalletView.swift */; };
+		E810FA122D4C00010000000B /* PassphraseOptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810FA112D4C00010000000B /* PassphraseOptionView.swift */; };
 		WLCM0000000000000001 /* WelcomeGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = WLCM0000000000000002 /* WelcomeGuideView.swift */; };
 		E81000172D4C00010000000C /* ChatListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000162D4C00010000000C /* ChatListView.swift */; };
 		E81000192D4C00010000000D /* ChatDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000182D4C00010000000D /* ChatDetailView.swift */; };
@@ -253,6 +254,7 @@
 		E81000102D4C000100000009 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		E81000122D4C00010000000A /* CreateWalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateWalletView.swift; sourceTree = "<group>"; };
 		E81000142D4C00010000000B /* ImportWalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportWalletView.swift; sourceTree = "<group>"; };
+		E810FA112D4C00010000000B /* PassphraseOptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassphraseOptionView.swift; sourceTree = "<group>"; };
 		WLCM0000000000000002 /* WelcomeGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeGuideView.swift; sourceTree = "<group>"; };
 		E81000162D4C00010000000C /* ChatListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatListView.swift; sourceTree = "<group>"; };
 		E81000182D4C00010000000D /* ChatDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailView.swift; sourceTree = "<group>"; };
@@ -596,6 +598,7 @@
 				E81000102D4C000100000009 /* OnboardingView.swift */,
 				E81000122D4C00010000000A /* CreateWalletView.swift */,
 				E81000142D4C00010000000B /* ImportWalletView.swift */,
+				E810FA112D4C00010000000B /* PassphraseOptionView.swift */,
 				GIFT00010001000000000002 /* GiftClaimView.swift */,
 				WLCM0000000000000002 /* WelcomeGuideView.swift */,
 			);
@@ -932,6 +935,7 @@
 				E81000112D4C000100000009 /* OnboardingView.swift in Sources */,
 				E81000132D4C00010000000A /* CreateWalletView.swift in Sources */,
 				E81000152D4C00010000000B /* ImportWalletView.swift in Sources */,
+				E810FA122D4C00010000000B /* PassphraseOptionView.swift in Sources */,
 				WLCM0000000000000001 /* WelcomeGuideView.swift in Sources */,
 				E81000172D4C00010000000C /* ChatListView.swift in Sources */,
 				E81000192D4C00010000000D /* ChatDetailView.swift in Sources */,

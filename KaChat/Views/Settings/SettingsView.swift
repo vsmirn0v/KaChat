@@ -1327,15 +1327,10 @@ struct SeedPhraseView: View {
                             }
                         }
 
+                        // Seed-phrase copy is intentionally NOT offered - the recovery phrase must
+                        // be transcribed by hand. The private key hex may be copied here (view
+                        // seed-phrase mode), but the clipboard is auto-wiped 30s later.
                         VStack(spacing: 12) {
-                            Button {
-                                copySensitiveToClipboard(seedPhrase.phrase)
-                                Haptics.success()
-                                showToast("Seed phrase copied. Clipboard will clear in 30s.")
-                            } label: {
-                                Label("Copy Seed Phrase", systemImage: "doc.on.doc")
-                            }
-
                             Button {
                                 guard let privateKey = walletManager.getPrivateKey() else {
                                     showToast("Private key unavailable.", style: .error)
@@ -1407,6 +1402,9 @@ struct SeedPhraseView: View {
         }
     }
 
+    /// Copies sensitive material (the private key hex) to the clipboard and auto-wipes it 30s
+    /// later - but only if nothing else has overwritten the clipboard in the meantime. This bounds
+    /// the window in which other apps or the system clipboard history can read it.
     private func copySensitiveToClipboard(_ value: String) {
         UIPasteboard.general.string = value
         let copiedValue = value

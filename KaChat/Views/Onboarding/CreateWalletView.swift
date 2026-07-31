@@ -2,18 +2,15 @@ import SwiftUI
 
 struct CreateWalletView: View {
     @EnvironmentObject var walletManager: WalletManager
-    @Environment(\.dismiss) private var dismiss
 
     @State private var alias = "My Account"
     @State private var generatedSeedPhrase: SeedPhrase?
     @State private var isCreating = false
     @State private var showSeedPhrase = false
     @State private var hasConfirmedBackup = false
+    @State private var showPassphraseStep = false
     @State private var error: String?
     @State private var wordCount: Int = 24
-    @State private var toastMessage: String?
-    @State private var toastToken = UUID()
-    @State private var toastStyle: ToastStyle = .success
 
     var body: some View {
         ScrollView {
@@ -35,14 +32,17 @@ struct CreateWalletView: View {
                 Text(error)
             }
         }
-        .toast(message: toastMessage, style: toastStyle)
+        .navigationDestination(isPresented: $showPassphraseStep) {
+            PassphraseOptionView(mode: .create) { passphrase in
+                try await commit(passphrase: passphrase)
+            }
+        }
         .onDisappear {
-            // Safety net for the standard NavigationStack back button: if the user backs out
-            // after a wallet was created but before confirming "Continue to App", the flag set
-            // in `createWallet()` must not get stuck true forever - that would trap them on
-            // onboarding despite already having a valid, persisted wallet (see
-            // `LaunchRouter.route`/`WalletManager.isAwaitingSeedPhraseConfirmation`). They can
-            // still review the seed phrase later from Settings.
+            // Harmless safety net: this flow no longer sets `isAwaitingSeedPhraseConfirmation`
+            // (the wallet isn't committed until after the passphrase step, so `currentWallet`
+            // stays nil during seed display and routing stays on onboarding on its own). Clearing
+            // it on the way out guards against any other path leaving it stuck true, which would
+            // otherwise trap a user on onboarding despite a valid persisted wallet.
             walletManager.isAwaitingSeedPhraseConfirmation = false
         }
     }
@@ -169,24 +169,9 @@ struct CreateWalletView: View {
                 }
             }
 
-            // Copy Button
-            if showSeedPhrase {
-                Button {
-                    UIPasteboard.general.string = seedPhrase.phrase
-                    let copiedPhrase = seedPhrase.phrase
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
-                        if UIPasteboard.general.string == copiedPhrase {
-                            UIPasteboard.general.string = ""
-                        }
-                    }
-                    Haptics.success()
-                    showToast("Seed phrase copied. Clipboard will clear in 30s.")
-                } label: {
-                    Label("Copy to Clipboard", systemImage: "doc.on.doc")
-                        .font(.subheadline)
-                }
-                .foregroundColor(.accentColor)
-            }
+            // Copying the seed phrase is intentionally not offered - recovery material must be
+            // transcribed by hand, never placed on the clipboard (other apps and clipboard history
+            // can read it).
 
             // Confirmation Toggle
             Toggle(isOn: $hasConfirmedBackup) {
@@ -196,13 +181,12 @@ struct CreateWalletView: View {
             .toggleStyle(CheckboxToggleStyle())
             .padding(.top)
 
-            // Continue Button
+            // Continue Button - advances to the optional passphrase step (the wallet is not
+            // committed/derived until after that, so the passphrase can shape the account).
             Button {
-                walletManager.justCreatedNewWallet = true
-                walletManager.isAwaitingSeedPhraseConfirmation = false
-                dismiss()
+                showPassphraseStep = true
             } label: {
-                Text("Continue to App")
+                Text("Next")
                     .frame(maxWidth: .infinity)
                     .padding()
                     .background(hasConfirmedBackup ? Color.accentColor : Color.gray)
@@ -218,8 +202,9 @@ struct CreateWalletView: View {
 
         Task {
             do {
-                let result = try await walletManager.createWallet(alias: alias, wordCount: wordCount)
-                generatedSeedPhrase = result.seedPhrase
+                // Generate the mnemonic for display only. Key derivation + persistence are deferred
+                // to `commit(passphrase:)`, after the user backs it up and picks a passphrase.
+                generatedSeedPhrase = try await walletManager.generateNewWalletSeedPhrase(wordCount: wordCount)
             } catch {
                 self.error = error.localizedDescription
             }
@@ -227,21 +212,23 @@ struct CreateWalletView: View {
         }
     }
 
-    private func showToast(_ message: String, style: ToastStyle = .success) {
-        let token = UUID()
-        toastToken = token
-        toastStyle = style
-        withAnimation(.easeOut(duration: 0.2)) {
-            toastMessage = message
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-            if toastToken == token {
-                withAnimation(.easeIn(duration: 0.2)) {
-                    toastMessage = nil
-                }
-            }
+    /// Commits the new wallet with the chosen passphrase ("" = none). Called from the passphrase
+    /// step. Throwing surfaces the error on that screen and lets the user retry.
+    private func commit(passphrase: String) async throws {
+        guard let seedPhrase = generatedSeedPhrase else { return }
+        // Arm the Welcome Guide before committing: `importWallet` (inside commitCreatedWallet) sets
+        // `currentWallet` and suspends at an await, which can mount MainTabView - whose onAppear
+        // consumes this one-shot flag - before control returns here. Setting it first guarantees
+        // the guide appears. Mirrors ImportWalletView.
+        walletManager.justCreatedNewWallet = true
+        do {
+            _ = try await walletManager.commitCreatedWallet(seedPhrase: seedPhrase, passphrase: passphrase, alias: alias)
+        } catch {
+            walletManager.justCreatedNewWallet = false
+            throw error
         }
     }
+
 }
 
 struct CheckboxToggleStyle: ToggleStyle {

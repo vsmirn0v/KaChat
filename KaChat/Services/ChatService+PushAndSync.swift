@@ -304,7 +304,10 @@ extension ChatService {
         needsResubscriptionAfterSync = false
         AppLog.log("[ChatService] Starting message sync...")
 
-        Task {
+        // Tracked in `initialSyncTask` so a wallet switch/import/logout can cancel this run; an
+        // untracked Task here would keep syncing the old wallet after the active wallet changed.
+        initialSyncTask?.cancel()
+        initialSyncTask = Task {
             AppLog.log("[ChatService] Sync task started")
             let isRemotePushEnabled = settingsViewModel?.settings.notificationMode == .remotePush
             let settings = currentSettings

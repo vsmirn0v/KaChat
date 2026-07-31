@@ -2,11 +2,10 @@ import SwiftUI
 
 struct ImportWalletView: View {
     @EnvironmentObject var walletManager: WalletManager
-    @Environment(\.dismiss) private var dismiss
 
     @State private var seedPhraseText = ""
     @State private var alias = "Imported Account"
-    @State private var isImporting = false
+    @State private var showPassphraseStep = false
     @State private var error: String?
     @State private var wordCount = 0
 
@@ -83,18 +82,14 @@ struct ImportWalletView: View {
 
                 Spacer().frame(height: 20)
 
-                // Import Button
+                // Continue Button - advances to the optional passphrase step; the actual import
+                // happens there (with or without a passphrase).
                 Button {
-                    importWallet()
+                    advanceToPassphrase()
                 } label: {
                     HStack {
-                        if isImporting {
-                            ProgressView()
-                                .tint(.white)
-                        } else {
-                            Image(systemName: "checkmark.circle.fill")
-                        }
-                        Text("Import Account")
+                        Image(systemName: "arrow.right.circle.fill")
+                        Text("Continue")
                     }
                     .frame(maxWidth: .infinity)
                     .padding()
@@ -102,12 +97,17 @@ struct ImportWalletView: View {
                     .foregroundColor(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                 }
-                .disabled(!canImport || isImporting)
+                .disabled(!canImport)
             }
             .padding()
         }
         .navigationTitle("Import Account")
         .navigationBarTitleDisplayMode(.large)
+        .navigationDestination(isPresented: $showPassphraseStep) {
+            PassphraseOptionView(mode: .importExisting) { passphrase in
+                try await commitImport(passphrase: passphrase)
+            }
+        }
         .alert("Error", isPresented: .constant(error != nil)) {
             Button("OK") { error = nil }
         } message: {
@@ -133,17 +133,31 @@ struct ImportWalletView: View {
         wordCount = words.count
     }
 
-    private func importWallet() {
-        isImporting = true
+    /// Validates the seed phrase up front (so typos surface here, not after the passphrase step)
+    /// then advances to the optional passphrase screen where the import is actually performed.
+    private func advanceToPassphrase() {
+        guard canImport else { return }
+        guard BIP39.shared.validateMnemonic(seedPhraseText) else {
+            error = "This seed phrase is invalid. Please double-check the words and try again."
+            return
+        }
+        showPassphraseStep = true
+    }
 
-        Task {
-            do {
-                _ = try await walletManager.importWallet(from: seedPhraseText, alias: alias)
-                dismiss()
-            } catch {
-                self.error = error.localizedDescription
-            }
-            isImporting = false
+    /// Performs the import with the chosen passphrase ("" = none). Called from the passphrase step.
+    /// Throwing surfaces the error on that screen and lets the user retry.
+    private func commitImport(passphrase: String) async throws {
+        // Arm the Welcome Guide *before* importing, matching the new-wallet flow.
+        // `importWallet` sets `currentWallet` internally and then suspends at an `await`, which
+        // lets the router mount `MainTabView` - whose `onAppear` consumes this one-shot flag -
+        // before control returns here. Setting it first guarantees it's true when MainTabView
+        // appears. On success the router replaces onboarding with the main app automatically.
+        walletManager.justCreatedNewWallet = true
+        do {
+            _ = try await walletManager.importWallet(from: seedPhraseText, alias: alias, passphrase: passphrase)
+        } catch {
+            walletManager.justCreatedNewWallet = false
+            throw error
         }
     }
 }

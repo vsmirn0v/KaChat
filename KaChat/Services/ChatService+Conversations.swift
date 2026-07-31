@@ -340,6 +340,14 @@ extension ChatService {
             AppLog.log("[ChatService] Fetched: %d incoming payments, %d outgoing payments", inPayments.count, outPayments.count)
         }
 
+        // The fetches above cross many network `await`s. If the user switched/imported a different
+        // wallet in that window, applying these results now would write the previous wallet's
+        // messages into the new wallet's store. Bail out before touching any shared state.
+        guard isActiveWallet(wallet.publicAddress) else {
+            print("[ChatService] Wallet changed mid-sync - discarding stale results for \(wallet.publicAddress.suffix(10))")
+            return
+        }
+
         // Get private key for decryption
         let privateKey = WalletManager.shared.getPrivateKey()
 
@@ -380,6 +388,13 @@ extension ChatService {
         // Migrate legacy aliases to deterministic routing states (one-time)
         if let privKey = privateKey {
             migrateToDeterministicAliases(privateKey: privKey)
+        }
+
+        // Re-check ownership after the handshake/payment processing awaits, before the contextual
+        // message fetch pulls and stores per-conversation history under this wallet.
+        guard isActiveWallet(wallet.publicAddress) else {
+            print("[ChatService] Wallet changed mid-sync - skipping contextual fetch for \(wallet.publicAddress.suffix(10))")
+            return
         }
 
         // Now fetch contextual messages for all known aliases

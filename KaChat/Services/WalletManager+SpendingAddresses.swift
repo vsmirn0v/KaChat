@@ -184,7 +184,7 @@ extension WalletManager {
 
     func spendingPrivateKey(at index: Int) -> Data? {
         guard index >= 0, let seedPhrase = try? getSeedPhrase() else { return nil }
-        guard var seed = BIP39.shared.mnemonicToSeed(seedPhrase.phrase, passphrase: "") else { return nil }
+        guard var seed = BIP39.shared.mnemonicToSeed(seedPhrase.phrase, passphrase: seedPhrase.passphrase ?? "") else { return nil }
         defer { seed.zeroOut() }
 
         let masterKey = deriveMasterKey(from: seed)
@@ -213,7 +213,7 @@ extension WalletManager {
     /// addresses for no reason, since only the final per-index derivation actually differs.
     private func spendingChangeKey() -> (key: Data, chainCode: Data)? {
         guard let seedPhrase = try? getSeedPhrase() else { return nil }
-        guard var seed = BIP39.shared.mnemonicToSeed(seedPhrase.phrase, passphrase: "") else { return nil }
+        guard var seed = BIP39.shared.mnemonicToSeed(seedPhrase.phrase, passphrase: seedPhrase.passphrase ?? "") else { return nil }
         defer { seed.zeroOut() }
         let masterKey = deriveMasterKey(from: seed)
         let purpose = deriveChildKey(from: masterKey, index: 44 | 0x80000000)

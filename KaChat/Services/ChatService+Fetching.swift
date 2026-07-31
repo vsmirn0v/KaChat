@@ -464,6 +464,9 @@ extension ChatService {
 
     func processHandshakes(_ handshakes: [HandshakeResponse], isOutgoing: Bool, myAddress: String, privateKey: Data?) async {
         for handshake in handshakes {
+            // Stop if the user switched/imported a different wallet mid-loop - the remaining
+            // handshakes belong to `myAddress`, not the now-active wallet. See isActiveWallet.
+            guard isActiveWallet(myAddress) else { return }
             let resolvedSender = await resolveSenderAddress(
                 sender: handshake.sender,
                 txId: handshake.txId,
@@ -512,6 +515,10 @@ extension ChatService {
                 // For outgoing handshakes, we know our own alias
                 content = decodeMessagePayload(handshake.messagePayload) ?? "[Handshake sent]"
             }
+
+            // The resolve/decrypt awaits above may have spanned a wallet switch; re-check before
+            // mutating shared alias/conversation state for this handshake.
+            guard isActiveWallet(myAddress) else { return }
 
             // Store the alias for this contact
             if let alias = extractedAlias {
@@ -1471,6 +1478,8 @@ extension ChatService {
         fallbackSince: UInt64,
         nowMs: UInt64
     ) async -> Bool {
+        // Don't fetch/store this wallet's conversation history if it's no longer the active wallet.
+        guard isActiveWallet(myAddress) else { return false }
         // Build contact set from routing states (preferred) + legacy aliases (fallback)
         let allContactAddresses = Array(Set(routingStates.keys).union(conversationAliases.keys))
         print("[ChatService] Fetching contextual messages for \(allContactAddresses.count) contacts")
@@ -1625,6 +1634,9 @@ extension ChatService {
                     messageType: msgType
                 )
 
+                // A wallet switch may have happened during the fetch await above; don't append
+                // this wallet's history to the now-active wallet's conversation list.
+                guard isActiveWallet(myAddress) else { return false }
                 addMessageToConversation(message, contactAddress: contactAddress)
 
                 // Capability detection: if message arrived on deterministic alias, mark peer
@@ -1743,6 +1755,9 @@ extension ChatService {
                     messageType: msgType
                 )
 
+                // A wallet switch may have happened during the fetch await above; don't append
+                // this wallet's history to the now-active wallet's conversation list.
+                guard isActiveWallet(myAddress) else { return false }
                 addMessageToConversation(message, contactAddress: contactAddress)
                 if let blockTime = contextMsg.blockTime, blockTime > lastPollTime {
                     updateLastPollTime(blockTime)
@@ -1760,6 +1775,8 @@ extension ChatService {
         nowMs: UInt64,
         forceExactBlockTime: Bool = false
     ) async -> Bool {
+        // Don't fetch/store this wallet's conversation history if it's no longer the active wallet.
+        guard isActiveWallet(myAddress) else { return false }
         if contactsManager.isAddressDeleted(contactAddress) {
             return true
         }
@@ -2127,6 +2144,9 @@ extension ChatService {
         var needsFullSync = false
 
         for payment in payments {
+            // Stop if the user switched/imported a different wallet mid-loop - the remaining
+            // payments belong to `myAddress`, not the now-active wallet. See isActiveWallet.
+            guard isActiveWallet(myAddress) else { return }
             if isSuppressedPaymentTxId(payment.txId) {
                 _ = addKNSTransferMessageFromHintIfNeeded(
                     txId: payment.txId,

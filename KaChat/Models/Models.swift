@@ -117,15 +117,24 @@ struct SpendingAddressEntry: Identifiable, Equatable {
 struct SeedPhrase: Codable {
     let words: [String]
 
+    /// Optional BIP39 passphrase (the "25th word"). Combined with the mnemonic during seed
+    /// derivation (`BIP39.mnemonicToSeed`) to unlock a distinct, hidden account. Optional so
+    /// wallets stored before this feature still decode (a missing key on an Optional synthesizes
+    /// as `nil`, same trick as `Wallet.spendingAddressIndex`). `nil` and `""` are equivalent
+    /// (no passphrase). Persisted Secure-Enclave-wrapped and device-only alongside the words
+    /// (see `KeychainService.saveSeedPhrase`), so the account auto-unlocks like any other.
+    var passphrase: String?
+
     var phrase: String {
         words.joined(separator: " ")
     }
 
-    init(words: [String]) {
+    init(words: [String], passphrase: String? = nil) {
         self.words = words
+        self.passphrase = passphrase
     }
 
-    init?(phrase: String) {
+    init?(phrase: String, passphrase: String? = nil) {
         // Split by any whitespace including newlines, tabs, etc.
         let words = phrase.lowercased()
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -136,6 +145,7 @@ struct SeedPhrase: Codable {
             return nil
         }
         self.words = words
+        self.passphrase = passphrase
     }
 }
 

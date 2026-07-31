@@ -285,9 +285,9 @@ struct ProfileView: View {
         .background(glassBackground(cornerRadius: 18))
     }
 
-    /// Replays the same first-run walkthrough shown automatically after creating a brand-new
-    /// wallet (`WelcomeGuideView`, triggered from `MainTabView` via
-    /// `walletManager.justCreatedNewWallet`) - distinct `@State` name from `showSetupGuide` below,
+    /// Replays the same first-run walkthrough shown automatically after onboarding a wallet
+    /// (created or imported) - `WelcomeGuideView`, triggered from `MainTabView` via
+    /// `walletManager.justCreatedNewWallet` - distinct `@State` name from `showSetupGuide` below,
     /// which re-launches the unrelated KNS domain/avatar creation wizard.
     private var welcomeGuideSection: some View {
         Button {

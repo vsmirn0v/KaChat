@@ -243,6 +243,11 @@ final class ChatService: ObservableObject {
     let pollDelayAfterSync: TimeInterval = 60.0
 
     var pollTask: Task<Void, Never>?
+    /// The one-shot 4-phase initial sync started by `startPolling`. Tracked so wallet transitions
+    /// (import/switch/logout) can cancel it - otherwise the previous wallet's historical sync keeps
+    /// running past the switch and writes its messages into the *new* wallet's store, leaking one
+    /// account's chats into another. Backed up by the write-time `isActiveWallet` guard.
+    var initialSyncTask: Task<Void, Never>?
     var lastPollTime: UInt64 = 0
     var syncObjectCursors: [String: SyncObjectCursor] = [:]
     var syncObjectCursorsDirty = false
@@ -540,6 +545,15 @@ final class ChatService: ObservableObject {
     /// Reset chat state for new/imported wallet - clears data but keeps polling active
     /// - Parameter skipStoreClear: If true, skips calling messageStore.clearAll() (use when switching to a fresh wallet store)
     func resetForNewWallet(skipStoreClear: Bool = false) {
+        // Cancel any sync work belonging to the previous wallet before we wipe in-memory state.
+        // The initial 4-phase sync task and the debounced message-store writer are otherwise
+        // untracked by stopPolling and would keep writing the old wallet's data after the switch.
+        pollTask?.cancel()
+        pollTask = nil
+        initialSyncTask?.cancel()
+        initialSyncTask = nil
+        messageSyncTask?.cancel()
+        messageSyncTask = nil
         subscriptionRetryTask?.cancel()
         subscriptionRetryTask = nil
         pendingResubscriptionTask?.cancel()
@@ -617,6 +631,16 @@ final class ChatService: ObservableObject {
         if !skipStoreClear {
             messageStore.clearAll()
         }
+    }
+
+    /// True while `address` is still the active wallet. An in-flight sync captures the wallet it
+    /// started for and calls this immediately before applying results to the in-memory
+    /// `conversations` list or persisting them; if the user has since switched/imported a different
+    /// account, the sync aborts. This is the write-time backstop that guarantees one account's
+    /// messages can never be stamped into another's store even if a stale sync task outlives the
+    /// switch. See `WalletManager.importWallet`.
+    func isActiveWallet(_ address: String) -> Bool {
+        return WalletManager.shared.currentWallet?.publicAddress == address
     }
 
     // MARK: - Public Methods

@@ -1195,6 +1195,11 @@ extension ChatService {
            !pendingCloudKitExport {
             return
         }
+        // The active wallet at schedule time. If the user switches/imports a different account
+        // during the debounce window below, we must not flush this snapshot into the new wallet's
+        // store. Upstream sync guards already keep foreign messages out of `conversations`; this is
+        // the final backstop right at the persistence boundary. See ChatService.isActiveWallet.
+        let scheduledOwner = WalletManager.shared.currentWallet?.publicAddress
         messageSyncTask?.cancel()
         lastMessageStoreSyncScheduledAt = Date()
         messageSyncTask = Task { [weak self] in
@@ -1203,6 +1208,10 @@ extension ChatService {
             // stale Core Data reloads before save completes
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard let self else { return }
+            guard let owner = scheduledOwner, self.isActiveWallet(owner) else {
+                self.pendingCloudKitExport = false
+                return
+            }
             guard let key = self.messageEncryptionKey() else { return }
             let shouldExport = self.pendingCloudKitExport
             let conversationsSnapshot = await MainActor.run { self.conversations }
