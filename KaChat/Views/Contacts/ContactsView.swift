@@ -3626,8 +3626,12 @@ struct ChattingAddressQRView: View {
                         .font(.footnote.monospaced())
                         .foregroundColor(.black)
                         .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .padding(.horizontal, 40)
+                        // Show the whole address, always. A Kaspa address is ~60-66 chars with no
+                        // spaces; capping at 2 lines truncated it on narrower screens. Let it wrap
+                        // to as many lines as needed and take the vertical space it requires.
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 28)
 
                     Text(subtitle)
                         .font(.subheadline)

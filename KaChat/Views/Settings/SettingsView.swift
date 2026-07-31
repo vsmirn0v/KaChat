@@ -1311,16 +1311,20 @@ struct SeedPhraseView: View {
                                 GridItem(.flexible())
                             ], spacing: 8) {
                                 ForEach(Array(seedPhrase.words.enumerated()), id: \.offset) { index, word in
-                                    HStack {
+                                    HStack(spacing: 4) {
                                         Text("\(index + 1).")
-                                            .font(.caption)
+                                            .font(.caption2)
                                             .foregroundColor(.secondary)
-                                            .frame(width: 24, alignment: .trailing)
+                                            .frame(width: 18, alignment: .trailing)
                                         Text(word)
-                                            .font(.system(.body, design: .monospaced))
-                                        Spacer()
+                                            .font(.system(.subheadline, design: .monospaced))
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.6)
+                                            .allowsTightening(true)
+                                        Spacer(minLength: 0)
                                     }
-                                    .padding(8)
+                                    .padding(.vertical, 8)
+                                    .padding(.horizontal, 6)
                                     .background(Color(.systemGray6))
                                     .clipShape(RoundedRectangle(cornerRadius: 8))
                                 }
