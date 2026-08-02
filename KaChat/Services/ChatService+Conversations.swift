@@ -2178,6 +2178,53 @@ extension ChatService {
         }
     }
 
+    /// Consolidates a spending address's UTXOs into as few outputs as possible. Kaspa caps a
+    /// transaction's mass (~89 inputs), so an address with more UTXOs than
+    /// `KasiaTransactionBuilder.maxInputsPerTransaction` can't be compounded in a single self-send -
+    /// the node rejects the over-mass transaction. This splits the spendable UTXOs into mass-safe
+    /// batches (largest-first) and self-sends each batch, returning every batch's txId. e.g. 127
+    /// UTXOs -> 2 batches -> 2 consolidated outputs (run again to reduce further). Batches are
+    /// disjoint sets of existing UTXOs, so they're independent; submission is serialized by
+    /// `enqueueOutgoingTxOperation` inside `sendFromSpendingAddress`.
+    @discardableResult
+    func consolidateSpendingAddress(index: Int, extraFeeSompi: UInt64 = 0) async throws -> [String] {
+        guard let fromAddress = WalletManager.shared.spendingAddress(at: index) else {
+            throw KasiaError.keychainError("Could not derive this spending address")
+        }
+        let rpcManager = NodePoolService.shared
+        if !rpcManager.isConnected {
+            try await rpcManager.connect(network: currentSettings.networkType)
+        }
+        let utxos = try await rpcManager.getUtxosByAddresses([fromAddress])
+        let spendable = utxos.filter { $0.blockDaaScore > 0 && !$0.isCoinbase }
+        guard spendable.count >= 2 else {
+            throw KasiaError.networkError("Nothing to consolidate - this address has \(spendable.count) spendable UTXO\(spendable.count == 1 ? "" : "s").")
+        }
+
+        // Largest-first so each batch carries the most value; split into mass-safe input groups.
+        let chunks = spendable.sorted { $0.amount > $1.amount }
+            .chunked(into: KasiaTransactionBuilder.maxInputsPerTransaction)
+
+        var txIds: [String] = []
+        for chunk in chunks {
+            // A lone leftover UTXO (a final chunk of size 1) has nothing to compound with - leave it.
+            guard chunk.count >= 2 else { continue }
+            let maxAmount = try await estimateMaxSpendingAddressAmount(
+                index: index, toAddress: fromAddress, manualUtxos: chunk, extraFeeSompi: extraFeeSompi
+            )
+            guard maxAmount > 0 else { continue }
+            // Self-send this batch's full value back to the same address (coin control = this chunk).
+            let txId = try await sendFromSpendingAddress(
+                index: index, toAddress: fromAddress, amountSompi: maxAmount, manualUtxos: chunk, extraFeeSompi: extraFeeSompi
+            )
+            txIds.append(txId)
+        }
+        guard !txIds.isEmpty else {
+            throw KasiaError.networkError("Nothing to consolidate")
+        }
+        return txIds
+    }
+
     /// Estimates the total fee for a spending-address withdrawal. Calls NodePoolService
     /// directly rather than fetchUtxosWithFallback, whose single-address UTXO cache would
     /// return the wrong address's data when estimating for anything but the identity address.
@@ -3427,4 +3474,13 @@ extension ChatService {
 
     /// Check the Kasia indexer for a handshake matching the given txId
     /// Used as fallback when the Kaspa REST API doesn't return the transaction payload
+}
+
+private extension Array {
+    /// Splits into consecutive chunks of at most `size` elements (used to batch UTXO consolidation
+    /// into mass-safe transactions).
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return isEmpty ? [] : [self] }
+        return stride(from: 0, to: count, by: size).map { Array(self[$0 ..< Swift.min($0 + size, count)]) }
+    }
 }

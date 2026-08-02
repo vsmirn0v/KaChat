@@ -754,6 +754,9 @@ struct SpendingAddressWithdrawView: View {
     @State private var isEstimatingMax = false
     @State private var errorMessage: String?
     @State private var successTxId: String?
+    /// Populated instead of `successTxId` in compound mode, where consolidation can span several
+    /// batched transactions (Kaspa's per-tx mass/input cap).
+    @State private var successTxIds: [String] = []
 
     @State private var isResolvingKNS = false
     @State private var resolvedAddress: String?
@@ -790,7 +793,12 @@ struct SpendingAddressWithdrawView: View {
     }
 
     private var canSend: Bool {
-        hasValidRecipient && amountSompi != nil && !isSending
+        // Compound mode consolidates via `consolidateSpendingAddress`, which computes its own
+        // per-batch amounts - it needs no amount field, and the full-balance max estimate can't
+        // even be computed when there are more UTXOs than fit one transaction (exactly when
+        // consolidation is needed). So the button only gates on not-already-sending.
+        if isCompoundMode { return !isSending }
+        return hasValidRecipient && amountSompi != nil && !isSending
     }
 
     /// Extra priority tip on top of the base (Normal-tier) fee, for network congestion. A
@@ -1061,7 +1069,10 @@ struct SpendingAddressWithdrawView: View {
                 if isCompoundMode {
                     addressInput = entry.address
                     isValidAddress = true
-                    setMaxAmount()
+                    // Show the balance being consolidated for context. Deliberately NOT running the
+                    // max/fee estimate: it fails when the address has more UTXOs than fit one
+                    // transaction, which is exactly the case consolidation exists to fix (it batches).
+                    amountInput = formatKas(entry.balanceSompi)
                 }
             }
             .navigationTitle(isCompoundMode ? "Compound UTXOs" : "Send Kaspa from Address #\(entry.index)")
@@ -1093,7 +1104,24 @@ struct SpendingAddressWithdrawView: View {
                 }
             }
             .overlay {
-                if let successTxId {
+                if !successTxIds.isEmpty {
+                    ZStack {
+                        Color.black.opacity(0.45)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                onComplete()
+                                dismiss()
+                            }
+                        ConsolidateSuccessCard(
+                            txIds: successTxIds,
+                            explorer: settingsViewModel.settings.kaspaExplorer
+                        ) {
+                            onComplete()
+                            dismiss()
+                        }
+                    }
+                    .transition(.opacity)
+                } else if let successTxId {
                     ZStack {
                         Color.black.opacity(0.45)
                             .ignoresSafeArea()
@@ -1113,6 +1141,7 @@ struct SpendingAddressWithdrawView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: successTxId)
+            .animation(.easeInOut(duration: 0.2), value: successTxIds.isEmpty)
         }
         .interactiveDismissDisabled()
     }
@@ -1222,17 +1251,30 @@ struct SpendingAddressWithdrawView: View {
     }
 
     private func send() {
-        guard let amountSompi else { return }
         isSending = true
         errorMessage = nil
-        let recipient = effectiveAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         let tipSompi = extraFeeSompi
         Task {
             do {
-                let txId = try await chatService.sendFromSpendingAddress(index: entry.index, toAddress: recipient, amountSompi: amountSompi, manualUtxos: manualUtxos, extraFeeSompi: tipSompi)
-                await MainActor.run {
-                    isSending = false
-                    successTxId = txId
+                if isCompoundMode {
+                    // Consolidation may span several batched transactions (Kaspa caps inputs by
+                    // mass), so this returns a list of txIds and self-sends internally.
+                    let ids = try await chatService.consolidateSpendingAddress(index: entry.index, extraFeeSompi: tipSompi)
+                    await MainActor.run {
+                        isSending = false
+                        successTxIds = ids
+                    }
+                } else {
+                    guard let amountSompi else {
+                        await MainActor.run { isSending = false }
+                        return
+                    }
+                    let recipient = effectiveAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let txId = try await chatService.sendFromSpendingAddress(index: entry.index, toAddress: recipient, amountSompi: amountSompi, manualUtxos: manualUtxos, extraFeeSompi: tipSompi)
+                    await MainActor.run {
+                        isSending = false
+                        successTxId = txId
+                    }
                 }
             } catch {
                 await MainActor.run {

@@ -37,6 +37,13 @@ struct KasiaTransactionBuilder {
     /// alone.
     static let dustThreshold: UInt64 = 20_000_000 // 0.2 KAS
 
+    /// Kaspa caps transaction mass (~100,000 grams); each input costs ~1,118 grams (dominated by
+    /// 1,000 grams of sig-op mass), so a transaction tops out near ~89 inputs before the node
+    /// rejects it as over-mass. Cap selection well under that so we never build a doomed transaction
+    /// whose node rejection surfaces as a confusing "network error"; a wallet with more UTXOs than
+    /// this must consolidate them in batches of this size first (see ChatService.consolidateSpendingAddress).
+    static let maxInputsPerTransaction = 80
+
     static let standardSubnetworkId = Data(repeating: 0, count: 20)
     private static let selfStashScope = "saved_handshake"
 
@@ -1301,6 +1308,12 @@ struct KasiaTransactionBuilder {
 
         for utxo in sorted {
             if utxo.isCoinbase { continue }
+            // Refuse to build an over-mass transaction: if we've hit the input cap and still
+            // haven't covered the amount, more inputs would exceed Kaspa's mass limit and the node
+            // would reject the tx. Fail with a clear, actionable message instead.
+            if selected.count >= maxInputsPerTransaction {
+                throw KasiaError.networkError("This send needs more than \(maxInputsPerTransaction) inputs. Compound (consolidate) this address's UTXOs first, then try again.")
+            }
             selected.append(utxo)
             total = try addSompiChecked(total, utxo.amount, context: "payment selection")
 
@@ -1355,6 +1368,11 @@ struct KasiaTransactionBuilder {
         let usable = utxos.filter { !$0.isCoinbase }
         guard !usable.isEmpty else {
             throw KasiaError.networkError("Insufficient funds for payment")
+        }
+        // A fixed input set over the mass cap would be rejected by the node - refuse it up front.
+        // Consolidation feeds this in chunks of maxInputsPerTransaction, so those always pass.
+        guard usable.count <= maxInputsPerTransaction else {
+            throw KasiaError.networkError("Too many inputs selected (\(usable.count)). Kaspa transactions are limited to about \(maxInputsPerTransaction) inputs - select fewer, or compound this address first.")
         }
         let total = try usable.reduce(UInt64(0)) { try addSompiChecked($0, $1.amount, context: "manual payment selection") }
 
