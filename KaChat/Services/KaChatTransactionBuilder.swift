@@ -41,7 +41,7 @@ struct KasiaTransactionBuilder {
     /// 1,000 grams of sig-op mass), so a transaction tops out near ~89 inputs before the node
     /// rejects it as over-mass. Cap selection well under that so we never build a doomed transaction
     /// whose node rejection surfaces as a confusing "network error"; a wallet with more UTXOs than
-    /// this must consolidate them in batches of this size first (see ChatService.consolidateSpendingAddress).
+    /// this must consolidate them one transaction at a time (see ChatService.maxConsolidatableChunk).
     static let maxInputsPerTransaction = 80
 
     static let standardSubnetworkId = Data(repeating: 0, count: 20)
