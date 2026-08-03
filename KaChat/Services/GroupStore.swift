@@ -265,11 +265,20 @@ final class GroupStore {
         let targetTxId: String
         let reactorAddress: String
         let emoji: String
+        /// Send state of the local user's own reaction (`.sent` for everyone else's / delivered).
+        /// `.failed` drives the error icon on the pill and the Retry under the message.
+        var deliveryStatus: ChatMessage.DeliveryStatus = .sent
+        /// When `.failed`, whether the failed change was an "add" or "remove" — so Retry re-attempts
+        /// the correct action.
+        var failedAction: String? = nil
+        /// Reaction creation time (ms since epoch). Used to drop the green "sent" checkmark after a
+        /// short window (the checkmark is a recent-confirmation, not a permanent badge).
+        var blockTime: Int64 = 0
     }
 
     /// Replaces any existing reaction `reactorAddress` left on `targetTxId` with `emoji` - one
     /// reaction per (message, reactor), mirroring `MessageStore.upsertReaction`'s 1:1 shape.
-    func upsertGroupReaction(targetTxId: String, groupId: String, reactorAddress: String, emoji: String, reactionTxId: String?, blockTime: Int64) {
+    func upsertGroupReaction(targetTxId: String, groupId: String, reactorAddress: String, emoji: String, reactionTxId: String?, blockTime: Int64, deliveryStatus: String? = nil, failedAction: String? = nil) {
         guard isLoaded else { return }
         let context = viewContext
         context.performAndWait {
@@ -286,6 +295,8 @@ final class GroupStore {
             reaction.emoji = emoji
             reaction.reactionTxId = reactionTxId
             reaction.blockTime = blockTime
+            reaction.deliveryStatus = deliveryStatus
+            reaction.failedAction = failedAction
             save(context)
         }
     }
@@ -316,7 +327,13 @@ final class GroupStore {
             guard let results = try? context.fetch(request) else { return }
             for record in results {
                 guard let emoji = record.emoji else { continue }
-                let snapshot = ReactionSnapshot(targetTxId: record.targetTxId, reactorAddress: record.reactorAddress, emoji: emoji)
+                let status: ChatMessage.DeliveryStatus
+                switch record.deliveryStatus {
+                case "failed": status = .failed
+                case "pending": status = .pending
+                default: status = .sent
+                }
+                let snapshot = ReactionSnapshot(targetTxId: record.targetTxId, reactorAddress: record.reactorAddress, emoji: emoji, deliveryStatus: status, failedAction: record.failedAction, blockTime: record.blockTime)
                 grouped[record.targetTxId, default: []].append(snapshot)
             }
         }
@@ -389,7 +406,12 @@ final class GroupStore {
             makeAttribute(name: "reactorAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
             makeAttribute(name: "emoji", type: .stringAttributeType, optional: true),
             makeAttribute(name: "reactionTxId", type: .stringAttributeType, optional: true),
-            makeAttribute(name: "blockTime", type: .integer64AttributeType, optional: false, defaultValue: 0)
+            makeAttribute(name: "blockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            // Send status for the local user's own reaction: nil/"sent" = delivered, "failed" = the
+            // reaction tx never sent. `failedAction` records "add"/"remove" so Retry knows what to
+            // re-attempt. Optional → lightweight migration on the existing store.
+            makeAttribute(name: "deliveryStatus", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "failedAction", type: .stringAttributeType, optional: true)
         ]
 
         model.entities = [groupEntity, messageEntity, reactionEntity]
@@ -471,4 +493,6 @@ final class CDGroupReaction: NSManagedObject {
     @NSManaged var emoji: String?
     @NSManaged var reactionTxId: String?
     @NSManaged var blockTime: Int64
+    @NSManaged var deliveryStatus: String?
+    @NSManaged var failedAction: String?
 }

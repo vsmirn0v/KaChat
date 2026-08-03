@@ -319,10 +319,10 @@ final class GroupChatService: ObservableObject {
         reactionsByGroupId[groupId] = store.fetchGroupReactions(groupId: groupId)
     }
 
-    private func applyLocalGroupReaction(targetTxId: String, groupId: String, reactorAddress: String, emoji: String) {
+    private func applyLocalGroupReaction(targetTxId: String, groupId: String, reactorAddress: String, emoji: String, deliveryStatus: ChatMessage.DeliveryStatus = .sent, failedAction: String? = nil, blockTime: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) {
         var existing = reactionsByGroupId[groupId]?[targetTxId] ?? []
         existing.removeAll { $0.reactorAddress == reactorAddress }
-        existing.append(GroupStore.ReactionSnapshot(targetTxId: targetTxId, reactorAddress: reactorAddress, emoji: emoji))
+        existing.append(GroupStore.ReactionSnapshot(targetTxId: targetTxId, reactorAddress: reactorAddress, emoji: emoji, deliveryStatus: deliveryStatus, failedAction: failedAction, blockTime: blockTime))
         reactionsByGroupId[groupId, default: [:]][targetTxId] = existing
     }
 
@@ -830,8 +830,10 @@ final class GroupChatService: ObservableObject {
         let payload = MessageReactionCodec.encode(targetTxId: targetTxId, emoji: emoji, action: action)
 
         if action == "add" {
-            applyLocalGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress, emoji: emoji)
-            store.upsertGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress, emoji: emoji, reactionTxId: nil, blockTime: Int64(Date().timeIntervalSince1970 * 1000))
+            // Optimistically pending (no icon) - flips to sent (green checkmark) on submit, or
+            // failed (red error + Retry) if the send doesn't go through.
+            applyLocalGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress, emoji: emoji, deliveryStatus: .pending)
+            store.upsertGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress, emoji: emoji, reactionTxId: nil, blockTime: Int64(Date().timeIntervalSince1970 * 1000), deliveryStatus: "pending")
         } else {
             removeLocalGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress)
             store.removeGroupReaction(targetTxId: targetTxId, reactorAddress: wallet.publicAddress)
@@ -855,12 +857,30 @@ final class GroupChatService: ObservableObject {
             msgId: msgId, ciphertext: ciphertext, signature: signature
         )
 
-        let realTxId = try await ChatService.shared.enqueueOutgoingTxOperation { [weak self] in
-            try await self?.sendSelfStashPayload(payloadString, from: wallet.publicAddress, privateKey: privateKey) ?? ""
+        do {
+            let realTxId = try await ChatService.shared.enqueueOutgoingTxOperation { [weak self] in
+                try await self?.sendSelfStashPayload(payloadString, from: wallet.publicAddress, privateKey: privateKey) ?? ""
+            }
+            if action == "add" {
+                // Success flips pending -> sent (green checkmark) and clears any prior failed flag.
+                applyLocalGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress, emoji: emoji, deliveryStatus: .sent)
+                store.upsertGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress, emoji: emoji, reactionTxId: realTxId, blockTime: Int64(Date().timeIntervalSince1970 * 1000), deliveryStatus: nil, failedAction: nil)
+            }
+        } catch {
+            // The reaction tx failed to send. Flag it failed so the pill shows the red error icon and
+            // a "Retry" appears under the message. A failed "remove" restores the optimistically-
+            // deleted reaction (marked failed) so it isn't silently lost; Retry re-attempts the change.
+            applyLocalGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress, emoji: emoji, deliveryStatus: .failed, failedAction: action)
+            store.upsertGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress, emoji: emoji, reactionTxId: nil, blockTime: Int64(Date().timeIntervalSince1970 * 1000), deliveryStatus: "failed", failedAction: action)
+            throw error
         }
-        if action == "add" {
-            store.upsertGroupReaction(targetTxId: targetTxId, groupId: groupId, reactorAddress: wallet.publicAddress, emoji: emoji, reactionTxId: realTxId, blockTime: Int64(Date().timeIntervalSince1970 * 1000))
-        }
+    }
+
+    /// Re-attempts a group reaction whose send previously failed. `action` is the failed reaction's
+    /// stored `failedAction` ("add"/"remove"). Delegates to `sendGroupReaction`, which clears the
+    /// failed flag optimistically and re-flags it only if this attempt fails too.
+    func retryGroupReaction(targetTxId: String, groupId: String, emoji: String, action: String) async throws {
+        try await sendGroupReaction(targetTxId: targetTxId, groupId: groupId, emoji: emoji, action: action)
     }
 
     /// Shared self-stash send primitive for gcomm/gctl payloads - mirrors

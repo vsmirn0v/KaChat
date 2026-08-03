@@ -293,7 +293,23 @@ struct ChessGameView: View {
         HStack(spacing: 4) {
             if message.isOutgoing { Spacer(minLength: 40) }
             if message.isOutgoing {
-                statusIcon(for: message)
+                if canRetry(message) {
+                    // Tappable "Retry" next to the red error icon (the bubble's long-press retry
+                    // stays too), matching the full-screen move-status row's Retry affordance.
+                    HStack(spacing: 4) {
+                        statusIcon(for: message)
+                        Text("Retry")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.red)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        Haptics.impact(.medium)
+                        retryMessage(message)
+                    }
+                } else {
+                    statusIcon(for: message)
+                }
             }
             Text(compactPreviewText(for: message))
                 .font(.footnote)

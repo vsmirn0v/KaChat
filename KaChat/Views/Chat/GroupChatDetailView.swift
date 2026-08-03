@@ -1214,6 +1214,12 @@ struct GroupChatDetailView: View {
             onReply: { groupChatService.startReplyTo(message) },
             onSelect: { enterSelectMode(with: message.txId) },
             reactions: groupChatService.reactionsByGroupId[group.id]?[message.txId] ?? [],
+            myReactorAddress: myAddress ?? "",
+            onRetryReaction: { reaction in
+                Task {
+                    try? await groupChatService.retryGroupReaction(targetTxId: reaction.targetTxId, groupId: group.id, emoji: reaction.emoji, action: reaction.failedAction ?? "add")
+                }
+            },
             onReact: { emoji in
                 let existing = groupChatService.reactionsByGroupId[group.id]?[message.txId]?.first { $0.reactorAddress == myAddress }
                 let action = existing?.emoji == emoji ? "remove" : "add"
@@ -1326,6 +1332,11 @@ private struct GroupMessageBubbleRow: View {
     var onSelect: (() -> Void)? = nil
     /// This message's current reactions (one per reactor), for the pill shown on its corner.
     var reactions: [GroupStore.ReactionSnapshot] = []
+    /// The local wallet's address, used to find *my* reaction among `reactions` so the pill can show
+    /// my reaction's status (pending → nothing, sent → green check, failed → red error + Retry).
+    var myReactorAddress: String = ""
+    /// Retries the local user's failed reaction on this message (nil disables the reaction Retry).
+    var onRetryReaction: ((GroupStore.ReactionSnapshot) -> Void)? = nil
     /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
     /// entirely (matches 1:1 chat's `MessageBubbleView.onReact`).
     var onReact: ((String) -> Void)?
@@ -1370,6 +1381,23 @@ private struct GroupMessageBubbleRow: View {
 
     private var shouldShowRetry: Bool {
         message.isOutgoing && message.deliveryStatus == .failed
+    }
+
+    /// The local user's own reaction on this message that failed to send, if any. Only our own
+    /// reactions ever carry a `.failed` status, so this uniquely finds the reaction needing the
+    /// error icon + Retry (works for reactions on incoming messages too).
+    private var localReaction: GroupStore.ReactionSnapshot? {
+        reactions.first { $0.reactorAddress == myReactorAddress }
+    }
+
+    /// Status to show on the reaction pill. Same as `localReaction`'s status, except the green
+    /// "sent" checkmark is dropped once the reaction is older than 10 minutes - it's a recent
+    /// confirmation, not a permanent badge (pending/failed are always shown).
+    private var pillReactionStatus: ChatMessage.DeliveryStatus? {
+        guard let localReaction else { return nil }
+        guard localReaction.deliveryStatus == .sent else { return localReaction.deliveryStatus }
+        let ageMs = Int64(Date().timeIntervalSince1970 * 1000) - localReaction.blockTime
+        return ageMs < 600_000 ? .sent : nil
     }
 
     /// Parsed once per row - present only when `message.content` is a reply envelope (matches
@@ -1565,10 +1593,12 @@ private struct GroupMessageBubbleRow: View {
                 }
                 .overlay(alignment: message.isOutgoing ? .bottomLeading : .bottomTrailing) {
                     if !reactions.isEmpty {
-                        ReactionPillView(emojis: reactions.map { $0.emoji })
+                        ReactionPillView(emojis: reactions.map { $0.emoji }, localReactionStatus: pillReactionStatus)
                             .offset(y: 10)
                     }
                 }
+                // Reserve the overlay pill's ~10pt overhang so it doesn't overlap the next message.
+                .padding(.bottom, reactions.isEmpty ? 0 : 16)
 
                 if media == nil,
                    !MessageTextRenderPlan.isEntirelyLink(displayContent),
@@ -1577,7 +1607,30 @@ private struct GroupMessageBubbleRow: View {
                 }
 
                 if message.isOutgoing {
-                    statusIcon
+                    if shouldShowRetry {
+                        // Tappable "Retry" next to the red error icon, so a failed send can be
+                        // resent with one tap instead of only via the long-press menu.
+                        HStack(spacing: 4) {
+                            statusIcon
+                            Text("Retry")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundColor(.red)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { onRetry() }
+                    } else {
+                        statusIcon
+                    }
+                }
+
+                // A reaction (not the message) that failed to send - shown for reactions on any
+                // message (yours or another member's), unlike the message-status row above.
+                if let localReaction, localReaction.deliveryStatus == .failed {
+                    Text("Retry")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(.red)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onRetryReaction?(localReaction) }
                 }
             }
 

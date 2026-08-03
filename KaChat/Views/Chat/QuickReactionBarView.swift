@@ -56,6 +56,19 @@ struct QuickReactionBarView: View {
 /// reactions.
 struct ReactionPillView: View {
     let emojis: [String]
+    /// The local user's own reaction status on this message (nil = the user hasn't reacted here, or
+    /// it's someone else's reaction). `.failed` shows a red error icon + red outline (the tappable
+    /// "Retry" is rendered separately under the message); `.sent` shows a green checkmark once the
+    /// reaction goes through; `.pending` (in flight) shows no icon.
+    var localReactionStatus: ChatMessage.DeliveryStatus? = nil
+
+    private var statusIcon: (name: String, color: Color)? {
+        switch localReactionStatus {
+        case .failed: return ("exclamationmark.circle.fill", .red)
+        case .sent: return ("checkmark.circle.fill", .green)
+        default: return nil
+        }
+    }
 
     private var counts: [(emoji: String, count: Int)] {
         var order: [String] = []
@@ -69,6 +82,11 @@ struct ReactionPillView: View {
 
     var body: some View {
         HStack(spacing: 2) {
+            if let statusIcon {
+                Image(systemName: statusIcon.name)
+                    .font(.system(size: 11))
+                    .foregroundColor(statusIcon.color)
+            }
             ForEach(counts, id: \.emoji) { entry in
                 Text(entry.emoji)
                     .font(.system(size: 12))
@@ -83,6 +101,9 @@ struct ReactionPillView: View {
         .padding(.vertical, 2)
         .background(
             Capsule().fill(.regularMaterial)
+        )
+        .overlay(
+            Capsule().strokeBorder(localReactionStatus == .failed ? Color.red.opacity(0.6) : Color.clear, lineWidth: 1)
         )
     }
 }

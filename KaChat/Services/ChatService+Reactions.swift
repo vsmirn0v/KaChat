@@ -33,10 +33,10 @@ extension ChatService {
     /// Applies a reaction to the in-memory index immediately (optimistic UI on send, live update
     /// on receipt) - replaces `reactorAddress`'s previous entry for `targetTxId` if any, since
     /// there's only ever one reaction per (message, reactor).
-    func applyLocalReaction(targetTxId: String, reactorAddress: String, emoji: String) {
+    func applyLocalReaction(targetTxId: String, reactorAddress: String, emoji: String, deliveryStatus: ChatMessage.DeliveryStatus = .sent, failedAction: String? = nil, blockTime: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) {
         var existing = reactionsByTxId[targetTxId] ?? []
         existing.removeAll { $0.reactorAddress == reactorAddress }
-        existing.append(MessageStore.ReactionSnapshot(targetTxId: targetTxId, reactorAddress: reactorAddress, emoji: emoji))
+        existing.append(MessageStore.ReactionSnapshot(targetTxId: targetTxId, reactorAddress: reactorAddress, emoji: emoji, deliveryStatus: deliveryStatus, failedAction: failedAction, blockTime: blockTime))
         reactionsByTxId[targetTxId] = existing
     }
 
@@ -61,10 +61,12 @@ extension ChatService {
         let blockTime = Int64(Date().timeIntervalSince1970 * 1000)
 
         if action == "add" {
-            applyLocalReaction(targetTxId: targetTxId, reactorAddress: myAddress, emoji: emoji)
+            // Optimistically show the reaction as pending (no icon) - it flips to sent (green
+            // checkmark) once the tx submits, or failed (red error + Retry) if it doesn't.
+            applyLocalReaction(targetTxId: targetTxId, reactorAddress: myAddress, emoji: emoji, deliveryStatus: .pending)
             messageStore.upsertReaction(
                 targetTxId: targetTxId, reactorAddress: myAddress, contactAddress: contact.address,
-                emoji: emoji, reactionTxId: nil, blockTime: blockTime, encryptionKey: key
+                emoji: emoji, reactionTxId: nil, blockTime: blockTime, encryptionKey: key, deliveryStatus: "pending"
             )
         } else {
             removeLocalReaction(targetTxId: targetTxId, reactorAddress: myAddress)
@@ -79,12 +81,35 @@ extension ChatService {
         let payload = MessageReactionCodec.encode(targetTxId: targetTxId, emoji: emoji, action: action)
         guard !payload.isEmpty else { return }
 
-        try await enqueueOutgoingTxOperation {
-            try await self.sendReactionInternal(
-                to: contact, payload: payload, targetTxId: targetTxId,
-                reactorAddress: myAddress, emoji: emoji, action: action, encryptionKey: key
+        do {
+            try await enqueueOutgoingTxOperation {
+                try await self.sendReactionInternal(
+                    to: contact, payload: payload, targetTxId: targetTxId,
+                    reactorAddress: myAddress, emoji: emoji, action: action, encryptionKey: key
+                )
+            }
+        } catch {
+            // The reaction tx failed to send. Flag it failed so the pill shows the red error icon
+            // and a "Retry" appears under the message. For a failed "remove" this restores the
+            // optimistically-deleted reaction (marked failed) so it isn't silently lost - Retry then
+            // re-attempts the removal; for a failed "add" the optimistic reaction is kept, flagged.
+            applyLocalReaction(targetTxId: targetTxId, reactorAddress: myAddress, emoji: emoji, deliveryStatus: .failed, failedAction: action)
+            messageStore.upsertReaction(
+                targetTxId: targetTxId, reactorAddress: myAddress, contactAddress: contact.address,
+                emoji: emoji, reactionTxId: nil, blockTime: blockTime, encryptionKey: key,
+                deliveryStatus: "failed", failedAction: action
             )
+            recordLocalSave()
+            throw error
         }
+    }
+
+    /// Re-attempts a reaction whose send previously failed. `action` is the failed reaction's
+    /// stored `failedAction` ("add"/"remove"), so a failed un-react retries the removal and a failed
+    /// react retries the add. Delegates to `sendReaction`, which clears the failed flag optimistically
+    /// and re-flags it only if this attempt fails too.
+    func retryReaction(to contact: Contact, targetTxId: String, emoji: String, action: String) async throws {
+        try await sendReaction(to: contact, targetTxId: targetTxId, emoji: emoji, action: action)
     }
 
     private func sendReactionInternal(
@@ -142,10 +167,13 @@ extension ChatService {
         addPendingOutputs(from: transaction, txId: submitted.txId, senderScriptPubKey: senderScriptPubKey)
 
         if action == "add" {
+            // Success clears any prior failed flag (e.g. this was a Retry) both in memory and on disk.
+            applyLocalReaction(targetTxId: targetTxId, reactorAddress: reactorAddress, emoji: emoji, deliveryStatus: .sent, failedAction: nil)
             messageStore.upsertReaction(
                 targetTxId: targetTxId, reactorAddress: reactorAddress, contactAddress: contact.address,
                 emoji: emoji, reactionTxId: submitted.txId,
-                blockTime: Int64(Date().timeIntervalSince1970 * 1000), encryptionKey: encryptionKey
+                blockTime: Int64(Date().timeIntervalSince1970 * 1000), encryptionKey: encryptionKey,
+                deliveryStatus: nil, failedAction: nil
             )
             recordLocalSave()
         }

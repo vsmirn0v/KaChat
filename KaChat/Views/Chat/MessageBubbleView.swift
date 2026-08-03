@@ -14,6 +14,8 @@ struct MessageBubbleView: View {
     let message: ChatMessage
     let onCopy: ((String, ToastStyle) -> Void)?
     let onRetry: ((ChatMessage) -> Void)?
+    /// Retries the local user's failed reaction on this message (nil disables the reaction Retry).
+    var onRetryReaction: ((MessageStore.ReactionSnapshot) -> Void)? = nil
     let onAcceptHandshake: (() -> Void)?
     let onDeclineHandshake: (() -> Void)?
     /// Parsed reply envelope, if `message.content` is a reply - matches broadcast rooms'
@@ -26,6 +28,9 @@ struct MessageBubbleView: View {
     let onSelect: (() -> Void)?
     /// This message's current reactions (one per reactor), for the pill shown on its corner.
     var reactions: [MessageStore.ReactionSnapshot] = []
+    /// The local wallet's address, used to find *my* reaction among `reactions` so the pill can show
+    /// my reaction's status (pending → nothing, sent → green check, failed → red error + Retry).
+    var myReactorAddress: String = ""
     /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
     /// entirely (matches how `onReply` being nil already disables reply everywhere it's checked).
     let onReact: ((String) -> Void)?
@@ -73,6 +78,7 @@ struct MessageBubbleView: View {
         message: ChatMessage,
         onCopy: ((String, ToastStyle) -> Void)? = nil,
         onRetry: ((ChatMessage) -> Void)? = nil,
+        onRetryReaction: ((MessageStore.ReactionSnapshot) -> Void)? = nil,
         onAcceptHandshake: (() -> Void)? = nil,
         onDeclineHandshake: (() -> Void)? = nil,
         replyQuote: MessageReplyContent? = nil,
@@ -80,6 +86,7 @@ struct MessageBubbleView: View {
         onReply: (() -> Void)? = nil,
         onSelect: (() -> Void)? = nil,
         reactions: [MessageStore.ReactionSnapshot] = [],
+        myReactorAddress: String = "",
         onReact: ((String) -> Void)? = nil,
         activeQuickReactionMessageId: Binding<UUID?> = .constant(nil),
         onJumpToReply: (() -> Void)? = nil,
@@ -97,6 +104,7 @@ struct MessageBubbleView: View {
         self.message = message
         self.onCopy = onCopy
         self.onRetry = onRetry
+        self.onRetryReaction = onRetryReaction
         self.onAcceptHandshake = onAcceptHandshake
         self.onDeclineHandshake = onDeclineHandshake
         self.replyQuote = replyQuote
@@ -104,6 +112,7 @@ struct MessageBubbleView: View {
         self.onReply = onReply
         self.onSelect = onSelect
         self.reactions = reactions
+        self.myReactorAddress = myReactorAddress
         self.onReact = onReact
         self._activeQuickReactionMessageId = activeQuickReactionMessageId
         self.onJumpToReply = onJumpToReply
@@ -248,10 +257,14 @@ struct MessageBubbleView: View {
                     }
                     .overlay(alignment: message.isOutgoing ? .bottomLeading : .bottomTrailing) {
                         if !reactions.isEmpty {
-                            ReactionPillView(emojis: reactions.map { $0.emoji })
+                            ReactionPillView(emojis: reactions.map { $0.emoji }, localReactionStatus: pillReactionStatus)
                                 .offset(y: 10)
                         }
                     }
+                    // The reaction pill is an overlay (no layout footprint) offset ~10pt below the
+                    // bubble, so reserve that space when reactions exist - otherwise the pill overlaps
+                    // the next message below it.
+                    .padding(.bottom, reactions.isEmpty ? 0 : 16)
 
                     // Only the plain-text-bubble case (no media, and not itself entirely a link,
                     // both handled inside the Group above) gets this extra preview card below it.
@@ -265,7 +278,30 @@ struct MessageBubbleView: View {
                 // Delivery status only - the time now shows via swipe-to-reveal, matching
                 // broadcast rooms, instead of always being visible under every bubble.
                 if shouldShowStatusIcon {
-                    statusIcon
+                    if shouldShowRetry {
+                        // Tappable "Retry" next to the red error icon, so a failed send can be
+                        // resent with one tap instead of only via the long-press menu.
+                        HStack(spacing: 4) {
+                            statusIcon
+                            Text("Retry")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundColor(.red)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { onRetry?(message) }
+                    } else {
+                        statusIcon
+                    }
+                }
+
+                // A reaction (not the message) that failed to send: red "Retry" under the message,
+                // paired with the red error icon shown on the reaction pill itself.
+                if let localReaction, localReaction.deliveryStatus == .failed {
+                    Text("Retry")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundColor(.red)
+                        .contentShape(Rectangle())
+                        .onTapGesture { onRetryReaction?(localReaction) }
                 }
             }
             .onAppear {
@@ -386,6 +422,22 @@ struct MessageBubbleView: View {
 
     private var shouldShowStatusIcon: Bool {
         message.isOutgoing || message.deliveryStatus == .warning
+    }
+
+    /// The local user's own reaction on this message, if any - drives the pill's status icon
+    /// (pending → none, sent → green check, failed → red error) and the Retry affordance.
+    private var localReaction: MessageStore.ReactionSnapshot? {
+        reactions.first { $0.reactorAddress == myReactorAddress }
+    }
+
+    /// Status to show on the reaction pill. Same as `localReaction`'s status, except the green
+    /// "sent" checkmark is dropped once the reaction is older than 10 minutes - it's a recent
+    /// confirmation, not a permanent badge (pending/failed are always shown).
+    private var pillReactionStatus: ChatMessage.DeliveryStatus? {
+        guard let localReaction else { return nil }
+        guard localReaction.deliveryStatus == .sent else { return localReaction.deliveryStatus }
+        let ageMs = Int64(Date().timeIntervalSince1970 * 1000) - localReaction.blockTime
+        return ageMs < 600_000 ? .sent : nil
     }
 
     private func messageTextBubble(isSingleEmojiOnly: Bool) -> some View {

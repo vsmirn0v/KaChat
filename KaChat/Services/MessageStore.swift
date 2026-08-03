@@ -2827,13 +2827,22 @@ final class MessageStore {
         let targetTxId: String
         let reactorAddress: String
         let emoji: String
+        /// Send state of the local user's own reaction (`.sent` for everyone else's / delivered).
+        /// `.failed` drives the error icon on the pill and the Retry affordance under the message.
+        var deliveryStatus: ChatMessage.DeliveryStatus = .sent
+        /// When `.failed`, whether the failed change was an "add" or "remove" — so Retry re-attempts
+        /// the correct action.
+        var failedAction: String? = nil
+        /// Reaction creation time (ms since epoch). Used to drop the green "sent" checkmark after a
+        /// short window (the checkmark is a recent-confirmation, not a permanent badge).
+        var blockTime: Int64 = 0
     }
 
     /// Replaces any existing reaction `reactorAddress` left on `targetTxId` with `emoji` - one
     /// reaction per (message, reactor). No uniqueness constraint at the Core Data level (CloudKit
     /// doesn't support them, same as `CDReadMarker`) - any duplicate found during the
     /// fetch-then-upsert is folded into the first result and the rest deleted.
-    func upsertReaction(targetTxId: String, reactorAddress: String, contactAddress: String, emoji: String, reactionTxId: String?, blockTime: Int64, encryptionKey: SymmetricKey) {
+    func upsertReaction(targetTxId: String, reactorAddress: String, contactAddress: String, emoji: String, reactionTxId: String?, blockTime: Int64, encryptionKey: SymmetricKey, deliveryStatus: String? = nil, failedAction: String? = nil) {
         guard ensureStoreLoaded() else { return }
         let walletAddr = currentWalletAddress
         let context = container.newBackgroundContext()
@@ -2855,6 +2864,8 @@ final class MessageStore {
             reaction.contactAddress = contactAddress
             reaction.reactionTxId = reactionTxId
             reaction.blockTime = blockTime
+            reaction.deliveryStatus = deliveryStatus
+            reaction.failedAction = failedAction
             reaction.updatedAt = Date()
             if let walletAddr {
                 reaction.walletAddress = walletAddr
@@ -2915,7 +2926,13 @@ final class MessageStore {
                     for record in results {
                         guard let emojiData = record.emojiEncrypted,
                               let emoji = self.decryptContent(emojiData, key: decryptionKey) else { continue }
-                        let snapshot = ReactionSnapshot(targetTxId: record.targetTxId, reactorAddress: record.reactorAddress, emoji: emoji)
+                        let status: ChatMessage.DeliveryStatus
+                        switch record.deliveryStatus {
+                        case "failed": status = .failed
+                        case "pending": status = .pending
+                        default: status = .sent
+                        }
+                        let snapshot = ReactionSnapshot(targetTxId: record.targetTxId, reactorAddress: record.reactorAddress, emoji: emoji, deliveryStatus: status, failedAction: record.failedAction, blockTime: record.blockTime)
                         grouped[record.targetTxId, default: []].append(snapshot)
                     }
                 }
@@ -3075,7 +3092,12 @@ final class MessageStore {
             makeAttribute(name: "reactionTxId", type: .stringAttributeType, optional: true),
             makeAttribute(name: "blockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
             makeAttribute(name: "updatedAt", type: .dateAttributeType, optional: true),
-            makeAttribute(name: "walletAddress", type: .stringAttributeType, optional: true)
+            makeAttribute(name: "walletAddress", type: .stringAttributeType, optional: true),
+            // Send status for the local user's own reaction: nil/"sent" = delivered, "failed" =
+            // the reaction tx never sent. `failedAction` records whether the failed change was an
+            // "add" or "remove" so Retry knows what to re-attempt. Optional → lightweight migration.
+            makeAttribute(name: "deliveryStatus", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "failedAction", type: .stringAttributeType, optional: true)
         ]
 
         model.entities = [messageEntity, conversationEntity, readMarkerEntity, syncMarkerEntity, reactionEntity]
@@ -3658,6 +3680,8 @@ final class CDReaction: NSManagedObject {
     @NSManaged var blockTime: Int64
     @NSManaged var updatedAt: Date?
     @NSManaged var walletAddress: String?
+    @NSManaged var deliveryStatus: String?
+    @NSManaged var failedAction: String?
 }
 
 @objc(CDSyncMarker)

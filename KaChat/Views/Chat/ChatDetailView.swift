@@ -2187,6 +2187,11 @@ struct ChatDetailView: View {
             message: message,
             onCopy: showToast,
             onRetry: retryOutgoingMessage,
+            onRetryReaction: { reaction in
+                Task {
+                    try? await chatService.retryReaction(to: contact, targetTxId: reaction.targetTxId, emoji: reaction.emoji, action: reaction.failedAction ?? "add")
+                }
+            },
             onAcceptHandshake: needsHandshakeResponse ? { acceptHandshake() } : nil,
             onDeclineHandshake: needsHandshakeResponse ? { declineHandshake() } : nil,
             replyQuote: replyQuote,
@@ -2194,6 +2199,7 @@ struct ChatDetailView: View {
             onReply: { chatService.startReplyTo(message) },
             onSelect: { enterSelectMode(with: message.txId) },
             reactions: chatService.reactionsByTxId[message.txId] ?? [],
+            myReactorAddress: walletManager.currentWallet?.publicAddress ?? "",
             onReact: { emoji in
                 let myAddress = walletManager.currentWallet?.publicAddress ?? ""
                 let existing = chatService.reactionsByTxId[message.txId]?.first { $0.reactorAddress == myAddress }
