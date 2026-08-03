@@ -318,6 +318,14 @@ struct KaChatApp: App {
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private var backgroundFlushTaskId: UIBackgroundTaskIdentifier = .invalid
 
+    /// Orientation policy per device: iPhone is hard-locked to portrait; iPad may rotate to any
+    /// orientation. This is the authoritative runtime source for supported orientations (it
+    /// overrides the Info.plist keys), so iPhone never rotates into landscape regardless of the
+    /// device's rotation lock setting, while iPad follows the device as usual.
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        UIDevice.current.userInterfaceIdiom == .pad ? .all : .portrait
+    }
+
     /// Requests a few extra seconds of background execution time so the debounced read-marker
     /// and CloudKit export writes triggered on backgrounding (both `context.perform`, not
     /// `performAndWait`, so they return before the save actually lands) get a chance to complete
