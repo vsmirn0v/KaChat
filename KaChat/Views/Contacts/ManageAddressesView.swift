@@ -737,6 +737,11 @@ struct SpendingAddressWithdrawView: View {
     /// ColdSendFlowView behavior, since editing it away from `entry.address` would defeat the
     /// point of a compound send.
     var isCompoundMode: Bool = false
+    /// UTXOs already loaded for `entry.address` by the parent (the list the user is looking at).
+    /// Passed through the compound flow so the "Max" estimate and send don't depend on a second
+    /// pooled fetch that can transiently return empty - which was surfacing as a spurious
+    /// "No spendable UTXOs available" when compounding a large UTXO set.
+    var preloadedUtxos: [UTXO] = []
     let onComplete: () -> Void
 
     @EnvironmentObject var chatService: ChatService
@@ -1048,7 +1053,7 @@ struct SpendingAddressWithdrawView: View {
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 guard !Task.isCancelled else { return }
                 do {
-                    let fee = try await chatService.estimateSpendingAddressWithdrawalFee(index: entry.index, toAddress: effectiveAddress, amountSompi: amountSompi, manualUtxos: manualUtxos)
+                    let fee = try await chatService.estimateSpendingAddressWithdrawalFee(index: entry.index, toAddress: effectiveAddress, amountSompi: amountSompi, manualUtxos: manualUtxos, availableUtxos: isCompoundMode ? preloadedUtxos : [])
                     guard !Task.isCancelled else { return }
                     normalFeeSompi = fee
                 } catch {
@@ -1197,7 +1202,7 @@ struct SpendingAddressWithdrawView: View {
                     // send to exactly those inputs. This is why "Max" works even when the address has
                     // more UTXOs than a single tx can hold - it consolidates one batch; repeat to
                     // reduce further.
-                    let (maxSompi, utxos) = try await chatService.maxConsolidatableChunk(index: entry.index, extraFeeSompi: tipSompi)
+                    let (maxSompi, utxos) = try await chatService.maxConsolidatableChunk(index: entry.index, extraFeeSompi: tipSompi, availableUtxos: preloadedUtxos)
                     await MainActor.run {
                         manualUtxos = utxos
                         amountInput = fiatAmountState.setMaxKas(Double(maxSompi) / 100_000_000.0, priceInCurrency: portfolioViewModel.currentPriceUsd)
@@ -1627,7 +1632,7 @@ private struct SpendingAddressTransactionHistoryView: View {
             }
         }
         .sheet(isPresented: $showCompoundSheet) {
-            SpendingAddressWithdrawView(entry: entry, isCompoundMode: true) {
+            SpendingAddressWithdrawView(entry: entry, isCompoundMode: true, preloadedUtxos: utxos) {
                 Task {
                     await loadTransactions()
                     await loadUtxos()
@@ -1706,7 +1711,7 @@ private struct SpendingAddressTransactionHistoryView: View {
                         }
                     }
                 } footer: {
-                    Text("Combines all UTXOs at this address into a single one, to reduce the number of inputs a future send needs.")
+                    Text("Combines this address's UTXOs to reduce the inputs a future send needs. A single transaction can only merge so many at once, so if this address has a very large number, tap Compound again after it confirms to keep reducing.")
                 }
             }
             if isLoadingUtxos && utxos.isEmpty {

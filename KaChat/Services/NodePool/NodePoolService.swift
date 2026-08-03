@@ -434,6 +434,28 @@ final class NodePoolService: ObservableObject {
         throw lastError ?? KasiaError.networkError("All endpoints failed")
     }
 
+    /// Current virtual DAA score from the pool, used to decide coinbase maturity: a coinbase UTXO
+    /// (mining reward) is only spendable once `blockDaaScore + 1000 < virtualDaaScore` (matching
+    /// Kaspa consensus and Kaspium). Tries a fresh GetBlockDagInfo on the best nodes; falls back to
+    /// the most recent value the profiler already recorded in the registry. Returns nil only if
+    /// nothing is known yet (callers then treat coinbase conservatively / let the node arbitrate).
+    func currentVirtualDaaScore() async -> UInt64? {
+        do {
+            return try await executeHedged(op: .getUtxosByAddress) { conn in
+                var msg = Protowire_KaspadMessage()
+                msg.getBlockDagInfoRequest = Protowire_GetBlockDagInfoRequestMessage()
+                let response = try await conn.sendRequest(msg, type: .getBlockDagInfo, timeout: 10.0)
+                guard case .getBlockDagInfoResponse(let dagInfo) = response.payload else {
+                    throw KasiaError.networkError("Unexpected response")
+                }
+                return dagInfo.virtualDaaScore
+            }
+        } catch {
+            let known = await registry.records(inState: .active).compactMap { $0.profile.virtualDaaScore }
+            return known.max()
+        }
+    }
+
     /// Submit transaction (broadcast to multiple nodes)
     func submitTransaction(_ transaction: KaspaRpcTransaction, allowOrphan: Bool = false) async throws -> (txId: String, endpoint: String) {
         try await executeHedged(op: .submitTransaction) { conn in

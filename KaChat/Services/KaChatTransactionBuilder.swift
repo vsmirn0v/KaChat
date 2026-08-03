@@ -434,7 +434,8 @@ struct KasiaTransactionBuilder {
         utxos: [UTXO],
         manualUtxos: [UTXO]? = nil,
         extraFeeSompi: UInt64 = 0,
-        changeAddress: String? = nil
+        changeAddress: String? = nil,
+        virtualDaaScore: UInt64? = nil
     ) throws -> KaspaRpcTransaction {
         guard amount > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
@@ -467,7 +468,8 @@ struct KasiaTransactionBuilder {
                 payload: Data(),
                 recipientScriptPubKey: recipientScriptPubKey,
                 senderScriptPubKey: senderScriptPubKey,
-                extraFeeSompi: extraFeeSompi
+                extraFeeSompi: extraFeeSompi,
+                virtualDaaScore: virtualDaaScore
             )
         } else {
             selection = try selectUtxosForPayment(
@@ -476,7 +478,8 @@ struct KasiaTransactionBuilder {
                 payload: Data(),
                 recipientScriptPubKey: recipientScriptPubKey,
                 senderScriptPubKey: senderScriptPubKey,
-                extraFeeSompi: extraFeeSompi
+                extraFeeSompi: extraFeeSompi,
+                virtualDaaScore: virtualDaaScore
             )
         }
 
@@ -615,13 +618,31 @@ struct KasiaTransactionBuilder {
     /// Estimate fee for a plain transfer (no payload). `extraFeeSompi` is the same optional
     /// priority tip accepted by buildPlainTransferTx, reflected here so the UI can show the
     /// real total the user will pay before sending.
+    /// Kaspa coinbase (mining-reward) maturity, in DAA-score units. Matches Kaspa consensus and
+    /// Kaspium (which uses the same 1000).
+    static let coinbaseMaturity: UInt64 = 1000
+
+    /// Filters a candidate UTXO set to what a transaction may actually spend. Non-coinbase UTXOs
+    /// always qualify; coinbase (mining rewards) only once matured (`blockDaaScore + coinbaseMaturity
+    /// < virtualDaaScore`). When `virtualDaaScore` is nil the builder keeps its long-standing
+    /// conservative behavior of excluding coinbase entirely - callers that want to spend mining
+    /// rewards must supply the current virtual DAA score.
+    static func spendableForBuild(_ utxos: [UTXO], virtualDaaScore: UInt64?) -> [UTXO] {
+        utxos.filter { utxo in
+            guard utxo.isCoinbase else { return true }
+            guard let vds = virtualDaaScore else { return false }
+            return utxo.blockDaaScore + coinbaseMaturity < vds
+        }
+    }
+
     static func estimatePlainTransferFee(
         utxos: [UTXO],
         amount: UInt64,
         recipientScriptPubKey: Data,
         senderScriptPubKey: Data,
         manualUtxos: [UTXO]? = nil,
-        extraFeeSompi: UInt64 = 0
+        extraFeeSompi: UInt64 = 0,
+        virtualDaaScore: UInt64? = nil
     ) throws -> UInt64 {
         let selection: PaymentSelection
         if let manualUtxos, !manualUtxos.isEmpty {
@@ -631,7 +652,8 @@ struct KasiaTransactionBuilder {
                 payload: Data(),
                 recipientScriptPubKey: recipientScriptPubKey,
                 senderScriptPubKey: senderScriptPubKey,
-                extraFeeSompi: extraFeeSompi
+                extraFeeSompi: extraFeeSompi,
+                virtualDaaScore: virtualDaaScore
             )
         } else {
             selection = try selectUtxosForPayment(
@@ -640,7 +662,8 @@ struct KasiaTransactionBuilder {
                 payload: Data(),
                 recipientScriptPubKey: recipientScriptPubKey,
                 senderScriptPubKey: senderScriptPubKey,
-                extraFeeSompi: extraFeeSompi
+                extraFeeSompi: extraFeeSompi,
+                virtualDaaScore: virtualDaaScore
             )
         }
         var outputs: [KaspaRpcTransactionOutput] = [
@@ -686,11 +709,12 @@ struct KasiaTransactionBuilder {
         recipientScriptPubKey: Data,
         senderScriptPubKey: Data,
         manualUtxos: [UTXO]? = nil,
-        extraFeeSompi: UInt64 = 0
+        extraFeeSompi: UInt64 = 0,
+        virtualDaaScore: UInt64? = nil
     ) -> UInt64 {
         // With coin control active, "max" means "max spendable from the selected UTXOs", not
         // from the whole address - use exactly the manual set instead of every spendable UTXO.
-        let spendable = (manualUtxos?.isEmpty == false ? manualUtxos! : utxos).filter { !$0.isCoinbase }
+        let spendable = spendableForBuild(manualUtxos?.isEmpty == false ? manualUtxos! : utxos, virtualDaaScore: virtualDaaScore)
         // Calculate with 2 outputs to match selectUtxosForPayment which always estimates with change first
         let outputs = [
             KaspaRpcTransactionOutput(value: 0, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)),
@@ -1299,15 +1323,16 @@ struct KasiaTransactionBuilder {
         payload: Data,
         recipientScriptPubKey: Data,
         senderScriptPubKey: Data,
-        extraFeeSompi: UInt64 = 0
+        extraFeeSompi: UInt64 = 0,
+        virtualDaaScore: UInt64? = nil
     ) throws -> PaymentSelection {
-        // Sort largest first to reduce input count (lower mass)
-        let sorted = utxos.sorted { $0.amount > $1.amount }
+        // Sort largest first to reduce input count (lower mass). Immature coinbase is excluded up
+        // front (mature coinbase is kept only when a virtual DAA score is supplied).
+        let sorted = spendableForBuild(utxos, virtualDaaScore: virtualDaaScore).sorted { $0.amount > $1.amount }
         var selected: [UTXO] = []
         var total: UInt64 = 0
 
         for utxo in sorted {
-            if utxo.isCoinbase { continue }
             // Refuse to build an over-mass transaction: if we've hit the input cap and still
             // haven't covered the amount, more inputs would exceed Kaspa's mass limit and the node
             // would reject the tx. Fail with a clear, actionable message instead.
@@ -1363,9 +1388,10 @@ struct KasiaTransactionBuilder {
         payload: Data,
         recipientScriptPubKey: Data,
         senderScriptPubKey: Data,
-        extraFeeSompi: UInt64 = 0
+        extraFeeSompi: UInt64 = 0,
+        virtualDaaScore: UInt64? = nil
     ) throws -> PaymentSelection {
-        let usable = utxos.filter { !$0.isCoinbase }
+        let usable = spendableForBuild(utxos, virtualDaaScore: virtualDaaScore)
         guard !usable.isEmpty else {
             throw KasiaError.networkError("Insufficient funds for payment")
         }
