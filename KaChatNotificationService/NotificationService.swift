@@ -216,9 +216,13 @@ class NotificationService: UNNotificationServiceExtension {
                   let payloadHex = userInfo["payload"] as? String,
                   let match = decryptGroupMessage(blindedGroupIdHex: blindedGroupIdHex, payloadHex: payloadHex) else {
                 // Can't identify/decrypt this one locally (e.g. just added to the group and the
-                // roster hasn't synced to the App Group yet) - suppress rather than show a
-                // content-free notification, the main app's catch-up sync will pick it up.
-                suppressGroupNotification(content)
+                // roster hasn't synced to the App Group yet). DON'T blank it - when the app is
+                // fully terminated this is the only code that runs, so blanking means the user
+                // sees NOTHING at all. Show the server's generic "Group chat / New group message"
+                // fallback instead; the main app's catch-up sync loads the real content on open.
+                deliverGroupFallback(content: content, soundEnabled: defaultSoundEnabled,
+                                     shouldIncrementUnread: shouldIncrementUnread,
+                                     txId: txId, messageType: messageType)
                 return
             }
             let displayBody = reactionPreviewText(for: match.plaintext)
@@ -250,7 +254,11 @@ class NotificationService: UNNotificationServiceExtension {
         } else {
             guard let payloadHex = userInfo["payload"] as? String,
                   let groupName = decryptGroupControlForName(payloadHex: payloadHex) else {
-                suppressGroupNotification(content)
+                // Same terminated-device reasoning as group_message above: show the server's
+                // generic fallback rather than blanking the banner to nothing.
+                deliverGroupFallback(content: content, soundEnabled: defaultSoundEnabled,
+                                     shouldIncrementUnread: shouldIncrementUnread,
+                                     txId: txId, messageType: messageType)
                 return
             }
             content.title = ""
@@ -272,6 +280,35 @@ class NotificationService: UNNotificationServiceExtension {
         content.sound = nil
         content.badge = nil
         content.interruptionLevel = .passive
+        contentHandler?(content)
+    }
+
+    /// Can't-decrypt fallback for a group push. The server always ships a visible "Group chat" /
+    /// "New group message" alert in `request.content`, so we keep (or restore) that visible banner
+    /// rather than blanking it - otherwise a fully-terminated device shows nothing at all for group
+    /// chats. The real, decrypted content is loaded by the main app's catch-up sync on open (a
+    /// pending-message marker is recorded here). Distinct from `suppressGroupNotification`, which is
+    /// the deliberate mentions-only-mode suppression and must stay silent.
+    private func deliverGroupFallback(
+        content: UNMutableNotificationContent,
+        soundEnabled: Bool,
+        shouldIncrementUnread: Bool,
+        txId: String,
+        messageType: String
+    ) {
+        if content.title.isEmpty {
+            content.title = NSLocalizedString("Group chat", comment: "Fallback title for an undecryptable group push")
+        }
+        if content.body.isEmpty {
+            let key = messageType == "group_control" ? "Group update" : "New group message"
+            content.body = NSLocalizedString(key, comment: "Fallback body for an undecryptable group push")
+        }
+        content.threadIdentifier = "group"
+        content.sound = soundEnabled ? .default : nil
+        if shouldIncrementUnread, let badge = incrementUnreadCountIfNeeded() {
+            content.badge = NSNumber(value: badge)
+        }
+        addPendingMessage(txId: txId, sender: "group", type: messageType)
         contentHandler?(content)
     }
 
