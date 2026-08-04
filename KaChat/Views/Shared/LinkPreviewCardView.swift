@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Rich link-preview card shown below a chat bubble's text when the message contains a link -
 /// mirrors iMessage. Renders nothing while the fetch is in flight and nothing if no preview data
@@ -20,17 +21,22 @@ struct LinkPreviewCardView: View {
     /// Enters the chat's message multi-select mode with this message pre-selected - nil disables
     /// the "Select" context-menu action entirely, matching every other bubble type's convention.
     var onSelect: (() -> Void)?
+    /// Double-tapping the preview card opens the owning message's quick-reaction menu (reactions +
+    /// reply), exactly like double-tapping a normal message bubble. Nil disables it. Single tap
+    /// still opens the link.
+    var onDoubleTap: (() -> Void)?
 
     @State private var preview: LinkPreviewData?
     @State private var hasFinishedLoading: Bool
     @Environment(\.openURL) private var openURL
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
 
-    init(url: URL, txId: String, fallbackText: String? = nil, onSelect: (() -> Void)? = nil) {
+    init(url: URL, txId: String, fallbackText: String? = nil, onSelect: (() -> Void)? = nil, onDoubleTap: (() -> Void)? = nil) {
         self.url = url
         self.txId = txId
         self.fallbackText = fallbackText
         self.onSelect = onSelect
+        self.onDoubleTap = onDoubleTap
         // If this exact URL was already resolved earlier (e.g. scrolled past once already, or
         // another row with the same link), seed state with the final result immediately instead
         // of starting in the "loading" state and waiting for `.task` to come back - avoids a
@@ -82,25 +88,28 @@ struct LinkPreviewCardView: View {
 
     @ViewBuilder
     private func cardBody(_ data: LinkPreviewData) -> some View {
-        Button {
-            openURL(url)
-        } label: {
+        // A plain tappable view rather than a Button, so a double-tap can open the quick-reaction
+        // menu while a single tap opens the link. `onTapGesture(count: 2)` is listed first so a
+        // double-tap is claimed by that handler instead of also firing the single-tap open. Matches
+        // a normal message bubble's double-tap.
+        cardContent(data)
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .onTapGesture(count: 2) { onDoubleTap?() }
+            .onTapGesture { openURL(url) }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .frame(maxWidth: 260)
+            .contextMenu { contextMenuItems }
+    }
+
+    @ViewBuilder
+    private func cardContent(_ data: LinkPreviewData) -> some View {
             VStack(alignment: .leading, spacing: 0) {
                 if let imageURLString = data.imageURLString, let imageURL = URL(string: imageURLString) {
                     ZStack {
-                        AsyncImage(url: imageURL) { phase in
-                            if let image = phase.image {
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                            } else {
-                                Rectangle()
-                                    .fill(Color.secondary.opacity(0.15))
-                            }
-                        }
-                        .frame(height: 140)
-                        .frame(maxWidth: .infinity)
-                        .clipped()
+                        LinkPreviewImage(imageURL: imageURL, referer: url)
+                            .frame(height: 140)
+                            .frame(maxWidth: .infinity)
+                            .clipped()
 
                         if isVideoLink {
                             Image(systemName: "play.circle.fill")
@@ -135,36 +144,29 @@ struct LinkPreviewCardView: View {
                 }
                 .padding(10)
             }
-        }
-        .buttonStyle(.plain)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(.regularMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-                )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .frame(maxWidth: 260)
-        .contextMenu { contextMenuItems }
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(.regularMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+                    )
+            )
     }
 
     @ViewBuilder
     private func fallbackBubble(_ text: String) -> some View {
-        Button {
-            openURL(url)
-        } label: {
-            Text(text)
-                .font(.body)
-                .foregroundColor(.primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-        }
-        .buttonStyle(.plain)
-        .background(Color(.systemGray5))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .contextMenu { contextMenuItems }
+        Text(text)
+            .font(.body)
+            .foregroundColor(.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(.systemGray5))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .contentShape(RoundedRectangle(cornerRadius: 16))
+            .onTapGesture(count: 2) { onDoubleTap?() }
+            .onTapGesture { openURL(url) }
+            .contextMenu { contextMenuItems }
     }
 
     @ViewBuilder
@@ -185,6 +187,37 @@ struct LinkPreviewCardView: View {
             } label: {
                 Label("Select", systemImage: "checkmark.circle")
             }
+        }
+    }
+}
+
+/// Loads a link-preview image through `LinkPreviewService.imageData` (browser User-Agent + Referer)
+/// instead of a bare `AsyncImage`, so CDNs like cdninstagram/fbcdn that 403 header-less requests
+/// serve the image. Shows a neutral placeholder until loaded or on failure.
+private struct LinkPreviewImage: View {
+    let imageURL: URL
+    /// The page the image belongs to, sent as the `Referer` header.
+    let referer: URL
+    @State private var uiImage: UIImage?
+    @State private var finished = false
+
+    var body: some View {
+        Group {
+            if let uiImage {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Rectangle().fill(Color.secondary.opacity(0.15))
+            }
+        }
+        .task(id: imageURL) {
+            guard !finished else { return }
+            if let data = await LinkPreviewService.shared.imageData(imageURL, referer: referer),
+               let image = UIImage(data: data) {
+                uiImage = image
+            }
+            finished = true
         }
     }
 }

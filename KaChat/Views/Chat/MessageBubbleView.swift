@@ -249,7 +249,7 @@ struct MessageBubbleView: View {
                             // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
                             // keeps the raw link visible/tappable if no preview data is ever found,
                             // rather than the message rendering as nothing at all.
-                            LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText, onSelect: onSelect)
+                            LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil)
                         } else {
                             messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
                                 .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
@@ -271,7 +271,7 @@ struct MessageBubbleView: View {
                     if media == nil,
                        !MessageTextRenderPlan.isEntirelyLink(displayText),
                        let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
-                        LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect)
+                        LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil)
                     }
                 }
 

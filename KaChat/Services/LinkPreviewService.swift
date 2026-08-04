@@ -34,13 +34,59 @@ actor LinkPreviewService {
 
     private let fetchTimeout: TimeInterval = 8
     private let maxBodyBytes = 1_000_000
+    private let maxImageBytes = 5_000_000
+
+    /// Fetches a preview image's bytes using the same browser User-Agent as the scrape, plus a
+    /// `Referer` (the page the image belongs to). Image CDNs like cdninstagram/fbcdn reject bare
+    /// requests (no browser UA / no Referer) with a 403, which is why `AsyncImage` - which sends
+    /// neither - silently failed for Instagram. Returns nil on any failure (card shows no image).
+    func imageData(_ url: URL, referer: URL) async -> Data? {
+        // First: browser UA (session default) + Referer. Fallback: Meta's crawler UA with no Referer -
+        // some cdninstagram/fbcdn image URLs 403 the browser-UA/Referer combo but serve that crawler.
+        if let data = await fetchImageBytes(url, userAgentOverride: nil, referer: referer) { return data }
+        return await fetchImageBytes(url, userAgentOverride: Self.facebookExternalHitUserAgent, referer: nil)
+    }
+
+    private func fetchImageBytes(_ url: URL, userAgentOverride: String?, referer: URL?) async -> Data? {
+        var request = URLRequest(url: url)
+        if let userAgentOverride { request.setValue(userAgentOverride, forHTTPHeaderField: "User-Agent") }
+        if let referer { request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer") }
+        request.setValue("image/avif,image/webp,image/png,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode),
+                  data.count <= maxImageBytes else { return nil }
+            return data
+        } catch {
+            return nil
+        }
+    }
+
+    /// A real desktop-browser User-Agent. A self-identifying bot UA (the old value) makes sites like
+    /// Instagram serve a login/consent wall with no post-specific `og:image`; a browser UA gets the
+    /// real page with usable Open Graph tags. Shared with the preview image loader so image CDNs
+    /// (e.g. cdninstagram/fbcdn) that reject non-browser requests don't 403.
+    static let browserUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+
+    /// Meta's own link-scraper User-Agent. Instagram/Facebook serve full Open Graph tags - including
+    /// `og:image` - to this crawler, whereas a plain browser UA increasingly gets a login wall whose
+    /// HTML has the page title/description but no post-specific image (why the preview showed text but
+    /// no picture). Used for the scrape on Meta hosts, and as the image-load fallback everywhere.
+    static let facebookExternalHitUserAgent = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
+
+    private static let metaScrapeHosts: Set<String> = [
+        "instagram.com", "www.instagram.com", "m.instagram.com",
+        "facebook.com", "www.facebook.com", "m.facebook.com", "fb.watch"
+    ]
 
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = fetchTimeout
         config.timeoutIntervalForResource = fetchTimeout
         config.httpAdditionalHeaders = [
-            "User-Agent": "Mozilla/5.0 (compatible; KaChatLinkPreview/1.0)"
+            "User-Agent": Self.browserUserAgent,
+            "Accept-Language": "en-US,en;q=0.9"
         ]
         return URLSession(configuration: config)
     }()
@@ -117,6 +163,11 @@ actor LinkPreviewService {
         do {
             var request = URLRequest(url: url)
             request.setValue("text/html", forHTTPHeaderField: "Accept")
+            // Instagram/Facebook serve a login wall (title/description but no post `og:image`) to a
+            // plain browser UA; their own crawler UA gets the full Open Graph including the image.
+            if let host = url.host?.lowercased(), Self.metaScrapeHosts.contains(host) {
+                request.setValue(Self.facebookExternalHitUserAgent, forHTTPHeaderField: "User-Agent")
+            }
 
             // Simple whole-response fetch (matches KNSService's fetch pattern) rather than
             // streaming byte-by-byte - a `URLSession.AsyncBytes` loop reading up to a million
