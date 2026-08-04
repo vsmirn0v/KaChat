@@ -17,7 +17,6 @@ struct ChatInfoView: View {
 
     @State private var editedAlias: String = ""
     @State private var notificationModeOverride: ContactNotificationMode? = nil
-    @State private var realtimeUpdatesDisabled: Bool = false
     @State private var photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil
     @State private var showAvatarPreview = false
     @State private var moreInfoExpanded = false
@@ -313,15 +312,6 @@ struct ChatInfoView: View {
                     Text("Automatic hides photos from contacts you haven't added or messaged yet, until you tap to reveal them.")
                 }
 
-                // TODO: Fix realtimeUpdatesDisabled feature - currently broken, hidden until fixed
-                // Section {
-                //     Toggle(isOn: $realtimeUpdatesDisabled) {
-                //         Label("Disable Real-Time Updates", systemImage: realtimeUpdatesDisabled ? "bolt.slash.fill" : "bolt.fill")
-                //     }
-                // } footer: {
-                //     Text("When disabled, messages from this contact will be fetched periodically instead of in real-time. Use this for contacts with high transaction volume to save battery and network usage.")
-                // }
-
                 Section("Info") {
                     LabeledContent("Added") {
                         Text(contact.addedAt, style: .date)
@@ -410,7 +400,6 @@ struct ChatInfoView: View {
             .onAppear {
                 editedAlias = contact.alias
                 notificationModeOverride = contact.notificationModeOverride
-                realtimeUpdatesDisabled = contact.realtimeUpdatesDisabled
                 photoAutoDisplayOverride = contact.photoAutoDisplayOverride
                 linkedSystemContactId = contact.systemContactId
                 linkedSystemContactName = contact.systemDisplayNameSnapshot
@@ -478,19 +467,8 @@ struct ChatInfoView: View {
             updatedContact.systemContactLinkSource = nil
             updatedContact.systemMatchConfidence = nil
         }
-        // TODO: Fix realtimeUpdatesDisabled feature - currently broken, disabled until fixed
-        // let realtimeSettingChanged = updatedContact.realtimeUpdatesDisabled != realtimeUpdatesDisabled
-        // updatedContact.realtimeUpdatesDisabled = realtimeUpdatesDisabled
         contactsManager.updateContact(updatedContact)
         contact = updatedContact
-
-        // TODO: Fix realtimeUpdatesDisabled feature - re-enable when fixed
-        // Trigger UTXO subscription update if realtime setting changed
-        // if realtimeSettingChanged {
-        //     Task {
-        //         await ChatService.shared.updateUtxoSubscriptionForRealtimeChange()
-        //     }
-        // }
     }
 
     @ViewBuilder

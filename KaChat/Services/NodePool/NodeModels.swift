@@ -188,10 +188,6 @@ struct EWMA: Codable {
         sampleCount = 0
     }
 
-    /// Get value or default
-    func valueOr(_ defaultValue: Double) -> Double {
-        value ?? defaultValue
-    }
 }
 
 // MARK: - Node Profile

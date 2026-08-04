@@ -19,45 +19,7 @@ extension ChatService {
         await messageStore.countMessages(contactAddress: contactAddress)
     }
 
-    /// Loads the next older page of messages for a conversation from persistent store.
-    /// This avoids holding full history in memory while still allowing on-demand scrolling.
-    /// - Returns: number of messages loaded into the in-memory conversation.
-    @discardableResult
-    func loadOlderMessagesPage(for contactAddress: String, pageSize: Int) -> Int {
-        guard pageSize > 0 else { return 0 }
-        guard let index = conversations.firstIndex(where: { $0.contact.address == contactAddress }) else { return 0 }
-        guard let key = messageEncryptionKey() else { return 0 }
-        guard !olderHistoryExhaustedContacts.contains(contactAddress) else { return 0 }
-
-        let cursor = oldestLoadedCursor(in: conversations[index])
-        let page = messageStore.fetchMessagesPage(
-            contactAddress: contactAddress,
-            decryptionKey: key,
-            limit: pageSize,
-            olderThan: cursor
-        )
-        guard !page.messages.isEmpty else {
-            olderHistoryExhaustedContacts.insert(contactAddress)
-            return 0
-        }
-
-        var updatedConversations = conversations
-        var conversation = updatedConversations[index]
-        let beforeCount = conversation.messages.count
-        conversation.messages = Self.dedupeMessages(page.messages + conversation.messages)
-        let loadedCount = max(0, conversation.messages.count - beforeCount)
-        if page.hasMore {
-            olderHistoryExhaustedContacts.remove(contactAddress)
-        } else {
-            olderHistoryExhaustedContacts.insert(contactAddress)
-        }
-
-        updatedConversations[index] = conversation
-        conversations = updatedConversations
-        return loadedCount
-    }
-
-    /// Async/background fetch variant of `loadOlderMessagesPage` that keeps Core Data page
+    /// Async/background fetch variant that keeps Core Data page
     /// reads and decrypt work off the main actor. The final in-memory merge still happens on
     /// the main actor for published state consistency.
     @discardableResult
@@ -214,14 +176,14 @@ extension ChatService {
 
     func fetchNewMessages(forActiveOnly activeAddress: String? = nil) async {
         guard let wallet = WalletManager.shared.currentWallet else {
-            print("[ChatService] Skipping fetch - no wallet")
+            AppLog.log("%@", "[ChatService] Skipping fetch - no wallet")
             return
         }
 
         // Ensure API is configured
         await configureAPIIfNeeded()
         guard isConfigured else {
-            print("[ChatService] Skipping fetch - API not configured")
+            AppLog.log("%@", "[ChatService] Skipping fetch - API not configured")
             return
         }
 
@@ -261,7 +223,7 @@ extension ChatService {
         }
 
         let isFullFetch = activeAddress == nil
-        print("[ChatService] Fetching messages for: \(wallet.publicAddress.suffix(10)), fullFetch=\(isFullFetch), lastPollTime=\(lastPollTime)")
+        AppLog.log("%@", "[ChatService] Fetching messages for: \(wallet.publicAddress.suffix(10)), fullFetch=\(isFullFetch), lastPollTime=\(lastPollTime)")
 
         // Fetch handshakes first (they establish aliases) with per-object cursors.
         let nowMs = currentTimeMs()
@@ -344,7 +306,7 @@ extension ChatService {
         // wallet in that window, applying these results now would write the previous wallet's
         // messages into the new wallet's store. Bail out before touching any shared state.
         guard isActiveWallet(wallet.publicAddress) else {
-            print("[ChatService] Wallet changed mid-sync - discarding stale results for \(wallet.publicAddress.suffix(10))")
+            AppLog.log("%@", "[ChatService] Wallet changed mid-sync - discarding stale results for \(wallet.publicAddress.suffix(10))")
             return
         }
 
@@ -393,14 +355,14 @@ extension ChatService {
         // Re-check ownership after the handshake/payment processing awaits, before the contextual
         // message fetch pulls and stores per-conversation history under this wallet.
         guard isActiveWallet(wallet.publicAddress) else {
-            print("[ChatService] Wallet changed mid-sync - skipping contextual fetch for \(wallet.publicAddress.suffix(10))")
+            AppLog.log("%@", "[ChatService] Wallet changed mid-sync - skipping contextual fetch for \(wallet.publicAddress.suffix(10))")
             return
         }
 
         // Now fetch contextual messages for all known aliases
-        print("[ChatService] Current aliases: \(conversationAliases)")
-        print("[ChatService] Our aliases: \(ourAliases)")
-        print("[ChatService] Routing states: \(routingStates.count)")
+        AppLog.log("%@", "[ChatService] Current aliases: \(conversationAliases)")
+        AppLog.log("%@", "[ChatService] Our aliases: \(ourAliases)")
+        AppLog.log("%@", "[ChatService] Routing states: \(routingStates.count)")
         if let active = activeAddress {
             let completed = await fetchContextualMessagesForActive(
                 contactAddress: active,
@@ -440,7 +402,7 @@ extension ChatService {
         }
 
         syncSucceeded = true
-        print("[ChatService] Fetch complete. Total conversations: \(conversations.count), lastPollTime updated to: \(lastPollTime)")
+        AppLog.log("%@", "[ChatService] Fetch complete. Total conversations: \(conversations.count), lastPollTime updated to: \(lastPollTime)")
     }
 
     func getConversation(for contact: Contact) -> Conversation? {
@@ -1107,14 +1069,14 @@ extension ChatService {
             let rpcManager = NodePoolService.shared
             let settings = currentSettings
 
-            print("[ChatService] Starting message send to \(contact.address.suffix(10))")
+            AppLog.log("%@", "[ChatService] Starting message send to \(contact.address.suffix(10))")
 
             // Connect via gRPC manager
             if !rpcManager.isConnected {
-                print("[ChatService] RPC not connected, connecting...")
+                AppLog.log("%@", "[ChatService] RPC not connected, connecting...")
                 try await rpcManager.connect(network: settings.networkType)
             } else {
-                print("[ChatService] RPC already connected")
+                AppLog.log("%@", "[ChatService] RPC already connected")
             }
 
             // Fetch UTXOs for our address
@@ -1134,7 +1096,7 @@ extension ChatService {
                 throw KasiaError.networkError(noSpendableFundsYetMessage())
             }
 
-            print("[ChatService] Found \(availableUtxos.count) available UTXOs for sending")
+            AppLog.log("%@", "[ChatService] Found \(availableUtxos.count) available UTXOs for sending")
 
             let buildMessageTransaction: ([UTXO]) throws -> KaspaRpcTransaction = { candidateUtxos in
                 try KasiaTransactionBuilder.buildContextualMessageTx(
@@ -1191,7 +1153,7 @@ extension ChatService {
                         minOutputAmount: compactionTarget
                     )
                     didSubmitCompaction = true
-                    print("[ChatService] Auto-compaction submitted: \(compactionResult.txId) via \(compactionResult.endpoint)")
+                    AppLog.log("%@", "[ChatService] Auto-compaction submitted: \(compactionResult.txId) via \(compactionResult.endpoint)")
 
                     candidateUtxos = prepareMessageUtxos(confirmed: utxos)
                     transaction = try buildMessageTransaction(candidateUtxos)
@@ -1268,7 +1230,7 @@ extension ChatService {
                 endpoint = submitted.endpoint
             }
 
-            print("[ChatService] Transaction submitted: \(txId) via \(endpoint)")
+            AppLog.log("%@", "[ChatService] Transaction submitted: \(txId) via \(endpoint)")
 
             reserveMessageOutpoints(spentUtxos)
             consumePendingUtxos(spentUtxos)
@@ -3047,7 +3009,7 @@ extension ChatService {
         let job = PendingSelfStash(partnerAddress: contactAddress, ourAlias: ourAlias, theirAlias: theirAlias, isResponse: isResponse)
         pendingSelfStash.append(job)
         savePendingSelfStash()
-        print("[ChatService] Queued self-stash for \(contactAddress.suffix(10))")
+        AppLog.log("%@", "[ChatService] Queued self-stash for \(contactAddress.suffix(10))")
     }
 
     func submitSelfStashTx(
@@ -3071,9 +3033,9 @@ extension ChatService {
                 utxos: utxos
             )
             let txId = try await NodePoolService.shared.submitTransaction(stashTx, allowOrphan: allowOrphan)
-            print("[ChatService] Self-stash handshake submitted: \(txId)")
+            AppLog.log("%@", "[ChatService] Self-stash handshake submitted: \(txId)")
         } catch {
-            print("[ChatService] Failed to submit self-stash handshake tx: \(error.localizedDescription)")
+            AppLog.log("%@", "[ChatService] Failed to submit self-stash handshake tx: \(error.localizedDescription)")
             queueSelfStash(contactAddress: contactAddress, ourAlias: ourAlias, theirAlias: theirAlias, isResponse: isResponse)
         }
     }
@@ -3133,7 +3095,7 @@ extension ChatService {
                     AppLog.log("[ChatService] Self-stash submitted: \(txId) via \(endpoint)")
                     succeeded.append(job)
                 } catch {
-                    print("[ChatService] Pending self-stash failed: \(error.localizedDescription)")
+                    AppLog.log("%@", "[ChatService] Pending self-stash failed: \(error.localizedDescription)")
                 }
             }
 
@@ -3144,7 +3106,7 @@ extension ChatService {
                 savePendingSelfStash()
             }
         } catch {
-            print("[ChatService] attemptPendingSelfStashSends error: \(error.localizedDescription)")
+            AppLog.log("%@", "[ChatService] attemptPendingSelfStashSends error: \(error.localizedDescription)")
         }
     }
 

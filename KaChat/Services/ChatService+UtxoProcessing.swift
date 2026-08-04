@@ -192,7 +192,7 @@ extension ChatService {
             }
 
             // Skip if we already have this transaction
-            if let existing = findLocalMessage(txId: txId) {
+            if let existing = await findLocalMessage(txId: txId) {
                 if !(existing.isOutgoing && existing.messageType == .payment) {
                     continue
                 }
@@ -389,7 +389,7 @@ extension ChatService {
                     // If we have this message locally (we sent it from this device), skip
                     // Otherwise, trigger CloudKit import (sent from another device with same wallet)
                     if utxoAddress == myAddress {
-                        if findLocalMessage(txId: txId) != nil {
+                        if await findLocalMessage(txId: txId) != nil {
                             AppLog.log("[ChatService] Own self-stash %@ already exists locally - skipping",
                                   String(txId.prefix(12)))
                             continue
@@ -434,7 +434,7 @@ extension ChatService {
                     // Check if sender is the same as receiver (self-stash pattern)
                     let contactIsSpending = txRemovedAddresses.contains(utxoAddress) || allRemovedAddresses.contains(utxoAddress)
                     if contactIsSpending {
-                        if findLocalMessage(txId: txId) != nil {
+                        if await findLocalMessage(txId: txId) != nil {
                             continue
                         }
                         trackIncomingUtxoForPushReliability(txId: txId, senderAddress: utxoAddress)
@@ -460,8 +460,6 @@ extension ChatService {
                         }
                     } else {
                         // Third party sent to contact - not relevant to us
-                        // TODO: Fix realtimeUpdatesDisabled feature - re-enable spam detection when fixed
-                        // recordIrrelevantTxNotification(contactAddress: utxoAddress)
                     }
                 }
             }
@@ -541,7 +539,7 @@ extension ChatService {
         incomingResolutionAmountHints[txId] = amount
         incomingResolutionPendingTxIds.insert(txId)
 
-        if let existing = findLocalMessage(txId: txId) {
+        if let existing = await findLocalMessage(txId: txId) {
             if existing.isOutgoing || existing.messageType != .payment {
                 clearIncomingResolutionTracking(txId: txId)
                 return
@@ -602,7 +600,7 @@ extension ChatService {
 
         guard let info = txInfo else {
             AppLog.log("[ChatService] Failed to resolve incoming payment %@ from mempool/indexer/REST - scheduling retry", String(txId.prefix(12)))
-            scheduleResolveRetry(
+            await scheduleResolveRetry(
                 txId: txId,
                 amount: amount,
                 myAddress: myAddress,
@@ -711,7 +709,7 @@ extension ChatService {
 
             AppLog.log("[ChatService] Incoming payment %@ still ambiguous (sender=self) - scheduling retry",
                   String(txId.prefix(12)))
-            scheduleResolveRetry(
+            await scheduleResolveRetry(
                 txId: txId,
                 amount: amount,
                 myAddress: myAddress,
@@ -726,7 +724,7 @@ extension ChatService {
         if (payloadHex?.isEmpty ?? true) && fullTx == nil {
             AppLog.log("[ChatService] Incoming payment %@ missing payload/fullTx after resolution attempt - scheduling retry",
                   String(txId.prefix(12)))
-            scheduleResolveRetry(
+            await scheduleResolveRetry(
                 txId: txId,
                 amount: amount,
                 myAddress: myAddress,
@@ -763,8 +761,8 @@ extension ChatService {
         blockDaaScore: UInt64,
         privateKey: Data?,
         senderHint: String? = nil
-    ) {
-        if let existing = findLocalMessage(txId: txId),
+    ) async {
+        if let existing = await findLocalMessage(txId: txId),
            !existing.isOutgoing,
            existing.messageType == .payment {
             incomingResolutionPendingTxIds.insert(txId)
@@ -775,10 +773,10 @@ extension ChatService {
         if current >= incomingResolutionMaxAdditionalRetries {
             AppLog.log("[ChatService] Incoming payment %@ unresolved after %d retries - marking warning",
                   String(txId.prefix(12)), current)
-            if let existing = findLocalMessage(txId: txId),
+            if let existing = await findLocalMessage(txId: txId),
                !existing.isOutgoing,
                existing.messageType == .payment {
-                markIncomingResolutionWarning(txId: txId)
+                await markIncomingResolutionWarning(txId: txId)
             } else {
                 clearIncomingResolutionTracking(txId: txId)
             }
@@ -821,7 +819,7 @@ extension ChatService {
         return min(rawDelay, incomingResolutionMaxDelayNs)
     }
 
-    func markIncomingResolutionWarning(txId: String) {
+    func markIncomingResolutionWarning(txId: String) async {
         incomingResolutionPendingTxIds.remove(txId)
         incomingResolutionWarningTxIds.insert(txId)
         resolveRetryCounts.removeValue(forKey: txId)
@@ -829,7 +827,7 @@ extension ChatService {
             task.cancel()
         }
 
-        guard let existing = findLocalMessage(txId: txId), !existing.isOutgoing, existing.messageType == .payment else {
+        guard let existing = await findLocalMessage(txId: txId), !existing.isOutgoing, existing.messageType == .payment else {
             clearIncomingResolutionTracking(txId: txId)
             return
         }
@@ -850,11 +848,11 @@ extension ChatService {
         mempoolPayloadByTxId.removeValue(forKey: txId)
     }
 
-    func incomingAmountHint(txId: String) -> UInt64? {
+    func incomingAmountHint(txId: String) async -> UInt64? {
         if let hint = incomingResolutionAmountHints[txId] {
             return hint
         }
-        guard let existing = findLocalMessage(txId: txId), !existing.isOutgoing else { return nil }
+        guard let existing = await findLocalMessage(txId: txId), !existing.isOutgoing else { return nil }
         return parseKasAmountFromPaymentContent(existing.content)
     }
 
@@ -968,16 +966,21 @@ extension ChatService {
         }
         incomingResolutionWarningTxIds.formUnion(warningTxIds)
 
-        let candidates = warningTxIds.filter { txId in
-            guard let message = findLocalMessage(txId: txId) else { return false }
-            return !message.isOutgoing && message.messageType == .payment && message.deliveryStatus == .warning
+        // Can't use `.filter` here: findLocalMessage is now async and `Sequence.filter` takes a
+        // synchronous predicate. Explicit await-loop instead.
+        var candidates: [String] = []
+        for txId in warningTxIds {
+            guard let message = await findLocalMessage(txId: txId) else { continue }
+            if !message.isOutgoing && message.messageType == .payment && message.deliveryStatus == .warning {
+                candidates.append(txId)
+            }
         }
 
         guard !candidates.isEmpty else { return }
         AppLog.log("[ChatService] Retrying %d unresolved incoming payment(s) on sync", candidates.count)
 
         for txId in candidates.sorted() {
-            guard let amount = incomingAmountHint(txId: txId), amount > 0 else {
+            guard let amount = await incomingAmountHint(txId: txId), amount > 0 else {
                 AppLog.log("[ChatService] Skipping warning tx %@ on sync retry - missing amount hint", String(txId.prefix(12)))
                 continue
             }
@@ -1052,7 +1055,7 @@ extension ChatService {
                   uniqueOutputs.count, hasSelfOutput ? 1 : 0)
 
             if allInputsSelf && allOutputsSelf {
-                if findLocalMessage(txId: txId) != nil {
+                if await findLocalMessage(txId: txId) != nil {
                     return
                 }
                 AppLog.log("[ChatService] Verified self-stash %@ - triggering CloudKit import", String(txId.prefix(12)))
@@ -1119,7 +1122,7 @@ extension ChatService {
                 return
             }
 
-            if let existing = findLocalMessage(txId: txId) {
+            if let existing = await findLocalMessage(txId: txId) {
                 if existing.isOutgoing {
                     AppLog.log("[ChatService] Removing outgoing message for %@ - resolved as incoming", String(txId.prefix(12)))
                     removeMessage(txId: txId)
@@ -1286,7 +1289,7 @@ extension ChatService {
 
         // Incoming payment to us; infer sender from contact output (change address)
         // Guard: don't reclassify as incoming if already correctly handled as outgoing
-        if let existing = findLocalMessage(txId: txId), existing.isOutgoing && existing.messageType == .payment {
+        if let existing = await findLocalMessage(txId: txId), existing.isOutgoing && existing.messageType == .payment {
             AppLog.log("[ChatService] Mempool resolve %@ - already exists as outgoing payment, skipping incoming classification",
                   String(txId.prefix(12)))
             mempoolResolvedTxIds.insert(txId)
@@ -1363,7 +1366,7 @@ extension ChatService {
         blockDaaScore: UInt64,
         privateKey: Data?
     ) async {
-        if findLocalMessage(txId: txId) != nil {
+        if await findLocalMessage(txId: txId) != nil {
             return
         }
         guard let privateKey = privateKey else { return }
@@ -1373,7 +1376,7 @@ extension ChatService {
         let payload = await resolvePayloadOnly(txId: txId)
 
         guard let payloadHex = payload, !payloadHex.isEmpty else {
-            if findLocalMessage(txId: txId) != nil {
+            if await findLocalMessage(txId: txId) != nil {
                 return
             }
             AppLog.log("[ChatService] Failed to resolve payload for self-stash %@ - scheduling retry", String(txId.prefix(12)))
@@ -1381,7 +1384,7 @@ extension ChatService {
             return
         }
 
-        if findLocalMessage(txId: txId) != nil {
+        if await findLocalMessage(txId: txId) != nil {
             return
         }
 
@@ -1391,10 +1394,10 @@ extension ChatService {
 
         // Try to decrypt the payload
         if let decrypted = await decryptContextualMessageFromRawPayload(payloadHex, privateKey: privateKey) {
+            // Skip if already processed. Checked here (not inside MainActor.run) because
+            // findLocalMessage is async and MainActor.run's body must be synchronous.
+            if await findLocalMessage(txId: txId) != nil { return }
             await MainActor.run {
-                // Skip if already processed
-                if findLocalMessage(txId: txId) != nil { return }
-
                 let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
                 AppLog.log("[ChatService] Decrypted message from %@ via fast resolve", String(contactAddress.suffix(10)))
 
@@ -1420,10 +1423,6 @@ extension ChatService {
             }
         } else {
             // Decryption failed - this self-stash is not for us (different recipient)
-            // TODO: Fix realtimeUpdatesDisabled feature - re-enable spam detection when fixed
-            // await MainActor.run {
-            //     recordIrrelevantTxNotification(contactAddress: contactAddress)
-            // }
         }
     }
 
@@ -1535,7 +1534,7 @@ extension ChatService {
     func resolvePayloadOnly(txId: String) async -> String? {
         let startTime = Date()
 
-        if findLocalMessage(txId: txId) != nil {
+        if await findLocalMessage(txId: txId) != nil {
             return nil
         }
 
@@ -1544,7 +1543,7 @@ extension ChatService {
         if let entry = await NodePoolService.shared.getMempoolEntry(txId: txId, attempt: 1) {
             if !entry.payload.isEmpty {
                 mempoolPayloadByTxId[txId] = entry.payload
-                if findLocalMessage(txId: txId) != nil {
+                if await findLocalMessage(txId: txId) != nil {
                     return nil
                 }
                 let elapsed = Date().timeIntervalSince(startTime) * 1000
@@ -1559,7 +1558,7 @@ extension ChatService {
         guard let url = kaspaRestURL(path: "/transactions/\(txId)") else { return nil }
 
         for attempt in 1...30 {
-            if findLocalMessage(txId: txId) != nil {
+            if await findLocalMessage(txId: txId) != nil {
                 return nil
             }
             // Exponential backoff: first 10 attempts = 500ms, then doubles (capped at 5s)
@@ -1584,7 +1583,7 @@ extension ChatService {
                 if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    let payloadHex = json["payload"] as? String,
                    !payloadHex.isEmpty {
-                    if findLocalMessage(txId: txId) != nil {
+                    if await findLocalMessage(txId: txId) != nil {
                         return nil
                     }
                     let elapsed = Date().timeIntervalSince(startTime) * 1000

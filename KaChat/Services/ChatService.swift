@@ -340,15 +340,6 @@ final class ChatService: ObservableObject {
     let messageCompactionMaxInputs = 8
     let messageCompactionTargetBurstMessages = 8
 
-    // Spam detection: track irrelevant TX notifications per contact (20+ in 1 minute = noisy)
-    var contactTxNotifications: [String: [Date]] = [:]  // address -> timestamps
-    var dismissedSpamWarnings: Set<String> = []  // addresses dismissed until app restart
-    @Published var noisyContactWarning: NoisyContactWarning?
-
-    // Periodic polling for contacts with realtime updates disabled
-    var disabledContactsPollingTask: Task<Void, Never>?
-    let disabledContactsPollingInterval: TimeInterval = 60  // 1 minute
-
     // Suppress notifications during initial sync after wallet import/create
     var suppressNotificationsUntilSynced = false
 
@@ -389,7 +380,7 @@ final class ChatService: ObservableObject {
             // conversations array already loaded above, so the UI doesn't keep showing them
             // until the next full reload.
             guard let self else { return }
-            let deletedTxIds = self.messageStore.deleteStuckReactionPlaceholderMessages()
+            let deletedTxIds = await self.messageStore.deleteStuckReactionPlaceholderMessages()
             guard !deletedTxIds.isEmpty else { return }
             let deletedSet = Set(deletedTxIds)
             for index in self.conversations.indices {
@@ -413,7 +404,9 @@ final class ChatService: ObservableObject {
         observeNodePoolConnectionState()
         observeConversationCount()
         observeRemoteStoreChanges()
-        messageStore.applyRetention(SettingsViewModel.loadSettings().messageRetention)
+        Task { @MainActor [weak self] in
+            await self?.messageStore.applyRetentionInBackground(SettingsViewModel.loadSettings().messageRetention)
+        }
         cloudRefreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)

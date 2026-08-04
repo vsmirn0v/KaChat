@@ -287,7 +287,7 @@ final class WalletManager: ObservableObject {
         // Reset chat and contacts data when importing a new/different wallet
         // This ensures lastPollTime=0 so all historical messages are fetched
         if isNewWallet {
-            print("[WalletManager] Importing new wallet, resetting chat and contacts data")
+            AppLog.log("%@", "[WalletManager] Importing new wallet, resetting chat and contacts data")
             // Pass skipStoreClear=true since the new wallet's store is already empty
             ChatService.shared.resetForNewWallet(skipStoreClear: true)
             ContactsManager.shared.deleteAllContacts()
@@ -544,7 +544,7 @@ final class WalletManager: ObservableObject {
             }
             return key
         } catch {
-            print("[WalletManager] Failed to get private key: \(error.localizedDescription)")
+            AppLog.log("%@", "[WalletManager] Failed to get private key: \(error.localizedDescription)")
             return nil
         }
     }

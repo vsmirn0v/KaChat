@@ -22,7 +22,7 @@ final class GiftService: NSObject, ObservableObject {
     private override init() {
         super.init()
         checkInitialState()
-        print("[GiftService] Initialized, claimState = \(claimState)")
+        AppLog.log("%@", "[GiftService] Initialized, claimState = \(claimState)")
     }
 
     // MARK: - Initial State
@@ -30,22 +30,22 @@ final class GiftService: NSObject, ObservableObject {
     private func checkInitialState() {
         if UserDefaults.standard.bool(forKey: Self.claimedKey) {
             claimState = .alreadyClaimed
-            print("[GiftService] Already claimed (cached)")
+            AppLog.log("%@", "[GiftService] Already claimed (cached)")
             return
         }
 
         #if targetEnvironment(simulator)
         // Allow gift flow on simulator for testing (backend will reject)
         claimState = .eligible
-        print("[GiftService] Simulator: eligible for gift")
+        AppLog.log("%@", "[GiftService] Simulator: eligible for gift")
         #else
         if !DCDevice.current.isSupported || !DCAppAttestService.shared.isSupported {
             claimState = .unavailable("Not available on this device")
-            print("[GiftService] DeviceCheck/AppAttest not supported")
+            AppLog.log("%@", "[GiftService] DeviceCheck/AppAttest not supported")
             return
         }
         claimState = .eligible
-        print("[GiftService] Device eligible for gift")
+        AppLog.log("%@", "[GiftService] Device eligible for gift")
         #endif
     }
 
@@ -78,23 +78,23 @@ final class GiftService: NSObject, ObservableObject {
     func resetClaimStateForRetry() {
         UserDefaults.standard.removeObject(forKey: Self.claimedKey)
         checkInitialState()
-        print("[GiftService] Local gift claim state reset")
+        AppLog.log("%@", "[GiftService] Local gift claim state reset")
     }
 
     // MARK: - Claim Gift
 
     func claimGift(walletAddress: String) async {
         guard claimState == .eligible else {
-            print("[GiftService] claimGift called but state is \(claimState), skipping")
+            AppLog.log("%@", "[GiftService] claimGift called but state is \(claimState), skipping")
             return
         }
-        print("[GiftService] Starting gift claim for \(walletAddress)")
+        AppLog.log("%@", "[GiftService] Starting gift claim for \(walletAddress)")
         claimState = .claiming
 
         do {
             // 1. Get challenge from server
             let challenge = try await fetchChallenge()
-            print("[GiftService] Got challenge: \(challenge)")
+            AppLog.log("%@", "[GiftService] Got challenge: \(challenge)")
 
             let deviceToken: Data
             let attestation: Data
@@ -121,7 +121,7 @@ final class GiftService: NSObject, ObservableObject {
             #endif
 
             // 6. Submit claim
-            print("[GiftService] Submitting claim to server...")
+            AppLog.log("%@", "[GiftService] Submitting claim to server...")
             let txId = try await submitClaim(
                 deviceToken: deviceToken,
                 walletAddress: walletAddress,
@@ -133,10 +133,10 @@ final class GiftService: NSObject, ObservableObject {
             // 7. Cache claimed status
             UserDefaults.standard.set(true, forKey: Self.claimedKey)
             claimState = .claimed(txId: txId)
-            print("[GiftService] Gift claimed successfully, txId: \(txId)")
+            AppLog.log("%@", "[GiftService] Gift claimed successfully, txId: \(txId)")
 
         } catch let error as GiftError {
-            print("[GiftService] Gift claim failed: \(error)")
+            AppLog.log("%@", "[GiftService] Gift claim failed: \(error)")
             switch error {
             case .alreadyClaimed:
                 UserDefaults.standard.set(true, forKey: Self.claimedKey)
@@ -149,7 +149,7 @@ final class GiftService: NSObject, ObservableObject {
                 claimState = .unavailable(message)
             }
         } catch {
-            print("[GiftService] Gift claim unexpected error: \(error)")
+            AppLog.log("%@", "[GiftService] Gift claim unexpected error: \(error)")
             claimState = .unavailable(error.localizedDescription)
         }
     }

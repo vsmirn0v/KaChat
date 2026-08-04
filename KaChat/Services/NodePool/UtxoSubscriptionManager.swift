@@ -80,9 +80,6 @@ final class UtxoSubscriptionManager: ObservableObject {
     /// Ping timeout
     private let pingTimeout: TimeInterval = 5.0
 
-    /// Standby warmup interval
-    private let standbyWarmupInterval: TimeInterval = 60
-
     // MARK: - Initialization
 
     init(

@@ -196,8 +196,12 @@ final class BroadcastService: ObservableObject {
     /// live (a message actually disappears from the room a few seconds after it expires, rather
     /// than only on next open or next incoming message).
     func pruneNowAndRefresh(forChannel name: String) {
-        store.pruneExpiredMessages()
-        loadMessages(for: BroadcastChannelName.normalize(name))
+        // Only re-fetch/re-map the channel's messages when a prune actually removed something -
+        // this is polled once a second while a room is open, and re-reading + re-mapping the whole
+        // message list on the main queue every second when nothing expired was pure waste.
+        if store.pruneExpiredMessages() {
+            loadMessages(for: BroadcastChannelName.normalize(name))
+        }
     }
 
     // MARK: - Reply

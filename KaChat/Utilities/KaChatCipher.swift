@@ -241,7 +241,7 @@ struct KasiaCipher {
         }
 
         guard xCoordinate.count == 32 else {
-            print("[KasiaCipher] Invalid x-coordinate length: \(xCoordinate.count)")
+            AppLog.log("%@", "[KasiaCipher] Invalid x-coordinate length: \(xCoordinate.count)")
             throw CipherError.decryptionFailed
         }
 

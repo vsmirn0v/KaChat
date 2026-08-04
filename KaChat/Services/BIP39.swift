@@ -205,12 +205,6 @@ final class BIP39 {
         return wordList.count == 2048
     }
 
-    /// Get word at index
-    func getWord(at index: Int) -> String? {
-        guard index >= 0 && index < wordList.count else { return nil }
-        return wordList[index]
-    }
-
     /// The full BIP39 English wordlist (2048 words). Exposed for the in-app import keyboard's
     /// prefix-match autocomplete so the seed phrase can be typed without the OS keyboard.
     var englishWordList: [String] { wordList }
@@ -220,10 +214,6 @@ final class BIP39 {
         return wordList.contains(word.lowercased())
     }
 
-    /// Get index of word
-    func getIndex(of word: String) -> Int? {
-        return wordIndex[word.lowercased()]
-    }
 }
 
 // Import CommonCrypto for PBKDF2

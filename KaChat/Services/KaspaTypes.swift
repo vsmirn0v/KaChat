@@ -196,13 +196,6 @@ struct KaspaScriptPublicKey {
         data.append(script)
     }
 
-    static func p2pk(publicKey: Data) -> KaspaScriptPublicKey {
-        var script = Data()
-        script.append(UInt8(publicKey.count))
-        script.append(publicKey)
-        script.append(0xAC) // OP_CHECKSIG
-        return KaspaScriptPublicKey(version: 0, script: script)
-    }
 }
 
 // MARK: - Protobuf Conversions

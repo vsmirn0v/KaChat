@@ -492,43 +492,6 @@ final class MessageStore {
         let hasMore: Bool
     }
 
-    /// Fetch a single conversation page using keyset pagination.
-    /// `olderThan` is an exclusive cursor ("load older than this message").
-    func fetchMessagesPage(
-        contactAddress: String,
-        decryptionKey: SymmetricKey,
-        limit: Int,
-        olderThan cursor: MessagePageCursor? = nil
-    ) -> MessagePage {
-        guard ensureStoreLoaded() else { return MessagePage(messages: [], oldestCursor: nil, hasMore: false) }
-        guard limit > 0 else { return MessagePage(messages: [], oldestCursor: nil, hasMore: false) }
-
-        var result = MessagePage(messages: [], oldestCursor: nil, hasMore: false)
-        viewContext.performAndWait {
-            let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
-            request.predicate = pagedMessagesPredicate(
-                contactAddress: contactAddress,
-                walletAddress: currentWalletAddress,
-                olderThan: cursor
-            )
-            request.sortDescriptors = [
-                NSSortDescriptor(key: "blockTime", ascending: false),
-                NSSortDescriptor(key: "timestamp", ascending: false),
-                NSSortDescriptor(key: "txId", ascending: false)
-            ]
-            request.fetchLimit = limit + 1
-            request.includesPendingChanges = true
-
-            do {
-                let records = try viewContext.fetch(request)
-                result = makePageResult(from: records, key: decryptionKey, limit: limit)
-            } catch {
-                self.logInfo("[MessageStore] Failed to fetch messages page for %@: %@", contactAddress, error.localizedDescription)
-            }
-        }
-        return result
-    }
-
     /// Async/background keyset page fetch.
     func fetchMessagesPageAsync(
         contactAddress: String,
@@ -689,28 +652,32 @@ final class MessageStore {
         }
     }
 
-    /// Used from `findLocalMessage`, which has dozens of call sites across push/UTXO-processing
-    /// code that are impractical to convert to `async` wholesale - kept synchronous, but moved off
-    /// `viewContext` onto a private background context so it no longer contends for the main
-    /// queue specifically (this is a single indexed row lookup, not the "fetch+decrypt everything"
-    /// pattern that caused the original UI freeze, so staying synchronous here is fine).
-    func fetchMessage(txId: String, decryptionKey: SymmetricKey) -> ChatMessage? {
+    /// Single indexed-row lookup used from `findLocalMessage`. MUST be `async`: `ChatService` is
+    /// `@MainActor`, and the UTXO-notification burst calls this once per incoming UTXO. The old
+    /// synchronous `newBackgroundContext().performAndWait { fetch }` blocked the MAIN thread (a
+    /// `performAndWait` blocks its *calling* thread no matter which context runs the block), and
+    /// each fetch contended the persistent-store coordinator that `NSPersistentCloudKitContainer`
+    /// holds during its initial mirroring import - N UTXOs -> N serialized main-thread stalls ->
+    /// the app froze ~15s into sync. `performBackgroundTask` + a continuation suspends the awaiting
+    /// main actor instead of blocking it, so the run loop stays live.
+    func fetchMessage(txId: String, decryptionKey: SymmetricKey) async -> ChatMessage? {
         guard ensureStoreLoaded() else { return nil }
-        var result: ChatMessage?
-        let context = container.newBackgroundContext()
-        context.performAndWait {
-            let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
-            request.predicate = NSPredicate(format: "txId == %@", txId)
-            request.fetchLimit = 1
-            do {
-                if let record = try context.fetch(request).first {
-                    result = self.decodeMessage(record, key: decryptionKey)
+        return await withCheckedContinuation { (continuation: CheckedContinuation<ChatMessage?, Never>) in
+            container.performBackgroundTask { context in
+                let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+                request.predicate = NSPredicate(format: "txId == %@", txId)
+                request.fetchLimit = 1
+                var result: ChatMessage?
+                do {
+                    if let record = try context.fetch(request).first {
+                        result = self.decodeMessage(record, key: decryptionKey)
+                    }
+                } catch {
+                    self.logInfo("[MessageStore] Failed to fetch message \(txId): \(error)")
                 }
-            } catch {
-                self.logInfo("[MessageStore] Failed to fetch message \(txId): \(error)")
+                continuation.resume(returning: result)
             }
         }
-        return result
     }
 
     /// Check if a message exists with actual content (not placeholder) in CloudKit-synced store
@@ -743,18 +710,20 @@ final class MessageStore {
     /// "📤 Sent via another device" placeholder - permanently, since no real `CDMessage` will ever
     /// arrive to replace it. Checking this first lets the caller skip creating that placeholder
     /// entirely for a transaction that was always a reaction, never a message.
-    func isReactionTransaction(txId: String) -> Bool {
+    /// `async` for the same reason as `fetchMessage` above: it's on the per-UTXO / push catch-up
+    /// path off `@MainActor` code, and a synchronous `performAndWait` here blocked the main thread
+    /// while contending the CloudKit-held store coordinator.
+    func isReactionTransaction(txId: String) async -> Bool {
         guard ensureStoreLoaded() else { return false }
-        var result = false
-        let context = container.newBackgroundContext()
-        context.performAndWait {
-            let request = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
-            request.predicate = NSPredicate(format: "reactionTxId == %@", txId)
-            request.fetchLimit = 1
-            let count = (try? context.count(for: request)) ?? 0
-            result = count > 0
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            container.performBackgroundTask { context in
+                let request = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
+                request.predicate = NSPredicate(format: "reactionTxId == %@", txId)
+                request.fetchLimit = 1
+                let count = (try? context.count(for: request)) ?? 0
+                continuation.resume(returning: count > 0)
+            }
         }
-        return result
     }
 
     /// One-time cleanup for placeholder messages already stuck from this bug before the fix:
@@ -764,36 +733,41 @@ final class MessageStore {
     /// launch; it's a no-op once a wallet's stuck placeholders (if any) have been cleared.
     /// Returns the txIds of whatever it deleted, so the caller can also drop them from any
     /// in-memory conversation state it's already loaded (this only touches Core Data).
+    /// `async`: called on the main actor at every launch, and the old synchronous `performAndWait`
+    /// scanned the whole reaction + message tables and blocked the main thread while contending the
+    /// CloudKit-held store coordinator - the same freeze class as the per-UTXO fetch. Now suspends
+    /// via `performBackgroundTask` + continuation instead of blocking.
     @discardableResult
-    func deleteStuckReactionPlaceholderMessages() -> [String] {
+    func deleteStuckReactionPlaceholderMessages() async -> [String] {
         guard ensureStoreLoaded() else { return [] }
         let walletAddr = currentWalletAddress
-        let context = container.newBackgroundContext()
-        var deletedTxIds: [String] = []
-        context.performAndWait {
-            let reactionRequest = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
-            guard let reactionTxIds = try? context.fetch(reactionRequest).compactMap({ $0.reactionTxId }),
-                  !reactionTxIds.isEmpty else { return }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<[String], Never>) in
+            container.performBackgroundTask { context in
+                var deletedTxIds: [String] = []
+                let reactionRequest = NSFetchRequest<CDReaction>(entityName: CDReaction.entityName)
+                guard let reactionTxIds = try? context.fetch(reactionRequest).compactMap({ $0.reactionTxId }),
+                      !reactionTxIds.isEmpty else { continuation.resume(returning: deletedTxIds); return }
 
-            let messageRequest = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
-            if let walletAddr {
-                messageRequest.predicate = NSPredicate(format: "txId IN %@ AND (walletAddress == %@ OR walletAddress == nil)", reactionTxIds, walletAddr)
-            } else {
-                messageRequest.predicate = NSPredicate(format: "txId IN %@", reactionTxIds)
-            }
-            guard let stuckMessages = try? context.fetch(messageRequest), !stuckMessages.isEmpty else { return }
-            for message in stuckMessages {
-                deletedTxIds.append(message.txId)
-                context.delete(message)
-            }
-            do {
-                try context.save()
-                self.logInfo("[MessageStore] Cleaned up %d stuck reaction-placeholder messages", stuckMessages.count)
-            } catch {
-                self.logInfo("[MessageStore] Failed to clean up stuck reaction placeholders: \(error)")
+                let messageRequest = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+                if let walletAddr {
+                    messageRequest.predicate = NSPredicate(format: "txId IN %@ AND (walletAddress == %@ OR walletAddress == nil)", reactionTxIds, walletAddr)
+                } else {
+                    messageRequest.predicate = NSPredicate(format: "txId IN %@", reactionTxIds)
+                }
+                guard let stuckMessages = try? context.fetch(messageRequest), !stuckMessages.isEmpty else { continuation.resume(returning: deletedTxIds); return }
+                for message in stuckMessages {
+                    deletedTxIds.append(message.txId)
+                    context.delete(message)
+                }
+                do {
+                    try context.save()
+                    self.logInfo("[MessageStore] Cleaned up %d stuck reaction-placeholder messages", stuckMessages.count)
+                } catch {
+                    self.logInfo("[MessageStore] Failed to clean up stuck reaction placeholders: \(error)")
+                }
+                continuation.resume(returning: deletedTxIds)
             }
         }
-        return deletedTxIds
     }
 
     /// Refresh the view context to pick up any CloudKit changes.
@@ -1989,6 +1963,21 @@ final class MessageStore {
     }
 
     // MARK: - Retention
+
+    /// Off-main wrapper for `applyRetention`. The synchronous version uses `performAndWait`, which
+    /// blocks its caller - and retention is applied on the main actor at launch and on every
+    /// settings change. Running it inside `performBackgroundTask` keeps the batch delete + merge on
+    /// a private queue so the awaiting main actor only suspends. (The internal caller at the
+    /// message-store-sync path already passes its own background `context:` and stays sync.)
+    func applyRetentionInBackground(_ retention: MessageRetention) async {
+        guard ensureStoreLoaded(), retention.days != nil else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            container.performBackgroundTask { context in
+                _ = self.applyRetention(retention, in: context)
+                continuation.resume()
+            }
+        }
+    }
 
     /// Applies message retention policy for the CURRENT wallet only.
     @discardableResult

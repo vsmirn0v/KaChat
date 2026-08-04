@@ -41,10 +41,6 @@ struct CryptoUtils {
         return sha256(data)
     }
 
-    static func doubleSha256(_ data: Data) -> Data {
-        return sha256(sha256(data))
-    }
-
     // MARK: - Key Derivation
 
     static func deriveKey(from password: String, salt: Data, iterations: Int = 100_000) -> SymmetricKey {
@@ -74,21 +70,6 @@ struct CryptoUtils {
     }
 
     // MARK: - Address Generation
-
-    static func generateAddress(from publicKey: Data, network: NetworkType = .mainnet) -> String {
-        // Hash the public key
-        let hash = sha256(publicKey)
-
-        // Take first 20 bytes for address
-        let addressBytes = hash.prefix(20)
-
-        // Encode as hex
-        let addressHex = dataToHex(addressBytes)
-
-        // Format as Kaspa address
-        let prefix = network == .mainnet ? "kaspa" : "kaspatest"
-        return "\(prefix):qr\(addressHex)"
-    }
 
     // MARK: - Validation
 

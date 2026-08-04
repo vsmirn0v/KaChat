@@ -1562,11 +1562,6 @@ struct MediaFile: Codable {
         return image
     }
 
-    func imageSharePayload(cacheKey: String?) -> MessageImageSharePayload? {
-        guard isImage, let data = fileData(cacheKey: cacheKey) else { return nil }
-        return MessageImageSharePayload(data: data, fileName: name, mimeType: mimeType)
-    }
-
     func thumbnailImage(cacheKey: String?, maxPixelSize: CGFloat = 440) async -> UIImage? {
         guard isImage else { return nil }
         if let key = Self.thumbnailCacheKey(from: cacheKey, maxPixelSize: maxPixelSize),

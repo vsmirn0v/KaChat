@@ -1819,23 +1819,6 @@ actor NodeProfiler {
         return results
     }
 
-    private func tcpPingWithRetry(
-        host: String,
-        port: Int,
-        timeout: TimeInterval,
-        maxAttempts: Int,
-        retryDelayNs: UInt64
-    ) async -> Bool {
-        let measured = await tcpPingWithRetryMeasured(
-            host: host,
-            port: port,
-            timeout: timeout,
-            maxAttempts: maxAttempts,
-            retryDelayNs: retryDelayNs
-        )
-        return measured.passed
-    }
-
     private func tcpPingWithRetryMeasured(
         host: String,
         port: Int,

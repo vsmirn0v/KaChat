@@ -366,33 +366,6 @@ struct BroadcastListView: View {
         .listStyle(.plain)
     }
 
-    private func channelRowLabel(name: String, subtitle: String?) -> some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(Color.accentColor.opacity(0.2))
-                .frame(width: 44, height: 44)
-                .overlay(
-                    Text("#")
-                        .font(.headline)
-                        .foregroundColor(.accentColor)
-                )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name)
-                    .font(.body)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Spacer()
-        }
-        .padding(.vertical, 2)
-        .contentShape(Rectangle())
-    }
-
     private func toggleAlwaysListen(_ channel: BroadcastChannel) {
         let newValue = !channel.alwaysListen
         broadcastService.setAlwaysListen(newValue, forChannel: channel.channelName)

@@ -306,22 +306,6 @@ struct ChatDetailView: View {
         content == "📤 Sent via another device" || content == "[Encrypted message]"
     }
 
-    private var hasPendingHandshake: Bool {
-        // If both directions exist, the handshake exchange is complete
-        if hasIncomingHandshakeMessage && hasOutgoingHandshakeMessage { return false }
-        return hasIncomingHandshakeMessage && !chatService.hasOurAlias(for: contact.address)
-    }
-
-    private var hasAnyHandshake: Bool {
-        hasIncomingHandshakeMessage || hasOutgoingHandshakeMessage
-    }
-
-    private var awaitingOutgoingHandshakeResponse: Bool {
-        // If both directions exist, the handshake exchange is complete
-        if hasIncomingHandshakeMessage && hasOutgoingHandshakeMessage { return false }
-        return hasOutgoingHandshakeMessage && !chatService.hasTheirAlias(for: contact.address)
-    }
-
     private var isDeclined: Bool {
         chatService.isConversationDeclined(contact.address)
     }
@@ -2977,11 +2961,6 @@ struct ChatDetailView: View {
         }
     }
 
-    private func formatKaspa(sompi: UInt64) -> String {
-        let kas = Double(sompi) / 100_000_000.0
-        return String(format: "%.8f", kas)
-    }
-
     private func formatKaspaExact(_ sompi: UInt64) -> String {
         let kas = Double(sompi) / 100_000_000.0
         return String(format: "%.8f", kas)
@@ -3419,26 +3398,6 @@ struct WebMOpusEncoder {
             throw WebMOpusEncodingError.audioReadFailed(details)
         }
         return samples
-    }
-
-    private static func formatDescription(_ format: AVAudioFormat) -> String {
-        let interleaved = format.isInterleaved ? "interleaved" : "non-interleaved"
-        let common: String
-        switch format.commonFormat {
-        case .pcmFormatInt16:
-            common = "int16"
-        case .pcmFormatInt32:
-            common = "int32"
-        case .pcmFormatFloat32:
-            common = "float32"
-        case .pcmFormatFloat64:
-            common = "float64"
-        case .otherFormat:
-            common = "other"
-        @unknown default:
-            common = "unknown"
-        }
-        return "\(common) \(format.sampleRate)Hz ch=\(format.channelCount) \(interleaved)"
     }
 
     private static func makeOpusHead(channels: UInt8, preSkip: UInt16, sampleRate: UInt32, outputGain: Int16) -> Data {

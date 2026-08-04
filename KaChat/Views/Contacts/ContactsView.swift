@@ -312,15 +312,6 @@ struct ProfileView: View {
         .background(glassBackground(cornerRadius: 18))
     }
 
-    private func accountNameSection(_ wallet: Wallet) -> some View {
-        Section("Name") {
-                TextField("Account name", text: $editedAlias)
-                .onChange(of: editedAlias) { newValue in
-                    scheduleAliasSave(newValue, previousAlias: wallet.alias)
-                }
-        }
-    }
-
     private func setPrimaryDomain(_ domain: KNSDomain) async {
         guard settingPrimaryDomainId == nil else { return }
         guard let walletAddress = walletManager.currentWallet?.publicAddress else {
@@ -936,67 +927,6 @@ struct ProfileView: View {
             return "Gift already claimed"
         case .unavailable:
             return "Gift unavailable"
-        }
-    }
-
-    private func accountAddressSection(_ wallet: Wallet) -> some View {
-        Section("Address") {
-            VStack(alignment: .leading, spacing: 8) {
-                if let qrImage {
-                    HStack {
-                        Spacer()
-                        Image(uiImage: qrImage)
-                            .interpolation(.none)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: 100, maxHeight: 100)
-                            .padding(8)
-                            .background(Color.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                        Spacer()
-                    }
-                    Text("Scan to share account. Tap anywhere here to copy address.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                Text(wallet.publicAddress)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                UIPasteboard.general.string = wallet.publicAddress
-                Haptics.success()
-                showToast("Address copied to clipboard.")
-            }
-        }
-    }
-
-    private func accountBalanceSection(_ wallet: Wallet) -> some View {
-        Section("Balance") {
-            if let balance = wallet.balanceSompi {
-                let exact = formatKaspaExact(balance)
-                Button {
-                    UIPasteboard.general.string = exact
-                    Haptics.success()
-                    showToast("Balance copied to clipboard.")
-                } label: {
-                    HStack {
-                        ShimmeringText(
-                            text: "\(exact) KAS",
-                            font: .system(.body, design: .monospaced),
-                            color: .primary,
-                            isShimmering: walletManager.isBalanceRefreshing
-                        )
-                        Spacer()
-                        Image(systemName: "doc.on.doc")
-                            .foregroundColor(.accentColor)
-                    }
-                }
-            } else {
-                Text("—")
-                    .foregroundColor(.secondary)
-            }
         }
     }
 

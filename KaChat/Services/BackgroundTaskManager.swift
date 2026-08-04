@@ -25,7 +25,7 @@ final class BackgroundTaskManager {
                 await self.handleBackgroundFetch(task: task as! BGAppRefreshTask)
             }
         }
-        print("[BackgroundTaskManager] Registered background fetch task")
+        AppLog.log("%@", "[BackgroundTaskManager] Registered background fetch task")
     }
 
     /// Schedule the next background fetch - call when app goes to background
@@ -35,41 +35,41 @@ final class BackgroundTaskManager {
 
         do {
             try BGTaskScheduler.shared.submit(request)
-            print("[BackgroundTaskManager] Scheduled background fetch for ~\(Int(refreshInterval))s from now")
+            AppLog.log("%@", "[BackgroundTaskManager] Scheduled background fetch for ~\(Int(refreshInterval))s from now")
         } catch {
-            print("[BackgroundTaskManager] Failed to schedule background fetch: \(error.localizedDescription)")
+            AppLog.log("%@", "[BackgroundTaskManager] Failed to schedule background fetch: \(error.localizedDescription)")
         }
     }
 
     /// Cancel any pending background fetch tasks
     func cancelBackgroundFetch() {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundFetchTaskIdentifier)
-        print("[BackgroundTaskManager] Cancelled background fetch")
+        AppLog.log("%@", "[BackgroundTaskManager] Cancelled background fetch")
     }
 
     /// Handle the background fetch task
     private func handleBackgroundFetch(task: BGAppRefreshTask) async {
-        print("[BackgroundTaskManager] Background fetch started")
+        AppLog.log("%@", "[BackgroundTaskManager] Background fetch started")
 
         // Schedule the next fetch before doing work
         scheduleBackgroundFetch()
 
         // Set up expiration handler
         task.expirationHandler = {
-            print("[BackgroundTaskManager] Background fetch expired")
+            AppLog.log("%@", "[BackgroundTaskManager] Background fetch expired")
             task.setTaskCompleted(success: false)
         }
 
         // Check if background fetch is enabled in settings
         guard ChatService.shared.settingsViewModel?.settings.backgroundFetchEnabled == true else {
-            print("[BackgroundTaskManager] Background fetch disabled, skipping fetch")
+            AppLog.log("%@", "[BackgroundTaskManager] Background fetch disabled, skipping fetch")
             task.setTaskCompleted(success: true)
             return
         }
 
         // Fetch new messages
         await ChatService.shared.fetchNewMessages()
-        print("[BackgroundTaskManager] Background fetch completed successfully")
+        AppLog.log("%@", "[BackgroundTaskManager] Background fetch completed successfully")
         task.setTaskCompleted(success: true)
     }
 }

@@ -882,7 +882,7 @@ final class PushNotificationManager: ObservableObject {
         if messageType == "payment" {
             if let ourAddress = WalletManager.shared.currentWallet?.publicAddress,
                sender == ourAddress,
-               ChatService.shared.hasLocalMessage(txId: txId) {
+               await ChatService.shared.hasLocalMessage(txId: txId) {
                 AppLog.log("[Push] Outgoing payment already in local messages: %@", txId)
                 return true
             }
@@ -926,7 +926,7 @@ final class PushNotificationManager: ObservableObject {
 
         if let ourAddress = WalletManager.shared.currentWallet?.publicAddress,
            sender == ourAddress {
-            if ChatService.shared.hasLocalMessage(txId: txId) {
+            if await ChatService.shared.hasLocalMessage(txId: txId) {
                 AppLog.log("[Push] Outgoing push already in local messages: %@", txId)
                 return true
             }
@@ -1048,15 +1048,6 @@ final class PushNotificationManager: ObservableObject {
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess, let data = result as? Data else { return nil }
         return String(data: data, encoding: .utf8)
-    }
-
-    private func deleteTokenFromKeychain() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.keychainService,
-            kSecAttrAccount as String: Self.keychainAccount
-        ]
-        SecItemDelete(query as CFDictionary)
     }
 
     private func saveDeviceAuthPrivateKeyToKeychain(_ keyData: Data) {

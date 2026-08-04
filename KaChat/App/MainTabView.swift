@@ -57,23 +57,6 @@ struct MainTabView: View {
             lastActiveChatAddress = address
             isChatReturnArmed = false
         }
-        .alert(
-            "High Transaction Traffic",
-            isPresented: Binding(
-                get: { chatService.noisyContactWarning != nil },
-                set: { if !$0 { chatService.dismissNoisyContactWarning() } }
-            ),
-            presenting: chatService.noisyContactWarning
-        ) { warning in
-            Button("Disable", role: .destructive) {
-                chatService.disableRealtimeForContact(warning.contactAddress)
-            }
-            Button("Dismiss", role: .cancel) {
-                chatService.dismissNoisyContactWarning()
-            }
-        } message: { warning in
-            Text("\(warning.contactAlias) has produced \(warning.txCount) transactions in the last minute that are not relevant to you. This consumes battery and network resources.\n\nDisable real-time updates for this contact? Messages will still be fetched periodically.")
-        }
     }
 
     @ViewBuilder

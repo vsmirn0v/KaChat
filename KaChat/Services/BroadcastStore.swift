@@ -335,10 +335,14 @@ final class BroadcastStore {
 
     /// Prune messages in each joined channel older than that channel's retention window
     /// (capped at `maxRetentionMillis`). Call periodically (e.g. on scan / app-active).
-    func pruneExpiredMessages() {
-        guard isLoaded else { return }
+    /// Returns whether anything was actually deleted, so the once-a-second room poll can skip its
+    /// follow-up message re-fetch/re-map when nothing expired (see `pruneNowAndRefresh`).
+    @discardableResult
+    func pruneExpiredMessages() -> Bool {
+        guard isLoaded else { return false }
         let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
         let context = viewContext
+        var didDelete = false
         context.performAndWait {
             let channelRequest = NSFetchRequest<CDBroadcastChannel>(entityName: CDBroadcastChannel.entityName)
             let channels = (try? context.fetch(channelRequest)) ?? []
@@ -352,6 +356,7 @@ final class BroadcastStore {
                 guard let result = try? context.execute(deleteRequest) as? NSBatchDeleteResult,
                       let objectIds = result.result as? [NSManagedObjectID],
                       !objectIds.isEmpty else { continue }
+                didDelete = true
                 // NSBatchDeleteRequest deletes directly in the persistent store, bypassing this
                 // context's row cache - without this merge, already-faulted/cached rows for the
                 // deleted messages can keep showing up in later fetches on this same context.
@@ -360,8 +365,9 @@ final class BroadcastStore {
                     into: [context]
                 )
             }
-            save(context)
+            if didDelete { save(context) }
         }
+        return didDelete
     }
 
     /// Clear all local broadcast data for the current wallet (e.g. on wallet reset).

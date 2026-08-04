@@ -40,16 +40,6 @@ private struct DynamicCodingKey: CodingKey {
     init?(intValue: Int) { self.stringValue = "\(intValue)"; self.intValue = intValue }
 }
 
-// MARK: - Noisy Contact Warning
-
-/// Warning shown when a contact produces excessive transaction traffic
-struct NoisyContactWarning: Identifiable, Equatable {
-    let id = UUID()
-    let contactAddress: String
-    let contactAlias: String
-    let txCount: Int
-}
-
 // MARK: - Wallet Models
 
 struct Wallet: Codable, Equatable {
@@ -187,7 +177,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
     var lastMessageAt: Date?
     var isAutoAdded: Bool
     var notificationModeOverride: ContactNotificationMode?
-    var realtimeUpdatesDisabled: Bool
     var hasSentOutgoingMessage: Bool
     var photoAutoDisplayOverride: PhotoAutoDisplayMode?
     // Local-only enrichment from iOS/macOS system contacts.
@@ -205,7 +194,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         lastMessageAt: Date? = nil,
         isAutoAdded: Bool = false,
         notificationModeOverride: ContactNotificationMode? = nil,
-        realtimeUpdatesDisabled: Bool = false,
         hasSentOutgoingMessage: Bool = false,
         photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil,
         systemContactId: String? = nil,
@@ -221,7 +209,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         self.lastMessageAt = lastMessageAt
         self.isAutoAdded = isAutoAdded
         self.notificationModeOverride = notificationModeOverride
-        self.realtimeUpdatesDisabled = realtimeUpdatesDisabled
         self.hasSentOutgoingMessage = hasSentOutgoingMessage
         self.photoAutoDisplayOverride = photoAutoDisplayOverride
         self.systemContactId = systemContactId
@@ -240,7 +227,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         case isAutoAdded
         case notificationModeOverride
         case notificationsMuted // Legacy key migrated into notificationModeOverride
-        case realtimeUpdatesDisabled
         case hasSentOutgoingMessage
         case photoAutoDisplayOverride
         case systemContactId
@@ -265,7 +251,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
             let legacyMuted = try container.decodeIfPresent(Bool.self, forKey: .notificationsMuted) ?? false
             notificationModeOverride = legacyMuted ? .off : nil
         }
-        realtimeUpdatesDisabled = try container.decodeIfPresent(Bool.self, forKey: .realtimeUpdatesDisabled) ?? false
         hasSentOutgoingMessage = try container.decodeIfPresent(Bool.self, forKey: .hasSentOutgoingMessage) ?? false
         photoAutoDisplayOverride = try container.decodeIfPresent(PhotoAutoDisplayMode.self, forKey: .photoAutoDisplayOverride)
         systemContactId = try container.decodeIfPresent(String.self, forKey: .systemContactId)
@@ -284,7 +269,6 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         try container.encodeIfPresent(lastMessageAt, forKey: .lastMessageAt)
         try container.encode(isAutoAdded, forKey: .isAutoAdded)
         try container.encodeIfPresent(notificationModeOverride, forKey: .notificationModeOverride)
-        try container.encode(realtimeUpdatesDisabled, forKey: .realtimeUpdatesDisabled)
         try container.encode(hasSentOutgoingMessage, forKey: .hasSentOutgoingMessage)
         try container.encodeIfPresent(photoAutoDisplayOverride, forKey: .photoAutoDisplayOverride)
         try container.encodeIfPresent(systemContactId, forKey: .systemContactId)
@@ -760,11 +744,6 @@ struct ConversationRoutingState: Codable {
 }
 
 struct MessagePayload: Codable {
-    let content: String
-}
-
-struct ContextualMessagePayload: Codable {
-    let alias: String
     let content: String
 }
 
@@ -1900,17 +1879,6 @@ enum KasiaError: LocalizedError {
             return "An unknown error occurred."
         }
     }
-}
-
-// MARK: - Discovery Models
-
-struct DiscoveredEndpoint: Codable, Equatable {
-    let indexerURL: String
-    let nodeURL: String?
-    let networkType: NetworkType
-    let isHealthy: Bool
-    let latencyMs: Int?
-    let discoveredAt: Date
 }
 
 // MARK: - gRPC Endpoint Pool

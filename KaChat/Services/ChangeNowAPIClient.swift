@@ -13,11 +13,6 @@ struct ChangeNowEstimateResponse: Decodable {
     let warningMessage: String?
 }
 
-struct ChangeNowRangeResponse: Decodable {
-    let minAmount: Double?
-    let maxAmount: Double?
-}
-
 private struct ChangeNowCreateTransactionRequest: Encodable {
     let fromCurrency: String
     let fromNetwork: String
@@ -104,18 +99,6 @@ final class ChangeNowAPIClient {
             URLQueryItem(name: "toCurrency", value: toCurrency),
             URLQueryItem(name: "toNetwork", value: toNetwork),
             URLQueryItem(name: "fromAmount", value: fromAmount),
-            URLQueryItem(name: "flow", value: "standard")
-        ])
-        return try await send(request)
-    }
-
-    /// The minimum/maximum `fromAmount` ChangeNOW will accept for this pair.
-    func getRange(fromCurrency: String, fromNetwork: String, toCurrency: String, toNetwork: String) async throws -> ChangeNowRangeResponse {
-        let request = try makeRequest(path: "/v2/exchange/range", queryItems: [
-            URLQueryItem(name: "fromCurrency", value: fromCurrency),
-            URLQueryItem(name: "fromNetwork", value: fromNetwork),
-            URLQueryItem(name: "toCurrency", value: toCurrency),
-            URLQueryItem(name: "toNetwork", value: toNetwork),
             URLQueryItem(name: "flow", value: "standard")
         ])
         return try await send(request)

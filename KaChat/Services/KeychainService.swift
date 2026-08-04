@@ -808,21 +808,6 @@ final class KeychainService {
         }
     }
 
-    private func saveLegacyPrivateKeyData(_ data: Data) throws {
-        let query = genericPasswordQuery(for: .privateKey, includeAccessGroup: false)
-        SecItemDelete(query as CFDictionary)
-
-        var newQuery = query
-        newQuery[kSecValueData as String] = data
-        newQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        newQuery[kSecAttrSynchronizable as String] = kCFBooleanFalse
-
-        let status = SecItemAdd(newQuery as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw KasiaError.keychainError("Failed to save private key to keychain: \(status)")
-        }
-    }
-
     private func genericPasswordQuery(for key: KeychainKey, includeAccessGroup: Bool) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

@@ -1537,7 +1537,7 @@ struct KasiaTransactionBuilder {
             totalAmount = try addSompiChecked(totalAmount, utxo.amount, context: "utxo selection")
 
             #if DEBUG
-            print("[TxBuilder] Selected UTXO: \(utxo.amount) sompi, total: \(totalAmount)")
+            AppLog.log("%@", "[TxBuilder] Selected UTXO: \(utxo.amount) sompi, total: \(totalAmount)")
             #endif
         }
 
@@ -1546,7 +1546,7 @@ struct KasiaTransactionBuilder {
         }
 
         #if DEBUG
-        print("[TxBuilder] Total selected: \(selected.count) UTXOs, total amount: \(totalAmount)")
+        AppLog.log("%@", "[TxBuilder] Total selected: \(selected.count) UTXOs, total amount: \(totalAmount)")
         #endif
 
         return (selected, totalAmount)
@@ -2102,48 +2102,6 @@ struct KasiaTransactionBuilder {
             + 8 // gas
             + 32 // payload hash
             + 8 + UInt64(payload.count)
-    }
-
-    /// Compute storage mass per KIP-0009
-    /// Formula: max(0, C * (Σ 1/output_amount - Σ 1/input_amount))
-    /// Note: Storage mass is designed to prevent UTXO bloat for small outputs.
-    /// For outputs >= 1 KAS, storage mass is typically negligible compared to compute mass.
-    private static func computeStorageMass(outputValues: [UInt64], inputValues: [UInt64]) -> UInt64 {
-        // Filter out zero-value placeholders (used during fee estimation iterations)
-        let nonZeroOutputs = outputValues.filter { $0 > 0 }
-        let nonZeroInputs = inputValues.filter { $0 > 0 }
-
-        guard !nonZeroOutputs.isEmpty, !nonZeroInputs.isEmpty else { return 0 }
-
-        // Harmonic portion for outputs: Σ (C / output_amount)
-        var harmonicOuts: UInt64 = 0
-        for outVal in nonZeroOutputs {
-            harmonicOuts = harmonicOuts.addingReportingOverflow(storageMassParameter / outVal).partialValue
-        }
-
-        // For relaxed formula (single output or single input), use harmonic for inputs too
-        // Otherwise use arithmetic mean approach
-        let useRelaxedFormula = nonZeroOutputs.count == 1 || nonZeroInputs.count == 1 ||
-            (nonZeroOutputs.count == 2 && nonZeroInputs.count == 2)
-
-        var harmonicIns: UInt64 = 0
-        if useRelaxedFormula {
-            for inVal in nonZeroInputs {
-                harmonicIns = harmonicIns.addingReportingOverflow(storageMassParameter / inVal).partialValue
-            }
-        } else {
-            // Arithmetic: |I| / A(I) = |I|^2 / sum(I) = C * |I|^2 / sum(I)
-            let sumInputs = nonZeroInputs.reduce(0, +)
-            let inputCount = UInt64(nonZeroInputs.count)
-            if sumInputs > 0 {
-                harmonicIns = storageMassParameter * inputCount * inputCount / sumInputs
-            }
-        }
-
-        if harmonicOuts > harmonicIns {
-            return harmonicOuts - harmonicIns
-        }
-        return 0
     }
 
     /// Compute transaction id (Blake2b-256 of encoded transaction, little-endian display)

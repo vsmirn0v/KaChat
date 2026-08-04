@@ -474,7 +474,7 @@ extension ChatService {
             )
             let contactAddress = isOutgoing ? handshake.receiver : (resolvedSender ?? handshake.sender)
             if contactAddress.isEmpty {
-                print("[ChatService] Skipping handshake \(handshake.txId) - missing sender")
+                AppLog.log("%@", "[ChatService] Skipping handshake \(handshake.txId) - missing sender")
                 continue
             }
             // A deleted contact's address is tombstoned - an incoming handshake from them (e.g.
@@ -491,7 +491,7 @@ extension ChatService {
             let existingContact = contactsManager.getContact(byAddress: contactAddress)
             _ = contactsManager.getOrCreateContact(address: contactAddress)
             if existingContact == nil {
-                print("[ChatService] Discovered NEW contact from handshake: \(contactAddress.suffix(10))")
+                AppLog.log("%@", "[ChatService] Discovered NEW contact from handshake: \(contactAddress.suffix(10))")
             }
 
             // Try to decrypt handshake payload to extract alias
@@ -506,9 +506,9 @@ extension ChatService {
                     extractedAlias = decrypted.alias  // may be nil for deterministic handshakes
                     extractedConversationId = decrypted.conversationId
                     if let alias = decrypted.alias {
-                        print("[ChatService] Extracted alias '\(alias)' from handshake by \(contactAddress)")
+                        AppLog.log("%@", "[ChatService] Extracted alias '\(alias)' from handshake by \(contactAddress)")
                     } else {
-                        print("[ChatService] Received alias-less (deterministic) handshake from \(contactAddress)")
+                        AppLog.log("%@", "[ChatService] Received alias-less (deterministic) handshake from \(contactAddress)")
                     }
                 }
             } else {
@@ -533,7 +533,7 @@ extension ChatService {
 
             // If a payment message with this txId already exists, remove it first
             // (handles UTXO notification initially classifying a handshake as payment)
-            if let existingMsg = findLocalMessage(txId: handshake.txId), existingMsg.messageType == .payment {
+            if let existingMsg = await findLocalMessage(txId: handshake.txId), existingMsg.messageType == .payment {
                 AppLog.log("[ChatService] Replacing misclassified payment with handshake for tx %@", String(handshake.txId.prefix(12)))
                 removeMessage(txId: handshake.txId)
             }
@@ -834,10 +834,10 @@ extension ChatService {
         myAddress: String,
         blockTimeMs: UInt64? = nil,
         acceptingBlock: String? = nil
-    ) -> Bool {
+    ) async -> Bool {
         guard let hint = knsTransferChatHint(for: txId) else { return false }
 
-        if let existing = findLocalMessage(txId: txId) {
+        if let existing = await findLocalMessage(txId: txId) {
             if existing.messageType == .payment {
                 removeMessage(txId: txId)
             } else {
@@ -894,7 +894,7 @@ extension ChatService {
         guard !txId.isEmpty else { return }
 
         let blockTimeMs = transaction.acceptingBlockTime ?? transaction.blockTime ?? currentTimeMs()
-        if addKNSTransferMessageFromHintIfNeeded(
+        if await addKNSTransferMessageFromHintIfNeeded(
             txId: txId,
             myAddress: myAddress,
             blockTimeMs: blockTimeMs,
@@ -903,7 +903,7 @@ extension ChatService {
             return
         }
 
-        if let existing = findLocalMessage(txId: txId) {
+        if let existing = await findLocalMessage(txId: txId) {
             if existing.messageType == .payment {
                 removeMessage(txId: txId)
             } else {
@@ -1106,7 +1106,7 @@ extension ChatService {
             }
             return addresses.first
         } catch {
-            print("[ChatService] Failed to fetch tx \(txId): \(error.localizedDescription)")
+            AppLog.log("%@", "[ChatService] Failed to fetch tx \(txId): \(error.localizedDescription)")
             return nil
         }
     }
@@ -1482,7 +1482,7 @@ extension ChatService {
         guard isActiveWallet(myAddress) else { return false }
         // Build contact set from routing states (preferred) + legacy aliases (fallback)
         let allContactAddresses = Array(Set(routingStates.keys).union(conversationAliases.keys))
-        print("[ChatService] Fetching contextual messages for \(allContactAddresses.count) contacts")
+        AppLog.log("%@", "[ChatService] Fetching contextual messages for \(allContactAddresses.count) contacts")
 
         // Fetch INCOMING messages (from contacts to us). Previously this was one contact at a
         // time - with N contacts that's N sequential network round-trips, which is why
@@ -1610,7 +1610,7 @@ extension ChatService {
             if !messages.isEmpty {
                 markChatFetchLoading(contactAddress)
             }
-            print("[ChatService] Got \(messages.count) incoming contextual messages from \(contactAddress)")
+            AppLog.log("%@", "[ChatService] Got \(messages.count) incoming contextual messages from \(contactAddress)")
 
             for contextMsg in messages {
                 var content = "[Encrypted message]"
@@ -1725,7 +1725,7 @@ extension ChatService {
                 return lhsTime < rhsTime
             }
 
-            print("[ChatService] Got \(sortedMessages.count) outgoing contextual messages to \(contactAddress)")
+            AppLog.log("%@", "[ChatService] Got \(sortedMessages.count) outgoing contextual messages to \(contactAddress)")
 
             for contextMsg in sortedMessages {
                 // A reaction's own transaction never gets a CDMessage row - the device that
@@ -1734,12 +1734,12 @@ extension ChatService {
                 // that same outgoing tx here (this wallet's own catch-up sync) would otherwise
                 // create a "📤 Sent via another device" placeholder that can never resolve, since
                 // no real message content will ever arrive for it - skip it outright instead.
-                if isKnownReaction(txId: contextMsg.txId) {
+                if await isKnownReaction(txId: contextMsg.txId) {
                     continue
                 }
                 // Outgoing messages are encrypted for the recipient, we can't decrypt them
                 // Check if we have this message stored locally with content
-                let existingMessage = findLocalMessage(txId: contextMsg.txId)
+                let existingMessage = await findLocalMessage(txId: contextMsg.txId)
                 let content = existingMessage?.content ?? "📤 Sent via another device"
                 let msgType = existingMessage?.messageType ?? messageType(for: content)
 
@@ -1943,7 +1943,7 @@ extension ChatService {
                 }
 
                 for contextMsg in sortedMessages {
-                    let existingMessage = findLocalMessage(txId: contextMsg.txId)
+                    let existingMessage = await findLocalMessage(txId: contextMsg.txId)
                     let content = existingMessage?.content ?? "📤 Sent via another device"
 
                     let message = ChatMessage(
@@ -2060,7 +2060,7 @@ extension ChatService {
                 }
                 for contextMsg in messages {
                     // Skip if already have this message
-                    if findLocalMessage(txId: contextMsg.txId) != nil {
+                    if await findLocalMessage(txId: contextMsg.txId) != nil {
                         continue
                     }
 
@@ -2148,7 +2148,7 @@ extension ChatService {
             // payments belong to `myAddress`, not the now-active wallet. See isActiveWallet.
             guard isActiveWallet(myAddress) else { return }
             if isSuppressedPaymentTxId(payment.txId) {
-                _ = addKNSTransferMessageFromHintIfNeeded(
+                _ = await addKNSTransferMessageFromHintIfNeeded(
                     txId: payment.txId,
                     myAddress: myAddress,
                     blockTimeMs: payment.blockTime,
@@ -2177,7 +2177,7 @@ extension ChatService {
                         receiver: myAddress
                     ) {
                         contactAddress = resolved
-                        print("[ChatService] Resolved sender for \(payment.txId.prefix(16))...: \(contactAddress.suffix(10))")
+                        AppLog.log("%@", "[ChatService] Resolved sender for \(payment.txId.prefix(16))...: \(contactAddress.suffix(10))")
                     } else {
                         // Still couldn't resolve - try to get any input address from the transaction
                         // as a temporary solution, then schedule full sync for proper resolution
@@ -2203,7 +2203,7 @@ extension ChatService {
                   String(myAddress.suffix(20)),
                   contactAddress == myAddress ? 1 : 0)
 
-            if !isOutgoing, let existing = findLocalMessage(txId: payment.txId) {
+            if !isOutgoing, let existing = await findLocalMessage(txId: payment.txId) {
                 if existing.isOutgoing {
                     // Don't replace a promoted outgoing payment with an incoming classification
                     // from an async resolve - the outgoing classification is authoritative
@@ -2240,7 +2240,7 @@ extension ChatService {
             }
 
             // Skip if this transaction already exists as a handshake message
-            if let existingMsg = findLocalMessage(txId: payment.txId), existingMsg.messageType == .handshake {
+            if let existingMsg = await findLocalMessage(txId: payment.txId), existingMsg.messageType == .handshake {
                 AppLog.log("[ChatService] Skipping payment %@ - already exists as handshake", String(payment.txId.prefix(16)))
                 continue
             }
@@ -2377,19 +2377,23 @@ extension ChatService {
         }
     }
 
-    /// Find a locally stored message by transaction ID
-    func findLocalMessage(txId: String) -> ChatMessage? {
+    /// Find a locally stored message by transaction ID. `async` because the store fallback must
+    /// NOT block the main thread - `ChatService` is `@MainActor` and this fires once per UTXO in a
+    /// notification burst; a synchronous Core Data fetch here froze the app during initial sync
+    /// (see `MessageStore.fetchMessage`). The in-memory scan below is the fast path and stays
+    /// synchronous; only a miss awaits the background-context fetch.
+    func findLocalMessage(txId: String) async -> ChatMessage? {
         for conversation in conversations {
             if let message = conversation.messages.first(where: { $0.txId == txId }) {
                 return message
             }
         }
         guard let key = messageEncryptionKey() else { return nil }
-        return messageStore.fetchMessage(txId: txId, decryptionKey: key)
+        return await messageStore.fetchMessage(txId: txId, decryptionKey: key)
     }
 
-    func hasLocalMessage(txId: String) -> Bool {
-        return findLocalMessage(txId: txId) != nil
+    func hasLocalMessage(txId: String) async -> Bool {
+        return await findLocalMessage(txId: txId) != nil
     }
 
     /// True if `txId` is a reaction's own transaction, not a real message - see
@@ -2397,8 +2401,8 @@ extension ChatService {
     /// ever falling back to the "📤 Sent via another device" placeholder for an outgoing tx this
     /// device has no local content for for: a reaction will never get real message content to
     /// replace that placeholder with, since it was never meant to be a message at all.
-    func isKnownReaction(txId: String) -> Bool {
-        messageStore.isReactionTransaction(txId: txId)
+    func isKnownReaction(txId: String) async -> Bool {
+        await messageStore.isReactionTransaction(txId: txId)
     }
 
     func addOutgoingMessageFromPush(
@@ -2415,13 +2419,13 @@ extension ChatService {
         // A reaction's own transaction never gets a CDMessage row (see isKnownReaction's doc
         // comment) - nothing below this point could ever resolve real "message" content for it,
         // so treat it as already handled rather than falling through to the placeholder.
-        if isKnownReaction(txId: txId) {
+        if await isKnownReaction(txId: txId) {
             AppLog.log("[ChatService] Outgoing push is a reaction, not a message: %@", txId)
             return true
         }
 
         // Check if message already exists with content (not placeholder)
-        if let existingMsg = findLocalMessage(txId: txId),
+        if let existingMsg = await findLocalMessage(txId: txId),
            existingMsg.content != "📤 Sent via another device" {
             AppLog.log("[ChatService] Outgoing push already exists with content: %@", txId)
             return true
@@ -2444,7 +2448,7 @@ extension ChatService {
             try? await Task.sleep(nanoseconds: 500_000_000)
 
             // Check if CloudKit delivered the content
-            if let cloudKitMsg = findLocalMessage(txId: txId),
+            if let cloudKitMsg = await findLocalMessage(txId: txId),
                cloudKitMsg.content != "📤 Sent via another device" {
                 AppLog.log("[ChatService] Outgoing push resolved via CloudKit: %@", txId)
                 return true
@@ -2540,7 +2544,7 @@ extension ChatService {
             await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
 
             // Check if content arrived
-            if let msg = findLocalMessage(txId: txId),
+            if let msg = await findLocalMessage(txId: txId),
                msg.content != "📤 Sent via another device" {
                 AppLog.log("[ChatService] CloudKit retry successful for outgoing: %@", txId)
                 return
@@ -2550,7 +2554,7 @@ extension ChatService {
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
 
-            if let msg = findLocalMessage(txId: txId),
+            if let msg = await findLocalMessage(txId: txId),
                msg.content == "📤 Sent via another device" {
                 AppLog.log("[ChatService] Outgoing message %@ still awaiting CloudKit sync", txId)
             }
@@ -2701,7 +2705,7 @@ extension ChatService {
             }
             conversations.append(conversation)
             markConversationDirty(contactAddress)
-            print("[ChatService] Created NEW conversation for contact \(contactAddress.suffix(10)), total conversations: \(conversations.count)")
+            AppLog.log("%@", "[ChatService] Created NEW conversation for contact \(contactAddress.suffix(10)), total conversations: \(conversations.count)")
             if isSyncInProgress {
                 needsMessageStoreSyncAfterBatch = true
             } else {
@@ -2713,7 +2717,7 @@ extension ChatService {
         queueLastMessageUpdate(contactId: contact.id, date: message.timestamp)
 
         if isNewMessage {
-            print("[ChatService] Added message \(message.txId.prefix(16))... to \(contactAddress.suffix(10)), type: \(message.messageType), isNew: \(isNewConversation)")
+            AppLog.log("%@", "[ChatService] Added message \(message.txId.prefix(16))... to \(contactAddress.suffix(10)), type: \(message.messageType), isNew: \(isNewConversation)")
         }
 
         // If user is currently viewing this chat, advance read marker immediately
@@ -2802,7 +2806,7 @@ extension ChatService {
 
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                print("[ChatService] Failed to send notification: \(error.localizedDescription)")
+                AppLog.log("%@", "[ChatService] Failed to send notification: \(error.localizedDescription)")
             }
         }
     }

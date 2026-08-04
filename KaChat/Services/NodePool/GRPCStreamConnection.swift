@@ -735,7 +735,6 @@ actor GRPCStreamConnection {
 /// Uses a shared EventLoopGroup for all connections to avoid resource exhaustion
 actor GRPCConnectionPool {
     private var connections: [String: GRPCStreamConnection] = [:]
-    private var maxConnectionsPerEndpoint = 1
 
     /// Maximum total connections to prevent memory exhaustion
     private let maxTotalConnections = 50

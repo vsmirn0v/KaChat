@@ -308,15 +308,6 @@ enum GroupCipher {
         return GroupEpochPayload(groupId: groupId.hexString, epoch: epoch, reason: reason, sig: sig.hexString)
     }
 
-    static func verifyEpochPayload(_ payload: GroupEpochPayload, adminSigningPub: Data) -> Bool {
-        guard let groupId = Data(hexString: payload.groupId),
-              let sig = Data(hexString: payload.sig) else {
-            return false
-        }
-        let signingPayload = buildEpochSigningPayload(v: payload.v, groupId: groupId, epoch: payload.epoch, reason: payload.reason.rawValue)
-        return verify(sig, message: signingPayload, xOnlyPublicKey: adminSigningPub)
-    }
-
     // MARK: - On-chain payload codecs
 
     struct ParsedGroupMessage {

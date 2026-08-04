@@ -30,6 +30,11 @@ struct ChatListView: View {
     @State private var isPaginatingConversations = false
     @State private var filteredConversationsCache: [Conversation] = []
     @State private var searchFilterTask: Task<Void, Never>?
+    /// True for the duration of a pull-to-refresh. While set, conversation/contact changes DON'T
+    /// rebuild the visible list — reloading the underlying List mid-spin resets the native refresh
+    /// control's animation, which is what made the wheel blink/stutter. The coalesced changes are
+    /// applied in one pass when the pull finishes (the spinner is dismissing then anyway).
+    @State private var isPullRefreshing = false
     @State private var avatarPrefetchTask: Task<Void, Never>?
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var contactPendingDelete: Contact?
@@ -124,7 +129,13 @@ struct ChatListView: View {
         let withPresentation = withToolbar
             .searchable(text: $searchText, prompt: "Search chats")
             .refreshable {
+                isPullRefreshing = true
                 await chatService.fetchNewMessages()
+                isPullRefreshing = false
+                // Apply everything that changed during the pull in a single rebuild, now that the
+                // refresh control is no longer animating — so the wheel spins smoothly throughout.
+                refreshFilteredConversations()
+                scheduleAvatarPrefetch()
             }
             .toast(message: toastMessage, style: toastStyle)
             .sheet(isPresented: $showAddContact) {
@@ -293,10 +304,13 @@ struct ChatListView: View {
             }
         }
         .onChange(of: chatService.conversations) { _ in
+            // Suppressed during a pull-to-refresh; the pull's completion handler rebuilds once.
+            guard !isPullRefreshing else { return }
             scheduleFilteredConversationsRefresh(debounce: false)
             scheduleAvatarPrefetch()
         }
         .onChange(of: contactsManager.contacts) { _ in
+            guard !isPullRefreshing else { return }
             scheduleFilteredConversationsRefresh(debounce: false)
         }
         .onDisappear {
@@ -1552,50 +1566,6 @@ struct GroupChatRow: View {
         } else {
             return SharedFormatting.chatDay.string(from: date)
         }
-    }
-}
-
-struct ContactRow: View {
-    let contact: Contact
-    @EnvironmentObject var contactsManager: ContactsManager
-
-    private var knsDomains: [KNSDomain] {
-        contactsManager.getKNSDomains(for: contact)
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(Color.accentColor.opacity(0.2))
-                .frame(width: 44, height: 44)
-                .overlay(
-                    Text(contact.alias.prefix(2).uppercased())
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundColor(.accentColor)
-                )
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(contact.alias)
-                    .font(.body)
-
-                if !knsDomains.isEmpty {
-                    Text(knsDomains.map { $0.fullName }.joined(separator: ", "))
-                        .font(.caption2)
-                        .foregroundColor(.accentColor)
-                        .lineLimit(1)
-                }
-
-                Text(contact.address)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle()) // Make entire row tappable
     }
 }
 

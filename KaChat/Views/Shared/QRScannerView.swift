@@ -212,6 +212,6 @@ private class QRScannerViewController: UIViewController, AVCaptureMetadataOutput
 
 #Preview {
     QRScannerView { code in
-        print("Scanned: \(code)")
+        AppLog.log("%@", "Scanned: \(code)")
     }
 }

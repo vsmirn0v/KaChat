@@ -532,7 +532,9 @@ extension ChatService {
             .sink { [weak self] notification in
                 guard let settings = notification.object as? AppSettings else { return }
                 self?.cachedSettings = settings
-                self?.messageStore.applyRetention(settings.messageRetention)
+                Task { @MainActor [weak self] in
+                    await self?.messageStore.applyRetentionInBackground(settings.messageRetention)
+                }
                 self?.saveMessages()
                 self?.refreshPushReliabilityPrerequisites()
             }
@@ -1438,7 +1440,7 @@ extension ChatService {
             conversationAliasUpdatedAt = updated
         }
         rebuildPrimaryAliasesIfNeeded()
-        print("[ChatService] Loaded \(conversationAliases.count) conversation aliases")
+        AppLog.log("%@", "[ChatService] Loaded \(conversationAliases.count) conversation aliases")
     }
 
     func saveConversationAliases() {
@@ -1499,7 +1501,7 @@ extension ChatService {
             ourAliasUpdatedAt = updated
         }
         rebuildPrimaryAliasesIfNeeded()
-        print("[ChatService] Loaded \(ourAliases.count) of our aliases")
+        AppLog.log("%@", "[ChatService] Loaded \(ourAliases.count) of our aliases")
     }
 
     func loadConversationIds() {
@@ -1508,7 +1510,7 @@ extension ChatService {
             return
         }
         conversationIds = ids
-        print("[ChatService] Loaded \(ids.count) conversation ids")
+        AppLog.log("%@", "[ChatService] Loaded \(ids.count) conversation ids")
     }
 
     func saveOurAliases() {
@@ -1533,7 +1535,7 @@ extension ChatService {
         guard let data = userDefaults.data(forKey: routingStatesKey) else { return }
         if let decoded = try? JSONDecoder().decode([String: ConversationRoutingState].self, from: data) {
             routingStates = decoded
-            print("[ChatService] Loaded \(routingStates.count) routing states")
+            AppLog.log("%@", "[ChatService] Loaded \(routingStates.count) routing states")
         }
     }
 

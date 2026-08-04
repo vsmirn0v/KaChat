@@ -460,10 +460,6 @@ extension ChatService {
 
             AppLog.log("[ChatService] Subscription setup: %d active contacts", contactCount)
 
-            // TODO: Fix realtimeUpdatesDisabled feature - re-enable polling when fixed
-            // Start/restart polling for contacts with realtime disabled
-            // startDisabledContactsPolling()
-
             let addressList = Array(addressesToSubscribe)
             try await nodePool.subscribeUtxosChanged(addresses: addressList)
 
@@ -703,7 +699,7 @@ extension ChatService {
         }
 
         // Check if message already exists
-        if findLocalMessage(txId: txId) != nil {
+        if await findLocalMessage(txId: txId) != nil {
             AppLog.log("[ChatService] Push message already exists: %@", txId)
             return
         }
@@ -744,13 +740,13 @@ extension ChatService {
             return false
         }
 
-        if findLocalMessage(txId: txId) != nil {
+        if await findLocalMessage(txId: txId) != nil {
             AppLog.log("[ChatService] Push payment already exists: %@", txId)
             return true
         }
 
         if isSuppressedPaymentTxId(txId) {
-            _ = addKNSTransferMessageFromHintIfNeeded(
+            _ = await addKNSTransferMessageFromHintIfNeeded(
                 txId: txId,
                 myAddress: wallet.publicAddress,
                 blockTimeMs: UInt64(max(0, timestamp))
@@ -859,7 +855,7 @@ extension ChatService {
             return false
         }
 
-        if findLocalMessage(txId: txId) != nil {
+        if await findLocalMessage(txId: txId) != nil {
             AppLog.log("[ChatService] Payment already exists: %@", txId)
             return true
         }
@@ -913,7 +909,7 @@ extension ChatService {
         }
 
         // Check if already exists
-        if findLocalMessage(txId: txId) != nil {
+        if await findLocalMessage(txId: txId) != nil {
             AppLog.log("[ChatService] Message already exists: %@", txId)
             return true
         }
@@ -1131,235 +1127,4 @@ extension ChatService {
         return (receiver: myAddress, amount: totalToUs, payload: fullTx.payload)
     }
 
-    // MARK: - Realtime Updates Management
-    // TODO: Fix realtimeUpdatesDisabled feature - currently broken, all functions in this section are unused until fixed
-
-    /// Called when a contact's realtime updates setting is changed
-    /// NOTE: Currently unused - feature disabled
-    func updateUtxoSubscriptionForRealtimeChange() async {
-        AppLog.log("[ChatService] Realtime setting changed, updating UTXO subscription")
-        await setupUtxoSubscription()
-    }
-
-    /// Disable realtime updates for a contact (called from warning popup)
-    /// NOTE: Currently unused - feature disabled
-    func disableRealtimeForContact(_ contactAddress: String) {
-        // Update in contactsManager
-        if var contact = contactsManager.contacts.first(where: { $0.address == contactAddress }) {
-            contact.realtimeUpdatesDisabled = true
-            contactsManager.updateContact(contact)
-            AppLog.log("[ChatService] Disabled realtime updates for %@", String(contactAddress.suffix(10)))
-
-            // Update subscription
-            Task {
-                await updateUtxoSubscriptionForRealtimeChange()
-            }
-        }
-
-        // Also update in conversations (need to create new conversation since contact is let)
-        if let index = conversations.firstIndex(where: { $0.contact.address == contactAddress }) {
-            var updatedContact = conversations[index].contact
-            updatedContact.realtimeUpdatesDisabled = true
-            conversations[index] = Conversation(
-                id: conversations[index].id,
-                contact: updatedContact,
-                messages: conversations[index].messages,
-                unreadCount: conversations[index].unreadCount
-            )
-        }
-
-        // Clear warning
-        noisyContactWarning = nil
-    }
-
-    /// Dismiss the noisy contact warning without disabling
-    /// NOTE: Currently unused - feature disabled
-    func dismissNoisyContactWarning() {
-        if let warning = noisyContactWarning {
-            dismissedSpamWarnings.insert(warning.contactAddress)
-            AppLog.log("[ChatService] Dismissed noisy contact warning for %@", String(warning.contactAddress.suffix(10)))
-        }
-        noisyContactWarning = nil
-    }
-
-    // MARK: - Disabled Contacts Polling
-    // TODO: Fix realtimeUpdatesDisabled feature - currently broken, all functions in this section are unused until fixed
-
-    /// Start periodic polling for contacts with realtime updates disabled
-    /// NOTE: Currently unused - feature disabled
-    func startDisabledContactsPolling() {
-        disabledContactsPollingTask?.cancel()
-
-        // Get contacts with realtime disabled
-        let disabledContacts = activeContacts.filter { $0.realtimeUpdatesDisabled }
-        guard !disabledContacts.isEmpty else {
-            AppLog.log("[ChatService] No contacts with realtime disabled, skipping polling setup")
-            return
-        }
-
-        AppLog.log("[ChatService] Starting periodic polling for %d contacts with realtime disabled", disabledContacts.count)
-
-        disabledContactsPollingTask = Task {
-            while !Task.isCancelled {
-                // Wait for polling interval
-                try? await Task.sleep(nanoseconds: UInt64(disabledContactsPollingInterval * 1_000_000_000))
-
-                guard !Task.isCancelled else { break }
-
-                await pollDisabledContacts()
-            }
-        }
-    }
-
-    /// Poll messages for contacts with realtime updates disabled
-    /// NOTE: Currently unused - feature disabled
-    func pollDisabledContacts() async {
-        guard let wallet = WalletManager.shared.currentWallet else { return }
-        let privateKey = WalletManager.shared.getPrivateKey()
-        let nowMs = currentTimeMs()
-        let fallbackSince = lastPollTime > syncReorgBufferMs ? lastPollTime - syncReorgBufferMs : lastPollTime
-
-        let disabledContacts = await MainActor.run { contactsManager.activeContacts.filter { $0.realtimeUpdatesDisabled } }
-        guard !disabledContacts.isEmpty else { return }
-
-        AppLog.log("[ChatService] Polling %d contacts with realtime disabled", disabledContacts.count)
-
-        for contact in disabledContacts {
-            let contactAddress = contact.address
-            let myAddress = wallet.publicAddress
-
-            // Fetch contextual messages (incoming to us)
-            let pollAliases = incomingAliases(for: contactAddress)
-            if !pollAliases.isEmpty {
-                for alias in pollAliases {
-                    do {
-                        let syncObjectKey = contextualSyncObjectKey(
-                            direction: "in",
-                            queryAddress: contactAddress,
-                            alias: alias,
-                            contactAddress: contactAddress
-                        )
-                        let startBlockTime = syncStartBlockTime(
-                            for: syncObjectKey,
-                            fallbackBlockTime: fallbackSince,
-                            nowMs: nowMs
-                        )
-                        let effectiveSince = applyMessageRetention(to: startBlockTime)
-                        let messages = try await KasiaAPIClient.shared.getContextualMessagesBySender(
-                            address: contactAddress,
-                            alias: alias,
-                            limit: 50,
-                            blockTime: effectiveSince
-                        )
-                        advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
-
-                        for contextMsg in messages {
-                            var content = "[Encrypted message]"
-                            if let privKey = privateKey {
-                                if let decrypted = await decryptContextualMessage(contextMsg.messagePayload, privateKey: privKey) {
-                                    content = decrypted
-                                }
-                            }
-                            let msgType = messageType(for: content)
-
-                            let message = ChatMessage(
-                                txId: contextMsg.txId,
-                                senderAddress: contextMsg.sender,
-                                receiverAddress: myAddress,
-                                content: content,
-                                timestamp: Date(timeIntervalSince1970: TimeInterval((contextMsg.blockTime ?? 0) / 1000)),
-                                blockTime: contextMsg.blockTime ?? 0,
-                                acceptingBlock: contextMsg.acceptingBlock,
-                                isOutgoing: false,
-                                messageType: msgType
-                            )
-
-                            await MainActor.run {
-                                addMessageToConversation(message, contactAddress: contactAddress)
-                                if let blockTime = contextMsg.blockTime, blockTime > lastPollTime {
-                                    updateLastPollTime(blockTime)
-                                }
-                            }
-                        }
-                    } catch {
-                        if ChatService.handleDpiPaginationFailure(error, context: "disabled contacts contextual") {
-                            continue
-                        }
-                        AppLog.log("[ChatService] Failed to poll messages from %@: %@", String(contactAddress.suffix(10)), error.localizedDescription)
-                    }
-                }
-            }
-
-            // Fetch incoming handshakes
-            do {
-                let handshakeKey = handshakeSyncObjectKey(direction: "in", address: myAddress)
-                let handshakeSince = syncStartBlockTime(
-                    for: handshakeKey,
-                    fallbackBlockTime: fallbackSince,
-                    nowMs: nowMs
-                )
-                let incoming = try await KasiaAPIClient.shared.getHandshakesByReceiver(
-                    address: myAddress,
-                    limit: 50,
-                    blockTime: handshakeSince
-                )
-                advanceSyncCursor(for: handshakeKey, maxBlockTime: incoming.compactMap { $0.blockTime }.max())
-                // Filter to only this contact's handshakes
-                let contactHandshakes = incoming.filter { $0.sender == contactAddress }
-                if !contactHandshakes.isEmpty, let privateKey = privateKey {
-                    await processHandshakes(contactHandshakes, isOutgoing: false, myAddress: myAddress, privateKey: privateKey)
-                }
-            } catch {
-                if ChatService.handleDpiPaginationFailure(error, context: "disabled contacts handshakes") {
-                    continue
-                }
-                AppLog.log("[ChatService] Failed to poll handshakes from %@: %@", String(contactAddress.suffix(10)), error.localizedDescription)
-            }
-        }
-    }
-
-    // MARK: - Spam Detection
-    // TODO: Fix realtimeUpdatesDisabled feature - currently broken, all functions in this section are unused until fixed
-
-    /// Record an irrelevant TX notification for a contact address and check for spam
-    /// NOTE: Currently unused - feature disabled
-    func recordIrrelevantTxNotification(contactAddress: String) {
-        let now = Date()
-        let oneMinuteAgo = now.addingTimeInterval(-60)
-
-        // Add current timestamp
-        var timestamps = contactTxNotifications[contactAddress] ?? []
-        timestamps.append(now)
-
-        // Remove timestamps older than 1 minute
-        timestamps = timestamps.filter { $0 > oneMinuteAgo }
-        contactTxNotifications[contactAddress] = timestamps
-
-        // Check if threshold exceeded
-        let spamThreshold = 20
-        if timestamps.count >= spamThreshold {
-            // Check if we've already dismissed this warning
-            guard !dismissedSpamWarnings.contains(contactAddress) else { return }
-
-            // Check if contact already has realtime disabled
-            if let contact = contactsManager.activeContacts.first(where: { $0.address == contactAddress }) {
-                guard !contact.realtimeUpdatesDisabled else { return }
-
-                // Show warning
-                AppLog.log("[ChatService] Contact %@ produced %d irrelevant TX notifications in 1 minute - showing warning",
-                      String(contactAddress.suffix(10)), timestamps.count)
-
-                noisyContactWarning = NoisyContactWarning(
-                    contactAddress: contactAddress,
-                    contactAlias: contact.alias,
-                    txCount: timestamps.count
-                )
-
-                // Clear the timestamps to avoid repeated warnings
-                contactTxNotifications[contactAddress] = []
-            }
-        }
-    }
-
-    /// Handle UTXO change notification - show payments immediately, resolve details in background
 }
