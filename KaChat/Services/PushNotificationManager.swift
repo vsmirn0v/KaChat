@@ -834,6 +834,25 @@ final class PushNotificationManager: ObservableObject {
     }
 
     /// Handle an incoming remote push payload and update chats immediately.
+    /// Serializes group catch-up syncs triggered by pushes: only one runs at a time, and if more
+    /// group pushes arrive while one is in flight, exactly one more sync runs afterward (so the later
+    /// messages are still fetched) instead of stacking N overlapping full syncs.
+    private var groupCatchUpInFlight = false
+    private var groupCatchUpNeedsRerun = false
+
+    private func runGroupCatchUp() async {
+        if groupCatchUpInFlight {
+            groupCatchUpNeedsRerun = true
+            return
+        }
+        groupCatchUpInFlight = true
+        repeat {
+            groupCatchUpNeedsRerun = false
+            await GroupChatService.shared.performCatchUpSync()
+        } while groupCatchUpNeedsRerun
+        groupCatchUpInFlight = false
+    }
+
     func handleRemoteNotification(_ userInfo: [AnyHashable: Any]) async -> Bool {
         let settings = AppSettings.load()
         guard settings.notificationMode == .remotePush else { return false }
@@ -917,6 +936,20 @@ final class PushNotificationManager: ObservableObject {
                 payload: payload,
                 timestamp: timestamp
             )
+        }
+
+        if messageType == "group_message" || messageType == "group_control" {
+            // A group push has no single-txId REST fetch - the 1:1 `fetchMessageByTxId` below always
+            // fails for a group txId, so the message would sit unloaded (and un-badged) until the next
+            // app-active catch-up. Run the cursor-based group catch-up now so the message lands in the
+            // thread promptly and drives the unread/badge count. Coalesced so a burst of group pushes
+            // doesn't stack overlapping full syncs.
+            AppLog.log("[Push] Group push -> catch-up sync: %@", txId)
+            await runGroupCatchUp()
+            recentlyHandledPushes[txId] = Date()
+            if let task = retryTasks.removeValue(forKey: txId) { task.cancel() }
+            SharedDataManager.removePendingMessage(txId: txId)
+            return true
         }
 
         if messageType == "contextual" {

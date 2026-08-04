@@ -808,6 +808,79 @@ final class GroupChatService: ObservableObject {
         }
     }
 
+    /// Re-sends a previously-failed group message IN PLACE - it reuses the existing failed row (its
+    /// stable `id` and `pending_…` txId) rather than inserting a new one, so Retry never duplicates
+    /// the message. `message.content` is already the final payload (reply envelope included if it
+    /// was a reply), so it's re-encrypted as-is under a fresh msg_id (reusing a msg_id is forbidden;
+    /// the message's identity is unchanged).
+    func retryGroupMessage(_ message: GroupMessage) async throws {
+        let groupId = message.groupId
+        guard message.isOutgoing, message.deliveryStatus == .failed else { return }
+        guard store.group(id: groupId) != nil else {
+            throw KasiaError.networkError("Unknown group.")
+        }
+        guard var bag = try keychain.loadGroupBag(groupId: groupId),
+              let gid = Data(hexString: groupId),
+              let groupRootEpoch = Data(hexString: bag.groupRootEpoch),
+              let blindingKey = Data(hexString: bag.blindingKey),
+              let deviceId = Data(hexString: bag.deviceId) else {
+            throw KasiaError.networkError("Missing group secrets - try rejoining this group.")
+        }
+        guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey() else {
+            throw KasiaError.walletNotFound
+        }
+        let senderXOnlyPub = try schnorrXOnlyPublicKey(from: privateKey)
+        let senderId = GroupCipher.deriveSenderId(senderAddress: wallet.publicAddress)
+        let payload = message.content
+
+        // Fresh msg_id/counter for the resend (msg_id reuse is forbidden), even though the message
+        // identity/row is unchanged.
+        bag.msgCounter += 1
+        let counter = bag.msgCounter
+        try keychain.saveGroupBag(bag)
+
+        let msgId = GroupCipher.buildMsgId(deviceId: deviceId, counter: counter)
+        let ciphertext = try GroupCipher.encryptMessage(
+            plaintext: payload, groupRootEpoch: groupRootEpoch, groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId
+        )
+        let aad = GroupCipher.buildMessageAAD(groupId: gid, epoch: bag.currentEpoch, senderId: senderId, msgId: msgId)
+        let signature = try GroupCipher.sign(
+            GroupCipher.buildMessageSigningPayload(aad: aad, ciphertextWithTag: ciphertext), privateKey: privateKey
+        )
+        let blindedGroupId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: senderXOnlyPub)
+        let payloadString = GroupCipher.buildGroupMessagePayload(
+            blindedGroupId: blindedGroupId, epoch: bag.currentEpoch, senderId: senderId, senderPubKey: senderXOnlyPub,
+            msgId: msgId, ciphertext: ciphertext, signature: signature
+        )
+
+        // The failed row's own id is its `pending_…` txId (it never got a real one). Reuse it: flip
+        // the existing row back to pending in memory, then resolve/fail the SAME row - no insert.
+        let pendingId = message.txId
+        if let index = groupMessages[groupId]?.firstIndex(where: { $0.id == message.id }) {
+            groupMessages[groupId]?[index].deliveryStatus = .pending
+        }
+
+        do {
+            let realTxId = try await ChatService.shared.enqueueOutgoingTxOperation { [weak self] in
+                try await self?.sendSelfStashPayload(payloadString, from: wallet.publicAddress, privateKey: privateKey) ?? ""
+            }
+            store.resolvePendingMessage(pendingId: pendingId, realId: realTxId, blockTime: message.blockTime)
+            if let index = groupMessages[groupId]?.firstIndex(where: { $0.id == message.id }) {
+                groupMessages[groupId]?[index] = GroupMessage(
+                    id: message.id, groupId: groupId, txId: realTxId, senderAddress: wallet.publicAddress,
+                    senderIdHex: senderId.hexString, content: payload, timestamp: message.timestamp,
+                    blockTime: message.blockTime, isOutgoing: true, deliveryStatus: .sent
+                )
+            }
+        } catch {
+            store.markMessageFailed(pendingId: pendingId)
+            if let index = groupMessages[groupId]?.firstIndex(where: { $0.id == message.id }) {
+                groupMessages[groupId]?[index].deliveryStatus = .failed
+            }
+            throw error
+        }
+    }
+
     /// Reacts to `targetTxId` with `emoji` ("add"), or removes this wallet's existing reaction on
     /// it ("remove"). Unlike `sendGroupMessage`, this never creates a visible pending bubble - the
     /// reaction is applied to the local reactions store immediately (optimistic UI) and the

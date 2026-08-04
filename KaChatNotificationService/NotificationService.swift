@@ -221,7 +221,9 @@ class NotificationService: UNNotificationServiceExtension {
                 suppressGroupNotification(content)
                 return
             }
-            let displayBody = reactionPreviewText(for: match.plaintext) ?? unwrapReplyText(match.plaintext)
+            let displayBody = reactionPreviewText(for: match.plaintext)
+                ?? chessPreviewText(for: match.plaintext)
+                ?? unwrapReplyText(match.plaintext)
             // "Only Notify if I'm Mentioned" - a reply to one of MY messages counts the same as
             // an explicit @mention (checked against the raw, still-wrapped plaintext, since
             // `displayBody` already dropped the reply envelope down to just its own text). Still

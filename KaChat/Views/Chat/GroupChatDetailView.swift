@@ -266,7 +266,13 @@ struct GroupChatDetailView: View {
                 )
                 .onChange(of: messages.count) { _ in
                     guard initialViewportPositioned else { return }
-                    scrollToBottom(using: proxy, animated: true)
+                    // Only auto-scroll for the user's OWN new message, or when they're already at the
+                    // bottom. Previously this scrolled unconditionally on any count change, yanking the
+                    // user away from older messages they were reading whenever a new message arrived.
+                    // Matches 1:1 chat's gated behavior.
+                    if messages.last?.isOutgoing == true || isBottomAnchorVisible {
+                        scrollToBottom(using: proxy, animated: true)
+                    }
                 }
                 .onChange(of: isComposerFocused) { focused in
                     if focused {
@@ -275,6 +281,14 @@ struct GroupChatDetailView: View {
                 }
                 .onAppear {
                     positionInitialViewport(using: proxy)
+                }
+                // Host the compose bar as a real safeAreaInset ON the ScrollView (the mechanism
+                // SwiftUI itself uses for keyboard avoidance), rather than as a sibling below the
+                // ScrollView in the outer VStack. On iOS 18 the sibling layout let SwiftUI animate
+                // the whole container's safe-area inset, producing the keyboard/screen shake - this
+                // matches 1:1 chat's ChatDetailView fix exactly.
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    bottomComposeArea
                 }
 
                 if !isBottomAnchorVisible {
@@ -296,29 +310,16 @@ struct GroupChatDetailView: View {
                             )
                     }
                     .padding(.trailing, 12)
-                    .padding(.bottom, 12)
+                    // Clear the compose bar (now hosted in the ScrollView's bottom safeAreaInset, so
+                    // this button's ZStack extends down behind it): ~76pt for the composer, plus an
+                    // allowance when the reply banner + mention row are stacked above it too.
+                    .padding(.bottom, 76 + (groupChatService.replyingTo != nil ? 60 : 0))
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     .animation(.easeInOut(duration: 0.2), value: isBottomAnchorVisible)
+                    .animation(.easeInOut(duration: 0.2), value: groupChatService.replyingTo != nil)
                 }
                 }
             }
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundColor(.red)
-                    .padding(.horizontal)
-            }
-
-            if let reply = groupChatService.replyingTo {
-                replyBanner(for: reply)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-            }
-
-            mentionSuggestions
-
-            composeBar
         }
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -467,6 +468,28 @@ struct GroupChatDetailView: View {
         .padding(.vertical, 8)
         .background(Color(UIColor.secondarySystemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// Everything that sits above the keyboard - error, reply banner, mention suggestions, and the
+    /// compose bar - hosted together in the ScrollView's bottom `safeAreaInset` (see the body) so
+    /// keyboard avoidance is driven by SwiftUI's own inset mechanism instead of animating the whole
+    /// outer container (the iOS-18 shake fix, matching 1:1 chat).
+    private var bottomComposeArea: some View {
+        VStack(spacing: 0) {
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .padding(.horizontal)
+            }
+            if let reply = groupChatService.replyingTo {
+                replyBanner(for: reply)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+            }
+            mentionSuggestions
+            composeBar
+        }
     }
 
     private var composeBar: some View {
@@ -1156,7 +1179,8 @@ struct GroupChatDetailView: View {
         errorMessage = nil
         Task {
             do {
-                try await groupChatService.sendGroupMessage(message.content, to: group.id)
+                // In-place resend of the SAME failed message - does not create a new/duplicate one.
+                try await groupChatService.retryGroupMessage(message)
             } catch {
                 await MainActor.run { errorMessage = error.localizedDescription }
             }
@@ -1514,7 +1538,7 @@ private struct GroupMessageBubbleRow: View {
                         // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
                         // keeps the raw link visible/tappable if no preview data is ever found,
                         // rather than the message rendering as nothing at all.
-                        LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayContent, onSelect: onSelect)
+                        LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayContent, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil)
                     } else {
                         Group {
                             if MessageTextRenderPlan.requiresLinkTextView(displayContent) {
@@ -1603,7 +1627,7 @@ private struct GroupMessageBubbleRow: View {
                 if media == nil,
                    !MessageTextRenderPlan.isEntirelyLink(displayContent),
                    let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent) {
-                    LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect)
+                    LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil)
                 }
 
                 if message.isOutgoing {
