@@ -371,6 +371,21 @@ final class ColdStorageSendEngine {
         return totalBalance - fee
     }
 
+    /// Cold-storage "Compound UTXOs" is a single self-send that merges as many of this address's
+    /// UTXOs as one KasSigner-signable transaction can hold. A KSPT transaction is capped at
+    /// `KsptCodec.maxInputs` (8) inputs, so this returns the largest up-to-8 spendable UTXOs at
+    /// `fromAddress` (largest-first, so each round sheds the most value and converges fastest),
+    /// plus whether more than that many remain. Merging 8 -> 1 per round means an address with N
+    /// UTXOs takes ceil((N-1)/7) rounds; the caller repeats Compound until a single UTXO is left.
+    /// No coinbase filtering, matching `buildUnsignedTransaction`.
+    func compoundInputs(fromAddress: String) async throws -> (utxos: [UTXO], hasMore: Bool) {
+        let spendable = try await NodePoolService.shared.getUtxosByAddresses([fromAddress])
+        guard !spendable.isEmpty else { throw ColdSendError.noSpendableUtxos }
+        let sorted = spendable.sorted { $0.amount > $1.amount }
+        let capped = Array(sorted.prefix(KsptCodec.maxInputs))
+        return (capped, sorted.count > KsptCodec.maxInputs)
+    }
+
     /// Live quoted fee rate (sompi per mass-gram), matching Android's ColdStorageSendEngine:
     /// whichever is higher, the network's current "normal" bucket quote or the protocol
     /// minimum. Falls back to the minimum on any request failure, same as Android.

@@ -860,6 +860,10 @@ private struct ColdSendFlowView: View {
     /// exact input set the user picked instead.
     @State private var manualUtxos: [UTXO]?
     @State private var showCoinControl = false
+    /// Compound mode only: true when this address holds more UTXOs than one KasSigner transaction
+    /// can merge at once (`KsptCodec.maxInputs`), so the user must run Compound again after this
+    /// round. Drives the "repeat to finish" note.
+    @State private var compoundHasMoreRounds = false
     /// Debounced live preview of what automatic selection would pick for the current amount/fee
     /// — see `schedulePreview()`. Non-nil only while it's still fresh for the current amount/fee;
     /// cleared immediately on any change so a stale preview never gets shown or built with.
@@ -969,7 +973,7 @@ private struct ColdSendFlowView: View {
                 if isCompoundMode {
                     toAddress = fromAddress
                     isValidAddress = true
-                    setMaxAmount()
+                    await setupCompoundInputs()
                 }
             }
             .sheet(isPresented: $showRecipientScanner) {
@@ -1097,6 +1101,14 @@ private struct ColdSendFlowView: View {
                 }
             } header: {
                 Text(isCompoundMode ? "Consolidating This Address" : "Recipient Address")
+            } footer: {
+                if isCompoundMode {
+                    if compoundHasMoreRounds {
+                        Text("This address has more than \(KsptCodec.maxInputs) UTXOs. KasSigner can sign at most \(KsptCodec.maxInputs) inputs per transaction, so this merges the largest \(KsptCodec.maxInputs) into one. Run Compound again afterward to keep combining the rest.")
+                    } else {
+                        Text("Merges all of this address's UTXOs into a single one, so future sends need fewer inputs.")
+                    }
+                }
             }
 
             Section {
@@ -1153,28 +1165,32 @@ private struct ColdSendFlowView: View {
                 Text("Amount")
             }
 
-            Section {
-                Button {
-                    showCoinControl = true
-                } label: {
-                    HStack {
-                        Text("Coin Control")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        if let manualUtxos {
-                            Text("\(manualUtxos.count) UTXO\(manualUtxos.count == 1 ? "" : "s") selected")
-                                .foregroundColor(.secondary)
-                        } else {
-                            Text("Automatic")
+            // Compound auto-manages its own input set (largest <=8, KasSigner's per-tx limit), so
+            // manual coin control is hidden there — it only applies to a normal send.
+            if !isCompoundMode {
+                Section {
+                    Button {
+                        showCoinControl = true
+                    } label: {
+                        HStack {
+                            Text("Coin Control")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            if let manualUtxos {
+                                Text("\(manualUtxos.count) UTXO\(manualUtxos.count == 1 ? "" : "s") selected")
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text("Automatic")
+                                    .foregroundColor(.secondary)
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
                                 .foregroundColor(.secondary)
                         }
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
                     }
+                } footer: {
+                    Text("Choose exactly which UTXOs to spend instead of selecting automatically.")
                 }
-            } footer: {
-                Text("Choose exactly which UTXOs to spend instead of selecting automatically.")
             }
 
             Section {
@@ -1522,6 +1538,21 @@ private struct ColdSendFlowView: View {
             await MainActor.run {
                 previewSelection = preview
             }
+        }
+    }
+
+    /// Compound mode: fix the input set to the largest <=8 UTXOs — the most one KasSigner-signable
+    /// transaction can hold — then Max the amount for exactly that set. Without this cap, Max spans
+    /// every UTXO at the address and the build fails with `tooManyInputs` the moment it holds more
+    /// than 8. `compoundHasMoreRounds` records whether another round is needed afterward.
+    private func setupCompoundInputs() async {
+        do {
+            let (utxos, hasMore) = try await ColdStorageSendEngine.shared.compoundInputs(fromAddress: fromAddress)
+            manualUtxos = utxos
+            compoundHasMoreRounds = hasMore
+            setMaxAmount()
+        } catch {
+            step = .failed(error.localizedDescription)
         }
     }
 
