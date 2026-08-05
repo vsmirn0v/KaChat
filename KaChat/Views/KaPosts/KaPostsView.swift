@@ -55,6 +55,16 @@ struct KaPostsView: View {
         /// (avatar/KNS name/follow/engagement) is reused wholesale - they just can't be
         /// commented on in turn (no nested threads yet).
         var comments: [DraftPost] = []
+        /// X-style quote embed: set when this post quotes another (locally at compose time, or
+        /// from the indexer's embedded quote reference). Renders as a bordered mini card under
+        /// the post text.
+        struct QuotedRef: Equatable {
+            let remoteId: String?
+            let text: String
+            let posterAddress: String
+            let timestamp: Date?
+        }
+        var quoted: QuotedRef? = nil
     }
 
     @State private var selectedFeed: FeedTab = .feed
@@ -70,6 +80,13 @@ struct KaPostsView: View {
     /// Post whose comment thread is open - the sheet looks the post up live by id, so new
     /// comments/likes appear immediately.
     @State private var detailTarget: PostDetailTarget?
+    /// "View Post in Explorer" tapped: engagement screen first (likes/dislikes/reposts/quotes).
+    @State private var engagementTarget: DraftPost?
+    @State private var profileFollowListKind: KaPostsFollowListView.Kind?
+    @State private var myFollowersCount: Int?
+    /// Repost tapped on an on-chain post: choose plain repost vs quote.
+    @State private var repostDialogTarget: DraftPost?
+    @State private var quoteComposerTarget: DraftPost?
     @State private var replyText = ""
 
     struct PostDetailTarget: Identifiable {
@@ -101,10 +118,35 @@ struct KaPostsView: View {
     @ObservedObject private var knsService = KNSService.shared
     @ObservedObject private var followStore = KaPostsFollowStore.shared
     @ObservedObject private var moderationStore = KaPostsModerationStore.shared
+    @EnvironmentObject private var walletManager: WalletManager
+    @EnvironmentObject private var settingsViewModel: SettingsViewModel
+    @Environment(\.openURL) private var openURL
+
+    /// Transient confirmation that an on-chain action landed, with a link to the tx.
+    struct ActionToast: Identifiable, Equatable {
+        let id = UUID()
+        let message: String
+        let txId: String
+    }
+    @State private var actionToast: ActionToast?
+
+    /// 5-second undo window for a just-composed post/quote: the optimistic card is already in
+    /// the feed, but the on-chain submit is held until the countdown expires. Undo pulls the
+    /// card and nothing ever touches the network.
+    struct UndoPostToast: Identifiable, Equatable {
+        let id = UUID()
+        let key: String
+        let postId: UUID
+        let deadline: Date
+        let label: String
+    }
+    @State private var undoToast: UndoPostToast?
+    @ObservedObject private var scheduler = KaPostsActionScheduler.shared
 
     struct PosterProfileTarget: Identifiable {
         let id = UUID()
         let address: String
+        var pubkey: String? = nil
     }
 
     var body: some View {
@@ -130,6 +172,7 @@ struct KaPostsView: View {
 
     private var feedLayer: some View {
         VStack(spacing: 0) {
+            balanceHeader
             feedTabBar
             // Horizontal paging between the three feeds, synced both ways with the top tab bar
             // (tap animates the page across; swipe moves the underline). Page-style TabView is
@@ -146,37 +189,64 @@ struct KaPostsView: View {
         .overlay(alignment: .bottomTrailing) {
             createPostButton
         }
+        .overlay(alignment: .bottom) {
+            toastOverlay
+        }
         .sheet(isPresented: $showComposer) {
             KaPostComposerView { text in
-                let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
-                var newPost = DraftPost(text: text, timestamp: Date(), posterAddress: myAddress)
-                newPost.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
-                newPost.deliveryStatus = .pending
-                let localId = newPost.id
-                posts.insert(newPost, at: 0)
-                // On-chain publish (Phase B): submit the K post tx; stamp the optimistic local
-                // post with the returned txid so it dedupes against the feed once indexed.
-                Task {
-                    do {
-                        let txId = try await KaPostsAPIClient.shared.submitPost(text: text)
-                        mutatePost(id: localId) {
-                            $0.remoteId = txId
-                            $0.deliveryStatus = .sent
-                        }
-                    } catch {
-                        mutatePost(id: localId) { $0.deliveryStatus = .failed }
-                        AppLog.log("[KaPosts] Post submit failed: %@", error.localizedDescription)
-                    }
-                }
+                schedulePost(text: text)
             }
             .presentationDetents([.medium, .large])
         }
         .sheet(item: $profileTarget) { target in
-            KaPostsProfileView(address: target.address)
+            KaPostsProfileView(
+                address: target.address,
+                onFollowToggle: { toggleFollowSubmitting(address: target.address, pubkey: target.pubkey) }
+            )
                 .presentationDetents([.medium, .large])
         }
         .sheet(item: $detailTarget) { target in
             postDetailSheet(postId: target.id)
+        }
+        .confirmationDialog(
+            "Repost",
+            isPresented: Binding(
+                get: { repostDialogTarget != nil },
+                set: { if !$0 { repostDialogTarget = nil } }
+            ),
+            presenting: repostDialogTarget
+        ) { target in
+            // A plain repost is permanent on-chain (no un-quote in the K protocol) - once done,
+            // only quoting remains available. Multiple quotes are legitimate, like X.
+            if !target.repostedByMe {
+                Button("Repost") {
+                    // Held for 5s behind the icon countdown - tap it to cancel before submit.
+                    scheduler.schedule(key: "repost:\(target.id)") {
+                        performRepost(target: target, text: nil, localQuoteId: nil)
+                    }
+                }
+            }
+            Button("Quote Post") {
+                quoteComposerTarget = target
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { target in
+            Text(target.repostedByMe
+                 ? "You've already reposted this - reposts are permanent on the network. You can still quote it."
+                 : "Share this post as-is, or add your own thoughts.")
+        }
+        .sheet(item: $engagementTarget) { target in
+            KaPostEngagementView(post: target)
+        }
+        .sheet(item: $quoteComposerTarget) { target in
+            KaPostComposerView(
+                quotedPost: target,
+                quotedDisplayName: posterDisplayName(target.posterAddress),
+                quotedAvatarURL: knsService.profileCache[target.posterAddress]?.avatarURL
+            ) { text in
+                scheduleQuote(target: target, text: text)
+            }
+            .presentationDetents([.medium, .large])
         }
         .task {
             await loadFeed()
@@ -187,6 +257,30 @@ struct KaPostsView: View {
     }
 
     // MARK: - Feed tabs (mirrors ChatListView.chatsTopTabBar)
+
+    /// Chatting-address Kaspa balance, centered at the very top - same source as the chat
+    /// list's toolbar balance.
+    private var balanceHeader: some View {
+        HStack(spacing: 6) {
+            Image("KaspaLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 15, height: 15)
+            Text("\(Self.formatKas(walletManager.currentWallet?.balanceSompi ?? 0)) KAS")
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+        .task {
+            _ = try? await walletManager.refreshBalance()
+        }
+    }
+
+    private static func formatKas(_ sompi: UInt64) -> String {
+        String(format: "%.8f", Double(sompi) / 100_000_000.0)
+    }
 
     private var feedTabBar: some View {
         VStack(spacing: 0) {
@@ -318,7 +412,13 @@ struct KaPostsView: View {
     private func feedContent(for tab: FeedTab) -> some View {
         let visiblePosts = posts(for: tab)
         if visiblePosts.isEmpty {
-            emptyState(for: tab)
+            // Wrapped in a ScrollView purely so pull-to-refresh works on an empty tab too -
+            // the common bootstrap case while feeds are sparse.
+            ScrollView {
+                emptyState(for: tab)
+                    .frame(maxWidth: .infinity, minHeight: 460)
+            }
+            .refreshable { await loadFeed() }
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
@@ -335,11 +435,12 @@ struct KaPostsView: View {
                             onBlock: { moderationStore.block(post.posterAddress) },
                             onBookmark: { toggleBookmark(post) },
                             onRetry: { retryPost(post) },
+                            onViewEngagement: { engagementTarget = post },
                             onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
-                            onOpenProfile: { profileTarget = PosterProfileTarget(address: post.posterAddress) },
+                            onOpenProfile: { profileTarget = PosterProfileTarget(address: post.posterAddress, pubkey: post.posterPubkey) },
                             onLike: { toggleLike(post) },
                             onDislike: { toggleDislike(post) },
-                            onRepost: { toggleRepost(post) }
+                            onRepost: { handleRepostTap(post) }
                         )
                         .task(id: post.posterAddress) {
                             guard knsService.profileCache[post.posterAddress] == nil,
@@ -351,6 +452,7 @@ struct KaPostsView: View {
                     }
                 }
             }
+            .refreshable { await loadFeed() }
         }
     }
 
@@ -489,6 +591,17 @@ struct KaPostsView: View {
         mapped.reposts = post.quotesCount ?? 0
         mapped.likedByMe = post.isUpvoted ?? false
         mapped.dislikedByMe = post.isDownvoted ?? false
+        if let quote = post.quote,
+           let quotedText = quote.decodedMessage,
+           let quotedPubkey = quote.referencedSenderPubkey,
+           let quotedAddress = KaPostsAPIClient.kaspaAddress(fromPubkey: quotedPubkey) {
+            mapped.quoted = DraftPost.QuotedRef(
+                remoteId: quote.referencedContentId,
+                text: KaPostsAPIClient.stripMarker(quotedText),
+                posterAddress: quotedAddress,
+                timestamp: nil
+            )
+        }
         return mapped
     }
 
@@ -543,13 +656,179 @@ struct KaPostsView: View {
         }
     }
 
+    /// Bottom toast stack: the post-undo countdown (while a submit is being held) above the
+    /// on-chain confirmation capsule.
+    private var toastOverlay: some View {
+        VStack(spacing: 8) {
+            if let undo = undoToast {
+                HStack(spacing: 8) {
+                    TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                        let remaining = max(0, Int(ceil(undo.deadline.timeIntervalSince(context.date))))
+                        Text("\(undo.label) in \(remaining)s")
+                            .font(.footnote.weight(.semibold))
+                            .monospacedDigit()
+                    }
+                    Button {
+                        Haptics.impact(.light)
+                        undoPendingPost(undo)
+                    } label: {
+                        Text("Undo")
+                            .font(.footnote.weight(.bold))
+                            .foregroundColor(.orange)
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(toastCapsule)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if let toast = actionToast {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text(toast.message)
+                        .font(.footnote.weight(.semibold))
+                    Button {
+                        if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: toast.txId) {
+                            openURL(url)
+                        }
+                    } label: {
+                        Text("View")
+                            .font(.footnote.weight(.bold))
+                            .foregroundColor(.accentColor)
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(toastCapsule)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .padding(.bottom, 84)
+    }
+
+    private var toastCapsule: some View {
+        Capsule()
+            .fill(.regularMaterial)
+            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+            .shadow(color: Color.black.opacity(0.15), radius: 10, x: 0, y: 4)
+    }
+
+    /// Inserts the optimistic post immediately, then holds the on-chain submit behind the 5s
+    /// Undo toast - Undo pulls the card before anything touches the network.
+    private func schedulePost(text: String) {
+        let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
+        var newPost = DraftPost(text: text, timestamp: Date(), posterAddress: myAddress)
+        newPost.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
+        newPost.deliveryStatus = .pending
+        let localId = newPost.id
+        posts.insert(newPost, at: 0)
+        let key = "post:\(localId)"
+        showUndoToast(key: key, postId: localId, label: "Posting")
+        scheduler.schedule(key: key) {
+            clearUndoToast(key: key)
+            // On-chain publish (Phase B): submit the K post tx; stamp the optimistic local
+            // post with the returned txid so it dedupes against the feed once indexed.
+            Task {
+                do {
+                    let txId = try await KaPostsAPIClient.shared.submitPost(text: text)
+                    mutatePost(id: localId) {
+                        $0.remoteId = txId
+                        $0.deliveryStatus = .sent
+                    }
+                } catch {
+                    mutatePost(id: localId) { $0.deliveryStatus = .failed }
+                    AppLog.log("[KaPosts] Post submit failed: %@", error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// Same 5s undo window for quotes: the optimistic quote card is in the feed but the quote
+    /// tx (and the target's repost bump) wait for the countdown.
+    private func scheduleQuote(target: DraftPost, text: String) {
+        let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
+        var quotePost = DraftPost(text: text, timestamp: Date(), posterAddress: myAddress)
+        quotePost.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
+        quotePost.deliveryStatus = .pending
+        quotePost.quoted = DraftPost.QuotedRef(
+            remoteId: target.remoteId,
+            text: target.text,
+            posterAddress: target.posterAddress,
+            timestamp: target.timestamp
+        )
+        let localId = quotePost.id
+        posts.insert(quotePost, at: 0)
+        let key = "post:\(localId)"
+        showUndoToast(key: key, postId: localId, label: "Posting quote")
+        scheduler.schedule(key: key) {
+            clearUndoToast(key: key)
+            performRepost(target: target, text: text, localQuoteId: localId)
+        }
+    }
+
+    private func showUndoToast(key: String, postId: UUID, label: String) {
+        withAnimation(.easeOut(duration: 0.25)) {
+            undoToast = UndoPostToast(
+                key: key, postId: postId,
+                deadline: Date().addingTimeInterval(KaPostsActionScheduler.undoDelay),
+                label: label
+            )
+        }
+    }
+
+    private func clearUndoToast(key: String) {
+        if undoToast?.key == key {
+            withAnimation(.easeIn(duration: 0.25)) { undoToast = nil }
+        }
+    }
+
+    private func undoPendingPost(_ toast: UndoPostToast) {
+        scheduler.cancel(key: toast.key)
+        withAnimation(.easeIn(duration: 0.25)) {
+            posts.removeAll { $0.id == toast.postId }
+            undoToast = nil
+        }
+    }
+
+    /// Shows the on-chain confirmation toast for ~4s with a tappable explorer link.
+    private func showActionToast(_ message: String, txId: String) {
+        let toast = ActionToast(message: message, txId: txId)
+        withAnimation(.easeOut(duration: 0.25)) { actionToast = toast }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+            if actionToast?.id == toast.id {
+                withAnimation(.easeIn(duration: 0.25)) { actionToast = nil }
+            }
+        }
+    }
+
+    /// Likes are held for 5s behind the in-icon countdown (tap it to cancel) - only then does
+    /// the permanent on-chain vote submit. Local-only un-likes stay immediate and reversible.
     private func toggleLike(_ post: DraftPost) {
-        // Turning the like ON for a K post casts an on-chain upvote (K has no un-vote - local
-        // unlike stays client-side).
+        if post.remoteId != nil, post.likedByMe { return }
+        if post.likedByMe {
+            performLike(post)
+            return
+        }
+        scheduler.schedule(key: "like:\(post.id)") { performLike(post) }
+    }
+
+    private func performLike(_ post: DraftPost) {
+        // On-chain votes are PERMANENT: the K protocol has no un-vote, so once a post is on the
+        // network its like can't be removed - tapping a filled heart is a no-op (the honest
+        // representation; a local "unlike" would just revert on the next refresh). Removal
+        // arrives with our own indexer fork, which will honor counter-actions.
+        if post.remoteId != nil, post.likedByMe { return }
         if !post.likedByMe, let remoteId = post.remoteId, let author = post.posterPubkey {
             Task {
-                do { _ = try await KaPostsAPIClient.shared.submitVote(postId: remoteId, upvote: true, authorPubkey: author) }
-                catch { AppLog.log("[KaPosts] Upvote submit failed: %@", error.localizedDescription) }
+                do {
+                    let txId = try await KaPostsAPIClient.shared.submitVote(postId: remoteId, upvote: true, authorPubkey: author)
+                    showActionToast("Like posted to the network", txId: txId)
+                } catch { AppLog.log("[KaPosts] Upvote submit failed: %@", error.localizedDescription) }
             }
         }
         mutatePost(id: post.id) { target in
@@ -567,11 +846,25 @@ struct KaPostsView: View {
         }
     }
 
+    /// Same 5s countdown-then-submit as toggleLike.
     private func toggleDislike(_ post: DraftPost) {
+        if post.remoteId != nil, post.dislikedByMe { return }
+        if post.dislikedByMe {
+            performDislike(post)
+            return
+        }
+        scheduler.schedule(key: "dislike:\(post.id)") { performDislike(post) }
+    }
+
+    private func performDislike(_ post: DraftPost) {
+        // Permanent once on-chain - see performLike.
+        if post.remoteId != nil, post.dislikedByMe { return }
         if !post.dislikedByMe, let remoteId = post.remoteId, let author = post.posterPubkey {
             Task {
-                do { _ = try await KaPostsAPIClient.shared.submitVote(postId: remoteId, upvote: false, authorPubkey: author) }
-                catch { AppLog.log("[KaPosts] Downvote submit failed: %@", error.localizedDescription) }
+                do {
+                    let txId = try await KaPostsAPIClient.shared.submitVote(postId: remoteId, upvote: false, authorPubkey: author)
+                    showActionToast("Dislike posted to the network", txId: txId)
+                } catch { AppLog.log("[KaPosts] Downvote submit failed: %@", error.localizedDescription) }
             }
         }
         mutatePost(id: post.id) { target in
@@ -585,6 +878,46 @@ struct KaPostsView: View {
                     target.likedByMe = false
                     target.likes -= 1
                 }
+            }
+        }
+    }
+
+    /// Repost tap: on-chain posts offer the Repost/Quote chooser; local unpublished posts keep
+    /// the demo-era local toggle.
+    private func handleRepostTap(_ post: DraftPost) {
+        if post.remoteId != nil, post.posterPubkey != nil {
+            repostDialogTarget = post
+        } else {
+            toggleRepost(post)
+        }
+    }
+
+    /// K's repost mechanism is the quote action: nil text = plain repost (marker-only message),
+    /// text = quote with commentary. Runs AFTER the 5s undo window - the optimistic quote card
+    /// (if any) was already inserted by scheduleQuote and is stamped here by id.
+    private func performRepost(target: DraftPost, text: String?, localQuoteId: UUID?) {
+        guard let contentId = target.remoteId, let author = target.posterPubkey else { return }
+        mutatePost(id: target.id) { post in
+            if !post.repostedByMe {
+                post.repostedByMe = true
+                post.reposts += 1
+            }
+        }
+        Task {
+            do {
+                let txId = try await KaPostsAPIClient.shared.submitQuote(text: text, contentId: contentId, quotedAuthorPubkey: author)
+                showActionToast(text?.isEmpty == false ? "Quote posted to the network" : "Repost posted to the network", txId: txId)
+                if let localQuoteId {
+                    mutatePost(id: localQuoteId) {
+                        $0.remoteId = txId
+                        $0.deliveryStatus = .sent
+                    }
+                }
+            } catch {
+                if let localQuoteId {
+                    mutatePost(id: localQuoteId) { $0.deliveryStatus = .failed }
+                }
+                AppLog.log("[KaPosts] Quote/repost submit failed: %@", error.localizedDescription)
             }
         }
     }
@@ -631,7 +964,10 @@ struct KaPostsView: View {
         followStore.toggle(address)
         guard let pubkey else { return }
         Task {
-            do { _ = try await KaPostsAPIClient.shared.submitFollow(willFollow, followedPubkey: pubkey) }
+            do {
+                let txId = try await KaPostsAPIClient.shared.submitFollow(willFollow, followedPubkey: pubkey)
+                showActionToast(willFollow ? "Follow posted to the network" : "Unfollow posted to the network", txId: txId)
+            }
             catch { AppLog.log("[KaPosts] Follow submit failed: %@", error.localizedDescription) }
         }
     }
@@ -716,21 +1052,32 @@ struct KaPostsView: View {
                             .font(.title3.weight(.bold))
                             .lineLimit(1)
                         HStack(spacing: 16) {
-                            HStack(spacing: 4) {
-                                Text("\(followStore.following.count)")
-                                    .font(.subheadline.weight(.bold))
-                                Text("Following")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+                            Button {
+                                profileFollowListKind = .following
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("\(followStore.following.count)")
+                                        .font(.subheadline.weight(.bold))
+                                        .foregroundColor(.primary)
+                                    Text("Following")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
                             }
-                            HStack(spacing: 4) {
-                                // Placeholder until follower data exists on-chain.
-                                Text("0")
-                                    .font(.subheadline.weight(.bold))
-                                Text("Followers")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+                            .buttonStyle(.plain)
+                            Button {
+                                profileFollowListKind = .followers
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("\(myFollowersCount ?? 0)")
+                                        .font(.subheadline.weight(.bold))
+                                        .foregroundColor(.primary)
+                                    Text("Followers")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -765,11 +1112,12 @@ struct KaPostsView: View {
                                 onBlock: { moderationStore.block(post.posterAddress) },
                                 onBookmark: { toggleBookmark(post) },
                                 onRetry: { retryPost(post) },
+                                onViewEngagement: { engagementTarget = post },
                                 onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                                 onOpenProfile: {},
                                 onLike: { toggleLike(post) },
                                 onDislike: { toggleDislike(post) },
-                                onRepost: { toggleRepost(post) }
+                                onRepost: { handleRepostTap(post) }
                             )
                             Divider()
                                 .padding(.leading, 68)
@@ -788,6 +1136,20 @@ struct KaPostsView: View {
             .task(id: myAddress) {
                 guard knsService.profileCache[myAddress] == nil, !myAddress.isEmpty else { return }
                 _ = await knsService.fetchProfile(for: myAddress)
+            }
+            .task {
+                guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey(),
+                      let details = try? await KaPostsAPIClient.shared.fetchUserDetails(pubkey: pubkey)
+                else { return }
+                myFollowersCount = details.followersCount
+            }
+            .navigationDestination(isPresented: Binding(
+                get: { profileFollowListKind != nil },
+                set: { if !$0 { profileFollowListKind = nil } }
+            )) {
+                if let kind = profileFollowListKind {
+                    KaPostsFollowListView(kind: kind, localFollowing: followStore.following)
+                }
             }
         }
     }
@@ -907,11 +1269,12 @@ struct KaPostsView: View {
                                     onBlock: { moderationStore.block(post.posterAddress) },
                                     onBookmark: { toggleBookmark(post) },
                                     onRetry: { retryPost(post) },
+                                    onViewEngagement: { engagementTarget = post },
                                     onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                                     onOpenProfile: {},
                                     onLike: { toggleLike(post) },
                                     onDislike: { toggleDislike(post) },
-                                    onRepost: { toggleRepost(post) }
+                                    onRepost: { handleRepostTap(post) }
                                 )
                                 Divider()
                                     .padding(.leading, 68)
@@ -950,11 +1313,12 @@ struct KaPostsView: View {
                                 onBlock: { moderationStore.block(post.posterAddress) },
                                 onBookmark: { toggleBookmark(post) },
                                 onRetry: { retryPost(post) },
+                                onViewEngagement: { engagementTarget = post },
                                 onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
-                                onOpenProfile: { profileTarget = PosterProfileTarget(address: post.posterAddress) },
+                                onOpenProfile: { profileTarget = PosterProfileTarget(address: post.posterAddress, pubkey: post.posterPubkey) },
                                 onLike: { toggleLike(post) },
                                 onDislike: { toggleDislike(post) },
-                                onRepost: { toggleRepost(post) }
+                                onRepost: { handleRepostTap(post) }
                             )
                             Divider()
 
@@ -986,11 +1350,12 @@ struct KaPostsView: View {
                                         onBlock: { moderationStore.block(comment.posterAddress) },
                                         onBookmark: { toggleBookmark(comment) },
                                         onRetry: { retryPost(comment) },
+                                        onViewEngagement: { engagementTarget = comment },
                                         onFollowToggle: { toggleFollowSubmitting(address: comment.posterAddress, pubkey: comment.posterPubkey) },
-                                        onOpenProfile: { profileTarget = PosterProfileTarget(address: comment.posterAddress) },
+                                        onOpenProfile: { profileTarget = PosterProfileTarget(address: comment.posterAddress, pubkey: comment.posterPubkey) },
                                         onLike: { toggleLike(comment) },
                                         onDislike: { toggleDislike(comment) },
-                                        onRepost: { toggleRepost(comment) }
+                                        onRepost: { handleRepostTap(comment) }
                                     )
                                     Divider()
                                         .padding(.leading, 68)
@@ -1078,6 +1443,7 @@ private struct KaPostCellView: View {
     let onBlock: () -> Void
     let onBookmark: () -> Void
     var onRetry: (() -> Void)? = nil
+    var onViewEngagement: (() -> Void)? = nil
     let onFollowToggle: () -> Void
     let onOpenProfile: () -> Void
     let onLike: () -> Void
@@ -1092,11 +1458,17 @@ private struct KaPostCellView: View {
 
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @Environment(\.openURL) private var openURL
+    @ObservedObject private var scheduler = KaPostsActionScheduler.shared
+    @ObservedObject private var knsService = KNSService.shared
 
     /// Your own post: no follow affordance (you can't follow yourself).
     private var isOwnPost: Bool {
         post.posterAddress == WalletManager.shared.currentWallet?.publicAddress
     }
+
+    /// The sent-checkmark auto-hides 60s after the post's timestamp (mirrors the reaction
+    /// checkmark's timed window); pending/failed always show.
+    @State private var sentCheckExpired = false
 
     // Kaspa-logo like burst: appears over the heart, spins, then dissolves into the liked state.
     @State private var burstVisible = false
@@ -1142,11 +1514,11 @@ private struct KaPostCellView: View {
                     // can still interact with you. Block: content gone AND they can't interact
                     // (the interaction half becomes real once wiring lands).
                     Menu {
-                        // A K post's id IS its transaction id - link straight to the explorer.
-                        if let txId = post.remoteId,
-                           let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
+                        // Opens the engagement screen (likes/dislikes/reposts/quotes, each row
+                        // linking to its action's tx) with the post's own explorer link inside.
+                        if post.remoteId != nil, let onViewEngagement {
                             Button {
-                                openURL(url)
+                                onViewEngagement()
                             } label: {
                                 Label("View Post in Explorer", systemImage: "globe")
                             }
@@ -1193,6 +1565,11 @@ private struct KaPostCellView: View {
                     .buttonStyle(.plain)
                 }
 
+                // X-style quote embed: the quoted post in a bordered mini card under the text.
+                if let quoted = post.quoted {
+                    quotedEmbedCard(quoted)
+                }
+
                 HStack(spacing: 28) {
                     if let onComment {
                         engagementButton(
@@ -1203,18 +1580,26 @@ private struct KaPostCellView: View {
                         )
                     }
                     likeButton
-                    engagementButton(
-                        icon: post.dislikedByMe ? "hand.thumbsdown.fill" : "hand.thumbsdown",
-                        count: post.dislikes,
-                        tint: post.dislikedByMe ? .orange : .secondary,
-                        action: onDislike
-                    )
-                    engagementButton(
-                        icon: "arrow.2.squarepath",
-                        count: post.reposts,
-                        tint: post.repostedByMe ? .accentColor : .secondary,
-                        action: onRepost
-                    )
+                    if let deadline = scheduler.deadlines["dislike:\(post.id)"] {
+                        countdownButton(key: "dislike:\(post.id)", deadline: deadline)
+                    } else {
+                        engagementButton(
+                            icon: post.dislikedByMe ? "hand.thumbsdown.fill" : "hand.thumbsdown",
+                            count: post.dislikes,
+                            tint: post.dislikedByMe ? .orange : .secondary,
+                            action: onDislike
+                        )
+                    }
+                    if let deadline = scheduler.deadlines["repost:\(post.id)"] {
+                        countdownButton(key: "repost:\(post.id)", deadline: deadline)
+                    } else {
+                        engagementButton(
+                            icon: "arrow.2.squarepath",
+                            count: post.reposts,
+                            tint: post.repostedByMe ? .accentColor : .secondary,
+                            action: onRepost
+                        )
+                    }
                     // Bookmark sits with the other actions (no inline count - saved posts live in
                     // the side menu's Bookmarks screen).
                     engagementButton(
@@ -1229,10 +1614,18 @@ private struct KaPostCellView: View {
                     // Retry when it didn't go through.
                     switch post.deliveryStatus {
                     case .sent:
-                        if post.remoteId != nil {
+                        if post.remoteId != nil, !sentCheckExpired,
+                           Date().timeIntervalSince(post.timestamp) < 60 {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.caption)
                                 .foregroundColor(.green)
+                                .task(id: post.id) {
+                                    let remaining = 60 - Date().timeIntervalSince(post.timestamp)
+                                    if remaining > 0 {
+                                        try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                                    }
+                                    withAnimation(.easeOut(duration: 0.3)) { sentCheckExpired = true }
+                                }
                         }
                     case .pending:
                         ProgressView()
@@ -1259,16 +1652,20 @@ private struct KaPostCellView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        // The Kaspa-logo burst plays when the like actually lands - i.e. after the 5s
+        // countdown fires, not on the tap that armed it.
+        .onChange(of: post.likedByMe) { liked in
+            if liked { runLikeBurst() }
+        }
     }
 
     private var likeButton: some View {
-        Button {
+        if let deadline = scheduler.deadlines["like:\(post.id)"] {
+            return AnyView(countdownButton(key: "like:\(post.id)", deadline: deadline))
+        }
+        return AnyView(Button {
             Haptics.impact(.light)
-            let becomingLiked = !post.likedByMe
             onLike()
-            if becomingLiked {
-                runLikeBurst()
-            }
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: post.likedByMe ? "heart.fill" : "heart")
@@ -1293,6 +1690,81 @@ private struct KaPostCellView: View {
                 }
             }
             .foregroundColor(post.likedByMe ? .red : .secondary)
+        }
+        .buttonStyle(.plain))
+    }
+
+    private func quotedDisplayName(_ address: String) -> String {
+        guard !address.isEmpty else { return "Unknown" }
+        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
+           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return KaPostsView.strippingKasSuffix(alias)
+        }
+        if let domain = knsService.profileCache[address]?.domainName,
+           !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return KaPostsView.strippingKasSuffix(domain)
+        }
+        return String(address.suffix(10))
+    }
+
+    private func quotedEmbedCard(_ quoted: KaPostsView.DraftPost.QuotedRef) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                KNSAvatarView(
+                    avatarURLString: knsService.profileCache[quoted.posterAddress]?.avatarURL,
+                    fallbackText: quotedDisplayName(quoted.posterAddress),
+                    size: 20
+                )
+                Text(quotedDisplayName(quoted.posterAddress))
+                    .font(.caption.weight(.bold))
+                    .lineLimit(1)
+                if let timestamp = quoted.timestamp {
+                    Text(relativeTime(timestamp))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            Text(verbatim: quoted.text)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+                .lineLimit(5)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+        )
+        .padding(.top, 2)
+        .task(id: quoted.posterAddress) {
+            guard !quoted.posterAddress.isEmpty,
+                  knsService.profileCache[quoted.posterAddress] == nil else { return }
+            _ = await knsService.fetchProfile(for: quoted.posterAddress)
+        }
+    }
+
+    /// The in-icon 5s countdown: the action hasn't gone to the network yet - tap to cancel it.
+    private func countdownButton(key: String, deadline: Date) -> some View {
+        Button {
+            Haptics.impact(.light)
+            KaPostsActionScheduler.shared.cancel(key: key)
+        } label: {
+            TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                let remaining = max(1, Int(ceil(deadline.timeIntervalSince(context.date))))
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.caption2.weight(.bold))
+                    Text("\(remaining)")
+                        .font(.caption.weight(.bold))
+                        .monospacedDigit()
+                }
+                .foregroundColor(.orange)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3)
+                .background(Capsule().stroke(Color.orange.opacity(0.55), lineWidth: 1))
+            }
         }
         .buttonStyle(.plain)
     }
@@ -1356,8 +1828,13 @@ private struct KaPostCellView: View {
 /// Text-only post composer. Deliberately NO attachment affordances (no photo picker, no link
 /// tools) - a KaPost is plain text, full stop.
 private struct KaPostComposerView: View {
+    // When quoting: the post being quoted renders X-style below the editor - you write above it.
+    var quotedPost: KaPostsView.DraftPost? = nil
+    var quotedDisplayName: String = ""
+    var quotedAvatarURL: String? = nil
     let onPost: (String) -> Void
 
+    @EnvironmentObject private var settingsViewModel: SettingsViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @FocusState private var isFocused: Bool
@@ -1377,7 +1854,7 @@ private struct KaPostComposerView: View {
                     .padding(.top, 8)
                     .overlay(alignment: .topLeading) {
                         if text.isEmpty {
-                            Text("What's happening on Kaspa?")
+                            Text(quotedPost == nil ? "What's happening on Kaspa?" : "Add a comment")
                                 .font(.body)
                                 .foregroundColor(.secondary.opacity(0.6))
                                 .padding(.horizontal, 17)
@@ -1385,17 +1862,31 @@ private struct KaPostComposerView: View {
                                 .allowsHitTesting(false)
                         }
                     }
+                if let quotedPost {
+                    quotedPostCard(quotedPost)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 10)
+                }
                 Divider()
                 HStack {
                     Text("Text only - no photos or links")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()
+                    // Live network-fee estimate while typing (Settings > Show Fee Estimate),
+                    // matching the chat composer's behavior.
+                    if settingsViewModel.settings.showFeeEstimate, !trimmed.isEmpty,
+                       let fee = KaPostsAPIClient.estimatePostFee(text: trimmed) {
+                        Text("Est. fee: \(String(format: "%.8f", Double(fee) / 100_000_000.0)) KAS")
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundColor(.secondary)
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
             }
-            .navigationTitle("New Post")
+            .navigationTitle(quotedPost == nil ? "New Post" : "Quote Post")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -1413,8 +1904,75 @@ private struct KaPostComposerView: View {
             .onAppear { isFocused = true }
         }
     }
+
+    /// X-style embedded preview of the post being quoted.
+    private func quotedPostCard(_ quoted: KaPostsView.DraftPost) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                KNSAvatarView(
+                    avatarURLString: quotedAvatarURL,
+                    fallbackText: quotedDisplayName,
+                    size: 22
+                )
+                Text(quotedDisplayName)
+                    .font(.caption.weight(.bold))
+                    .lineLimit(1)
+                Text(quoted.timestamp.formatted(.relative(presentation: .named)))
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Spacer(minLength: 0)
+            }
+            Text(verbatim: quoted.text)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+                .lineLimit(5)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+        )
+    }
 }
 
+
+// MARK: - Action scheduler (5s undo window)
+
+/// Holds each on-chain action (like/dislike/repost/post) for a short countdown before it
+/// actually submits. Keyed "kind:postId"; the UI shows a countdown in the icon's place (or an
+/// Undo toast for posts) and cancelling the key drops the action entirely - nothing has touched
+/// the network yet. Singleton so countdowns survive cell recycling and screen switches.
+@MainActor
+final class KaPostsActionScheduler: ObservableObject {
+    static let shared = KaPostsActionScheduler()
+    static let undoDelay: TimeInterval = 5
+
+    /// Fire deadline per pending key - cells read this to render the countdown.
+    @Published private(set) var deadlines: [String: Date] = [:]
+    private var tasks: [String: Task<Void, Never>] = [:]
+
+    private init() {}
+
+    func schedule(key: String, action: @escaping @MainActor () -> Void) {
+        cancel(key: key)
+        deadlines[key] = Date().addingTimeInterval(Self.undoDelay)
+        tasks[key] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.undoDelay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.deadlines[key] = nil
+            self?.tasks[key] = nil
+            action()
+        }
+    }
+
+    func cancel(key: String) {
+        tasks[key]?.cancel()
+        tasks[key] = nil
+        deadlines[key] = nil
+    }
+}
 
 // MARK: - Follow store (local-only persistence; on-chain follow wiring comes later)
 
@@ -1456,6 +2014,9 @@ final class KaPostsFollowStore: ObservableObject {
 /// Follow/Following button.
 struct KaPostsProfileView: View {
     let address: String
+    /// When provided (feed context knows the poster's K pubkey), follow/unfollow submits the
+    /// on-chain K transaction; otherwise the toggle stays local-only.
+    var onFollowToggle: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var knsService = KNSService.shared
@@ -1528,7 +2089,11 @@ struct KaPostsProfileView: View {
                     if address != WalletManager.shared.currentWallet?.publicAddress {
                         Button {
                             Haptics.impact(.light)
-                            followStore.toggle(address)
+                            if let onFollowToggle {
+                                onFollowToggle()
+                            } else {
+                                followStore.toggle(address)
+                            }
                         } label: {
                             Text(followStore.isFollowing(address) ? "Following" : "Follow")
                                 .font(.subheadline.weight(.bold))
@@ -1713,5 +2278,353 @@ final class KaPostsModerationStore: ObservableObject {
     private func persist() {
         UserDefaults.standard.set(Array(muted), forKey: mutedKey)
         UserDefaults.standard.set(Array(blocked), forKey: blockedKey)
+    }
+}
+
+
+// MARK: - Post engagement screen (who liked/disliked/reposted/quoted, each row -> explorer)
+
+/// Intermediate screen behind "View Post in Explorer": four tabs of actors (Likes, Dislikes,
+/// Reposts, Quotes), each row linking to THAT action's transaction on the explorer, plus a link
+/// to the post's own transaction. Actor identity resolves through contacts/KNS as everywhere.
+///
+/// Data reality: the K API exposes no per-post voter/quoter list - the only actor-level source is
+/// the requester's own notification stream, so actor lists populate for YOUR posts; other
+/// authors' posts show counts with an explanatory empty state until K grows list endpoints.
+struct KaPostEngagementView: View {
+    let post: KaPostsView.DraftPost
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @EnvironmentObject private var settingsViewModel: SettingsViewModel
+    @ObservedObject private var knsService = KNSService.shared
+
+    enum EngagementTab: String, CaseIterable {
+        case likes = "Likes"
+        case dislikes = "Dislikes"
+        case reposts = "Reposts"
+        case quotes = "Quotes"
+    }
+
+    struct EngagementEntry: Identifiable {
+        let id: String        // the ACTION's txid (notification id)
+        let actorPubkey: String
+        let timestamp: Date
+    }
+
+    @State private var selectedTab: EngagementTab = .likes
+    @State private var entries: [EngagementTab: [EngagementEntry]] = [:]
+    @State private var isLoading = false
+    @State private var loadFailed = false
+
+    private var isOwnPost: Bool {
+        post.posterAddress == WalletManager.shared.currentWallet?.publicAddress
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Picker("", selection: $selectedTab) {
+                    ForEach(EngagementTab.allCases, id: \.self) { tab in
+                        Text(tabTitle(tab)).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+
+                if isLoading {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                } else {
+                    let rows = entries[selectedTab] ?? []
+                    if rows.isEmpty {
+                        emptyState
+                    } else {
+                        List(rows) { entry in
+                            entryRow(entry)
+                        }
+                        .listStyle(.plain)
+                    }
+                }
+
+                Divider()
+                Button {
+                    if let txId = post.remoteId,
+                       let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
+                        openURL(url)
+                    }
+                } label: {
+                    Label("View Post Transaction in Explorer", systemImage: "globe")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+            }
+            .navigationTitle("Post Activity")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func tabTitle(_ tab: EngagementTab) -> String {
+        let count: Int
+        switch tab {
+        case .likes: count = max(post.likes, entries[.likes]?.count ?? 0)
+        case .dislikes: count = max(post.dislikes, entries[.dislikes]?.count ?? 0)
+        case .reposts: count = entries[.reposts]?.count ?? 0
+        case .quotes: count = entries[.quotes]?.count ?? 0
+        }
+        return count > 0 ? "\(tab.rawValue) (\(count))" : tab.rawValue
+    }
+
+    private func entryRow(_ entry: EngagementEntry) -> some View {
+        let address = KaPostsAPIClient.kaspaAddress(fromPubkey: entry.actorPubkey) ?? ""
+        return HStack(spacing: 12) {
+            KNSAvatarView(
+                avatarURLString: knsService.profileCache[address]?.avatarURL,
+                fallbackText: displayName(for: address),
+                size: 38
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(displayName(for: address))
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(entry.timestamp.formatted(.relative(presentation: .named)))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Button {
+                if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: entry.id) {
+                    openURL(url)
+                }
+            } label: {
+                Text("View")
+                    .font(.caption.weight(.bold))
+                    .foregroundColor(.accentColor)
+                    .underline()
+            }
+            .buttonStyle(.plain)
+        }
+        .task(id: address) {
+            guard !address.isEmpty, knsService.profileCache[address] == nil else { return }
+            _ = await knsService.fetchProfile(for: address)
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "chart.bar")
+                .font(.system(size: 40))
+                .foregroundColor(.secondary)
+            Text(isOwnPost ? "Nothing here yet" : "Counts only")
+                .font(.headline)
+            Text(isOwnPost
+                 ? "When someone engages with this post, they'll show up here."
+                 : "The network only shares who-did-what for your own posts right now - counts for this post are on the card.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func displayName(for address: String) -> String {
+        guard !address.isEmpty else { return "Unknown" }
+        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
+           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return KaPostsView.strippingKasSuffix(alias)
+        }
+        if let domain = knsService.profileCache[address]?.domainName,
+           !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return KaPostsView.strippingKasSuffix(domain)
+        }
+        return String(address.suffix(10))
+    }
+
+    /// Builds the four actor lists from the requester's notification stream, filtered to this
+    /// post. Reposts vs Quotes split on whether the quote carried text beyond the KaChat marker.
+    private func load() async {
+        guard isOwnPost, let postId = post.remoteId else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 100)
+            var likes: [EngagementEntry] = []
+            var dislikes: [EngagementEntry] = []
+            var reposts: [EngagementEntry] = []
+            var quotes: [EngagementEntry] = []
+            for notification in notifications where notification.contentId == postId {
+                let entry = EngagementEntry(
+                    id: notification.id,
+                    actorPubkey: notification.userPublicKey,
+                    timestamp: Date(timeIntervalSince1970: TimeInterval(notification.timestamp) / 1000)
+                )
+                switch notification.contentType {
+                case "vote":
+                    if notification.voteType == "upvote" { likes.append(entry) }
+                    else if notification.voteType == "downvote" { dislikes.append(entry) }
+                case "quote":
+                    let text = KaPostsAPIClient.stripMarker(notification.decodedContent ?? "")
+                    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        reposts.append(entry)
+                    } else {
+                        quotes.append(entry)
+                    }
+                default:
+                    break
+                }
+            }
+            entries = [.likes: likes, .dislikes: dislikes, .reposts: reposts, .quotes: quotes]
+        } catch {
+            loadFailed = true
+            AppLog.log("[KaPosts] Engagement load failed: %@", error.localizedDescription)
+        }
+    }
+}
+
+// MARK: - Follow lists (profile > Following / Followers)
+
+/// Full list of accounts you follow or that follow you, reached by tapping the counts on the
+/// KaPosts profile. Server (K indexer) is the source for followers; Following merges the
+/// server list with the local follow store so pre-wiring follows still show.
+struct KaPostsFollowListView: View {
+    enum Kind {
+        case following
+        case followers
+
+        var title: String { self == .following ? "Following" : "Followers" }
+    }
+
+    let kind: Kind
+    let localFollowing: Set<String>
+
+    @ObservedObject private var knsService = KNSService.shared
+
+    struct Entry: Identifiable {
+        let address: String
+        let timestamp: Date?
+        var id: String { address }
+    }
+
+    @State private var entries: [Entry] = []
+    @State private var isLoading = true
+
+    init(kind: Kind, localFollowing: Set<String>) {
+        self.kind = kind
+        self.localFollowing = localFollowing
+    }
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if entries.isEmpty {
+                emptyState
+            } else {
+                List(entries) { entry in
+                    entryRow(entry)
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle(kind.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private func entryRow(_ entry: Entry) -> some View {
+        HStack(spacing: 12) {
+            KNSAvatarView(
+                avatarURLString: knsService.profileCache[entry.address]?.avatarURL,
+                fallbackText: displayName(for: entry.address),
+                size: 38
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(displayName(for: entry.address))
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if let timestamp = entry.timestamp {
+                    Text(timestamp.formatted(.relative(presentation: .named)))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            Spacer()
+        }
+        .task(id: entry.address) {
+            guard !entry.address.isEmpty, knsService.profileCache[entry.address] == nil else { return }
+            _ = await knsService.fetchProfile(for: entry.address)
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: kind == .following ? "person.badge.plus" : "person.2")
+                .font(.system(size: 40))
+                .foregroundColor(.secondary)
+            Text(kind == .following ? "Not following anyone yet" : "No followers yet")
+                .font(.headline)
+            Text(kind == .following
+                 ? "Accounts you follow will show up here."
+                 : "When someone follows you, they'll show up here.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func displayName(for address: String) -> String {
+        guard !address.isEmpty else { return "Unknown" }
+        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
+           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return KaPostsView.strippingKasSuffix(alias)
+        }
+        if let domain = knsService.profileCache[address]?.domainName,
+           !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return KaPostsView.strippingKasSuffix(domain)
+        }
+        return String(address.suffix(10))
+    }
+
+    private func load() async {
+        defer { isLoading = false }
+        var remote: [Entry] = []
+        if let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() {
+            let users = (try? await KaPostsAPIClient.shared.fetchFollowList(
+                ofPubkey: pubkey, followers: kind == .followers
+            )) ?? []
+            remote = users.compactMap { user in
+                guard let address = KaPostsAPIClient.kaspaAddress(fromPubkey: user.userPublicKey) else { return nil }
+                let date = user.timestamp.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+                return Entry(address: address, timestamp: date)
+            }
+        }
+        if kind == .following {
+            // Merge in locally-stored follows the indexer may not have caught up on yet.
+            var seen = Set(remote.map(\.address))
+            let localOnly = localFollowing
+                .filter { !seen.contains($0) }
+                .sorted()
+                .map { Entry(address: $0, timestamp: nil) }
+            seen.formUnion(localOnly.map(\.address))
+            remote.append(contentsOf: localOnly)
+        }
+        entries = remote.sorted { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
     }
 }

@@ -56,6 +56,21 @@ final class KaPostsAPIClient: ObservableObject {
 
     // MARK: - Wire models (verbatim K field names; identity fields deliberately ignored)
 
+    /// Embedded reference the indexer attaches to quote posts - the quoted post's id, content
+    /// and author, so feeds can render the quote card without a second fetch.
+    struct KQuoteRef: Decodable {
+        let referencedContentId: String?
+        let referencedMessage: String?
+        let referencedSenderPubkey: String?
+
+        var decodedMessage: String? {
+            guard let referencedMessage,
+                  let data = Data(base64Encoded: referencedMessage),
+                  let text = String(data: data, encoding: .utf8) else { return nil }
+            return text
+        }
+    }
+
     struct KPost: Decodable {
         let id: String
         let userPublicKey: String
@@ -71,6 +86,8 @@ final class KaPostsAPIClient: ObservableObject {
         let isDownvoted: Bool?
         let blockedUser: Bool?
         let contentType: String?
+        let isQuote: Bool?
+        let quote: KQuoteRef?
 
         /// Base64 -> plain text (K encodes all content fields).
         var decodedContent: String? {
@@ -94,6 +111,41 @@ final class KaPostsAPIClient: ObservableObject {
     private struct RepliesResponse: Decodable {
         let replies: [KPost]
         let pagination: KPagination?
+    }
+
+    struct KNotification: Decodable {
+        let id: String
+        let userPublicKey: String
+        let postContent: String?
+        let timestamp: Int64
+        let contentType: String?
+        let voteType: String?
+        let contentId: String?
+
+        var decodedContent: String? {
+            guard let postContent, let data = Data(base64Encoded: postContent),
+                  let text = String(data: data, encoding: .utf8) else { return nil }
+            return text
+        }
+    }
+
+    private struct NotificationsResponse: Decodable {
+        let notifications: [KNotification]
+    }
+
+    struct KFollowUser: Decodable, Identifiable {
+        let userPublicKey: String
+        let timestamp: Int64?
+        var id: String { userPublicKey }
+    }
+
+    /// The users-list endpoints' wrapper key isn't uniform across deployments - accept any of
+    /// the plausible keys and take the first present.
+    private struct FollowListResponse: Decodable {
+        let users: [KFollowUser]?
+        let following: [KFollowUser]?
+        let followers: [KFollowUser]?
+        var items: [KFollowUser] { users ?? following ?? followers ?? [] }
     }
 
     struct KUserDetails: Decodable {
@@ -215,6 +267,27 @@ final class KaPostsAPIClient: ObservableObject {
         return (Self.filterKaChat(response.replies), response.pagination)
     }
 
+    /// The requester's notification stream - votes/replies/quotes on OUR content. This is the
+    /// only documented source of per-action actor identity + action txid (the notification id),
+    /// which is why the engagement screen can list actors for your own posts only.
+    func fetchNotifications(limit: Int = 100, before: String? = nil) async throws -> [KNotification] {
+        var query = ["requesterPubkey": try requesterPubkey(), "limit": "\(limit)"]
+        if let before { query["before"] = before }
+        let response: NotificationsResponse = try await get("get-notifications", query: query)
+        return response.notifications
+    }
+
+    /// Who `pubkey` follows (followers=false) or who follows them (followers=true).
+    func fetchFollowList(ofPubkey pubkey: String, followers: Bool, limit: Int = 100) async throws -> [KFollowUser] {
+        let path = followers ? "get-users-followers" : "get-users-following"
+        let response: FollowListResponse = try await get(path, query: [
+            "requesterPubkey": try requesterPubkey(),
+            "userPubkey": pubkey,
+            "limit": "\(limit)"
+        ])
+        return response.items
+    }
+
     /// Follower/following counts etc. for an address's K identity.
     func fetchUserDetails(pubkey: String) async throws -> KUserDetails {
         try await get("get-user-details", query: ["user": pubkey, "requesterPubkey": try requesterPubkey()])
@@ -258,6 +331,9 @@ enum KaPostsProtocol {
     static func followSigningString(action: String, followedPubkey: String) -> String {
         "\(action):\(followedPubkey)"
     }
+    static func quoteSigningString(contentId: String, b64Message: String, quotedAuthorPubkey: String) -> String {
+        "\(contentId):\(b64Message):\(quotedAuthorPubkey)"
+    }
 
     // Full payloads:
     static func postPayload(pubkey: String, signature: String, b64Message: String, mentionsJSON: String) -> String {
@@ -271,6 +347,9 @@ enum KaPostsProtocol {
     }
     static func followPayload(pubkey: String, signature: String, action: String, followedPubkey: String) -> String {
         "\(prefix)follow:\(pubkey):\(signature):\(action):\(followedPubkey)"
+    }
+    static func quotePayload(pubkey: String, signature: String, contentId: String, b64Message: String, quotedAuthorPubkey: String) -> String {
+        "\(prefix)quote:\(pubkey):\(signature):\(contentId):\(b64Message):\(quotedAuthorPubkey)"
     }
 }
 
@@ -339,6 +418,39 @@ extension KaPostsAPIClient {
         )
     }
 
+    /// Quotes a post - K's repost mechanism (there is no separate repost action; quotesCount is
+    /// the live counter). A PLAIN repost is a quote whose message is just the KaChat marker; a
+    /// quote-with-commentary carries marker + text.
+    func submitQuote(text: String?, contentId: String, quotedAuthorPubkey: String) async throws -> String {
+        let marked = Self.kaChatMarker + (text ?? "")
+        let b64 = KaPostsProtocol.b64(marked)
+        let pubkey = try requesterPubkey()
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.quoteSigningString(contentId: contentId, b64Message: b64, quotedAuthorPubkey: quotedAuthorPubkey),
+            mode: .kaspaPersonalMessage
+        )
+        return try await submitPayloadTx(
+            KaPostsProtocol.quotePayload(pubkey: pubkey, signature: signature, contentId: contentId, b64Message: b64, quotedAuthorPubkey: quotedAuthorPubkey)
+        )
+    }
+
+    /// Live fee estimate for a post of `text` - builds the exact payload shape (dummy sig/pubkey
+    /// of the real fixed lengths, marker included) so the size-driven estimate matches what the
+    /// actual submit will pay with the typical single input.
+    static func estimatePostFee(text: String) -> UInt64? {
+        guard let wallet = WalletManager.shared.currentWallet,
+              let script = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) else { return nil }
+        let b64 = KaPostsProtocol.b64(kaChatMarker + text)
+        let dummySignature = String(repeating: "0", count: 128)
+        let dummyPubkey = String(repeating: "0", count: 66)
+        let payload = KaPostsProtocol.postPayload(
+            pubkey: dummyPubkey, signature: dummySignature, b64Message: b64, mentionsJSON: "[]"
+        )
+        return KasiaTransactionBuilder.estimateContextualMessageFee(
+            payload: Data(payload.utf8), inputCount: 1, senderScriptPubKey: script
+        )
+    }
+
     /// Shared write core: build the self-send tx from the chatting address's UTXOs with the K
     /// payload attached, sign, submit. The indexer ingests it from the chain (no REST submit).
     private func submitPayloadTx(_ payload: String) async throws -> String {
@@ -355,6 +467,14 @@ extension KaPostsAPIClient {
         )
         let (txId, _) = try await NodePoolService.shared.submitTransaction(signedTx, allowOrphan: false)
         AppLog.log("[KaPosts] Submitted %@ action tx %@", String(payload.prefix(12)), String(txId.prefix(12)))
+        // Refresh the wallet balance so the header updates live with the fee just spent - once
+        // immediately, once after the UTXO change settles (Kaspa blocks are ~1s, so the second
+        // pass reliably catches it).
+        Task { @MainActor in
+            _ = try? await WalletManager.shared.refreshBalance()
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            _ = try? await WalletManager.shared.refreshBalance()
+        }
         return txId
     }
 }

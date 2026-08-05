@@ -1,0 +1,145 @@
+# KaPosts Indexer — Handoff & Build Guide
+
+**Audience:** the AI/engineer on the server box that will build and host the KaChat-owned
+KaPosts indexer. This doc is the starting context: what the iOS app (branch `KaChat4.0i`)
+already speaks, what the public K indexer gives us today, and exactly what the new indexer
+must add on top. The single client integration point in the app is
+`KaChat/Services/KaPostsAPIClient.swift` — read it alongside this doc; every wire shape the
+app expects is defined there.
+
+## 1. What KaPosts is
+
+KaPosts is a Twitter/X-style social feed inside KaChat. **Everything is on-chain**: each
+action (post, reply, vote, follow, quote/repost) is a Kaspa **self-send transaction**
+(outputs pay back to the author's own address) whose `payload` field carries a `k:1:...`
+protocol string. The indexer's job is to scan the DAG for these payloads, verify signatures,
+and serve a REST read API. **The transaction id IS the content id.**
+
+Today the app runs against the public K social indexer (`https://mainnet.kaspatalk.net`,
+configurable in Settings → Connection Settings → "KaPost Indexer"). The new indexer replaces
+it. Keeping the same endpoint paths/response shapes means the app works by just changing
+that URL — that is the compatibility bar. Extensions below are additive.
+
+## 2. Protocol the app writes (must parse verbatim)
+
+Payload strings (all fields `:`-joined, prefix `k:1:`):
+
+```
+k:1:post:<pubkey>:<signature>:<b64_message>:<mentions_json>
+k:1:reply:<pubkey>:<signature>:<post_id>:<b64_message>:<mentions_json>
+k:1:vote:<pubkey>:<signature>:<post_id>:<upvote|downvote>:<author_pubkey>
+k:1:follow:<pubkey>:<signature>:<follow|unfollow>:<followed_pubkey>
+k:1:quote:<pubkey>:<signature>:<content_id>:<b64_message>:<quoted_author_pubkey>
+```
+
+- `<pubkey>`: author's **66-hex compressed secp256k1** public key.
+- `<signature>`: 128-hex schnorr signature over the **Kaspa personal-message hash**:
+  `schnorr_sign(blake2b256(key="PersonalMessageSigningHash", msg=signing_string))`.
+  Signing strings are the payload minus prefix/kind/pubkey/signature:
+  - post: `"<b64_message>:<mentions_json>"`
+  - reply: `"<post_id>:<b64_message>:<mentions_json>"`
+  - vote: `"<post_id>:<vote>:<author_pubkey>"`
+  - follow: `"<action>:<followed_pubkey>"`
+  - quote: `"<content_id>:<b64_message>:<quoted_author_pubkey>"`
+- `<b64_message>`: base64 of the UTF-8 message text.
+- `<mentions_json>`: JSON array of mentioned pubkeys; the app currently always sends `[]`.
+- A **plain repost** is a quote whose message is empty-after-marker (see §3) — the K
+  protocol has no separate repost action; `quotesCount` is the repost counter.
+
+Reference builders: `KaPostsProtocol` enum in `KaPostsAPIClient.swift` (exact strings above
+are copied from it).
+
+## 3. KaChat exclusivity — the marker, and what the fork should do instead
+
+Every message the app writes prepends an invisible **U+2060 WORD JOINER** inside the content
+(so base64 starts `4oGg` for text). Today exclusivity is enforced *client-side*: the app
+filters feeds to marker-carrying posts, because the public indexer's read API never exposes
+raw payloads. This is one-way — K-website users can still see KaChat posts.
+
+**The new indexer must enforce exclusivity server-side (two-way):**
+- Index **only** KaChat content. Simplest robust rule: require the U+2060 marker in decoded
+  post/reply/quote content. (Votes/follows have no content — accept them when they target
+  indexed KaChat content / come from known KaChat identities.)
+- Keep accepting the marker so existing on-chain history (already posted from the app)
+  carries over.
+- Optionally introduce a dedicated payload namespace (e.g. `kc:1:`) later; if so, the app
+  and indexer must coordinate a dual-read/dual-write migration window. Don't start here —
+  marker filtering gets v1 shipped without an app protocol change.
+
+## 4. Read API the app consumes today (compatibility bar)
+
+All content fields in responses are **base64**; timestamps are **milliseconds**; cursors are
+opaque strings passed back via `before`; every endpoint takes `requesterPubkey` and uses it
+to decorate per-viewer fields (`isUpvoted`, `isDownvoted`, `followedUser`, `blockedUser`).
+Errors: JSON `{"error": "...", "code": "..."}`. Public indexer rate limit is 100 req/min/IP
+— ours can be more generous but should still have one.
+
+| Endpoint | Purpose | Notes |
+|---|---|---|
+| `get-posts-watching` | global feed | returns `{posts: [...], pagination: {hasMore, nextCursor, prevCursor}}` |
+| `get-contents-following` | posts+replies from followed users | app filters replies out client-side |
+| `get-posts?user=<pubkey>` | one user's posts | profile feed |
+| `get-replies?postId=` | replies to a post | |
+| `get-user-details?user=` | `followersCount`, `followingCount`, `followedUser` | |
+| `get-users-following` / `get-users-followers` | follow lists | items: `{userPublicKey, timestamp, followedUser}`; the app tolerates wrapper key `users`/`following`/`followers` |
+| `get-notifications` | actions on MY content | `{id, userPublicKey, postContent, timestamp, contentType, voteType, contentId}` — `id` is the **action's** txid |
+
+Post objects (see `KPost` in the client): `id, userPublicKey, postContent, signature,
+timestamp, repliesCount, upVotesCount, downVotesCount, quotesCount, repostsCount,
+parentPostId, mentionedPubkeys, isUpvoted, isDownvoted, userNickname, blockedUser,
+isQuote, quote`. Quote posts embed the quoted post inline:
+`quote: {referencedContentId, referencedMessage (b64), referencedSenderPubkey,
+referencedNickname}` — the app renders the X-style embed from this, keep it.
+
+Note: the app **ignores** `userNickname`/avatar-ish fields entirely — identity (names,
+avatars, banners) comes from KNS via the pubkey→Kaspa-address bridge. Don't invest in
+profile features; serve social data only.
+
+## 5. NEW capabilities the fork must add (the reason it exists)
+
+These are confirmed product decisions; the iOS UI is already shaped for them.
+
+1. **Removal counter-actions.** The chain is immutable but the indexer's *interpretation*
+   doesn't have to be. Accept and honor:
+   - `unvote` (removes a prior upvote/downvote by the same pubkey on the same post)
+   - un-quote / un-repost (removes a prior quote by txid or by (pubkey, contentId))
+   Suggested: extend the vote action's vote field (`upvote|downvote|unvote`) and add an
+   explicit removal kind for quotes; verify the remover's pubkey matches the original
+   actor. Counts and `isUpvoted`/`repostedByMe`-feeding fields must reflect removals. The
+   app currently shows filled hearts/reposts as permanent no-ops ("option 1"); once the
+   indexer supports removal, the client toggles get re-enabled to write the counter-action.
+2. **Per-post actor lists.** Endpoints like
+   `get-post-engagement?postId=` → who liked / disliked / reposted / quoted **any** post,
+   each entry `{actorPubkey, actionTxId, timestamp, kind}`. Today the app fakes this from
+   `get-notifications`, which only works for your own posts (see
+   `KaPostEngagementView.load()` — it filters notifications by `contentId`). Rows deep-link
+   to the explorer by `actionTxId`, so return the action's txid, not the post's.
+3. **Real follower/following counts and lists** for any pubkey (the public ones exist but
+   correctness matters once unfollow-removal semantics apply — a follow followed by
+   unfollow nets to zero).
+4. **Two-way exclusivity** (§3).
+
+Nice-to-haves once the core is up: a `get-post?id=` single-post lookup, richer
+notifications (mentions, replies to replies), and a push hook — the app already runs a
+forked kasia-indexer with a `PushNotificationActor` for chat push (see
+`PUSH_NOTIFICATIONS.md`), so mirroring that pattern for social notifications is natural.
+
+## 6. Getting started pointers
+
+- **Scanning:** you need every accepted transaction's payload. The kasia-indexer fork this
+  project already runs (`external/kasia-indexer` is the reference codebase) solves the same
+  problem for `ciph_msg:` chat payloads — same DAG-scan skeleton, different payload prefix
+  and handlers. `external/rusty-kaspa` documents the node RPC.
+- **Verification:** reject any action whose schnorr signature doesn't verify against the
+  embedded pubkey over the canonical signing string (§2). Also sanity-check that the tx was
+  actually accepted (not orphaned) before treating its id as a content id.
+- **Identity bridge (for reference, client-side):** pubkey → drop the 02/03 prefix byte →
+  x-only → Kaspa Bech32 address. The indexer itself only ever needs pubkeys.
+- **Testing against the app:** point Settings → KaPost Indexer at your box. The app's
+  writes are live on mainnet already — there are existing marker-carrying posts (e.g. quote
+  tx `f28587d7ac7ba1f8545e3b4f18dfc24f03160fa596feccbfb3da964272ca054b` quoting
+  `cb60eea63d13ac668704670a0e843b0733be2a2123f4b2a864cc8605fe7ebdb9`) to validate a
+  from-genesis backfill against.
+- **Order of work:** (1) scan+verify+store `k:1:` payloads with marker filtering, (2) serve
+  the §4 compatibility endpoints, (3) add removals + actor lists (§5), (4) flip the app to
+  the new URL as default.

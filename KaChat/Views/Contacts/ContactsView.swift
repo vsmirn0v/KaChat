@@ -258,16 +258,23 @@ struct ProfileView: View {
     private var balanceToolbarView: some View {
         let sompi = walletManager.currentWallet?.balanceSompi
         let exact = sompi.map(formatKaspaExact) ?? "--"
-        return Text("\(exact) KAS")
-            .font(.caption)
-            .monospacedDigit()
-            .foregroundColor(.secondary)
-            .onTapGesture {
-                guard sompi != nil else { return }
-                UIPasteboard.general.string = exact
-                Haptics.success()
-                showToast("Balance copied to clipboard.")
-            }
+        // Kaspa logo + bold, matching the KaPosts/Chats balance style.
+        return HStack(spacing: 6) {
+            Image("KaspaLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 15, height: 15)
+            Text("\(exact) KAS")
+                .font(.footnote.weight(.semibold))
+                .monospacedDigit()
+                .foregroundColor(.secondary)
+        }
+        .onTapGesture {
+            guard sompi != nil else { return }
+            UIPasteboard.general.string = exact
+            Haptics.success()
+            showToast("Balance copied to clipboard.")
+        }
     }
 
     /// Read-only display of which account is currently active. Renaming stays confined to
