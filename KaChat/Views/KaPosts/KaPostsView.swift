@@ -144,7 +144,21 @@ struct KaPostsView: View {
         .sheet(isPresented: $showComposer) {
             KaPostComposerView { text in
                 let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
-                posts.insert(DraftPost(text: text, timestamp: Date(), posterAddress: myAddress), at: 0)
+                var newPost = DraftPost(text: text, timestamp: Date(), posterAddress: myAddress)
+                newPost.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
+                let localId = newPost.id
+                posts.insert(newPost, at: 0)
+                // On-chain publish (Phase B): submit the K post tx; stamp the optimistic local
+                // post with the returned txid so it dedupes against the feed once indexed.
+                Task {
+                    do {
+                        let txId = try await KaPostsAPIClient.shared.submitPost(text: text)
+                        mutatePost(id: localId) { $0.remoteId = txId }
+                    } catch {
+                        feedError = "Post failed to publish: \(error.localizedDescription)"
+                        AppLog.log("[KaPosts] Post submit failed: %@", error.localizedDescription)
+                    }
+                }
             }
             .presentationDetents([.medium, .large])
         }
@@ -311,7 +325,7 @@ struct KaPostsView: View {
                             onMute: { moderationStore.mute(post.posterAddress) },
                             onBlock: { moderationStore.block(post.posterAddress) },
                             onBookmark: { toggleBookmark(post) },
-                            onFollowToggle: { followStore.toggle(post.posterAddress) },
+                            onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                             onOpenProfile: { profileTarget = PosterProfileTarget(address: post.posterAddress) },
                             onLike: { toggleLike(post) },
                             onDislike: { toggleDislike(post) },
@@ -520,6 +534,14 @@ struct KaPostsView: View {
     }
 
     private func toggleLike(_ post: DraftPost) {
+        // Turning the like ON for a K post casts an on-chain upvote (K has no un-vote - local
+        // unlike stays client-side).
+        if !post.likedByMe, let remoteId = post.remoteId, let author = post.posterPubkey {
+            Task {
+                do { _ = try await KaPostsAPIClient.shared.submitVote(postId: remoteId, upvote: true, authorPubkey: author) }
+                catch { AppLog.log("[KaPosts] Upvote submit failed: %@", error.localizedDescription) }
+            }
+        }
         mutatePost(id: post.id) { target in
             if target.likedByMe {
                 target.likedByMe = false
@@ -536,6 +558,12 @@ struct KaPostsView: View {
     }
 
     private func toggleDislike(_ post: DraftPost) {
+        if !post.dislikedByMe, let remoteId = post.remoteId, let author = post.posterPubkey {
+            Task {
+                do { _ = try await KaPostsAPIClient.shared.submitVote(postId: remoteId, upvote: false, authorPubkey: author) }
+                catch { AppLog.log("[KaPosts] Downvote submit failed: %@", error.localizedDescription) }
+            }
+        }
         mutatePost(id: post.id) { target in
             if target.dislikedByMe {
                 target.dislikedByMe = false
@@ -555,6 +583,18 @@ struct KaPostsView: View {
         mutatePost(id: post.id) { target in
             target.repostedByMe.toggle()
             target.reposts += target.repostedByMe ? 1 : -1
+        }
+    }
+
+    /// Local follow toggle + on-chain K follow/unfollow when the target's compressed pubkey is
+    /// known (it comes from post data; profile-sheet follows without one stay local-only).
+    private func toggleFollowSubmitting(address: String, pubkey: String?) {
+        let willFollow = !followStore.isFollowing(address)
+        followStore.toggle(address)
+        guard let pubkey else { return }
+        Task {
+            do { _ = try await KaPostsAPIClient.shared.submitFollow(willFollow, followedPubkey: pubkey) }
+            catch { AppLog.log("[KaPosts] Follow submit failed: %@", error.localizedDescription) }
         }
     }
 
@@ -686,7 +726,7 @@ struct KaPostsView: View {
                                 onMute: { moderationStore.mute(post.posterAddress) },
                                 onBlock: { moderationStore.block(post.posterAddress) },
                                 onBookmark: { toggleBookmark(post) },
-                                onFollowToggle: { followStore.toggle(post.posterAddress) },
+                                onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                                 onOpenProfile: {},
                                 onLike: { toggleLike(post) },
                                 onDislike: { toggleDislike(post) },
@@ -827,7 +867,7 @@ struct KaPostsView: View {
                                     onMute: { moderationStore.mute(post.posterAddress) },
                                     onBlock: { moderationStore.block(post.posterAddress) },
                                     onBookmark: { toggleBookmark(post) },
-                                    onFollowToggle: { followStore.toggle(post.posterAddress) },
+                                    onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                                     onOpenProfile: {},
                                     onLike: { toggleLike(post) },
                                     onDislike: { toggleDislike(post) },
@@ -869,7 +909,7 @@ struct KaPostsView: View {
                                 onMute: { moderationStore.mute(post.posterAddress) },
                                 onBlock: { moderationStore.block(post.posterAddress) },
                                 onBookmark: { toggleBookmark(post) },
-                                onFollowToggle: { followStore.toggle(post.posterAddress) },
+                                onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                                 onOpenProfile: { profileTarget = PosterProfileTarget(address: post.posterAddress) },
                                 onLike: { toggleLike(post) },
                                 onDislike: { toggleDislike(post) },
@@ -904,7 +944,7 @@ struct KaPostsView: View {
                                         onMute: { moderationStore.mute(comment.posterAddress) },
                                         onBlock: { moderationStore.block(comment.posterAddress) },
                                         onBookmark: { toggleBookmark(comment) },
-                                        onFollowToggle: { followStore.toggle(comment.posterAddress) },
+                                        onFollowToggle: { toggleFollowSubmitting(address: comment.posterAddress, pubkey: comment.posterPubkey) },
                                         onOpenProfile: { profileTarget = PosterProfileTarget(address: comment.posterAddress) },
                                         onLike: { toggleLike(comment) },
                                         onDislike: { toggleDislike(comment) },
@@ -930,10 +970,27 @@ struct KaPostsView: View {
                             guard !trimmed.isEmpty else { return }
                             Haptics.impact(.light)
                             let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
+                            var reply = DraftPost(text: trimmed, timestamp: Date(), posterAddress: myAddress)
+                            reply.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
+                            let localReplyId = reply.id
                             mutatePost(id: postId) { target in
-                                target.comments.append(DraftPost(text: trimmed, timestamp: Date(), posterAddress: myAddress))
+                                target.comments.append(reply)
                             }
                             replyText = ""
+                            // On-chain reply when the parent post lives on K.
+                            if let parentRemoteId = post.remoteId {
+                                let parentAuthor = post.posterPubkey
+                                Task {
+                                    do {
+                                        let txId = try await KaPostsAPIClient.shared.submitReply(
+                                            text: trimmed, postId: parentRemoteId, parentAuthorPubkey: parentAuthor
+                                        )
+                                        mutatePost(id: localReplyId) { $0.remoteId = txId }
+                                    } catch {
+                                        AppLog.log("[KaPosts] Reply submit failed: %@", error.localizedDescription)
+                                    }
+                                }
+                            }
                         } label: {
                             Image(systemName: "arrow.up.circle.fill")
                                 .font(.system(size: 28))

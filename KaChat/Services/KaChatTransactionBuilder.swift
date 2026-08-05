@@ -118,6 +118,47 @@ struct KasiaTransactionBuilder {
         return signedTx
     }
 
+    /// Generic self-send transaction carrying an arbitrary payload - the exact shape K protocol
+    /// writes use (KaPosts): spend own UTXOs, single change-back-to-self output, payload attached.
+    /// Identical mechanics to buildContextualMessageTx minus the Kasia encryption.
+    static func buildPayloadSelfSendTx(
+        from senderAddress: String,
+        senderPrivateKey: Data,
+        utxos: [UTXO],
+        payload: Data
+    ) throws -> KaspaRpcTransaction {
+        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: senderAddress) else {
+            throw KasiaError.invalidAddress
+        }
+        let selection = try selectUtxosForContextualMessage(
+            utxos: utxos,
+            payload: payload,
+            senderScriptPubKey: senderScriptPubKey,
+            feeOverride: nil
+        )
+        let outputs = [KaspaRpcTransactionOutput(
+            value: selection.totalInput - selection.fee,
+            scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
+        )]
+        let unsignedTx = KaspaRpcTransaction(
+            version: 0,
+            inputs: selection.utxos.map { utxo in
+                KaspaRpcTransactionInput(
+                    previousOutpoint: utxo.outpoint,
+                    signatureScript: Data(),
+                    sequence: 0,
+                    sigOpCount: 1
+                )
+            },
+            outputs: outputs,
+            lockTime: 0,
+            subnetworkId: standardSubnetworkId,
+            gas: 0,
+            payload: payload
+        )
+        return try signTransaction(unsignedTx, privateKey: senderPrivateKey, utxos: selection.utxos)
+    }
+
     /// Estimate fee for a contextual message based on payload and input count
     static func estimateContextualMessageFee(payload: Data, inputCount: Int, senderScriptPubKey: Data) -> UInt64 {
         let output = KaspaRpcTransactionOutput(

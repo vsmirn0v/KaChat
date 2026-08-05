@@ -229,3 +229,132 @@ final class KaPostsAPIClient: ObservableObject {
         }
     }
 }
+
+
+// MARK: - K protocol writes (Phase B: on-chain self-send transactions)
+
+/// Builds K protocol payloads exactly as the indexer's parser/verifier expects
+/// (K-transaction-processor/k_protocol.rs). Every write is a colon-delimited payload on a Kaspa
+/// self-send transaction; the signature is Kaspa personal-message signing
+/// (schnorr(blake2b256(key: "PersonalMessageSigningHash", msg))) over the action's canonical
+/// field string - the app's WalletManager.signArbitraryMessage(.kaspaPersonalMessage) scheme.
+enum KaPostsProtocol {
+    static let prefix = "k:1:"
+
+    static func b64(_ text: String) -> String {
+        Data(text.utf8).base64EncodedString()
+    }
+
+    // Signed strings (canonical field joins, verified server-side):
+    static func postSigningString(b64Message: String, mentionsJSON: String) -> String {
+        "\(b64Message):\(mentionsJSON)"
+    }
+    static func replySigningString(postId: String, b64Message: String, mentionsJSON: String) -> String {
+        "\(postId):\(b64Message):\(mentionsJSON)"
+    }
+    static func voteSigningString(postId: String, vote: String, authorPubkey: String) -> String {
+        "\(postId):\(vote):\(authorPubkey)"
+    }
+    static func followSigningString(action: String, followedPubkey: String) -> String {
+        "\(action):\(followedPubkey)"
+    }
+
+    // Full payloads:
+    static func postPayload(pubkey: String, signature: String, b64Message: String, mentionsJSON: String) -> String {
+        "\(prefix)post:\(pubkey):\(signature):\(b64Message):\(mentionsJSON)"
+    }
+    static func replyPayload(pubkey: String, signature: String, postId: String, b64Message: String, mentionsJSON: String) -> String {
+        "\(prefix)reply:\(pubkey):\(signature):\(postId):\(b64Message):\(mentionsJSON)"
+    }
+    static func votePayload(pubkey: String, signature: String, postId: String, vote: String, authorPubkey: String) -> String {
+        "\(prefix)vote:\(pubkey):\(signature):\(postId):\(vote):\(authorPubkey)"
+    }
+    static func followPayload(pubkey: String, signature: String, action: String, followedPubkey: String) -> String {
+        "\(prefix)follow:\(pubkey):\(signature):\(action):\(followedPubkey)"
+    }
+}
+
+extension KaPostsAPIClient {
+    /// Publishes a KaChat post on-chain. The KaChat exclusivity marker is prepended INSIDE the
+    /// message (the only channel the read API surfaces). Returns the transaction id = post id.
+    func submitPost(text: String) async throws -> String {
+        let marked = Self.kaChatMarker + text
+        let b64 = KaPostsProtocol.b64(marked)
+        let mentions = "[]"
+        let pubkey = try requesterPubkey()
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.postSigningString(b64Message: b64, mentionsJSON: mentions),
+            mode: .kaspaPersonalMessage
+        )
+        return try await submitPayloadTx(
+            KaPostsProtocol.postPayload(pubkey: pubkey, signature: signature, b64Message: b64, mentionsJSON: mentions)
+        )
+    }
+
+    /// Replies to a post (its K txid). Mention rule per spec: parent author, deduped.
+    func submitReply(text: String, postId: String, parentAuthorPubkey: String?) async throws -> String {
+        let marked = Self.kaChatMarker + text
+        let b64 = KaPostsProtocol.b64(marked)
+        let mentions: String
+        if let parentAuthorPubkey, !parentAuthorPubkey.isEmpty {
+            mentions = "[\"\(parentAuthorPubkey)\"]"
+        } else {
+            mentions = "[]"
+        }
+        let pubkey = try requesterPubkey()
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.replySigningString(postId: postId, b64Message: b64, mentionsJSON: mentions),
+            mode: .kaspaPersonalMessage
+        )
+        return try await submitPayloadTx(
+            KaPostsProtocol.replyPayload(pubkey: pubkey, signature: signature, postId: postId, b64Message: b64, mentionsJSON: mentions)
+        )
+    }
+
+    /// Casts an upvote/downvote on a post. (K has no un-vote action in the spec - local unlike
+    /// stays client-side only for now.)
+    func submitVote(postId: String, upvote: Bool, authorPubkey: String) async throws -> String {
+        let vote = upvote ? "upvote" : "downvote"
+        let pubkey = try requesterPubkey()
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.voteSigningString(postId: postId, vote: vote, authorPubkey: authorPubkey),
+            mode: .kaspaPersonalMessage
+        )
+        return try await submitPayloadTx(
+            KaPostsProtocol.votePayload(pubkey: pubkey, signature: signature, postId: postId, vote: vote, authorPubkey: authorPubkey)
+        )
+    }
+
+    /// Follows/unfollows a K identity (66-hex compressed pubkey - only available from post data,
+    /// which is why profile-sheet follows without a pubkey stay local-only).
+    func submitFollow(_ follow: Bool, followedPubkey: String) async throws -> String {
+        let action = follow ? "follow" : "unfollow"
+        let pubkey = try requesterPubkey()
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.followSigningString(action: action, followedPubkey: followedPubkey),
+            mode: .kaspaPersonalMessage
+        )
+        return try await submitPayloadTx(
+            KaPostsProtocol.followPayload(pubkey: pubkey, signature: signature, action: action, followedPubkey: followedPubkey)
+        )
+    }
+
+    /// Shared write core: build the self-send tx from the chatting address's UTXOs with the K
+    /// payload attached, sign, submit. The indexer ingests it from the chain (no REST submit).
+    private func submitPayloadTx(_ payload: String) async throws -> String {
+        guard let wallet = WalletManager.shared.currentWallet,
+              let privateKey = WalletManager.shared.getPrivateKey() else {
+            throw KaPostsAPIError.missingWallet
+        }
+        let utxos = try await NodePoolService.shared.getUtxosByAddresses([wallet.publicAddress])
+        let signedTx = try KasiaTransactionBuilder.buildPayloadSelfSendTx(
+            from: wallet.publicAddress,
+            senderPrivateKey: privateKey,
+            utxos: utxos,
+            payload: Data(payload.utf8)
+        )
+        let (txId, _) = try await NodePoolService.shared.submitTransaction(signedTx, allowOrphan: false)
+        AppLog.log("[KaPosts] Submitted %@ action tx %@", String(payload.prefix(12)), String(txId.prefix(12)))
+        return txId
+    }
+}
