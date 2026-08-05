@@ -1508,7 +1508,12 @@ struct AppSettings: Codable {
 
     // Default URLs per network
     static let defaultIndexerURL = "https://indexer.kasia.wtf"
-    static let defaultKaPostIndexerURL = "https://mainnet.kaspatalk.net"
+    static let defaultKaPostIndexerURL = "https://kaposts.duckdns.org"
+    /// Retired default - the public K social indexer (`mainnet.kaspatalk.net`). KaPosts now
+    /// runs on KaChat's own indexer, which enforces two-way KaChat-only exclusivity server-side
+    /// and is a fresh network with no relation to the K social graph. Anyone still on the old
+    /// default is migrated in `SettingsViewModel.load()`.
+    static let legacyDefaultKaPostIndexerURL = "https://mainnet.kaspatalk.net"
     /// Retired default - `indexer.kasia.fyi` doesn't run the group-chat REST endpoints
     /// (`/group-messages/...`, `/group-control/...`), only `indexer.kasia.wtf` does. See
     /// `AppSettings.load()`'s one-time migration off this value.

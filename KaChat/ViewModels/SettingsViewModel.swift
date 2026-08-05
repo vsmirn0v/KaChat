@@ -43,6 +43,13 @@ extension AppSettings {
             settings.indexerURL = defaultIndexerURL
             save(settings)
         }
+        // One-time migration for anyone still pointed at the public K social indexer
+        // (mainnet.kaspatalk.net) - KaPosts now runs on KaChat's own indexer. Users who set a
+        // custom KaPost indexer URL keep it; only the old shipped default is moved.
+        if settings.kaPostIndexerURL == legacyDefaultKaPostIndexerURL {
+            settings.kaPostIndexerURL = defaultKaPostIndexerURL
+            save(settings)
+        }
         AppSettingsCache.shared.set(settings)
         return settings
     }
