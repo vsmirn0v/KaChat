@@ -2848,16 +2848,17 @@ extension ChatService {
         update: (inout Conversation) -> Void
     ) {
         guard conversations.indices.contains(index) else { return }
-        var updatedConversations = conversations
-        let originalConversation = updatedConversations[index]
-        var conversation = originalConversation
+        // Mutate a single element and write it back once. The previous shape copied the WHOLE
+        // conversations array twice per call (plus an extra copy of the element's message array via
+        // COW) - and this runs once per ingested message on the main actor, so during a catch-up
+        // sync it was a dominant source of intermittent main-thread stalls.
+        var conversation = conversations[index]
         update(&conversation)
         if normalizeMessages {
             conversation.messages = Self.dedupeMessages(conversation.messages)
         }
-        guard conversation != originalConversation else { return }
-        updatedConversations[index] = conversation
-        conversations = updatedConversations
+        guard conversation != conversations[index] else { return }
+        conversations[index] = conversation
         guard persist else { return }
         markConversationDirty(conversation.contact.address)
         if isSyncInProgress {

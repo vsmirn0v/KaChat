@@ -162,13 +162,13 @@ extension ChatService {
             guard !txId.isEmpty else {
                 continue
             }
-            var bucket = grouped[contactAddress, default: [:]]
-            if let existing = bucket[txId] {
-                bucket[txId] = Self.preferMessage(existing, stored.message)
+            // In-place via subscript-with-default (_modify) - taking a `var bucket` copy first made
+            // every insert COW-copy the whole per-contact dictionary (O(n^2) on the main actor).
+            if let existing = grouped[contactAddress, default: [:]][txId] {
+                grouped[contactAddress, default: [:]][txId] = Self.preferMessage(existing, stored.message)
             } else {
-                bucket[txId] = stored.message
+                grouped[contactAddress, default: [:]][txId] = stored.message
             }
-            grouped[contactAddress] = bucket
         }
 
         let allContactAddresses = Set(grouped.keys).union(meta.keys)

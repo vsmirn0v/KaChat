@@ -1,13 +1,38 @@
 import Foundation
 import Combine
 
+/// Thread-safe cache for `AppSettings.load()`. Load used to do a UserDefaults read + a fresh
+/// JSONDecoder + a full ~25-field decode on EVERY call - and it's called from hot paths (per
+/// Kaspa block in the group/broadcast scanners at ~10 blocks/sec, per day-separator render, per
+/// API request). Invalidated whenever settings change (`.settingsDidChange` is posted by every
+/// write path: `AppSettings.save` and `SettingsViewModel.saveSettings`).
+private final class AppSettingsCache: @unchecked Sendable {
+    static let shared = AppSettingsCache()
+    private let lock = NSLock()
+    private var cached: AppSettings?
+    private var observer: NSObjectProtocol?
+    private init() {
+        observer = NotificationCenter.default.addObserver(
+            forName: .settingsDidChange, object: nil, queue: nil
+        ) { [weak self] _ in
+            self?.invalidate()
+        }
+    }
+    func get() -> AppSettings? { lock.lock(); defer { lock.unlock() }; return cached }
+    func set(_ settings: AppSettings) { lock.lock(); defer { lock.unlock() }; cached = settings }
+    func invalidate() { lock.lock(); defer { lock.unlock() }; cached = nil }
+}
+
 /// Extension to load settings from any context (not MainActor-isolated)
 extension AppSettings {
-    /// Load settings from UserDefaults (can be called from any context)
+    /// Load settings from UserDefaults (can be called from any context). Cached - see
+    /// `AppSettingsCache`.
     static func load() -> AppSettings {
+        if let cached = AppSettingsCache.shared.get() { return cached }
         let userDefaults = UserDefaults.standard
         guard let data = userDefaults.data(forKey: "kachat_app_settings"),
               var settings = try? JSONDecoder().decode(AppSettings.self, from: data) else {
+            AppSettingsCache.shared.set(.default)
             return .default
         }
         // One-time migration for anyone who saved settings before the indexer moved from
@@ -18,6 +43,7 @@ extension AppSettings {
             settings.indexerURL = defaultIndexerURL
             save(settings)
         }
+        AppSettingsCache.shared.set(settings)
         return settings
     }
 

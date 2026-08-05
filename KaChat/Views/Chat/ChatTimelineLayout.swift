@@ -54,12 +54,30 @@ enum MessageDaySeparatorFormatter {
 
         let sameYear = calendar.component(.year, from: day) == calendar.component(.year, from: referenceDay)
         let template = sameYear ? "EEEE, MMM d" : "MMM d, y"
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.setLocalizedDateFormatFromTemplate(template)
+        let formatter = cachedFormatter(key: "tpl|\(template)|\(locale.identifier)|\(calendar.timeZone.identifier)") {
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.calendar = calendar
+            formatter.timeZone = calendar.timeZone
+            formatter.setLocalizedDateFormatFromTemplate(template)
+            return formatter
+        }
         return formatter.string(from: day)
+    }
+
+    /// DateFormatter construction is ICU-backed (~0.1-1ms cold) and this runs inside LazyVStack row
+    /// bodies - once per day separator per render pass. Cache per (template, locale, timezone);
+    /// formatters aren't thread-safe to share, but these are only ever used from view bodies on the
+    /// main thread, and the lock guards the dictionary itself.
+    private static var formatterCache: [String: DateFormatter] = [:]
+    private static let formatterCacheLock = NSLock()
+    private static func cachedFormatter(key: String, make: () -> DateFormatter) -> DateFormatter {
+        formatterCacheLock.lock()
+        defer { formatterCacheLock.unlock() }
+        if let cached = formatterCache[key] { return cached }
+        let formatter = make()
+        formatterCache[key] = formatter
+        return formatter
     }
 
     static func isToday(
@@ -90,12 +108,14 @@ enum MessageDaySeparatorFormatter {
     }
 
     private static func relativeFormatter(calendar: Calendar, locale: Locale) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.dateStyle = .medium
-        formatter.doesRelativeDateFormatting = true
-        return formatter
+        cachedFormatter(key: "rel|\(locale.identifier)|\(calendar.timeZone.identifier)") {
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.calendar = calendar
+            formatter.timeZone = calendar.timeZone
+            formatter.dateStyle = .medium
+            formatter.doesRelativeDateFormatting = true
+            return formatter
+        }
     }
 }

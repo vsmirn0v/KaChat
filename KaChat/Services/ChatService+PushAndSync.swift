@@ -56,13 +56,13 @@ extension ChatService {
             let contactAddress = stored.contactAddress
             let txId = stored.message.txId
             guard !contactAddress.isEmpty, !txId.isEmpty else { continue }
-            var bucket = messagesByAddress[contactAddress, default: [:]]
-            if let existing = bucket[txId] {
-                bucket[txId] = Self.preferMessage(existing, stored.message)
+            // In-place via subscript-with-default (_modify) - see the identical fix in
+            // ChatService+Persistence's grouping loop (avoids per-insert COW of the whole bucket).
+            if let existing = messagesByAddress[contactAddress, default: [:]][txId] {
+                messagesByAddress[contactAddress, default: [:]][txId] = Self.preferMessage(existing, stored.message)
             } else {
-                bucket[txId] = stored.message
+                messagesByAddress[contactAddress, default: [:]][txId] = stored.message
             }
-            messagesByAddress[contactAddress] = bucket
         }
 
         let allAddresses = Set(messagesByAddress.keys).union(metaByAddress.keys)

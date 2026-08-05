@@ -947,9 +947,10 @@ struct ChatListView: View {
     @MainActor
     private func fetchProfilesInBatches(for addresses: [String]) async {
         guard !addresses.isEmpty else { return }
-        for address in addresses {
-            _ = await KNSService.shared.fetchProfile(for: address)
-        }
+        // Concurrent batch refresh (KNSService's own bounded-concurrency path) instead of awaiting
+        // each contact serially - the serial loop meant N sequential network round-trips, each one
+        // triggering a KNSService @Published write that re-rendered every visible chat row.
+        await KNSService.shared.refreshProfilesIfNeeded(for: addresses, network: AppSettings.load().networkType)
     }
 
     private func refreshFilteredConversations() {

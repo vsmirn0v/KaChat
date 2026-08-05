@@ -978,11 +978,26 @@ enum ChessCodec {
 /// `mimeType` instead of audio.
 enum InlineFileSniff {
     static func isImage(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return false }
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let mimeType = json["mimeType"] as? String else { return false }
-        return mimeType.lowercased().hasPrefix("image/")
+        InlineMediaSniff.mimeType(of: text)?.lowercased().hasPrefix("image/") == true
+    }
+}
+
+/// Extracts an inline-media payload's `mimeType` by scanning only the payload HEAD. The previous
+/// sniffs trimmed + `JSONSerialization`-parsed the ENTIRE payload - for inline photos/audio that's
+/// multi-MB of base64, and the sniffs run inside list-row view bodies (chat-list previews, reply
+/// quotes), costing 10-100ms per call. App-generated inline-media JSON always carries `mimeType`
+/// near the front; 2KB comfortably covers it.
+enum InlineMediaSniff {
+    static func mimeType(of text: String) -> String? {
+        let head = String(text.prefix(2048)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard head.first == "{", let keyRange = head.range(of: "\"mimeType\"") else { return nil }
+        let afterKey = head[keyRange.upperBound...]
+        guard let colon = afterKey.firstIndex(of: ":") else { return nil }
+        let afterColon = afterKey[afterKey.index(after: colon)...].drop { $0 == " " }
+        guard afterColon.first == "\"" else { return nil }
+        let valueStart = afterColon.index(after: afterColon.startIndex)
+        guard let endQuote = afterColon[valueStart...].firstIndex(of: "\"") else { return nil }
+        return String(afterColon[valueStart..<endQuote])
     }
 }
 
@@ -997,7 +1012,9 @@ enum VoiceMessageSniff {
     }
 
     static func isVoiceMessage(_ text: String) -> Bool {
-        decode(text) != nil
+        // Head-sniff only - decode(text) parses the full multi-MB payload and base64-decodes the
+        // audio, which is far too heavy for the yes/no preview checks this backs.
+        InlineMediaSniff.mimeType(of: text)?.lowercased().hasPrefix("audio/") == true
     }
 
     /// Decodes the inline voice-message JSON into its mimeType and raw audio bytes, or nil if
