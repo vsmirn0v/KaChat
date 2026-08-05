@@ -180,12 +180,18 @@ struct KaChatApp: App {
                     }
                     // Run catch-up sync with push-reliability gating.
                     await ChatService.shared.maybeRunCatchUpSync(trigger: .appActive)
-                    await GroupChatService.shared.performCatchUpSync()
 
                     // One-time migration to per-device read markers (only when store is ready)
                     if MessageStore.shared.isStoreLoaded && MessageStore.shared.currentWalletAddress != nil {
                         ReadStatusSyncManager.shared.runMigrationIfNeeded()
                     }
+                }
+                // Group catch-up (including "you were added to a group" control messages) runs in
+                // its OWN task, NOT serialized behind the cold-start grace + CloudKit import above,
+                // so a newly-joined group appears in the list within ~1 network round trip instead
+                // of the ~10s that serialization caused.
+                Task {
+                    await GroupChatService.shared.performCatchUpSync()
                 }
             }
             if settingsViewModel.settings.notificationMode == .remotePush {

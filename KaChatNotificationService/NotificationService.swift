@@ -209,6 +209,11 @@ class NotificationService: UNNotificationServiceExtension {
         let defaultSoundEnabled = (defaults?.object(forKey: incomingNotificationSoundEnabledKey) as? Bool) ?? true
         let shouldIncrementUnread = defaults.map { !hasStoredTxId(txId: txId, defaults: $0) } ?? false
 
+        // Record that this extension handled a push for this message (whether it ends up showing
+        // or deliberately suppressing the banner). The main app checks this before posting its own
+        // background local notification for the same group message, so the two never double up.
+        markGroupPushHandled(txId: txId)
+
         content.threadIdentifier = "group"
 
         if messageType == "group_message" {
@@ -220,7 +225,8 @@ class NotificationService: UNNotificationServiceExtension {
                 // fully terminated this is the only code that runs, so blanking means the user
                 // sees NOTHING at all. Show the server's generic "Group chat / New group message"
                 // fallback instead; the main app's catch-up sync loads the real content on open.
-                deliverGroupFallback(content: content, soundEnabled: defaultSoundEnabled,
+                deliverGroupFallback(content: content, senderAddress: userInfo["sender"] as? String,
+                                     soundEnabled: defaultSoundEnabled,
                                      shouldIncrementUnread: shouldIncrementUnread,
                                      txId: txId, messageType: messageType)
                 return
@@ -253,17 +259,22 @@ class NotificationService: UNNotificationServiceExtension {
             content.sound = defaultSoundEnabled ? .default : nil
         } else {
             guard let payloadHex = userInfo["payload"] as? String,
-                  let groupName = decryptGroupControlForName(payloadHex: payloadHex) else {
+                  let control = decryptGroupControlForName(payloadHex: payloadHex) else {
                 // Same terminated-device reasoning as group_message above: show the server's
                 // generic fallback rather than blanking the banner to nothing.
-                deliverGroupFallback(content: content, soundEnabled: defaultSoundEnabled,
+                deliverGroupFallback(content: content, senderAddress: userInfo["sender"] as? String,
+                                     soundEnabled: defaultSoundEnabled,
                                      shouldIncrementUnread: shouldIncrementUnread,
                                      txId: txId, messageType: messageType)
                 return
             }
             content.title = ""
             let format = NSLocalizedString("You were added to \"%@\"", comment: "Push body for being added to a group")
-            content.body = String(format: format, groupName)
+            content.body = String(format: format, control.name)
+            // Tag with the group id so tapping the notification routes to the group navigation path
+            // (KaChatApp's didReceive) - which now waits for catch-up to create the group and then
+            // opens it - instead of falling through to the 1:1 branch with a bogus "group" address.
+            content.threadIdentifier = "group:\(control.groupId)"
             content.sound = defaultSoundEnabled ? .default : nil
         }
 
@@ -272,6 +283,17 @@ class NotificationService: UNNotificationServiceExtension {
         }
         addPendingMessage(txId: txId, sender: "group", type: messageType)
         contentHandler?(content)
+    }
+
+    /// Records a group push's txId in the App Group so the main app's background ingest of the same
+    /// message doesn't post a duplicate local notification (see GroupChatService). Bounded FIFO.
+    private func markGroupPushHandled(txId: String) {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        var ids = defaults.stringArray(forKey: "group_push_handled_txids") ?? []
+        guard !ids.contains(txId) else { return }
+        ids.append(txId)
+        if ids.count > 300 { ids.removeFirst(ids.count - 300) }
+        defaults.set(ids, forKey: "group_push_handled_txids")
     }
 
     private func suppressGroupNotification(_ content: UNMutableNotificationContent) {
@@ -291,18 +313,23 @@ class NotificationService: UNNotificationServiceExtension {
     /// the deliberate mentions-only-mode suppression and must stay silent.
     private func deliverGroupFallback(
         content: UNMutableNotificationContent,
+        senderAddress: String?,
         soundEnabled: Bool,
         shouldIncrementUnread: Bool,
         txId: String,
         messageType: String
     ) {
-        if content.title.isEmpty {
-            content.title = NSLocalizedString("Group chat", comment: "Fallback title for an undecryptable group push")
+        // ALWAYS override the title: the server default is the raw sender ADDRESS, which must never
+        // leak into the banner (this was showing "kaspa:..." instead of a name). Use a friendly
+        // group title + the resolved sender name as subtitle - alias (which is the contact's KNS
+        // primary name when auto-aliased, else the name you gave them) or a shortened address -
+        // mirroring the decrypt-success branch so a can't-decrypt-yet push still reads correctly.
+        content.title = NSLocalizedString("Group chat", comment: "Fallback title for an undecryptable group push")
+        if let senderAddress, !senderAddress.isEmpty {
+            content.subtitle = getSharedContact(address: senderAddress)?.alias ?? formatAddress(senderAddress)
         }
-        if content.body.isEmpty {
-            let key = messageType == "group_control" ? "Group update" : "New group message"
-            content.body = NSLocalizedString(key, comment: "Fallback body for an undecryptable group push")
-        }
+        let bodyKey = messageType == "group_control" ? "Group update" : "New group message"
+        content.body = NSLocalizedString(bodyKey, comment: "Fallback body for an undecryptable group push")
         content.threadIdentifier = "group"
         content.sound = soundEnabled ? .default : nil
         if shouldIncrementUnread, let badge = incrementUnreadCountIfNeeded() {
@@ -369,14 +396,14 @@ class NotificationService: UNNotificationServiceExtension {
     /// NOT persist the resulting group/roster locally (this target has no Core Data access) -
     /// the main app's catch-up sync re-fetches and applies the same `gctl_root` next time it
     /// runs, so this only needs to recover the group name for the notification body.
-    private func decryptGroupControlForName(payloadHex: String) -> String? {
+    private func decryptGroupControlForName(payloadHex: String) -> (name: String, groupId: String)? {
         guard let privateKey = loadPrivateKey() else { return nil }
         guard let plaintext = try? NotificationCipher.decryptHex(payloadHex, privateKey: privateKey),
               let jsonData = plaintext.data(using: .utf8) else { return nil }
         guard let rootPayload = try? JSONDecoder().decode(NotificationGroupCipher.GroupRootPayload.self, from: jsonData),
               rootPayload.type == "gctl_root",
               NotificationGroupCipher.verifyRootPayload(rootPayload) else { return nil }
-        return rootPayload.name
+        return (rootPayload.name, rootPayload.groupId)
     }
 
     /// Mirrors `GroupChatService.groupRootEpoch` - admins can derive any past epoch's root on

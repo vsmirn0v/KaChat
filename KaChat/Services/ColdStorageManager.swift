@@ -184,7 +184,20 @@ final class ColdStorageManager: ObservableObject {
 
         while consecutiveUnused < gapLimit {
             guard let address = try? extendedKey.receiveAddress(at: index, network: network) else { break }
-            let used = await ChatService.shared.hasSpendingAddressBeenUsed(address)
+            // An address counts as "used" if it currently holds UTXOs OR has transaction history.
+            // Checking UTXOs first (a gRPC call, not the rate-limited REST history path) guarantees
+            // discovery never skips a funded address whose history the indexer doesn't return, so it
+            // surfaces ALL UTXO-bearing addresses - and short-circuits the REST call when UTXOs exist.
+            let hasUtxos = !((try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []).isEmpty
+            // Can't use `||` here: its right side is a non-async autoclosure. An explicit branch
+            // keeps the same short-circuit (only hit the rate-limited REST history check when the
+            // address holds no UTXOs).
+            let used: Bool
+            if hasUtxos {
+                used = true
+            } else {
+                used = await ChatService.shared.hasSpendingAddressBeenUsed(address)
+            }
             if used {
                 lastUsedIndex = Int(index)
                 consecutiveUnused = 0

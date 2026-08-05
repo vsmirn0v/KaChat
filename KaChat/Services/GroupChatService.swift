@@ -3,6 +3,7 @@ import Combine
 import CryptoKit
 import P256K
 import UIKit
+import UserNotifications
 
 /// Orchestrates KaChat's group chat feature: group lifecycle (create/add/remove member, epoch
 /// rotation) and sending/receiving `gcomm` group messages.
@@ -339,6 +340,56 @@ final class GroupChatService: ObservableObject {
     /// Mirrors `ChatService.leaveConversation()` - call from the group thread's `.onDisappear`.
     func exitGroup() {
         activeGroupId = nil
+    }
+
+    /// Posts a local notification for an incoming group message ingested while the app is NOT in
+    /// the foreground. Mirrors what 1:1 gets via APNs, but as a local notification so it fires even
+    /// when the group's remote push only wakes the app (content-available) without showing a banner
+    /// of its own. Deduped against `group_push_handled_txids` so it never doubles a banner the
+    /// notification-service extension already showed (or deliberately suppressed).
+    private func maybePostGroupLocalNotification(group: GroupChat, message: GroupMessage) {
+        let settings = AppSettings.load()
+        guard settings.notificationMode != .disabled else { return }
+        guard !ChatService.shared.suppressNotificationsUntilSynced else { return }
+        guard message.deliveryStatus != .pending else { return }
+
+        // Don't duplicate a push the extension already handled for this message.
+        let handled = UserDefaults(suiteName: "group.com.kachat.app")?.stringArray(forKey: "group_push_handled_txids") ?? []
+        guard !handled.contains(message.txId) else { return }
+
+        // Honor this group's "only notify if mentioned" setting (the extension enforces the same
+        // rule for the push path; this covers the case where no push reached the extension at all).
+        if mentionsOnlyNotifications(for: group.id) {
+            let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
+            guard !myAddress.isEmpty, message.content.contains("@\(myAddress)") else { return }
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = group.name
+        content.subtitle = groupMemberDisplayName(message.senderAddress ?? "", in: group)
+        content.body = GroupMentionCodec.decodeForDisplay(
+            MessageReplyCodec.previewText(for: message.content),
+            members: group.members,
+            resolveDisplayName: { self.groupMemberDisplayName($0, in: group) }
+        )
+        content.threadIdentifier = "group:\(group.id)"
+        content.sound = settings.incomingNotificationSoundEnabled ? .default : nil
+
+        let request = UNNotificationRequest(identifier: message.txId, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+    }
+
+    /// Prefers a 1:1 contact alias, then the roster display-name snapshot, then a shortened
+    /// address - matches the notification-service extension's sender-name resolution.
+    private func groupMemberDisplayName(_ address: String, in group: GroupChat) -> String {
+        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias, !alias.isEmpty {
+            return alias
+        }
+        if let member = group.members.first(where: { $0.address == address }),
+           let displayName = member.displayName, !displayName.isEmpty {
+            return displayName
+        }
+        return String(address.suffix(10))
     }
 
     // MARK: - Wallet lifecycle
@@ -1247,8 +1298,17 @@ final class GroupChatService: ObservableObject {
             // letting the badge tick up for a message the user is actively seeing arrive live
             // (mirrors ChatService's identical `isUserViewing` check). Covers both this live
             // block-scan path and catch-up sync, which also routes through this function.
-            if !message.isOutgoing, activeGroupId == group.id, UIApplication.shared.applicationState == .active {
-                markGroupAsRead(group.id)
+            if !message.isOutgoing {
+                if activeGroupId == group.id, UIApplication.shared.applicationState == .active {
+                    markGroupAsRead(group.id)
+                } else if UIApplication.shared.applicationState != .active {
+                    // App is backgrounded/suspended: the "don't notify while in this group" rule is
+                    // foreground-only, so this message SHOULD alert. Group chats (unlike 1:1) had no
+                    // local-notification path, so a message ingested while backgrounded - via catch-up
+                    // when a push wakes the app - produced no banner. Post one now (deduped against any
+                    // banner the notification-service extension already handled for this txId).
+                    maybePostGroupLocalNotification(group: group, message: message)
+                }
             }
             ChatService.shared.scheduleBadgeUpdate()
             return

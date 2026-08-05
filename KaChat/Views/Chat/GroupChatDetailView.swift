@@ -265,7 +265,13 @@ struct GroupChatDetailView: View {
                     }
                 )
                 .onChange(of: messages.count) { _ in
-                    guard initialViewportPositioned else { return }
+                    // Not yet revealed (e.g. the async-decrypted messages just arrived after an
+                    // empty first appear) - do the initial bottom-positioning now that content
+                    // exists, then reveal. This is what prevents the black-screen-until-swipe.
+                    guard initialViewportPositioned else {
+                        positionInitialViewport(using: proxy)
+                        return
+                    }
                     // Only auto-scroll for the user's OWN new message, or when they're already at the
                     // bottom. Previously this scrolled unconditionally on any count change, yanking the
                     // user away from older messages they were reading whenever a new message arrived.
@@ -281,6 +287,11 @@ struct GroupChatDetailView: View {
                 }
                 .onAppear {
                     positionInitialViewport(using: proxy)
+                    // Fallback: a genuinely-empty group (or one whose decrypt never triggers a
+                    // count change) would otherwise stay hidden forever - reveal it after a beat.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        if !initialViewportPositioned { initialViewportPositioned = true }
+                    }
                 }
                 // Host the compose bar as a real safeAreaInset ON the ScrollView (the mechanism
                 // SwiftUI itself uses for keyboard avoidance), rather than as a sibling below the
@@ -1098,14 +1109,21 @@ struct GroupChatDetailView: View {
     /// attempt instead, while the rest keep running in the background as a safety net.
     private func positionInitialViewport(using proxy: ScrollViewProxy) {
         guard !initialViewportPositioned else { return }
+        // Group messages are decrypted off the main actor and published asynchronously, so on first
+        // appear this list can still be empty. Wait for content before positioning/revealing -
+        // revealing on a fixed timer decoupled from message load (the old behavior) showed an
+        // off-bottom blank viewport that never corrected, hence the black screen. The
+        // onChange(of: messages.count) below re-invokes this the instant the decrypted messages land;
+        // the onAppear fallback reveals a genuinely-empty thread so it isn't blank forever.
+        guard !messages.isEmpty else { return }
         let delays: [TimeInterval] = [0, 0.15, 0.35, 0.65]
-        for delay in delays {
+        for (offset, delay) in delays.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 proxy.scrollTo("bottom_anchor", anchor: .bottom)
+                // Reveal only after the first real scroll runs with content present, so the blank
+                // pre-scroll state is never shown.
+                if offset == 0 { initialViewportPositioned = true }
             }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            initialViewportPositioned = true
         }
     }
 

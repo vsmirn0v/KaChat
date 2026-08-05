@@ -337,6 +337,11 @@ struct ChatListView: View {
                 checkPendingGroupNavigation()
             }
         }
+        .onChange(of: groupChatService.groups) { _ in
+            // A pending group tap that arrived before its group was created (catch-up in flight)
+            // resolves the instant the group is inserted into the list.
+            checkPendingGroupNavigation()
+        }
     }
 
     private func handleOpenChatNotification(_ notification: Notification) {
@@ -369,6 +374,11 @@ struct ChatListView: View {
 
     private func checkPendingGroupNavigation() {
         guard let groupId = groupChatService.pendingGroupNavigation else { return }
+        // Don't consume the pending navigation until the group actually exists locally: a tap that
+        // arrives before catch-up has created the group (e.g. "you were added to a group") would
+        // otherwise be dropped silently. The .onChange(of: groupChatService.groups) below re-runs
+        // this the moment the group is inserted, so the tap resolves as soon as it lands.
+        guard groupChatService.groups.contains(where: { $0.id == groupId }) else { return }
         groupChatService.pendingGroupNavigation = nil
         navigateToGroup(groupId: groupId)
     }
