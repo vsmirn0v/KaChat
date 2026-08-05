@@ -46,6 +46,11 @@ struct KaPostsView: View {
         /// In-memory only, like the posts themselves - bookmark persistence lands with post
         /// wiring (a bookmark id is meaningless across launches while posts are session-only).
         var bookmarkedByMe = false
+        /// On-chain delivery state, mirroring chat messages: pending while the K transaction is
+        /// submitting, sent once it's on the network, failed -> Retry. Remote-fetched posts are
+        /// sent by definition.
+        enum Delivery: Equatable { case pending, sent, failed }
+        var deliveryStatus: Delivery = .sent
         /// One flat level of replies, X-style. Comments are themselves DraftPosts so the cell
         /// (avatar/KNS name/follow/engagement) is reused wholesale - they just can't be
         /// commented on in turn (no nested threads yet).
@@ -146,6 +151,7 @@ struct KaPostsView: View {
                 let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
                 var newPost = DraftPost(text: text, timestamp: Date(), posterAddress: myAddress)
                 newPost.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
+                newPost.deliveryStatus = .pending
                 let localId = newPost.id
                 posts.insert(newPost, at: 0)
                 // On-chain publish (Phase B): submit the K post tx; stamp the optimistic local
@@ -153,9 +159,12 @@ struct KaPostsView: View {
                 Task {
                     do {
                         let txId = try await KaPostsAPIClient.shared.submitPost(text: text)
-                        mutatePost(id: localId) { $0.remoteId = txId }
+                        mutatePost(id: localId) {
+                            $0.remoteId = txId
+                            $0.deliveryStatus = .sent
+                        }
                     } catch {
-                        feedError = "Post failed to publish: \(error.localizedDescription)"
+                        mutatePost(id: localId) { $0.deliveryStatus = .failed }
                         AppLog.log("[KaPosts] Post submit failed: %@", error.localizedDescription)
                     }
                 }
@@ -325,6 +334,7 @@ struct KaPostsView: View {
                             onMute: { moderationStore.mute(post.posterAddress) },
                             onBlock: { moderationStore.block(post.posterAddress) },
                             onBookmark: { toggleBookmark(post) },
+                            onRetry: { retryPost(post) },
                             onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                             onOpenProfile: { profileTarget = PosterProfileTarget(address: post.posterAddress) },
                             onLike: { toggleLike(post) },
@@ -586,6 +596,34 @@ struct KaPostsView: View {
         }
     }
 
+    /// Re-submits a failed post or reply (found by id; replies resolve their parent for the
+    /// reply payload). Pending while in flight, back to failed on another miss.
+    private func retryPost(_ post: DraftPost) {
+        mutatePost(id: post.id) { $0.deliveryStatus = .pending }
+        Task {
+            do {
+                let txId: String
+                if let parent = (posts + remotePosts).first(where: { candidate in candidate.comments.contains { $0.id == post.id } }) {
+                    guard let parentRemoteId = parent.remoteId else {
+                        throw KaPostsAPIClient.KaPostsAPIError.badResponse
+                    }
+                    txId = try await KaPostsAPIClient.shared.submitReply(
+                        text: post.text, postId: parentRemoteId, parentAuthorPubkey: parent.posterPubkey
+                    )
+                } else {
+                    txId = try await KaPostsAPIClient.shared.submitPost(text: post.text)
+                }
+                mutatePost(id: post.id) {
+                    $0.remoteId = txId
+                    $0.deliveryStatus = .sent
+                }
+            } catch {
+                mutatePost(id: post.id) { $0.deliveryStatus = .failed }
+                AppLog.log("[KaPosts] Retry failed: %@", error.localizedDescription)
+            }
+        }
+    }
+
     /// Local follow toggle + on-chain K follow/unfollow when the target's compressed pubkey is
     /// known (it comes from post data; profile-sheet follows without one stay local-only).
     private func toggleFollowSubmitting(address: String, pubkey: String?) {
@@ -726,6 +764,7 @@ struct KaPostsView: View {
                                 onMute: { moderationStore.mute(post.posterAddress) },
                                 onBlock: { moderationStore.block(post.posterAddress) },
                                 onBookmark: { toggleBookmark(post) },
+                                onRetry: { retryPost(post) },
                                 onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                                 onOpenProfile: {},
                                 onLike: { toggleLike(post) },
@@ -867,6 +906,7 @@ struct KaPostsView: View {
                                     onMute: { moderationStore.mute(post.posterAddress) },
                                     onBlock: { moderationStore.block(post.posterAddress) },
                                     onBookmark: { toggleBookmark(post) },
+                                    onRetry: { retryPost(post) },
                                     onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                                     onOpenProfile: {},
                                     onLike: { toggleLike(post) },
@@ -909,6 +949,7 @@ struct KaPostsView: View {
                                 onMute: { moderationStore.mute(post.posterAddress) },
                                 onBlock: { moderationStore.block(post.posterAddress) },
                                 onBookmark: { toggleBookmark(post) },
+                                onRetry: { retryPost(post) },
                                 onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                                 onOpenProfile: { profileTarget = PosterProfileTarget(address: post.posterAddress) },
                                 onLike: { toggleLike(post) },
@@ -944,6 +985,7 @@ struct KaPostsView: View {
                                         onMute: { moderationStore.mute(comment.posterAddress) },
                                         onBlock: { moderationStore.block(comment.posterAddress) },
                                         onBookmark: { toggleBookmark(comment) },
+                                        onRetry: { retryPost(comment) },
                                         onFollowToggle: { toggleFollowSubmitting(address: comment.posterAddress, pubkey: comment.posterPubkey) },
                                         onOpenProfile: { profileTarget = PosterProfileTarget(address: comment.posterAddress) },
                                         onLike: { toggleLike(comment) },
@@ -972,6 +1014,8 @@ struct KaPostsView: View {
                             let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
                             var reply = DraftPost(text: trimmed, timestamp: Date(), posterAddress: myAddress)
                             reply.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
+                            let isRemoteParent = post.remoteId != nil
+                            reply.deliveryStatus = isRemoteParent ? .pending : .sent
                             let localReplyId = reply.id
                             mutatePost(id: postId) { target in
                                 target.comments.append(reply)
@@ -985,8 +1029,12 @@ struct KaPostsView: View {
                                         let txId = try await KaPostsAPIClient.shared.submitReply(
                                             text: trimmed, postId: parentRemoteId, parentAuthorPubkey: parentAuthor
                                         )
-                                        mutatePost(id: localReplyId) { $0.remoteId = txId }
+                                        mutatePost(id: localReplyId) {
+                                            $0.remoteId = txId
+                                            $0.deliveryStatus = .sent
+                                        }
                                     } catch {
+                                        mutatePost(id: localReplyId) { $0.deliveryStatus = .failed }
                                         AppLog.log("[KaPosts] Reply submit failed: %@", error.localizedDescription)
                                     }
                                 }
@@ -1029,6 +1077,7 @@ private struct KaPostCellView: View {
     let onMute: () -> Void
     let onBlock: () -> Void
     let onBookmark: () -> Void
+    var onRetry: (() -> Void)? = nil
     let onFollowToggle: () -> Void
     let onOpenProfile: () -> Void
     let onLike: () -> Void
@@ -1039,6 +1088,14 @@ private struct KaPostCellView: View {
     /// or a wall of newlines).
     private var isLongPost: Bool {
         post.text.count > 280 || post.text.filter { $0 == "\n" }.count >= 8
+    }
+
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @Environment(\.openURL) private var openURL
+
+    /// Your own post: no follow affordance (you can't follow yourself).
+    private var isOwnPost: Bool {
+        post.posterAddress == WalletManager.shared.currentWallet?.publicAddress
     }
 
     // Kaspa-logo like burst: appears over the heart, spins, then dissolves into the liked state.
@@ -1067,33 +1124,44 @@ private struct KaPostCellView: View {
                     Text(relativeTime(post.timestamp))
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    // Inline follow toggle: Follow -> Following -> Follow.
-                    // TODO(wiring): hide this for the user's OWN posts once feeds carry other
-                    // authors - kept visible for now purely so the flow is demoable on session
-                    // posts (which are always self-authored).
-                    Button {
-                        Haptics.impact(.light)
-                        onFollowToggle()
-                    } label: {
-                        Text(isFollowing ? "Following" : "Follow")
-                            .font(.caption.weight(.bold))
-                            .foregroundColor(isFollowing ? .secondary : .accentColor)
+                    // Inline follow toggle: Follow -> Following -> Follow. Hidden on your own
+                    // posts - you can't follow yourself.
+                    if !isOwnPost {
+                        Button {
+                            Haptics.impact(.light)
+                            onFollowToggle()
+                        } label: {
+                            Text(isFollowing ? "Following" : "Follow")
+                                .font(.caption.weight(.bold))
+                                .foregroundColor(isFollowing ? .secondary : .accentColor)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                     Spacer()
                     // X-style overflow menu. Mute: their content disappears everywhere but they
                     // can still interact with you. Block: content gone AND they can't interact
                     // (the interaction half becomes real once wiring lands).
                     Menu {
-                        Button {
-                            onMute()
-                        } label: {
-                            Label("Mute \(displayName)", systemImage: "speaker.slash")
+                        // A K post's id IS its transaction id - link straight to the explorer.
+                        if let txId = post.remoteId,
+                           let url = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
+                            Button {
+                                openURL(url)
+                            } label: {
+                                Label("View Post in Explorer", systemImage: "globe")
+                            }
                         }
-                        Button(role: .destructive) {
-                            onBlock()
-                        } label: {
-                            Label("Block \(displayName)", systemImage: "hand.raised")
+                        if !isOwnPost {
+                            Button {
+                                onMute()
+                            } label: {
+                                Label("Mute \(displayName)", systemImage: "speaker.slash")
+                            }
+                            Button(role: .destructive) {
+                                onBlock()
+                            } label: {
+                                Label("Block \(displayName)", systemImage: "hand.raised")
+                            }
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -1147,15 +1215,44 @@ private struct KaPostCellView: View {
                         tint: post.repostedByMe ? .accentColor : .secondary,
                         action: onRepost
                     )
-                    Spacer()
-                    // Trailing bookmark, X-style (no inline count - saved posts live in the
-                    // side menu's Bookmarks screen).
+                    // Bookmark sits with the other actions (no inline count - saved posts live in
+                    // the side menu's Bookmarks screen).
                     engagementButton(
                         icon: post.bookmarkedByMe ? "bookmark.fill" : "bookmark",
                         count: 0,
                         tint: post.bookmarkedByMe ? .accentColor : .secondary,
                         action: onBookmark
                     )
+                    Spacer()
+                    // Bottom-right: on-chain delivery state, mirroring chat bubbles - green check
+                    // once the K transaction is on the network, spinner while submitting, red
+                    // Retry when it didn't go through.
+                    switch post.deliveryStatus {
+                    case .sent:
+                        if post.remoteId != nil {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        }
+                    case .pending:
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(.secondary)
+                    case .failed:
+                        Button {
+                            Haptics.impact(.light)
+                            onRetry?()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .font(.caption)
+                                Text("Retry")
+                                    .font(.caption.weight(.bold))
+                            }
+                            .foregroundColor(.red)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.top, 2)
             }
@@ -1428,17 +1525,19 @@ struct KaPostsProfileView: View {
                     }
                     .padding(.vertical, 4)
 
-                    Button {
-                        Haptics.impact(.light)
-                        followStore.toggle(address)
-                    } label: {
-                        Text(followStore.isFollowing(address) ? "Following" : "Follow")
-                            .font(.subheadline.weight(.bold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
+                    if address != WalletManager.shared.currentWallet?.publicAddress {
+                        Button {
+                            Haptics.impact(.light)
+                            followStore.toggle(address)
+                        } label: {
+                            Text(followStore.isFollowing(address) ? "Following" : "Follow")
+                                .font(.subheadline.weight(.bold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(followStore.isFollowing(address) ? Color.secondary.opacity(0.35) : Color.accentColor)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(followStore.isFollowing(address) ? Color.secondary.opacity(0.35) : Color.accentColor)
 
                     Button {
                         Haptics.impact(.light)
