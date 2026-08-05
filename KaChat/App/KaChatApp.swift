@@ -80,6 +80,8 @@ struct KaChatApp: App {
     private func handleScenePhaseChange(to newPhase: ScenePhase) {
         switch newPhase {
         case .background:
+            // Persist any debounced message draft immediately so it survives termination.
+            ChatService.shared.flushPendingDraftSave()
             // Schedule background fetch when app goes to background
             if settingsViewModel.settings.backgroundFetchEnabled {
                 BackgroundTaskManager.shared.scheduleBackgroundFetch()

@@ -1410,6 +1410,24 @@ extension ChatService {
         } else {
             messageDrafts[contactAddress] = text
         }
+        // The in-memory dict is updated synchronously above (so draft(for:) is always current);
+        // the actual JSON-encode + UserDefaults write is debounced off the per-keystroke path -
+        // writing it on every character was a real typing-lag source. Flushed on background
+        // (flushPendingDraftSave) so nothing is lost.
+        draftSaveTask?.cancel()
+        draftSaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.saveMessageDrafts()
+        }
+    }
+
+    /// Writes any pending debounced draft immediately (call on app background so an in-flight draft
+    /// isn't lost if the app is then terminated).
+    func flushPendingDraftSave() {
+        guard draftSaveTask != nil else { return }
+        draftSaveTask?.cancel()
+        draftSaveTask = nil
         saveMessageDrafts()
     }
 

@@ -359,6 +359,9 @@ final class ChatService: ObservableObject {
     var conversationIds: [String: String] = [:]
     // Drafts keyed by contact address
     var messageDrafts: [String: String] = [:]
+    // Debounces the drafts' disk write so typing doesn't JSON-encode + write UserDefaults on the
+    // main thread on every keystroke (see setDraft / flushPendingDraftSave).
+    var draftSaveTask: Task<Void, Never>?
     // Pending self-stash jobs that couldn't be sent due to missing UTXOs
     var pendingSelfStash: [PendingSelfStash] = []
     var cachedUtxos: [UTXO] = []

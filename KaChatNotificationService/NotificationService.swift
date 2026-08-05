@@ -231,7 +231,7 @@ class NotificationService: UNNotificationServiceExtension {
                                      txId: txId, messageType: messageType)
                 return
             }
-            let displayBody = reactionPreviewText(for: match.plaintext)
+            let displayBody = reactionPreviewText(for: match.plaintext, inGroup: true)
                 ?? chessPreviewText(for: match.plaintext)
                 ?? unwrapReplyText(match.plaintext)
             // "Only Notify if I'm Mentioned" - a reply to one of MY messages counts the same as
@@ -637,14 +637,18 @@ class NotificationService: UNNotificationServiceExtension {
         let action: String
     }
 
-    private func reactionPreviewText(for content: String) -> String? {
+    /// `inGroup`: the reaction envelope carries no target-message info, so in a GROUP this
+    /// extension cannot know WHOSE message was reacted to - saying "your message" was frequently
+    /// wrong (the reaction often targets someone else's message). Group pushes use the neutral
+    /// "a message"; 1:1 keeps "your message", where the pair context makes it correct.
+    private func reactionPreviewText(for content: String, inGroup: Bool = false) -> String? {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
               let parsed = try? JSONDecoder().decode(PushReactionEnvelope.self, from: data),
               parsed.type == "reaction" else { return nil }
         return parsed.action == "remove"
             ? "Removed their \(parsed.emoji) reaction"
-            : "Reacted \(parsed.emoji) to your message"
+            : (inGroup ? "Reacted \(parsed.emoji) to a message" : "Reacted \(parsed.emoji) to your message")
     }
 
     private func inlineAttachmentPreview(for text: String) -> String {

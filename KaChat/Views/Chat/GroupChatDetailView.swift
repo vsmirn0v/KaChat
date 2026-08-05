@@ -89,6 +89,27 @@ struct GroupChatDetailView: View {
     /// scroll-to-bottom calls race/interrupt each other and leave the thread resting somewhere
     /// other than the bottom (see `positionInitialViewport`).
     @State private var initialViewportPositioned = false
+    /// Mirrors 1:1's identical flag: `displayedMessages` returns [] until this flips true in
+    /// `.onAppear`, so the FIRST render pass is an empty list (content size ~0) and the whole
+    /// window then fills in ONE update. `.defaultScrollAnchor(.bottom)` pins the bottom natively on
+    /// that single 0->N content-size change (its designed behavior, and why 1:1 opens correctly) -
+    /// versus rendering everything on the first pass, where the anchor + imperative scrolls race
+    /// the LazyVStack's still-estimated row heights and the viewport lands in empty space.
+    @State private var initialLayoutReady = false
+    /// Bounded render window over the full in-memory history, mirroring 1:1's `displayedMessages`.
+    /// Rendering the ENTIRE history in the LazyVStack made `.defaultScrollAnchor(.bottom)` re-resolve
+    /// the resting offset against a large, momentarily-wrong estimated content height on every
+    /// re-render (each keystroke/reply/reaction), snapping the viewport up. 0 = use the initial
+    /// window; grows by a page when the user scrolls to the oldest rendered message.
+    @State private var loadedGroupMessageCount = 0
+    private let groupMessagePageSize = 40
+    /// True only for the brief window while older history is being prepended (scroll-up load) -
+    /// the ONE case that still needs `.defaultScrollAnchor(.bottom)`'s auto-pinning. At all other
+    /// times after the initial open the anchor is `.top` (inert), because a standing `.bottom`
+    /// anchor re-resolves the offset on every tiny compose-bar size change (fee label appearing,
+    /// per-keystroke field re-measure), producing random upward jumps while typing. Explicit
+    /// scrolls (open positioning, new-message scrollToBottom, keyboard pin) own bottom-pinning.
+    @State private var isGrowingHistoryWindow = false
 
     /// Swipe-left-to-reveal-timestamps, matching 1:1 chat's `ChatDetailView`/broadcast rooms'
     /// identical gesture.
@@ -147,6 +168,20 @@ struct GroupChatDetailView: View {
             .sorted { $0.timestamp < $1.timestamp }
     }
 
+    /// Newest slice of `messages` actually rendered. A bounded window keeps the LazyVStack's content
+    /// height stable across re-renders so `.defaultScrollAnchor(.bottom)` doesn't snap the viewport
+    /// up on typing/reply/react (see `loadedGroupMessageCount`). The newest message is always in the
+    /// window, so "open pinned to bottom" and "new message scrolls to bottom" are unaffected; older
+    /// history loads as the window grows on scroll-up, and `.bottom` keeps the bottom pinned as those
+    /// older rows prepend, so growing never jumps either.
+    private var displayedMessages: [GroupMessage] {
+        guard initialLayoutReady else { return [] }
+        let all = messages
+        let window = loadedGroupMessageCount <= 0 ? groupMessagePageSize * 3 : loadedGroupMessageCount
+        guard all.count > window else { return all }
+        return Array(all.suffix(window))
+    }
+
 
     private enum GroupTimelineItem: Identifiable {
         case daySeparator(Date)
@@ -168,7 +203,7 @@ struct GroupChatDetailView: View {
         var items: [GroupTimelineItem] = []
         var previousDay: Date?
         let calendar = Calendar.autoupdatingCurrent
-        for message in messages {
+        for message in displayedMessages {
             let messageDay = calendar.startOfDay(for: message.timestamp)
             if previousDay.map({ calendar.isDate($0, inSameDayAs: messageDay) }) != true {
                 items.append(.daySeparator(messageDay))
@@ -209,6 +244,29 @@ struct GroupChatDetailView: View {
                                               knsService.profileCache[address] == nil else { return }
                                         _ = await knsService.fetchProfile(for: address)
                                     }
+                                    .onAppear {
+                                        // Reached the oldest rendered message - grow the window so
+                                        // older history loads on scroll-up. `.defaultScrollAnchor(.bottom)`
+                                        // keeps the bottom pinned as the older rows prepend, so no jump.
+                                        // Gated on initialViewportPositioned (mirroring 1:1's prefetch
+                                        // gate): during the initial layout pass the LazyVStack briefly
+                                        // realizes the TOP rows before the viewport is scrolled to the
+                                        // bottom, and growing the window then cascades (each growth
+                                        // re-triggers this) and fights the initial scroll-to-bottom,
+                                        // leaving the thread open scrolled to the top.
+                                        if initialViewportPositioned,
+                                           message.id == displayedMessages.first?.id,
+                                           displayedMessages.count < messages.count {
+                                            // Re-arm the bottom anchor just for the prepend so the
+                                            // viewport stays pinned while older rows load, then
+                                            // drop back to the inert .top anchor.
+                                            isGrowingHistoryWindow = true
+                                            loadedGroupMessageCount = min(displayedMessages.count + groupMessagePageSize, messages.count)
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                                isGrowingHistoryWindow = false
+                                            }
+                                        }
+                                    }
                             }
                         }
                         // Debounced rather than setting `isBottomAnchorVisible` directly, matching
@@ -233,7 +291,7 @@ struct GroupChatDetailView: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
                 }
-                .defaultScrollAnchorCompat(.bottom)
+                .defaultScrollAnchorCompat(!initialViewportPositioned || isGrowingHistoryWindow ? .bottom : .top)
                 .opacity(initialViewportPositioned ? 1 : 0)
                 .onChange(of: pendingJumpToTxId) { txId in
                     guard let txId else { return }
@@ -283,15 +341,32 @@ struct GroupChatDetailView: View {
                 .onChange(of: isComposerFocused) { focused in
                     if focused {
                         pinToBottomThroughKeyboardTransition()
+                        // Final correction once the keyboard has fully settled: the UIKit offset
+                        // math in the pin uses contentSize, which can still contain ESTIMATED row
+                        // heights shortly after open - overshooting and scrolling the messages out
+                        // of view. Landing on the bottom anchor via SwiftUI resolves the TRUE
+                        // bottom against realized layout, so the thread ends exactly at the latest
+                        // message regardless of estimates. Cross-version safe.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            if isComposerFocused {
+                                scrollToBottom(using: proxy, animated: false)
+                            }
+                        }
                     }
                 }
                 .onAppear {
+                    // Flip AFTER the first (empty-list) render pass has been described: the flag
+                    // change triggers the single fill update the bottom anchor pins against.
+                    initialLayoutReady = true
                     positionInitialViewport(using: proxy)
                     // Fallback: a genuinely-empty group (or one whose decrypt never triggers a
                     // count change) would otherwise stay hidden forever - reveal it after a beat.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         if !initialViewportPositioned { initialViewportPositioned = true }
                     }
+                }
+                .onChange(of: initialLayoutReady) { _ in
+                    positionInitialViewport(using: proxy)
                 }
                 // Host the compose bar as a real safeAreaInset ON the ScrollView (the mechanism
                 // SwiftUI itself uses for keyboard avoidance), rather than as a sibling below the
@@ -1107,23 +1182,27 @@ struct GroupChatDetailView: View {
     /// imperceptible even while visible (it's a sub-pixel-scale jump at most), whereas holding a
     /// black/blank screen for that long is not, so this now reveals right after the *first*
     /// attempt instead, while the rest keep running in the background as a safety net.
+    /// Verbatim mirror of ChatDetailView's proven initial-open choreography: the list rendered
+    /// EMPTY until `initialLayoutReady` (see its doc comment), the window then fills in one update
+    /// with `.defaultScrollAnchor(.bottom)` doing the real bottom-pinning, and this runs a SINGLE
+    /// deferred, animation-free scrollTo as a backstop before revealing. The previous multi-delay
+    /// retry loop (0/0.15/0.35/0.65s) raced the LazyVStack's row realization - a late retry landed
+    /// against estimated heights and stranded the viewport in empty space on open.
     private func positionInitialViewport(using proxy: ScrollViewProxy) {
+        guard initialLayoutReady else { return }
         guard !initialViewportPositioned else { return }
         // Group messages are decrypted off the main actor and published asynchronously, so on first
-        // appear this list can still be empty. Wait for content before positioning/revealing -
-        // revealing on a fixed timer decoupled from message load (the old behavior) showed an
-        // off-bottom blank viewport that never corrected, hence the black screen. The
-        // onChange(of: messages.count) below re-invokes this the instant the decrypted messages land;
-        // the onAppear fallback reveals a genuinely-empty thread so it isn't blank forever.
-        guard !messages.isEmpty else { return }
-        let delays: [TimeInterval] = [0, 0.15, 0.35, 0.65]
-        for (offset, delay) in delays.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+        // appear this list can still be empty. Wait for content before positioning/revealing; the
+        // onChange(of: messages.count) below re-invokes this the instant the decrypted messages
+        // land, and the onAppear fallback reveals a genuinely-empty thread so it isn't blank forever.
+        guard !displayedMessages.isEmpty else { return }
+        DispatchQueue.main.async {
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
                 proxy.scrollTo("bottom_anchor", anchor: .bottom)
-                // Reveal only after the first real scroll runs with content present, so the blank
-                // pre-scroll state is never shown.
-                if offset == 0 { initialViewportPositioned = true }
             }
+            initialViewportPositioned = true
         }
     }
 
@@ -1173,9 +1252,17 @@ struct GroupChatDetailView: View {
     /// windowed `displayedMessages`), so a jump either finds the target right away or it's
     /// genuinely gone (pruned/undelivered).
     private func jumpToReplyOriginal(txId: String, using proxy: ScrollViewProxy) {
-        guard let target = messages.first(where: { $0.txId == txId }) else {
+        let all = messages
+        guard let targetIndex = all.firstIndex(where: { $0.txId == txId }) else {
             showToast("Original message not available.", style: .error)
             return
+        }
+        let target = all[targetIndex]
+        // Ensure the target is inside the render window (it may be older than what's currently
+        // shown) before scrolling to it - scrollTo only reaches rendered rows.
+        let neededWindow = all.count - targetIndex
+        if displayedMessages.count < neededWindow {
+            loadedGroupMessageCount = min(neededWindow, all.count)
         }
         withAnimation {
             proxy.scrollTo(target.id, anchor: .center)

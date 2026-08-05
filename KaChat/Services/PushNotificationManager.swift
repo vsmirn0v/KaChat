@@ -46,6 +46,11 @@ final class PushNotificationManager: ObservableObject {
     private var lastWatchedSignature: String?
     private var pendingWatchedSignature: String?
     private var inFlightWatchedSignature: String?
+    // Backoff retry for failed watched-set updates - without it, a dropped update left the
+    // indexer's group watch-list stale until an unrelated later trigger (the "some members
+    // never get notified for some senders" bug).
+    private var watchedUpdateRetryTask: Task<Void, Never>?
+    private var watchedUpdateRetryAttempt = 0
     private var walletBindingConflictFingerprint: String?
     private var walletBindingConflictUntil: Date?
     private var lastWalletBindingConflictLogAt: Date?
@@ -287,11 +292,15 @@ final class PushNotificationManager: ObservableObject {
 
         let settings = AppSettings.load()
         let watchedAddresses = collectWatchedAddresses()
-        let watchedGroupIds = collectWatchedGroupIds()
+        // nil = transient keychain failure loading a group bag; register with what we have (the
+        // retry-capable watched-update path heals the group list afterwards).
+        let watchedGroupIds = collectWatchedGroupIds() ?? []
         let aliases = collectAliases(forWatchedAddresses: watchedAddresses)
         let primaryAddress = collectPrimaryAddress()
 
-        guard !watchedAddresses.isEmpty else {
+        // Group ids alone are a valid registration - requiring a non-empty 1:1 list meant a user
+        // with groups but no push-eligible 1:1 chats never registered for group pushes at all.
+        guard !watchedAddresses.isEmpty || !watchedGroupIds.isEmpty else {
             throw PushError.noWatchedAddresses
         }
 
@@ -536,7 +545,7 @@ final class PushNotificationManager: ObservableObject {
                 let delay = updateWatchedDebounce - now.timeIntervalSince(last)
                 updateWatchedTask = Task { [weak self] in
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-                    await self?.runWatchedUpdate()
+                    await self?.runWatchedUpdate(fromDebounceTask: true)
                 }
             }
             return
@@ -554,13 +563,21 @@ final class PushNotificationManager: ObservableObject {
         await runWatchedUpdate()
     }
 
-    private func runWatchedUpdate() async {
+    private func runWatchedUpdate(fromDebounceTask: Bool = false) async {
         guard let token = deviceToken, isRegistered else {
             updateWatchedPending = false
             return
         }
-        updateWatchedTask?.cancel()
-        updateWatchedTask = nil
+        // CRITICAL: when running INSIDE the debounce task, do NOT cancel it - cancelling the very
+        // task this code executes in poisons the subsequent URLSession call (it throws .cancelled),
+        // which silently dropped every debounced update. Roster changes emit in bursts, so group
+        // watch-list updates were routinely lost this way (members missing pushes per-sender).
+        if fromDebounceTask {
+            updateWatchedTask = nil
+        } else {
+            updateWatchedTask?.cancel()
+            updateWatchedTask = nil
+        }
         if updateWatchedInFlight {
             updateWatchedPending = true
             return
@@ -572,10 +589,21 @@ final class PushNotificationManager: ObservableObject {
 
         let settings = AppSettings.load()
         let watchedAddresses = collectWatchedAddresses()
-        let watchedGroupIds = collectWatchedGroupIds()
+        // nil = a group bag failed to load (transient keychain hiccup). Abort + retry rather than
+        // submit a truncated list - the indexer treats the update as a full replace, so a partial
+        // list silently DELETES the missing groups' subscriptions server-side.
+        guard let watchedGroupIds = collectWatchedGroupIds() else {
+            AppLog.log("[Push] Group bag read failed - skipping watched update to avoid truncating server list; will retry")
+            inFlightWatchedSignature = nil
+            scheduleWatchedUpdateRetry()
+            return
+        }
         let aliases = collectAliases(forWatchedAddresses: watchedAddresses)
         let primaryAddress = collectPrimaryAddress()
-        if watchedAddresses.isEmpty {
+        // Only unregister when there is NOTHING left to watch. Group ids alone are a valid
+        // registration - unregistering whenever the 1:1 list was empty killed ALL group pushes for
+        // users with groups but no push-eligible 1:1 chats.
+        if watchedAddresses.isEmpty && watchedGroupIds.isEmpty {
             AppLog.log("[Push] No eligible chats for push, unregistering device from indexer")
             await unregister()
             lastWatchedSignature = ""
@@ -607,6 +635,8 @@ final class PushNotificationManager: ObservableObject {
         } catch {
             lastError = error.localizedDescription
             AppLog.log("[Push] Failed to build auth for watched update: %@", error.localizedDescription)
+            inFlightWatchedSignature = nil
+            scheduleWatchedUpdateRetry()
             return
         }
 
@@ -631,6 +661,8 @@ final class PushNotificationManager: ObservableObject {
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 AppLog.log("[Push] Failed to update watched addresses: invalid response")
+                inFlightWatchedSignature = nil
+                scheduleWatchedUpdateRetry()
                 return
             }
             guard httpResponse.statusCode == 200 else {
@@ -653,6 +685,8 @@ final class PushNotificationManager: ObservableObject {
                     return
                 }
                 AppLog.log("[Push] Failed to update watched addresses: status=%d reason=%@", httpResponse.statusCode, reason)
+                inFlightWatchedSignature = nil
+                scheduleWatchedUpdateRetry()
                 return
             }
 
@@ -661,9 +695,15 @@ final class PushNotificationManager: ObservableObject {
 
             lastWatchedSignature = signature
             lastWatchedUpdateSuccessAt = Date()
-            AppLog.log("[Push] Updated watched addresses: %d", watchedAddresses.count)
+            // Success - reset the failure backoff.
+            watchedUpdateRetryAttempt = 0
+            watchedUpdateRetryTask?.cancel()
+            watchedUpdateRetryTask = nil
+            AppLog.log("[Push] Updated watched addresses: %d (+%d group ids)", watchedAddresses.count, watchedGroupIds.count)
         } catch {
             AppLog.log("[Push] Error updating addresses: %@", error.localizedDescription)
+            inFlightWatchedSignature = nil
+            scheduleWatchedUpdateRetry()
         }
 
         if updateWatchedPending {
@@ -679,6 +719,23 @@ final class PushNotificationManager: ObservableObject {
         }
     }
 
+    /// Backoff retry (5s / 30s / 2min, capped) for a failed watched-set update. Previously a failed
+    /// update was never retried - the drain block only re-runs on a DIFFERENT pending signature - so
+    /// one network hiccup left the indexer's watch list stale until an unrelated trigger.
+    private func scheduleWatchedUpdateRetry() {
+        updateWatchedPending = false
+        watchedUpdateRetryTask?.cancel()
+        let delays: [TimeInterval] = [5, 30, 120]
+        let delay = delays[min(watchedUpdateRetryAttempt, delays.count - 1)]
+        watchedUpdateRetryAttempt += 1
+        AppLog.log("[Push] Scheduling watched-update retry #%d in %.0fs", watchedUpdateRetryAttempt, delay)
+        watchedUpdateRetryTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await self?.runWatchedUpdate()
+        }
+    }
+
     private func buildWatchedSignature(
         watchedAddresses: [String]? = nil,
         watchedGroupIds: [String]? = nil,
@@ -686,7 +743,7 @@ final class PushNotificationManager: ObservableObject {
         primaryAddress: String? = nil
     ) -> String {
         let addrs = (watchedAddresses ?? collectWatchedAddresses()).sorted()
-        let groupIds = (watchedGroupIds ?? collectWatchedGroupIds()).sorted()
+        let groupIds = (watchedGroupIds ?? collectWatchedGroupIds() ?? []).sorted()
         let aliasList = (aliases ?? collectAliases(forWatchedAddresses: addrs)).sorted()
         let primary = primaryAddress ?? collectPrimaryAddress() ?? ""
         return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary]).joined(separator: ",")
@@ -1159,12 +1216,19 @@ final class PushNotificationManager: ObservableObject {
 
     /// `blinded_group_id` is per-sender, not per-group, so for each local group we watch every
     /// OTHER member's blinded id (never our own - we don't need a push for messages we sent).
-    private func collectWatchedGroupIds() -> [String] {
+    /// Returns nil when ANY group's bag fails to load (transient keychain/SE hiccup): the indexer
+    /// treats an update as a full replace, so silently `continue`-ing (the old behavior) submitted
+    /// a truncated list that DELETED the failed group's subscriptions server-side - that group then
+    /// received no pushes at all until an unrelated successful update.
+    private func collectWatchedGroupIds() -> [String]? {
         let myAddress = WalletManager.shared.currentWallet?.publicAddress
         var ids = Set<String>()
         for group in GroupChatService.shared.groups {
             guard let bag = try? KeychainService.shared.loadGroupBag(groupId: group.id),
-                  let blindingKey = Data(hexString: bag.blindingKey) else { continue }
+                  let blindingKey = Data(hexString: bag.blindingKey) else {
+                AppLog.log("[Push] Failed to load group bag for %@ - aborting group-id collection", group.id)
+                return nil
+            }
             let mutedAddresses = GroupChatService.shared.mutedMemberAddresses(for: group.id)
             for member in group.members {
                 // A muted member's messages still show up in the thread (block-scan/catch-up
