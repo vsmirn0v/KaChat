@@ -1478,6 +1478,7 @@ struct ConnectionSettingsView: View {
 
     @State private var networkType: NetworkType = .mainnet
     @State private var indexerURL: String = ""
+    @State private var kaPostIndexerURL: String = ""
     @State private var pushIndexerURL: String = ""
     @State private var knsBaseURL: String = ""
     @State private var kaspaRestAPIURL: String = ""
@@ -1529,6 +1530,23 @@ struct ConnectionSettingsView: View {
                 Text("KaChat Indexer")
             } footer: {
                 Text("Message indexer service for chat functionality")
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("KaPost Indexer URL")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField(AppSettings.defaultKaPostIndexerURL, text: $kaPostIndexerURL)
+                        .font(.system(.body, design: .monospaced))
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                }
+            } header: {
+                Text("KaPost Indexer")
+            } footer: {
+                Text("K social network indexer that powers KaPosts feeds")
             }
 
             Section {
@@ -1728,6 +1746,7 @@ struct ConnectionSettingsView: View {
     private func loadCurrentSettings() {
         networkType = settingsViewModel.settings.networkType
         indexerURL = settingsViewModel.settings.indexerURL
+        kaPostIndexerURL = settingsViewModel.settings.kaPostIndexerURL
         pushIndexerURL = settingsViewModel.settings.pushIndexerURL
         knsBaseURL = settingsViewModel.settings.knsBaseURL
         kaspaRestAPIURL = settingsViewModel.settings.kaspaRestAPIURL
@@ -1736,6 +1755,7 @@ struct ConnectionSettingsView: View {
     private func saveSettings() {
         settingsViewModel.settings.networkType = networkType
         settingsViewModel.settings.indexerURL = indexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        settingsViewModel.settings.kaPostIndexerURL = kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AppSettings.defaultKaPostIndexerURL : kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.pushIndexerURL = pushIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.knsBaseURL = knsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.kaspaRestAPIURL = kaspaRestAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)

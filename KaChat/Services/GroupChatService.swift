@@ -60,6 +60,9 @@ final class GroupChatService: ObservableObject {
 
     private var blockNotificationHandlerId: UUID?
     private var isScanningActive = false
+    /// Read from the (nonisolated) block-notification callback as a cheap pre-parse gate; written
+    /// only alongside isScanningActive on the main actor. Benign bool race by design.
+    private nonisolated(unsafe) var isScanningActiveMirror = false
     private var hasActiveWallet = false
     private var cancellables = Set<AnyCancellable>()
 
@@ -97,12 +100,14 @@ final class GroupChatService: ObservableObject {
     @Published private(set) var groupMentionsOnlyNotifications: Set<String> = []
     private let groupMentionsOnlyNotificationsKey = "kachat_group_mentions_only"
 
-    private static let gcommPrefix = "ciph_msg:1:gcomm:"
-    private static let gctlPrefix = "ciph_msg:1:gctl:"
-    private static let gcommPrefixHex = hexPrefix(gcommPrefix)
-    private static let gctlPrefixHex = hexPrefix(gctlPrefix)
+    // nonisolated: pure constants/helpers with no actor state, referenced from the off-main
+    // block-scan extractor (extractBlockScanHits).
+    private nonisolated static let gcommPrefix = "ciph_msg:1:gcomm:"
+    private nonisolated static let gctlPrefix = "ciph_msg:1:gctl:"
+    private nonisolated static let gcommPrefixHex = hexPrefix(gcommPrefix)
+    private nonisolated static let gctlPrefixHex = hexPrefix(gctlPrefix)
 
-    private static func hexPrefix(_ string: String) -> String {
+    private nonisolated static func hexPrefix(_ string: String) -> String {
         string.utf8.map { String(format: "%02x", $0) }.joined()
     }
 
@@ -1176,12 +1181,27 @@ final class GroupChatService: ObservableObject {
         let shouldScan = hasActiveWallet && NodePoolService.shared.activeNodeCount > 0
         guard shouldScan != isScanningActive else { return }
         isScanningActive = shouldScan
+        isScanningActiveMirror = shouldScan
         if shouldScan {
             if blockNotificationHandlerId == nil {
                 blockNotificationHandlerId = NodePoolService.shared.addNotificationHandler { [weak self] type, data in
                     guard type == .blockAdded else { return }
-                    Task { @MainActor in
-                        self?.handleBlockAddedData(data)
+                    // Cheap gate FIRST: unsubscribeBlockAdded only flips a wanted-flag - blocks
+                    // keep arriving forever once anyone subscribed - so without this the full
+                    // parse below would run ~10x/sec even with scanning off.
+                    guard self?.isScanningActiveMirror == true else { return }
+                    // Blocks arrive ~10x/sec continuously. Deserializing the ENTIRE block and
+                    // prefix-scanning every tx payload used to run on the main actor per block -
+                    // a permanent main-thread tax (jank, worst under screen recording). A single
+                    // SERIAL utility queue (not one detached Task per block) parses off-main so
+                    // slow blocks can't stack into unbounded concurrency; the MainActor is only
+                    // touched for the rare block that actually carries group traffic.
+                    Self.blockScanQueue.async {
+                        let hits = Self.extractBlockScanHits(from: data)
+                        guard !hits.isEmpty else { return }
+                        Task { @MainActor in
+                            self?.ingestBlockScanHits(hits)
+                        }
                     }
                 }
             }
@@ -1191,11 +1211,20 @@ final class GroupChatService: ObservableObject {
         }
     }
 
-    private func handleBlockAddedData(_ data: Data) {
-        guard isScanningActive else { return }
-        guard let notification = try? Protowire_BlockAddedNotificationMessage(serializedBytes: data) else { return }
-        let hrp = AppSettings.load().networkType == .mainnet ? "kaspa" : "kaspatest"
+    /// A block-scan candidate extracted OFF the main actor - only what the MainActor ingest needs.
+    private enum BlockScanHit {
+        case gcomm(parsed: GroupCipher.ParsedGroupMessage, txId: String, blockTime: Int64)
+        case gctl(payload: String, senderAddress: String)
+    }
 
+    /// One serial lane for all block parsing - bounds concurrency to a single off-main worker.
+    private nonisolated static let blockScanQueue = DispatchQueue(label: "com.kachat.groupBlockScan", qos: .utility)
+
+    /// Runs off-main (pure parsing: protobuf deserialize, prefix filter, hex/UTF-8 decode, gcomm
+    /// parse, gctl sender-address derivation - no actor state touched). See the handler above.
+    private nonisolated static func extractBlockScanHits(from data: Data) -> [BlockScanHit] {
+        guard let notification = try? Protowire_BlockAddedNotificationMessage(serializedBytes: data) else { return [] }
+        var hits: [BlockScanHit] = []
         for tx in notification.block.transactions {
             let payloadHex = tx.payload
             let matchesGcomm = payloadHex.hasPrefix(Self.gcommPrefixHex)
@@ -1213,12 +1242,31 @@ final class GroupChatService: ObservableObject {
                     AppLog.log("[GroupChatService] Failed to parse gcomm payload for tx %@", txId)
                     continue
                 }
-                handleIncomingGroupMessage(parsed, txId: txId, blockTime: blockTime)
+                hits.append(.gcomm(parsed: parsed, txId: txId, blockTime: blockTime))
             } else if matchesGctl {
+                // Settings read only HERE, on an actual gctl hit (rare) - reading them per block
+                // did ~20 contended cross-thread refcount ops 10x/sec against strings the main
+                // thread also touches.
+                let hrp = AppSettings.load().networkType == .mainnet ? "kaspa" : "kaspatest"
                 guard let firstOutput = tx.outputs.first,
                       let scriptData = CryptoUtils.hexToData(firstOutput.scriptPublicKey.scriptPublicKey),
                       let senderAddress = KaspaAddress.address(fromScriptPublicKey: scriptData, hrp: hrp) else { continue }
-                handleIncomingControlMessage(Self.normalizeControlPayload(payloadString), senderAddress: senderAddress)
+                hits.append(.gctl(payload: Self.normalizeControlPayload(payloadString), senderAddress: senderAddress))
+            }
+        }
+        return hits
+    }
+
+    /// MainActor ingest of pre-extracted candidates - the only per-block work left on main, and it
+    /// only runs for blocks that actually carry group traffic.
+    private func ingestBlockScanHits(_ hits: [BlockScanHit]) {
+        guard isScanningActive else { return }
+        for hit in hits {
+            switch hit {
+            case .gcomm(let parsed, let txId, let blockTime):
+                handleIncomingGroupMessage(parsed, txId: txId, blockTime: blockTime)
+            case .gctl(let payload, let senderAddress):
+                handleIncomingControlMessage(payload, senderAddress: senderAddress)
             }
         }
     }
@@ -1325,7 +1373,7 @@ final class GroupChatService: ObservableObject {
     /// the rest of the parse/decrypt path (shared with legacy gctl) always sees the uniform
     /// `ciph_msg:1:gctl:{encrypted}` shape. No recipient-address filtering happens here - same as
     /// legacy gctl already relied on, a mismatched recipient's ECIES decrypt just fails silently.
-    private static func normalizeControlPayload(_ payloadString: String) -> String {
+    private nonisolated static func normalizeControlPayload(_ payloadString: String) -> String {
         guard payloadString.hasPrefix(gctlPrefix) else { return payloadString }
         let rest = payloadString.dropFirst(gctlPrefix.count)
         let parts = rest.split(separator: ":", omittingEmptySubsequences: false)

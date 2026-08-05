@@ -1222,6 +1222,10 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case chats
     case swap
     case profile
+    case kaposts
+    /// Not a real page: tapping it opens the Customize Menu settings directly (see MainTabView's
+    /// selection interception). Exists as a real case so it participates in ordering/visibility.
+    case more
 
     var id: String { rawValue }
 
@@ -1232,6 +1236,8 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .chats: return "Chats"
         case .swap: return "Swap"
         case .profile: return "Profile"
+        case .kaposts: return "KaPosts"
+        case .more: return "More"
         }
     }
 
@@ -1242,6 +1248,8 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .chats: return "bubble.left.and.bubble.right"
         case .swap: return "arrow.left.arrow.right"
         case .profile: return "person.crop.circle"
+        case .kaposts: return "square.and.pencil"
+        case .more: return "plus.circle"
         }
     }
 
@@ -1252,6 +1260,8 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .portfolio: return 3
         case .coldStorage: return 4
         case .swap: return 5
+        case .kaposts: return 6
+        case .more: return 7
         }
     }
 
@@ -1260,11 +1270,16 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     var canHide: Bool {
         switch self {
         case .chats, .profile: return false
-        case .portfolio, .coldStorage, .swap: return true
+        case .portfolio, .coldStorage, .swap, .kaposts, .more: return true
         }
     }
 
-    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .swap, .profile]
+    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .swap, .profile, .kaposts, .more]
+
+    /// The dock renders at most this many items; anything past it falls off rather than letting
+    /// the system TabView spawn its own "More" list. KaPosts is dropped first when over the cap -
+    /// it stays reachable by re-tapping the Chats tab (see MainTabView.handleChatsTabReselection).
+    static let maxDockItems = 5
 
     /// `settings.tabOrder`, resolved into real cases with any missing/unknown entries (a fresh
     /// install, or a tab added after some users already saved a custom order) appended at the
@@ -1277,17 +1292,37 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         return order
     }
 
-    /// The resolved order, filtered down to only the tabs the user hasn't hidden - what
-    /// MainTabView actually renders and what the Menu Visibility preview strip shows.
-    static func visible(from settings: AppSettings) -> [AppTab] {
-        resolvedOrder(from: settings).filter { tab in
-            switch tab {
-            case .portfolio: return !settings.hidePortfolioTab
-            case .coldStorage: return !settings.hideColdStorageTab
-            case .swap: return !settings.hideSwapTab
-            case .chats, .profile: return true
-            }
+    /// True when this tab is enabled (not hidden) in settings, independent of dock capacity.
+    func isEnabled(in settings: AppSettings) -> Bool {
+        switch self {
+        case .portfolio: return !settings.hidePortfolioTab
+        case .coldStorage: return !settings.hideColdStorageTab
+        case .swap: return !settings.hideSwapTab
+        case .kaposts: return !settings.hideKaPostsTab
+        case .more: return !settings.hideMoreItem
+        case .chats, .profile: return true
         }
+    }
+
+    /// The resolved order, filtered down to only the tabs the user hasn't hidden and clamped to
+    /// the dock capacity - what MainTabView actually renders and what the Menu Visibility preview
+    /// strip shows. When over capacity, KaPosts drops out first (it stays reachable via re-tapping
+    /// Chats); after that the tail of the order falls off.
+    static func visible(from settings: AppSettings) -> [AppTab] {
+        var tabs = resolvedOrder(from: settings).filter { $0.isEnabled(in: settings) }
+        if tabs.count > maxDockItems, let kapostsIndex = tabs.firstIndex(of: .kaposts) {
+            tabs.remove(at: kapostsIndex)
+        }
+        if tabs.count > maxDockItems {
+            tabs = Array(tabs.prefix(maxDockItems))
+        }
+        return tabs
+    }
+
+    /// KaPosts is enabled but didn't fit in the dock - MainTabView then lets a re-tap on the
+    /// Chats tab toggle between Chats and KaPosts.
+    static func kaPostsAccessibleViaChatsTab(from settings: AppSettings) -> Bool {
+        AppTab.kaposts.isEnabled(in: settings) && !visible(from: settings).contains(.kaposts)
     }
 }
 
@@ -1422,6 +1457,10 @@ struct AppSettings: Codable {
     var hidePortfolioTab: Bool
     var hideSwapTab: Bool
     var hideColdStorageTab: Bool
+    var hideKaPostsTab: Bool
+    /// Hides the "+ More" dock item (which opens Customize Menu directly) - for users who want
+    /// KaChat to be chatting-only. Customize Menu stays reachable via Settings > Customization.
+    var hideMoreItem: Bool
     /// Broadcasts isn't a tab (it's an entry row inside the Chats list, see `ChatListView`'s
     /// `chatsTabContent`) but is still user-hideable from Settings > Customization > Menu, so it
     /// gets its own flag here rather than a case in `AppTab`.
@@ -1445,6 +1484,8 @@ struct AppSettings: Codable {
 
     // Connection settings
     var indexerURL: String
+    /// K social-network indexer powering KaPosts (reusing the already-running public K indexer).
+    var kaPostIndexerURL: String
     var pushIndexerURL: String
     var knsBaseURL: String
     var kaspaRestAPIURL: String
@@ -1467,6 +1508,7 @@ struct AppSettings: Codable {
 
     // Default URLs per network
     static let defaultIndexerURL = "https://indexer.kasia.wtf"
+    static let defaultKaPostIndexerURL = "https://mainnet.kaspatalk.net"
     /// Retired default - `indexer.kasia.fyi` doesn't run the group-chat REST endpoints
     /// (`/group-messages/...`, `/group-control/...`), only `indexer.kasia.wtf` does. See
     /// `AppSettings.load()`'s one-time migration off this value.
@@ -1527,16 +1569,23 @@ struct AppSettings: Codable {
             appearance: .system,
             language: .system,
             currency: .usDollar,
-            hidePortfolioTab: false,
-            hideSwapTab: false,
-            hideColdStorageTab: false,
+            // Fresh-install dock is minimal by design (4.0): just Chats, Profile and "+ More"
+            // (which opens Customize Menu, where everything else can be toggled on). Existing
+            // users are unaffected - their saved settings decode with the ?? fallbacks in
+            // init(from:), which keep every pre-4.0 tab visible and More/KaPosts hidden.
+            hidePortfolioTab: true,
+            hideSwapTab: true,
+            hideColdStorageTab: true,
+            hideKaPostsTab: true,
+            hideMoreItem: false,
             hideBroadcasts: false,
-            tabOrder: AppTab.defaultOrder.map { $0.rawValue },
+            tabOrder: [AppTab.chats, AppTab.profile, AppTab.more].map { $0.rawValue },
             biometricSeedPhraseEnabled: true,
             biometricAccountLoginEnabled: true,
             biometricSpendingKeyEnabled: true,
             swapDisclaimerAgreed: false,
             indexerURL: defaultIndexerURL,
+            kaPostIndexerURL: defaultKaPostIndexerURL,
             pushIndexerURL: defaultPushIndexerURL,
             knsBaseURL: defaultKNSMainnetURL,
             kaspaRestAPIURL: defaultKaspaMainnetURL,
@@ -1573,6 +1622,8 @@ struct AppSettings: Codable {
         case hidePortfolioTab
         case hideSwapTab
         case hideColdStorageTab
+        case hideKaPostsTab
+        case hideMoreItem
         case hideBroadcasts
         case tabOrder
         case biometricSeedPhraseEnabled
@@ -1580,6 +1631,7 @@ struct AppSettings: Codable {
         case biometricSpendingKeyEnabled
         case swapDisclaimerAgreed
         case indexerURL
+        case kaPostIndexerURL
         case pushIndexerURL
         case knsBaseURL
         case kaspaRestAPIURL
@@ -1624,6 +1676,8 @@ struct AppSettings: Codable {
         hidePortfolioTab: Bool = false,
         hideSwapTab: Bool = false,
         hideColdStorageTab: Bool = false,
+        hideKaPostsTab: Bool = true,
+        hideMoreItem: Bool = true,
         hideBroadcasts: Bool = false,
         tabOrder: [String] = AppTab.defaultOrder.map { $0.rawValue },
         biometricSeedPhraseEnabled: Bool = true,
@@ -1631,6 +1685,7 @@ struct AppSettings: Codable {
         biometricSpendingKeyEnabled: Bool = true,
         swapDisclaimerAgreed: Bool = false,
         indexerURL: String,
+        kaPostIndexerURL: String = AppSettings.defaultKaPostIndexerURL,
         pushIndexerURL: String,
         knsBaseURL: String,
         kaspaRestAPIURL: String,
@@ -1665,6 +1720,8 @@ struct AppSettings: Codable {
         self.hidePortfolioTab = hidePortfolioTab
         self.hideSwapTab = hideSwapTab
         self.hideColdStorageTab = hideColdStorageTab
+        self.hideKaPostsTab = hideKaPostsTab
+        self.hideMoreItem = hideMoreItem
         self.hideBroadcasts = hideBroadcasts
         self.tabOrder = tabOrder
         self.biometricSeedPhraseEnabled = biometricSeedPhraseEnabled
@@ -1672,6 +1729,7 @@ struct AppSettings: Codable {
         self.biometricSpendingKeyEnabled = biometricSpendingKeyEnabled
         self.swapDisclaimerAgreed = swapDisclaimerAgreed
         self.indexerURL = indexerURL
+        self.kaPostIndexerURL = kaPostIndexerURL
         self.pushIndexerURL = pushIndexerURL
         self.knsBaseURL = knsBaseURL
         self.kaspaRestAPIURL = kaspaRestAPIURL
@@ -1733,6 +1791,8 @@ struct AppSettings: Codable {
         hidePortfolioTab = try container.decodeIfPresent(Bool.self, forKey: .hidePortfolioTab) ?? false
         hideSwapTab = try container.decodeIfPresent(Bool.self, forKey: .hideSwapTab) ?? false
         hideColdStorageTab = try container.decodeIfPresent(Bool.self, forKey: .hideColdStorageTab) ?? false
+        hideKaPostsTab = try container.decodeIfPresent(Bool.self, forKey: .hideKaPostsTab) ?? true
+        hideMoreItem = try container.decodeIfPresent(Bool.self, forKey: .hideMoreItem) ?? true
         hideBroadcasts = try container.decodeIfPresent(Bool.self, forKey: .hideBroadcasts) ?? false
         tabOrder = try container.decodeIfPresent([String].self, forKey: .tabOrder) ?? AppTab.defaultOrder.map { $0.rawValue }
         biometricSeedPhraseEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSeedPhraseEnabled) ?? true
@@ -1746,6 +1806,7 @@ struct AppSettings: Codable {
         } else {
             indexerURL = try container.decodeIfPresent(String.self, forKey: .indexerURL) ?? AppSettings.defaultIndexerURL
         }
+        kaPostIndexerURL = try container.decodeIfPresent(String.self, forKey: .kaPostIndexerURL) ?? AppSettings.defaultKaPostIndexerURL
 
         if let customPushIndexer = try container.decodeIfPresent(String.self, forKey: .pushIndexerURL),
            !customPushIndexer.isEmpty {
@@ -1800,6 +1861,8 @@ struct AppSettings: Codable {
         try container.encode(hidePortfolioTab, forKey: .hidePortfolioTab)
         try container.encode(hideSwapTab, forKey: .hideSwapTab)
         try container.encode(hideColdStorageTab, forKey: .hideColdStorageTab)
+        try container.encode(hideKaPostsTab, forKey: .hideKaPostsTab)
+        try container.encode(hideMoreItem, forKey: .hideMoreItem)
         try container.encode(hideBroadcasts, forKey: .hideBroadcasts)
         try container.encode(tabOrder, forKey: .tabOrder)
         try container.encode(biometricSeedPhraseEnabled, forKey: .biometricSeedPhraseEnabled)
@@ -1807,6 +1870,7 @@ struct AppSettings: Codable {
         try container.encode(biometricSpendingKeyEnabled, forKey: .biometricSpendingKeyEnabled)
         try container.encode(swapDisclaimerAgreed, forKey: .swapDisclaimerAgreed)
         try container.encode(indexerURL, forKey: .indexerURL)
+        try container.encode(kaPostIndexerURL, forKey: .kaPostIndexerURL)
         try container.encode(pushIndexerURL, forKey: .pushIndexerURL)
         try container.encode(knsBaseURL, forKey: .knsBaseURL)
         try container.encode(kaspaRestAPIURL, forKey: .kaspaRestAPIURL)

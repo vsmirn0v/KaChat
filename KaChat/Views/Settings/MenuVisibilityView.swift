@@ -17,6 +17,33 @@ struct MenuVisibilityView: View {
         AppTab.visible(from: settingsViewModel.settings)
     }
 
+    /// Dock menus currently toggled ON among Portfolio, Storage, Swap and More. Chats/Profile
+    /// are always-on and don't count; Broadcasts doesn't count (it's a row inside the Chats list,
+    /// not a dock item); and KaPosts is EXEMPT - when the dock is full it rides the Chats slot
+    /// (re-tap the Chats tab to open it) instead of taking a dock place, so it never needs to
+    /// push anything out.
+    private var enabledDockToggleCount: Int {
+        let settings = settingsViewModel.settings
+        return [
+            !settings.hidePortfolioTab,
+            !settings.hideColdStorageTab,
+            !settings.hideSwapTab,
+            !settings.hideMoreItem
+        ].filter { $0 }.count
+    }
+
+    /// KaPosts is on but the dock is full, so it opens via re-tapping the Chats tab - surfaced as
+    /// a hint on its row so the behavior is discoverable right where it was toggled on.
+    private var kaPostsReTapHint: String? {
+        let settings = settingsViewModel.settings
+        guard !settings.hideKaPostsTab else { return nil }
+        return AppTab.kaPostsAccessibleViaChatsTab(from: settings)
+            ? "Dock is full - open it by tapping the Chats tab again" : nil
+    }
+
+    /// At most 3 optional dock menus may be ON at once (2 locked + 3 optional = the 5-item dock).
+    private var atMenuLimit: Bool { enabledDockToggleCount >= 3 }
+
     var body: some View {
         List {
             Section {
@@ -31,7 +58,8 @@ struct MenuVisibilityView: View {
                         get: { !settingsViewModel.settings.hidePortfolioTab },
                         set: { settingsViewModel.settings.hidePortfolioTab = !$0; settingsViewModel.saveSettings() }
                     ),
-                    locked: false
+                    locked: false,
+                    limitLocked: atMenuLimit && settingsViewModel.settings.hidePortfolioTab
                 )
                 menuRow(
                     icon: AppTab.coldStorage.icon,
@@ -40,7 +68,8 @@ struct MenuVisibilityView: View {
                         get: { !settingsViewModel.settings.hideColdStorageTab },
                         set: { settingsViewModel.settings.hideColdStorageTab = !$0; settingsViewModel.saveSettings() }
                     ),
-                    locked: false
+                    locked: false,
+                    limitLocked: atMenuLimit && settingsViewModel.settings.hideColdStorageTab
                 )
                 menuRow(
                     icon: AppTab.swap.icon,
@@ -49,7 +78,28 @@ struct MenuVisibilityView: View {
                         get: { !settingsViewModel.settings.hideSwapTab },
                         set: { settingsViewModel.settings.hideSwapTab = !$0; settingsViewModel.saveSettings() }
                     ),
-                    locked: false
+                    locked: false,
+                    limitLocked: atMenuLimit && settingsViewModel.settings.hideSwapTab
+                )
+                menuRow(
+                    icon: AppTab.kaposts.icon,
+                    label: AppTab.kaposts.label,
+                    isOn: Binding(
+                        get: { !settingsViewModel.settings.hideKaPostsTab },
+                        set: { settingsViewModel.settings.hideKaPostsTab = !$0; settingsViewModel.saveSettings() }
+                    ),
+                    locked: false,
+                    hint: kaPostsReTapHint
+                )
+                menuRow(
+                    icon: AppTab.more.icon,
+                    label: "\(AppTab.more.label) (+)",
+                    isOn: Binding(
+                        get: { !settingsViewModel.settings.hideMoreItem },
+                        set: { settingsViewModel.settings.hideMoreItem = !$0; settingsViewModel.saveSettings() }
+                    ),
+                    locked: false,
+                    limitLocked: atMenuLimit && settingsViewModel.settings.hideMoreItem
                 )
                 menuRow(
                     icon: "dot.radiowaves.left.and.right",
@@ -63,7 +113,7 @@ struct MenuVisibilityView: View {
             } header: {
                 Text("Choose which tabs appear in your bottom menu.")
             } footer: {
-                Text("Press and drag a tab in the preview below to reorder it.")
+                Text("Press and drag a tab in the preview below to reorder it. The dock shows up to \(AppTab.maxDockItems) items - if it's full, KaPosts stays available by tapping the Chats tab again. \"More (+)\" opens this screen straight from the dock.")
             }
         }
         .navigationTitle("Menu")
@@ -73,10 +123,21 @@ struct MenuVisibilityView: View {
         }
     }
 
-    private func menuRow(icon: String, label: String, isOn: Binding<Bool>, locked: Bool) -> some View {
+    private func menuRow(icon: String, label: String, isOn: Binding<Bool>, locked: Bool, limitLocked: Bool = false, hint: String? = nil) -> some View {
         HStack {
-            Label(label, systemImage: icon)
-                .foregroundColor(.primary)
+            VStack(alignment: .leading, spacing: 2) {
+                Label(label, systemImage: icon)
+                    .foregroundColor(.primary)
+                if limitLocked {
+                    Text("Turn another menu off to enable")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                } else if let hint {
+                    Text(hint)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
             Spacer()
             if locked {
                 Text("Always shown")
@@ -86,8 +147,10 @@ struct MenuVisibilityView: View {
                 Toggle("", isOn: isOn)
                     .labelsHidden()
                     .tint(.accentColor)
+                    .disabled(limitLocked)
             }
         }
+        .opacity(limitLocked ? 0.45 : 1)
     }
 
     // MARK: - Live reorderable preview
