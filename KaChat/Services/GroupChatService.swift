@@ -378,6 +378,7 @@ final class GroupChatService: ObservableObject {
             resolveDisplayName: { self.groupMemberDisplayName($0, in: group) }
         )
         content.threadIdentifier = "group:\(group.id)"
+        content.categoryIdentifier = AppDelegate.messageCategoryId
         content.sound = settings.incomingNotificationSoundEnabled ? .default : nil
 
         let request = UNNotificationRequest(identifier: message.txId, content: content, trigger: nil)

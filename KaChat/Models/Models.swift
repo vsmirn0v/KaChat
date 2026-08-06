@@ -1486,6 +1486,9 @@ struct AppSettings: Codable {
     var indexerURL: String
     /// K social-network indexer powering KaPosts (reusing the already-running public K indexer).
     var kaPostIndexerURL: String
+    /// KaChat-owned broadcast indexer (tracks #kaspa and #kachat-bugs history). Empty =
+    /// disabled; the app then relies on live block scanning only, as before.
+    var broadcastIndexerURL: String
     var pushIndexerURL: String
     var knsBaseURL: String
     var kaspaRestAPIURL: String
@@ -1509,6 +1512,7 @@ struct AppSettings: Codable {
     // Default URLs per network
     static let defaultIndexerURL = "https://indexer.kasia.wtf"
     static let defaultKaPostIndexerURL = "https://kaposts.duckdns.org"
+    static let defaultBroadcastIndexerURL = ""
     /// Retired default - the public K social indexer (`mainnet.kaspatalk.net`). KaPosts now
     /// runs on KaChat's own indexer, which enforces two-way KaChat-only exclusivity server-side
     /// and is a fresh network with no relation to the K social graph. Anyone still on the old
@@ -1591,6 +1595,7 @@ struct AppSettings: Codable {
             swapDisclaimerAgreed: false,
             indexerURL: defaultIndexerURL,
             kaPostIndexerURL: defaultKaPostIndexerURL,
+            broadcastIndexerURL: defaultBroadcastIndexerURL,
             pushIndexerURL: defaultPushIndexerURL,
             knsBaseURL: defaultKNSMainnetURL,
             kaspaRestAPIURL: defaultKaspaMainnetURL,
@@ -1637,6 +1642,7 @@ struct AppSettings: Codable {
         case swapDisclaimerAgreed
         case indexerURL
         case kaPostIndexerURL
+        case broadcastIndexerURL
         case pushIndexerURL
         case knsBaseURL
         case kaspaRestAPIURL
@@ -1691,6 +1697,7 @@ struct AppSettings: Codable {
         swapDisclaimerAgreed: Bool = false,
         indexerURL: String,
         kaPostIndexerURL: String = AppSettings.defaultKaPostIndexerURL,
+        broadcastIndexerURL: String = AppSettings.defaultBroadcastIndexerURL,
         pushIndexerURL: String,
         knsBaseURL: String,
         kaspaRestAPIURL: String,
@@ -1735,6 +1742,7 @@ struct AppSettings: Codable {
         self.swapDisclaimerAgreed = swapDisclaimerAgreed
         self.indexerURL = indexerURL
         self.kaPostIndexerURL = kaPostIndexerURL
+        self.broadcastIndexerURL = broadcastIndexerURL
         self.pushIndexerURL = pushIndexerURL
         self.knsBaseURL = knsBaseURL
         self.kaspaRestAPIURL = kaspaRestAPIURL
@@ -1812,6 +1820,7 @@ struct AppSettings: Codable {
             indexerURL = try container.decodeIfPresent(String.self, forKey: .indexerURL) ?? AppSettings.defaultIndexerURL
         }
         kaPostIndexerURL = try container.decodeIfPresent(String.self, forKey: .kaPostIndexerURL) ?? AppSettings.defaultKaPostIndexerURL
+        broadcastIndexerURL = try container.decodeIfPresent(String.self, forKey: .broadcastIndexerURL) ?? AppSettings.defaultBroadcastIndexerURL
 
         if let customPushIndexer = try container.decodeIfPresent(String.self, forKey: .pushIndexerURL),
            !customPushIndexer.isEmpty {
@@ -1876,6 +1885,7 @@ struct AppSettings: Codable {
         try container.encode(swapDisclaimerAgreed, forKey: .swapDisclaimerAgreed)
         try container.encode(indexerURL, forKey: .indexerURL)
         try container.encode(kaPostIndexerURL, forKey: .kaPostIndexerURL)
+        try container.encode(broadcastIndexerURL, forKey: .broadcastIndexerURL)
         try container.encode(pushIndexerURL, forKey: .pushIndexerURL)
         try container.encode(knsBaseURL, forKey: .knsBaseURL)
         try container.encode(kaspaRestAPIURL, forKey: .kaspaRestAPIURL)

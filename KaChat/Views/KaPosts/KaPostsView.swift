@@ -90,6 +90,11 @@ struct KaPostsView: View {
     @State private var isLoadingMyProfilePosts = false
     /// One self-unfollow scrub per session at most (indexer lag would otherwise resubmit).
     @State private var selfUnfollowScrubbed = false
+    /// The tapped poster's on-chain posts + counts for the full-profile sheet.
+    @State private var posterProfilePosts: [DraftPost] = []
+    @State private var posterProfileFollowers: Int?
+    @State private var posterProfileFollowing: Int?
+    @State private var isLoadingPosterProfile = false
     /// Repost tapped on an on-chain post: choose plain repost vs quote.
     @State private var repostDialogTarget: DraftPost?
     @State private var quoteComposerTarget: DraftPost?
@@ -205,11 +210,8 @@ struct KaPostsView: View {
             .presentationDetents([.medium, .large])
         }
         .sheet(item: $profileTarget) { target in
-            KaPostsProfileView(
-                address: target.address,
-                onFollowToggle: { toggleFollowSubmitting(address: target.address, pubkey: target.pubkey) }
-            )
-                .presentationDetents([.medium, .large])
+            posterProfileSheet(for: target)
+                .presentationDetents([.large])
         }
         .sheet(item: $detailTarget) { target in
             postDetailSheet(postId: target.id)
@@ -662,6 +664,10 @@ struct KaPostsView: View {
                 transform(&remotePosts[index].comments[commentIndex])
                 return
             }
+        }
+        for index in posterProfilePosts.indices where posterProfilePosts[index].id == id {
+            transform(&posterProfilePosts[index])
+            return
         }
     }
 
@@ -1203,6 +1209,197 @@ struct KaPostsView: View {
         }
     }
 
+    /// Full X-style profile for a tapped poster - banner, avatar, name, Follow +
+    /// Send A Chat, live follower/following counts, bio, then their on-chain feed. Mirrors
+    /// myProfileSheet; engagement runs through the same handlers (mutatePost covers this feed).
+    private func posterProfileSheet(for target: PosterProfileTarget) -> some View {
+        let address = target.address
+        let info = knsService.profileCache[address]
+        return NavigationStack {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ZStack(alignment: .bottomLeading) {
+                        Group {
+                            if let bannerURL = info?.profile?.bannerUrl,
+                               let url = URL(string: bannerURL) {
+                                AsyncImage(url: url) { phase in
+                                    if let image = phase.image {
+                                        image.resizable().scaledToFill()
+                                    } else {
+                                        bannerFallback
+                                    }
+                                }
+                            } else {
+                                bannerFallback
+                            }
+                        }
+                        .frame(height: 140)
+                        .frame(maxWidth: .infinity)
+                        .clipped()
+                    }
+
+                    KNSAvatarView(
+                        avatarURLString: info?.avatarURL,
+                        fallbackText: posterDisplayName(address),
+                        size: 76
+                    )
+                    .overlay(Circle().stroke(Color(uiColor: .systemBackground), lineWidth: 3))
+                    .padding(.leading, 16)
+                    .padding(.top, -38)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        // Name with the actions in a single tidy row: name - Follow - Send A Chat.
+                        HStack(spacing: 8) {
+                            Text(posterDisplayName(address))
+                                .font(.title3.weight(.bold))
+                                .lineLimit(1)
+                                .layoutPriority(1)
+                            Spacer(minLength: 8)
+                            if address != WalletManager.shared.currentWallet?.publicAddress {
+                                Button {
+                                    Haptics.impact(.light)
+                                    toggleFollowSubmitting(address: address, pubkey: target.pubkey)
+                                } label: {
+                                    Text(followStore.isFollowing(address) ? "Following" : "Follow")
+                                        .font(.caption.weight(.bold))
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                                .tint(followStore.isFollowing(address) ? Color.secondary.opacity(0.35) : Color.accentColor)
+                            }
+                            Button {
+                                Haptics.impact(.light)
+                                startChat(with: address)
+                            } label: {
+                                Label("Send A Chat", systemImage: "bubble.left.and.bubble.right")
+                                    .font(.caption.weight(.bold))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .tint(.accentColor)
+                        }
+                        HStack(spacing: 16) {
+                            HStack(spacing: 4) {
+                                Text("\(posterProfileFollowing ?? 0)")
+                                    .font(.subheadline.weight(.bold))
+                                Text("Following")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                            HStack(spacing: 4) {
+                                Text("\(posterProfileFollowers ?? 0)")
+                                    .font(.subheadline.weight(.bold))
+                                Text("Followers")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        if let bio = info?.profile?.bio,
+                           !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(bio)
+                                .font(.subheadline)
+                                .padding(.top, 2)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 14)
+
+                    Divider()
+
+                    if posterProfilePosts.isEmpty, isLoadingPosterProfile {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 40)
+                    } else if posterProfilePosts.isEmpty {
+                        VStack(spacing: 12) {
+                            Image(systemName: "square.and.pencil")
+                                .font(.system(size: 40))
+                                .foregroundColor(.secondary)
+                            Text("No posts yet")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 40)
+                    } else {
+                        ForEach(posterProfilePosts) { post in
+                            KaPostCellView(
+                                post: post,
+                                displayName: posterDisplayName(post.posterAddress),
+                                avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
+                                isFollowing: followStore.isFollowing(post.posterAddress),
+                                commentCount: visibleComments(of: post).count,
+                                onComment: nil,
+                                onMute: { moderationStore.mute(post.posterAddress) },
+                                onBlock: { moderationStore.block(post.posterAddress) },
+                                onBookmark: { toggleBookmark(post) },
+                                onRetry: nil,
+                                onViewEngagement: { engagementTarget = post },
+                                onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
+                                onOpenProfile: {},
+                                onLike: { toggleLike(post) },
+                                onDislike: { toggleDislike(post) },
+                                onRepost: { handleRepostTap(post) }
+                            )
+                            Divider()
+                                .padding(.leading, 68)
+                        }
+                    }
+                }
+            }
+            .ignoresSafeArea(edges: .top)
+            .navigationTitle("Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { profileTarget = nil }
+                }
+            }
+            .task(id: target.id) {
+                posterProfilePosts = []
+                posterProfileFollowers = nil
+                posterProfileFollowing = nil
+                if knsService.profileCache[address] == nil {
+                    _ = await knsService.fetchProfile(for: address)
+                }
+                guard let pubkey = target.pubkey else { return }
+                isLoadingPosterProfile = true
+                async let detailsFetch = try? KaPostsAPIClient.shared.fetchUserDetails(pubkey: pubkey)
+                async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey)
+                if let details = await detailsFetch {
+                    posterProfileFollowers = details.followersCount
+                    posterProfileFollowing = details.followingCount
+                }
+                if let fetched = await postsFetch {
+                    posterProfilePosts = fetched.posts.compactMap(Self.mapRemotePost)
+                }
+                isLoadingPosterProfile = false
+            }
+        }
+    }
+
+    /// Jumps into (or creates) the 1:1 chat with this poster: ensures a contact exists
+    /// (silently auto-added if new), ensures the conversation exists, then routes through the
+    /// standard .openChat navigation. Slight delay so the profile sheet finishes dismissing.
+    private func startChat(with address: String) {
+        let contact: Contact?
+        if let existing = ContactsManager.shared.getContact(byAddress: address) {
+            contact = existing
+        } else {
+            contact = try? ContactsManager.shared.addContact(address: address, alias: "", isAutoAdded: true)
+        }
+        guard let contact else { return }
+        _ = ChatService.shared.getOrCreateConversation(for: contact)
+        profileTarget = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            NotificationCenter.default.post(
+                name: .openChat,
+                object: nil,
+                userInfo: ["contactAddress": contact.address]
+            )
+        }
+    }
+
     private var bannerFallback: some View {
         LinearGradient(
             colors: [Color.accentColor.opacity(0.55), Color.accentColor.opacity(0.15)],
@@ -1606,8 +1803,6 @@ private struct KaPostCellView: View {
                     .foregroundColor(.primary)
                     .lineLimit(truncatesLongText && isLongPost ? 8 : nil)
                     .fixedSize(horizontal: false, vertical: true)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onComment?() }
                 if truncatesLongText && isLongPost {
                     Button {
                         onComment?()
@@ -1706,6 +1901,11 @@ private struct KaPostCellView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        // Tap anywhere on the card (outside a button) to open the post's comment thread.
+        .onTapGesture {
+            onComment?()
+        }
         // The Kaspa-logo burst plays when the like actually lands - i.e. after the 5s
         // countdown fires, not on the tap that armed it.
         .onChange(of: post.likedByMe) { liked in
@@ -2070,176 +2270,6 @@ final class KaPostsFollowStore: ObservableObject {
         UserDefaults.standard.set(Array(following), forKey: defaultsKey)
     }
 }
-
-// MARK: - Poster profile
-
-/// Poster profile sheet - mirrors the app's other info screens: KNS avatar/name up top, the full
-/// KNS profile underneath (bio + socials when set), the raw address, and a prominent
-/// Follow/Following button.
-struct KaPostsProfileView: View {
-    let address: String
-    /// When provided (feed context knows the poster's K pubkey), follow/unfollow submits the
-    /// on-chain K transaction; otherwise the toggle stays local-only.
-    var onFollowToggle: (() -> Void)? = nil
-
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject private var knsService = KNSService.shared
-    @ObservedObject private var followStore = KaPostsFollowStore.shared
-
-    private var profileInfo: KNSAddressProfileInfo? {
-        knsService.profileCache[address]
-    }
-
-    private var displayName: String {
-        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
-           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(alias)
-        }
-        if let domain = profileInfo?.domainName,
-           !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(domain)
-        }
-        return String(address.suffix(10))
-    }
-
-    /// Jumps into (or creates) the 1:1 chat with this poster: ensures a contact exists (silently
-    /// auto-added if new, same as other implicit-add flows), ensures the conversation exists, then
-    /// routes through the app's standard .openChat navigation - which lands on the Chats tab with
-    /// the thread open. Slight delay so this sheet finishes dismissing first.
-    private func startChat() {
-        let contact: Contact?
-        if let existing = ContactsManager.shared.getContact(byAddress: address) {
-            contact = existing
-        } else {
-            contact = try? ContactsManager.shared.addContact(address: address, alias: "", isAutoAdded: true)
-        }
-        guard let contact else { return }
-        _ = ChatService.shared.getOrCreateConversation(for: contact)
-        dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            NotificationCenter.default.post(
-                name: .openChat,
-                object: nil,
-                userInfo: ["contactAddress": contact.address]
-            )
-        }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    HStack(spacing: 14) {
-                        KNSAvatarView(
-                            avatarURLString: profileInfo?.avatarURL,
-                            fallbackText: displayName,
-                            size: 64
-                        )
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(displayName)
-                                .font(.title3.weight(.bold))
-                                .lineLimit(1)
-                            if let domain = profileInfo?.domainName.map(KaPostsView.strippingKasSuffix),
-                               domain != displayName {
-                                Text(domain)
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 4)
-
-                    if address != WalletManager.shared.currentWallet?.publicAddress {
-                        Button {
-                            Haptics.impact(.light)
-                            if let onFollowToggle {
-                                onFollowToggle()
-                            } else {
-                                followStore.toggle(address)
-                            }
-                        } label: {
-                            Text(followStore.isFollowing(address) ? "Following" : "Follow")
-                                .font(.subheadline.weight(.bold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 6)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(followStore.isFollowing(address) ? Color.secondary.opacity(0.35) : Color.accentColor)
-                    }
-
-                    Button {
-                        Haptics.impact(.light)
-                        startChat()
-                    } label: {
-                        Label("Send A Chat", systemImage: "bubble.left.and.bubble.right")
-                            .font(.subheadline.weight(.bold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.accentColor)
-                }
-
-                if let bio = profileInfo?.profile?.bio,
-                   !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Section("Bio") {
-                        Text(bio)
-                            .font(.subheadline)
-                    }
-                }
-
-                let socials: [(label: String, icon: String, value: String?)] = [
-                    ("X", "at", profileInfo?.profile?.x),
-                    ("Website", "globe", profileInfo?.profile?.website),
-                    ("Telegram", "paperplane", profileInfo?.profile?.telegram),
-                    ("Discord", "bubble.left.and.bubble.right", profileInfo?.profile?.discord),
-                    ("GitHub", "chevron.left.forwardslash.chevron.right", profileInfo?.profile?.github),
-                    ("Email", "envelope", profileInfo?.profile?.contactEmail)
-                ]
-                let filledSocials = socials.compactMap { entry -> (String, String, String)? in
-                    guard let value = entry.value?.trimmingCharacters(in: .whitespacesAndNewlines),
-                          !value.isEmpty else { return nil }
-                    return (entry.label, entry.icon, value)
-                }
-                if !filledSocials.isEmpty {
-                    Section("Links") {
-                        ForEach(filledSocials, id: \.0) { label, icon, value in
-                            HStack {
-                                Label(label, systemImage: icon)
-                                Spacer()
-                                Text(value)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                        }
-                    }
-                }
-
-                Section("Address") {
-                    Text(address)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundColor(.secondary)
-                        .textSelection(.enabled)
-                }
-            }
-            .navigationTitle("Profile")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            .task(id: address) {
-                guard knsService.profileCache[address] == nil, !address.isEmpty else { return }
-                _ = await knsService.fetchProfile(for: address)
-            }
-        }
-    }
-}
-
 
 // MARK: - Moderation store (local-only; interaction enforcement lands with wiring)
 

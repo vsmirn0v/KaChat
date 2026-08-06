@@ -2791,6 +2791,7 @@ extension ChatService {
         let shouldPlaySound = settings.shouldPlayIncomingNotificationSound(for: contact)
         content.sound = shouldPlaySound ? .default : nil
         content.threadIdentifier = contact.address
+        content.categoryIdentifier = AppDelegate.messageCategoryId
 
         if !shouldPlaySound &&
             settings.incomingNotificationVibrationEnabled &&

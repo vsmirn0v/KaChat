@@ -360,6 +360,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Set notification delegate to handle foreground notifications
         UNUserNotificationCenter.current().delegate = self
+        registerNotificationCategories()
 
         // Register background task handler
         BackgroundTaskManager.shared.registerBackgroundTasks()
@@ -519,6 +520,100 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         }
     }
 
+    // MARK: Quick reply (iPhone notification actions + Apple Watch)
+
+    /// Category attached to every actionable message notification (1:1 and group, local and
+    /// push). The text-input action gives iPhone its inline quick-reply field and Apple Watch
+    /// its Reply button with dictation/scribble - no watch app needed, mirrored notifications
+    /// inherit the actions automatically.
+    static let messageCategoryId = "KACHAT_MESSAGE"
+    static let replyActionId = "KACHAT_REPLY"
+
+    private func registerNotificationCategories() {
+        let reply = UNTextInputNotificationAction(
+            identifier: Self.replyActionId,
+            title: String(localized: "Reply"),
+            options: [],
+            textInputButtonTitle: String(localized: "Send"),
+            textInputPlaceholder: String(localized: "Message")
+        )
+        let category = UNNotificationCategory(
+            identifier: Self.messageCategoryId,
+            actions: [reply],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([category])
+    }
+
+    private enum QuickReplyError: Error {
+        case noWallet
+        case unknownTarget
+    }
+
+    /// Sends a quick-reply without any UI: iOS launches the app into the background for the
+    /// action, so grab background time, make sure the wallet is loaded (keychain material is
+    /// AfterFirstUnlock, so this works from the lock screen), and route by thread id. On any
+    /// failure, post a notification so the reply isn't silently lost.
+    private func handleQuickReply(
+        text: String,
+        threadIdentifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            completionHandler()
+            return
+        }
+        var bgTask: UIBackgroundTaskIdentifier = .invalid
+        bgTask = UIApplication.shared.beginBackgroundTask(withName: "kachat.quickreply") {
+            if bgTask != .invalid {
+                UIApplication.shared.endBackgroundTask(bgTask)
+                bgTask = .invalid
+            }
+        }
+        Task { @MainActor in
+            defer {
+                completionHandler()
+                if bgTask != .invalid {
+                    UIApplication.shared.endBackgroundTask(bgTask)
+                    bgTask = .invalid
+                }
+            }
+            do {
+                if WalletManager.shared.currentWallet == nil {
+                    await WalletManager.shared.loadWallet()
+                }
+                guard WalletManager.shared.currentWallet != nil else { throw QuickReplyError.noWallet }
+                if threadIdentifier.hasPrefix("group:") {
+                    let groupId = String(threadIdentifier.dropFirst("group:".count))
+                    guard !groupId.isEmpty else { throw QuickReplyError.unknownTarget }
+                    try await GroupChatService.shared.sendGroupMessage(trimmed, to: groupId)
+                } else if !threadIdentifier.isEmpty,
+                          let contact = ContactsManager.shared.getContact(byAddress: threadIdentifier) {
+                    _ = ChatService.shared.getOrCreateConversation(for: contact)
+                    try await ChatService.shared.sendMessage(to: contact, content: trimmed)
+                } else {
+                    throw QuickReplyError.unknownTarget
+                }
+            } catch {
+                AppLog.log("%@", "[QuickReply] Send failed: \(error.localizedDescription)")
+                postQuickReplyFailureNotification(threadIdentifier: threadIdentifier)
+            }
+        }
+    }
+
+    private func postQuickReplyFailureNotification(threadIdentifier: String) {
+        let content = UNMutableNotificationContent()
+        content.title = String(localized: "Reply not sent")
+        content.body = String(localized: "Your reply couldn't be sent. Open KaChat to try again.")
+        content.sound = .default
+        content.threadIdentifier = threadIdentifier
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: "quickreply-fail-\(UUID().uuidString)", content: content, trigger: nil)
+        )
+    }
+
     // Handle notification tap
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
@@ -534,6 +629,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // broadcast room notification (see `BroadcastService.notifyIfEnabled`), or
         // "group:<groupId>" for a group chat notification.
         let threadIdentifier = response.notification.request.content.threadIdentifier
+
+        // Quick reply: send straight from the notification (long-press on iPhone, Reply on
+        // Apple Watch) without opening the app UI.
+        if response.actionIdentifier == Self.replyActionId,
+           let textResponse = response as? UNTextInputNotificationResponse {
+            handleQuickReply(
+                text: textResponse.userText,
+                threadIdentifier: threadIdentifier,
+                completionHandler: completionHandler
+            )
+            return
+        }
         if threadIdentifier.hasPrefix("broadcast:") {
             let channel = String(threadIdentifier.dropFirst("broadcast:".count))
             if !channel.isEmpty {

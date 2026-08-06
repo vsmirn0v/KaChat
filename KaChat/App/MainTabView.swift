@@ -3,8 +3,6 @@ import UIKit
 
 struct MainTabView: View {
     @State private var selectedTab = 1
-    @State private var lastActiveChatAddress: String?
-    @State private var isChatReturnArmed = false
     /// Debounces the off-chat-tab discovery pause/resume so rapid tab-flipping can't thrash it.
     @State private var tabWorkTask: Task<Void, Never>?
     @State private var showGiftSheet = false
@@ -81,11 +79,6 @@ struct MainTabView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .showGiftClaim)) { _ in
             presentGiftSheetIfEligibleForZeroBalance()
-        }
-        .onChange(of: chatService.activeConversationAddress) { newValue in
-            guard let address = newValue else { return }
-            lastActiveChatAddress = address
-            isChatReturnArmed = false
         }
         .onChange(of: AppTab.visible(from: settingsViewModel.settings).map(\.tag)) { visibleTags in
             // Menu toggles can remove the currently-selected page (or hand its position to
@@ -230,23 +223,8 @@ struct MainTabView: View {
     }
 
     private func handleChatsTabReselection() {
-        if let activeAddress = chatService.activeConversationAddress {
-            lastActiveChatAddress = activeAddress
-            isChatReturnArmed = true
-            return
-        }
-        // Return-to-last-chat has priority over the KaPosts flip so the long-standing gesture
-        // keeps working; the flip only fires when there's nothing armed to return to.
-        if isChatReturnArmed, let address = lastActiveChatAddress {
-            isChatReturnArmed = false
-            NotificationCenter.default.post(
-                name: .openChat,
-                object: nil,
-                userInfo: ["contactAddress": address]
-            )
-            return
-        }
-        // Dock full + KaPosts enabled: re-tap toggles the Chats slot between Chats and KaPosts.
+        // Re-tapping Chats always toggles the slot between Chats and KaPosts (the old
+        // return-to-last-chat gesture was removed in favor of a predictable flip).
         if AppTab.kaPostsAccessibleViaChatsTab(from: settingsViewModel.settings) {
             showKaPostsViaChats.toggle()
         }

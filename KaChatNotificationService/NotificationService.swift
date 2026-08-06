@@ -95,6 +95,9 @@ class NotificationService: UNNotificationServiceExtension {
 
         // Set thread identifier for grouping
         content.threadIdentifier = senderAddress
+        // Matches AppDelegate.messageCategoryId in the main app - enables inline quick reply
+        // (and the Apple Watch Reply button) on push-delivered messages.
+        content.categoryIdentifier = "KACHAT_MESSAGE"
 
         let defaults = UserDefaults(suiteName: appGroupIdentifier)
         let defaultSoundEnabled = (defaults?.object(forKey: incomingNotificationSoundEnabledKey) as? Bool) ?? true
@@ -256,6 +259,7 @@ class NotificationService: UNNotificationServiceExtension {
             content.subtitle = senderName
             content.body = displayBody
             content.threadIdentifier = "group:\(match.groupId)"
+            content.categoryIdentifier = "KACHAT_MESSAGE"
             content.sound = defaultSoundEnabled ? .default : nil
         } else {
             guard let payloadHex = userInfo["payload"] as? String,

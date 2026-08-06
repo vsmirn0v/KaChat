@@ -294,6 +294,7 @@ Implementation uses:
 | `POOLS_v2.md` | gRPC node pool architecture - discovery, scoring, failover |
 | `PUSH_NOTIFICATIONS.md` | Push notification architecture and rollout notes |
 | `KAPOSTS_INDEXER.md` | Handoff/build guide for the KaChat-owned KaPosts indexer (protocol, API compatibility bar, required extensions) |
+| `BROADCAST_INDEXER.md` | Handoff/build guide for the KaChat broadcast indexer (#kaspa / #kachat-bugs history, REST spec, Docker) |
 | `PUSH_SECURITY_AUDIT.md` | Push service security review and mitigation plan |
 | `docs/archive/2026-02/POOLS.md` | Legacy pool design (v1), archived |
 | `docs/archive/2026-02/POOLS_v2_IMPROVEMENTS.md` | Historical POOLS_v2 implementation plan, archived |

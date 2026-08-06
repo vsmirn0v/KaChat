@@ -152,6 +152,50 @@ final class BroadcastService: ObservableObject {
         store.pruneExpiredMessages()
         loadMessages(for: normalized)
         updateScanningStateIfNeeded()
+        backfillFromIndexerIfConfigured(channel: normalized)
+    }
+
+    /// Channels already history-backfilled this session (one indexer round-trip per channel).
+    private var backfilledChannels = Set<String>()
+
+    /// Pulls channel history from the KaChat broadcast indexer (Settings > Connection
+    /// Settings > Broadcast Indexer) and merges it into the local store. Live block scanning
+    /// only sees messages while the app is listening - the indexer fills in everything missed.
+    /// No-op when the URL is unset; store insert dedupes by txid; hidden senders and local
+    /// retention pruning apply to backfilled rows exactly like scanned ones.
+    private func backfillFromIndexerIfConfigured(channel: String) {
+        guard !backfilledChannels.contains(channel) else { return }
+        let settings = AppSettings.load()
+        let base = settings.broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !base.isEmpty else { return }
+        backfilledChannels.insert(channel)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let messages = try await BroadcastIndexerClient.fetchHistory(baseURL: base, channel: channel)
+                let hidden = self.store.hiddenSenderAddresses()
+                var insertedAny = false
+                for message in messages where !hidden.contains(message.senderAddress) {
+                    let inserted = self.store.insertMessage(
+                        id: message.txId,
+                        channel: channel,
+                        senderAddress: message.senderAddress,
+                        content: message.content,
+                        blockTime: message.blockTime,
+                        deliveryStatus: .sent
+                    )
+                    insertedAny = insertedAny || inserted
+                }
+                if insertedAny {
+                    self.store.pruneExpiredMessages()
+                    self.loadMessages(for: channel)
+                }
+            } catch {
+                // Backfill is best-effort on top of live scanning - allow a retry next open.
+                self.backfilledChannels.remove(channel)
+                AppLog.log("%@", "[Broadcast] Indexer backfill failed for #\(channel): \(error.localizedDescription)")
+            }
+        }
     }
 
     /// Call when a broadcast channel screen disappears; pairs with `acquire`.
@@ -638,5 +682,69 @@ final class BroadcastService: ObservableObject {
                 AppLog.log("[BroadcastService] Failed to send local notification: %@", error.localizedDescription)
             }
         }
+    }
+}
+
+
+// MARK: - Broadcast indexer client
+
+/// Minimal read client for the KaChat-owned broadcast indexer (see BROADCAST_INDEXER.md - the
+/// server tracks #kaspa and #kachat-bugs history so clients aren't limited to what they catch
+/// live). The API contract this client expects is the source of truth for the server build.
+enum BroadcastIndexerClient {
+    struct IndexedBroadcast: Decodable {
+        let txId: String
+        let channel: String?
+        let senderAddress: String
+        let content: String
+        let blockTime: Int64
+    }
+
+    private struct HistoryResponse: Decodable {
+        let messages: [IndexedBroadcast]
+        let hasMore: Bool?
+    }
+
+    enum ClientError: LocalizedError {
+        case badURL
+        case badResponse(Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .badURL: return "Invalid broadcast indexer URL"
+            case .badResponse(let code): return "Broadcast indexer returned HTTP \(code)"
+            }
+        }
+    }
+
+    /// GET /get-broadcasts?channel=<name>&limit=<n>[&before=<blockTimeMs>]
+    /// -> {"messages":[{txId, channel, senderAddress, content, blockTime}], "hasMore": Bool}
+    /// blockTime is ms; results newest-first; `before` pages older history.
+    static func fetchHistory(
+        baseURL: String,
+        channel: String,
+        limit: Int = 200,
+        before: Int64? = nil
+    ) async throws -> [IndexedBroadcast] {
+        var trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasSuffix("/") { trimmed = String(trimmed.dropLast()) }
+        var components = URLComponents(string: "\(trimmed)/get-broadcasts")
+        var query = [
+            URLQueryItem(name: "channel", value: channel),
+            URLQueryItem(name: "limit", value: String(limit))
+        ]
+        if let before {
+            query.append(URLQueryItem(name: "before", value: String(before)))
+        }
+        components?.queryItems = query
+        guard let url = components?.url else { throw ClientError.badURL }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw ClientError.badResponse(http.statusCode)
+        }
+        return try JSONDecoder().decode(HistoryResponse.self, from: data).messages
     }
 }
