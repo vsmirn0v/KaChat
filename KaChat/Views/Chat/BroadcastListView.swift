@@ -46,9 +46,6 @@ struct BroadcastListView: View {
     /// lands the user directly in the room instead of just this list.
     let initialChannel: String?
 
-    private enum Tab: Int { case channels, popular }
-
-    @State private var selectedTab: Tab = .channels
     @State private var showJoinAlert = false
     @State private var joinFieldText = ""
     @State private var joinError: String?
@@ -79,8 +76,10 @@ struct BroadcastListView: View {
             }
         }
         .onAppear {
+            // The curated Popular channels always have store rows so their bell state exists
+            // before first entry.
+            broadcastService.ensureFeaturedChannelsJoined()
             broadcastService.refreshChannels()
-            if !broadcastService.popularTabEnabled { selectedTab = .channels }
             if !hasAppliedInitialChannel, let initialChannel {
                 hasAppliedInitialChannel = true
                 selectedChannel = initialChannel
@@ -97,29 +96,12 @@ struct BroadcastListView: View {
             guard let channel = newValue else { return }
             selectedChannel = channel
         }
-        .onChange(of: broadcastService.popularTabEnabled) { enabled in
-            if !enabled { selectedTab = .channels }
-        }
     }
 
     private var broadcastListContent: some View {
-        VStack(spacing: 0) {
-            if broadcastService.popularTabEnabled {
-                broadcastTabBar
-
-                // Swipeable, not just tappable - matches Android's HorizontalPager, which pages
-                // between Channels/Popular on a drag same as tapping the tab bar.
-                TabView(selection: $selectedTab) {
-                    channelsPage
-                        .tag(Tab.channels)
-                    popularList
-                        .tag(Tab.popular)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-            } else {
-                channelsPage
-            }
-        }
+        // One page, no tabs: the curated Popular rooms pinned on top (enter/exit freely, no
+        // leaving - they're permanent), then everything the user joined under Your Channels.
+        combinedList
         .navigationTitle("Broadcasts")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -188,51 +170,6 @@ struct BroadcastListView: View {
         }
     }
 
-    /// Underline-style tab bar (bold labels, teal indicator bar under the selected tab) matching
-    /// Android's Material3 `TabRow` — replacing the earlier iOS-standard segmented-control pill,
-    /// which read as a different, less "Broadcasts-specific" control than Android's.
-    private var broadcastTabBar: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                broadcastTabButton("Channels", tab: .channels)
-                broadcastTabButton("Popular", tab: .popular)
-            }
-            Divider()
-        }
-    }
-
-    private var channelsPage: some View {
-        Group {
-            if broadcastService.channels.isEmpty {
-                emptyState
-            } else {
-                channelsList
-            }
-        }
-    }
-
-    private func broadcastTabButton(_ title: String, tab: Tab) -> some View {
-        let isSelected = selectedTab == tab
-        return Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                selectedTab = tab
-            }
-        } label: {
-            VStack(spacing: 8) {
-                Text(title)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 12)
-
-                Rectangle()
-                    .fill(isSelected ? Color.accentColor : Color.clear)
-                    .frame(height: 2.5)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
     private func inlineChannelView(_ channel: String) -> some View {
         BroadcastChannelView(channelName: channel)
             .id(channel)
@@ -247,131 +184,145 @@ struct BroadcastListView: View {
             }
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Image(systemName: "dot.radiowaves.left.and.right")
-                .font(.system(size: 48))
-                .foregroundColor(.secondary)
-            Text("No broadcast channels yet")
-                .font(.headline)
-            Text("Broadcasts are public, unencrypted channels - anyone who joins the same channel name sees the same messages.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Spacer()
-        }
-    }
-
-    private var popularList: some View {
+    private var combinedList: some View {
         List {
-            ForEach(BroadcastService.featuredChannels, id: \.self) { name in
-                let alreadyJoined = broadcastService.channels.contains { $0.channelName == name }
-                Button {
-                    guard !alreadyJoined else { return }
-                    join(name)
-                } label: {
-                    HStack {
-                        Text("#\(name)")
-                            .font(.body)
-                            .fontWeight(.bold)
-                        Spacer()
-                        Text(alreadyJoined ? "Joined" : "Join")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(alreadyJoined ? .secondary : .accentColor)
+            Section {
+                ForEach(BroadcastService.featuredChannels, id: \.self) { name in
+                    let channel = broadcastService.channels.first { $0.channelName == name }
+                    HStack(spacing: 4) {
+                        Button {
+                            selectedChannel = name
+                        } label: {
+                            Text("#\(name)")
+                                .font(.body)
+                                .fontWeight(.bold)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        // Curated rooms are permanent (no Leave) with fixed 3-day retention
+                        // (no gear) and indexer-backed history (no listen toggle) - the bell
+                        // is the only control, gating in-app banners AND remote push.
+                        if let channel {
+                            Button {
+                                toggleNotify(channel)
+                            } label: {
+                                Image(systemName: channel.notifyEnabled ? "bell.fill" : "bell.slash")
+                                    .foregroundColor(channel.notifyEnabled ? .accentColor : .secondary)
+                                    .frame(width: 32, height: 32)
+                            }
+                            .buttonStyle(.borderless)
+                        }
                     }
                     .padding(16)
-                    .contentShape(Rectangle())
+                    .background(Color(UIColor.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 }
-                .buttonStyle(.plain)
-                .background(Color(UIColor.secondarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            } header: {
+                sectionHeader("Popular")
+            }
+
+            Section {
+                let ownChannels = broadcastService.channels.filter {
+                    !BroadcastService.featuredChannels.contains($0.channelName)
+                }
+                if ownChannels.isEmpty {
+                    Text("No channels yet - tap + to join or create one.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                } else {
+                    ForEach(ownChannels) { channel in
+                        ownChannelRow(channel)
+                    }
+                }
+            } header: {
+                sectionHeader("Your Channels")
             }
         }
         .listStyle(.plain)
     }
 
-    private var channelsList: some View {
-        List {
-            ForEach(broadcastService.channels) { channel in
-                HStack(spacing: 4) {
-                    Button {
-                        selectedChannel = channel.channelName
-                    } label: {
-                        Text("#\(channel.channelName)")
-                            .font(.body)
-                            .fontWeight(.bold)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.bold))
+            .foregroundColor(.accentColor)
+            .textCase(nil)
+            .padding(.leading, 4)
+    }
 
-                    // Indexer-tracked channels (#kaspa / #kachat-bugs) drop the listen toggle
-                    // (the broadcast indexer records history 24/7, nothing to miss) and the
-                    // retention gear (fixed 3 days) - just the bell and Leave.
-                    let isIndexed = BroadcastService.featuredChannels.contains(channel.channelName)
-                    if !isIndexed {
-                        Button {
-                            toggleAlwaysListen(channel)
-                        } label: {
-                            Image(systemName: channel.alwaysListen ? "speaker.wave.2.fill" : "speaker.slash")
-                                .foregroundColor(channel.alwaysListen ? .accentColor : .secondary)
-                                .frame(width: 32, height: 32)
-                        }
-                        .buttonStyle(.borderless)
-                    }
+    private func ownChannelRow(_ channel: BroadcastChannel) -> some View {
+        HStack(spacing: 4) {
+            Button {
+                selectedChannel = channel.channelName
+            } label: {
+                Text("#\(channel.channelName)")
+                    .font(.body)
+                    .fontWeight(.bold)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
-                    Button {
-                        toggleNotify(channel)
-                    } label: {
-                        Image(systemName: channel.notifyEnabled ? "bell.fill" : "bell.slash")
-                            .foregroundColor(channel.notifyEnabled ? .accentColor : .secondary)
-                            .frame(width: 32, height: 32)
-                    }
-                    .buttonStyle(.borderless)
+            Button {
+                toggleAlwaysListen(channel)
+            } label: {
+                Image(systemName: channel.alwaysListen ? "speaker.wave.2.fill" : "speaker.slash")
+                    .foregroundColor(channel.alwaysListen ? .accentColor : .secondary)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.borderless)
 
-                    if !isIndexed {
-                        Button {
-                            retentionSettingsChannel = channel
-                        } label: {
-                            Image(systemName: "gearshape")
-                                .foregroundColor(.secondary)
-                                .frame(width: 32, height: 32)
-                        }
-                        .buttonStyle(.borderless)
-                    }
+            Button {
+                toggleNotify(channel)
+            } label: {
+                Image(systemName: channel.notifyEnabled ? "bell.fill" : "bell.slash")
+                    .foregroundColor(channel.notifyEnabled ? .accentColor : .secondary)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.borderless)
 
-                    Button {
-                        channelToLeave = channel.channelName
-                    } label: {
-                        Text("Leave")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.borderless)
-                }
-                .padding(16)
-                .background(Color(UIColor.secondarySystemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        channelToLeave = channel.channelName
-                    } label: {
-                        Label("Leave", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                }
+            Button {
+                retentionSettingsChannel = channel
+            } label: {
+                Image(systemName: "gearshape")
+                    .foregroundColor(.secondary)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.borderless)
+
+            Button {
+                channelToLeave = channel.channelName
+            } label: {
+                Text("Leave")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(16)
+        .background(Color(UIColor.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                channelToLeave = channel.channelName
+            } label: {
+                Label("Leave", systemImage: "rectangle.portrait.and.arrow.right")
             }
         }
-        .listStyle(.plain)
     }
 
     private func toggleAlwaysListen(_ channel: BroadcastChannel) {
@@ -545,20 +496,6 @@ private struct BroadcastSettingsView: View {
 
     var body: some View {
         Form {
-            Section {
-                Toggle(isOn: Binding(
-                    get: { broadcastService.popularTabEnabled },
-                    set: { broadcastService.setPopularTabEnabled($0) }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Popular Tab")
-                        Text("Shows a tab of recommended broadcast rooms you can jump into.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-
             Section {
                 Toggle(isOn: Binding(
                     get: { broadcastService.showKnsAvatarsEnabled },

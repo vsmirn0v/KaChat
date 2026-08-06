@@ -224,13 +224,19 @@ struct KaPostsView: View {
             ),
             presenting: repostDialogTarget
         ) { target in
-            // A plain repost is permanent on-chain (no un-quote in the K protocol) - once done,
-            // only quoting remains available. Multiple quotes are legitimate, like X.
             if !target.repostedByMe {
                 Button("Repost") {
                     // Held for 5s behind the icon countdown - tap it to cancel before submit.
                     scheduler.schedule(key: "repost:\(target.id)") {
                         performRepost(target: target, text: nil, localQuoteId: nil)
+                    }
+                }
+            } else {
+                Button("Remove Repost", role: .destructive) {
+                    // Same 5s countdown window; the fork's `unquote` counter-action nets the
+                    // repost out on the indexer (the chain keeps both transactions).
+                    scheduler.schedule(key: "repost:\(target.id)") {
+                        performUnrepost(target)
                     }
                 }
             }
@@ -240,7 +246,7 @@ struct KaPostsView: View {
             Button("Cancel", role: .cancel) {}
         } message: { target in
             Text(target.repostedByMe
-                 ? "You've already reposted this - reposts are permanent on the network. You can still quote it."
+                 ? "You've reposted this. Remove your repost, or quote it with your own thoughts."
                  : "Share this post as-is, or add your own thoughts.")
         }
         .sheet(item: $engagementTarget) { target in
@@ -821,29 +827,30 @@ struct KaPostsView: View {
         }
     }
 
-    /// Likes are held for 5s behind the in-icon countdown (tap it to cancel) - only then does
-    /// the permanent on-chain vote submit. Local-only un-likes stay immediate and reversible.
+    /// Both directions are held for 5s behind the in-icon countdown (tap it to cancel):
+    /// liking submits an upvote, un-liking submits the fork's `unvote` counter-action.
     private func toggleLike(_ post: DraftPost) {
-        if post.remoteId != nil, post.likedByMe { return }
-        if post.likedByMe {
-            performLike(post)
+        if post.likedByMe, post.remoteId == nil {
+            performLike(post)   // local-only unlike, instant
             return
         }
         scheduler.schedule(key: "like:\(post.id)") { performLike(post) }
     }
 
     private func performLike(_ post: DraftPost) {
-        // On-chain votes are PERMANENT: the K protocol has no un-vote, so once a post is on the
-        // network its like can't be removed - tapping a filled heart is a no-op (the honest
-        // representation; a local "unlike" would just revert on the next refresh). Removal
-        // arrives with our own indexer fork, which will honor counter-actions.
-        if post.remoteId != nil, post.likedByMe { return }
         if !post.likedByMe, let remoteId = post.remoteId, let author = post.posterPubkey {
             Task {
                 do {
                     let txId = try await KaPostsAPIClient.shared.submitVote(postId: remoteId, upvote: true, authorPubkey: author)
                     showActionToast("Like posted to the network", txId: txId)
                 } catch { AppLog.log("[KaPosts] Upvote submit failed: %@", error.localizedDescription) }
+            }
+        } else if post.likedByMe, let remoteId = post.remoteId, let author = post.posterPubkey {
+            Task {
+                do {
+                    let txId = try await KaPostsAPIClient.shared.submitUnvote(postId: remoteId, authorPubkey: author)
+                    showActionToast("Like removed on the network", txId: txId)
+                } catch { AppLog.log("[KaPosts] Unvote submit failed: %@", error.localizedDescription) }
             }
         }
         mutatePost(id: post.id) { target in
@@ -861,10 +868,9 @@ struct KaPostsView: View {
         }
     }
 
-    /// Same 5s countdown-then-submit as toggleLike.
+    /// Same 5s countdown-then-submit as toggleLike, un-dislike included.
     private func toggleDislike(_ post: DraftPost) {
-        if post.remoteId != nil, post.dislikedByMe { return }
-        if post.dislikedByMe {
+        if post.dislikedByMe, post.remoteId == nil {
             performDislike(post)
             return
         }
@@ -872,14 +878,19 @@ struct KaPostsView: View {
     }
 
     private func performDislike(_ post: DraftPost) {
-        // Permanent once on-chain - see performLike.
-        if post.remoteId != nil, post.dislikedByMe { return }
         if !post.dislikedByMe, let remoteId = post.remoteId, let author = post.posterPubkey {
             Task {
                 do {
                     let txId = try await KaPostsAPIClient.shared.submitVote(postId: remoteId, upvote: false, authorPubkey: author)
                     showActionToast("Dislike posted to the network", txId: txId)
                 } catch { AppLog.log("[KaPosts] Downvote submit failed: %@", error.localizedDescription) }
+            }
+        } else if post.dislikedByMe, let remoteId = post.remoteId, let author = post.posterPubkey {
+            Task {
+                do {
+                    let txId = try await KaPostsAPIClient.shared.submitUnvote(postId: remoteId, authorPubkey: author)
+                    showActionToast("Dislike removed on the network", txId: txId)
+                } catch { AppLog.log("[KaPosts] Unvote submit failed: %@", error.localizedDescription) }
             }
         }
         mutatePost(id: post.id) { target in
@@ -933,6 +944,25 @@ struct KaPostsView: View {
                     mutatePost(id: localQuoteId) { $0.deliveryStatus = .failed }
                 }
                 AppLog.log("[KaPosts] Quote/repost submit failed: %@", error.localizedDescription)
+            }
+        }
+    }
+
+    /// Withdraws our repost of `target` via the fork's unquote counter-action.
+    private func performUnrepost(_ target: DraftPost) {
+        guard let contentId = target.remoteId else { return }
+        mutatePost(id: target.id) { post in
+            if post.repostedByMe {
+                post.repostedByMe = false
+                post.reposts = max(0, post.reposts - 1)
+            }
+        }
+        Task {
+            do {
+                let txId = try await KaPostsAPIClient.shared.submitUnquote(contentId: contentId)
+                showActionToast("Repost removed on the network", txId: txId)
+            } catch {
+                AppLog.log("[KaPosts] Unquote submit failed: %@", error.localizedDescription)
             }
         }
     }
@@ -1760,16 +1790,12 @@ private struct KaPostCellView: View {
                     // can still interact with you. Block: content gone AND they can't interact
                     // (the interaction half becomes real once wiring lands).
                     Menu {
-                        // Own posts open the Post Activity screen first (the network only
-                        // shares who-did-what for your own posts); anyone else's post goes
-                        // straight to the explorer.
-                        if let remoteId = post.remoteId {
+                        // Post Activity works for EVERYONE's posts now (the KaChat indexer
+                        // fork serves get-post-engagement); the post's own explorer link lives
+                        // inside that screen.
+                        if post.remoteId != nil, let onViewEngagement {
                             Button {
-                                if isOwnPost, let onViewEngagement {
-                                    onViewEngagement()
-                                } else if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: remoteId) {
-                                    openURL(url)
-                                }
+                                onViewEngagement()
                             } label: {
                                 Label("View Post in Explorer", systemImage: "globe")
                             }
@@ -2468,11 +2494,9 @@ struct KaPostEngagementView: View {
             Image(systemName: "chart.bar")
                 .font(.system(size: 40))
                 .foregroundColor(.secondary)
-            Text(isOwnPost ? "Nothing here yet" : "Counts only")
+            Text("Nothing here yet")
                 .font(.headline)
-            Text(isOwnPost
-                 ? "When someone engages with this post, they'll show up here."
-                 : "The network only shares who-did-what for your own posts right now - counts for this post are on the card.")
+            Text("When someone engages with this post, they'll show up here.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -2495,12 +2519,47 @@ struct KaPostEngagementView: View {
         return String(address.suffix(10))
     }
 
-    /// Builds the four actor lists from the requester's notification stream, filtered to this
-    /// post. Reposts vs Quotes split on whether the quote carried text beyond the KaChat marker.
+    /// Actor lists come from the KaChat indexer fork's get-post-engagement - works for ANY
+    /// post. Falls back to the notification-stream derivation (own posts only) if the endpoint
+    /// isn't available (older indexer deployment).
     private func load() async {
-        guard isOwnPost, let postId = post.remoteId else { return }
+        guard let postId = post.remoteId else { return }
         isLoading = true
         defer { isLoading = false }
+        do {
+            let rows = try await KaPostsAPIClient.shared.fetchPostEngagement(postId: postId)
+            var likes: [EngagementEntry] = []
+            var dislikes: [EngagementEntry] = []
+            var reposts: [EngagementEntry] = []
+            var quotes: [EngagementEntry] = []
+            for row in rows {
+                let entry = EngagementEntry(
+                    id: row.actionTxId,
+                    actorPubkey: row.actorPubkey,
+                    timestamp: Date(timeIntervalSince1970: TimeInterval(row.timestamp) / 1000)
+                )
+                switch row.kind {
+                case "upvote": likes.append(entry)
+                case "downvote": dislikes.append(entry)
+                case "repost": reposts.append(entry)
+                case "quote": quotes.append(entry)
+                default: break
+                }
+            }
+            entries = [.likes: likes, .dislikes: dislikes, .reposts: reposts, .quotes: quotes]
+        } catch {
+            AppLog.log("[KaPosts] Engagement endpoint failed, falling back: %@", error.localizedDescription)
+            if isOwnPost {
+                await loadFromNotifications(postId: postId)
+            } else {
+                loadFailed = true
+            }
+        }
+    }
+
+    /// Legacy path: derive the lists from the requester's notification stream, filtered to this
+    /// post. Reposts vs Quotes split on whether the quote carried text beyond the KaChat marker.
+    private func loadFromNotifications(postId: String) async {
         do {
             let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 100)
             var likes: [EngagementEntry] = []

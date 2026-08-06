@@ -11,7 +11,9 @@ final class BroadcastService: ObservableObject {
     static let shared = BroadcastService()
 
     /// Hardcoded curated channels shown in a "Popular" section, matching Android.
-    static let featuredChannels = ["kaspa", "kachat-bugs"]
+    /// nonisolated: read from BroadcastStore's background prune (retention rule) as well as
+    /// main-actor UI - immutable Sendable value, safe from anywhere.
+    nonisolated static let featuredChannels = ["kaspa", "kachat-bugs"]
 
     @Published private(set) var channels: [BroadcastChannel] = []
     @Published private(set) var messagesByChannel: [String: [BroadcastMessage]] = [:]
@@ -22,12 +24,10 @@ final class BroadcastService: ObservableObject {
     @Published var pendingBroadcastNavigation: String?
 
     /// Shows a "Popular" tab of curated channels in the list screen. Default matches Android.
-    @Published private(set) var popularTabEnabled: Bool
     /// Shows senders' KNS avatars in rooms and automatically looks them up as soon as a message
     /// appears; off shows plain initials for everyone and never fetches avatars. Default matches Android.
     @Published private(set) var showKnsAvatarsEnabled: Bool
 
-    private let popularTabEnabledKey = "kachat_broadcast_popular_enabled"
     private let showKnsAvatarsEnabledKey = "kachat_broadcast_show_kns_avatars"
 
     private let store = BroadcastStore.shared
@@ -49,16 +49,10 @@ final class BroadcastService: ObservableObject {
 
     private init() {
         let defaults = UserDefaults.standard
-        popularTabEnabled = (defaults.object(forKey: popularTabEnabledKey) as? Bool) ?? true
         showKnsAvatarsEnabled = (defaults.object(forKey: showKnsAvatarsEnabledKey) as? Bool) ?? true
     }
 
     // MARK: - Settings
-
-    func setPopularTabEnabled(_ enabled: Bool) {
-        popularTabEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: popularTabEnabledKey)
-    }
 
     func setShowKnsAvatarsEnabled(_ enabled: Bool) {
         showKnsAvatarsEnabled = enabled
@@ -88,6 +82,15 @@ final class BroadcastService: ObservableObject {
         return Self.featuredChannels.filter { !joined.contains($0) }
     }
 
+    /// The curated Popular rooms are permanent fixtures of the list screen - make sure they
+    /// have store rows (bell state etc.) without requiring an explicit join.
+    func ensureFeaturedChannelsJoined() {
+        for name in Self.featuredChannels {
+            _ = store.joinChannel(name)
+        }
+        refreshChannels()
+    }
+
     @discardableResult
     func joinChannel(_ rawName: String) -> Bool {
         guard store.joinChannel(rawName) else { return false }
@@ -96,6 +99,8 @@ final class BroadcastService: ObservableObject {
     }
 
     func leaveChannel(_ name: String) {
+        // Curated rooms can't be left - no UI offers it; guard against stray paths.
+        guard !Self.featuredChannels.contains(BroadcastChannelName.normalize(name)) else { return }
         let normalized = BroadcastChannelName.normalize(name)
         store.leaveChannel(normalized)
         messagesByChannel.removeValue(forKey: normalized)

@@ -134,6 +134,19 @@ final class KaPostsAPIClient: ObservableObject {
         let notifications: [KNotification]
     }
 
+    /// One actor row from get-post-engagement (KaChat indexer fork): who did what to a post,
+    /// with the ACTION's txid for explorer deep-links.
+    struct KEngagementEntry: Decodable {
+        let actorPubkey: String
+        let actionTxId: String
+        let timestamp: Int64
+        let kind: String    // upvote | downvote | repost | quote
+    }
+
+    private struct EngagementResponse: Decodable {
+        let engagement: [KEngagementEntry]
+    }
+
     struct KFollowUser: Decodable, Identifiable {
         let userPublicKey: String
         let timestamp: Int64?
@@ -279,6 +292,18 @@ final class KaPostsAPIClient: ObservableObject {
         return response.notifications
     }
 
+    /// Per-post actor lists from the KaChat indexer fork - works for ANY post, unlike the
+    /// notifications stream (own posts only).
+    func fetchPostEngagement(postId: String, type: String = "all", limit: Int = 100) async throws -> [KEngagementEntry] {
+        let response: EngagementResponse = try await get("get-post-engagement", query: [
+            "postId": postId,
+            "type": type,
+            "requesterPubkey": try requesterPubkey(),
+            "limit": "\(limit)"
+        ])
+        return response.engagement
+    }
+
     /// Who `pubkey` follows (followers=false) or who follows them (followers=true).
     func fetchFollowList(ofPubkey pubkey: String, followers: Bool, limit: Int = 100) async throws -> [KFollowUser] {
         let path = followers ? "get-users-followers" : "get-users-following"
@@ -336,6 +361,9 @@ enum KaPostsProtocol {
     static func quoteSigningString(contentId: String, b64Message: String, quotedAuthorPubkey: String) -> String {
         "\(contentId):\(b64Message):\(quotedAuthorPubkey)"
     }
+    static func unquoteSigningString(contentId: String) -> String {
+        contentId
+    }
 
     // Full payloads:
     static func postPayload(pubkey: String, signature: String, b64Message: String, mentionsJSON: String) -> String {
@@ -352,6 +380,9 @@ enum KaPostsProtocol {
     }
     static func quotePayload(pubkey: String, signature: String, contentId: String, b64Message: String, quotedAuthorPubkey: String) -> String {
         "\(prefix)quote:\(pubkey):\(signature):\(contentId):\(b64Message):\(quotedAuthorPubkey)"
+    }
+    static func unquotePayload(pubkey: String, signature: String, contentId: String) -> String {
+        "\(prefix)unquote:\(pubkey):\(signature):\(contentId)"
     }
 }
 
@@ -395,7 +426,16 @@ extension KaPostsAPIClient {
     /// Casts an upvote/downvote on a post. (K has no un-vote action in the spec - local unlike
     /// stays client-side only for now.)
     func submitVote(postId: String, upvote: Bool, authorPubkey: String) async throws -> String {
-        let vote = upvote ? "upvote" : "downvote"
+        try await submitVoteAction(postId: postId, vote: upvote ? "upvote" : "downvote", authorPubkey: authorPubkey)
+    }
+
+    /// Removal counter-action (KaChat indexer fork): withdraws our existing up/down vote on a
+    /// post. The chain keeps both transactions; the indexer's interpretation nets them out.
+    func submitUnvote(postId: String, authorPubkey: String) async throws -> String {
+        try await submitVoteAction(postId: postId, vote: "unvote", authorPubkey: authorPubkey)
+    }
+
+    private func submitVoteAction(postId: String, vote: String, authorPubkey: String) async throws -> String {
         let pubkey = try requesterPubkey()
         let signature = try WalletManager.shared.signArbitraryMessage(
             KaPostsProtocol.voteSigningString(postId: postId, vote: vote, authorPubkey: authorPubkey),
@@ -403,6 +443,19 @@ extension KaPostsAPIClient {
         )
         return try await submitPayloadTx(
             KaPostsProtocol.votePayload(pubkey: pubkey, signature: signature, postId: postId, vote: vote, authorPubkey: authorPubkey)
+        )
+    }
+
+    /// Removal counter-action: withdraws our quote/repost of `contentId` (the quoted post's
+    /// id, same field meaning as in the quote payload).
+    func submitUnquote(contentId: String) async throws -> String {
+        let pubkey = try requesterPubkey()
+        let signature = try WalletManager.shared.signArbitraryMessage(
+            KaPostsProtocol.unquoteSigningString(contentId: contentId),
+            mode: .kaspaPersonalMessage
+        )
+        return try await submitPayloadTx(
+            KaPostsProtocol.unquotePayload(pubkey: pubkey, signature: signature, contentId: contentId)
         )
     }
 

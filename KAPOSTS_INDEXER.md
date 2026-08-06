@@ -109,9 +109,10 @@ These are confirmed product decisions; the iOS UI is already shaped for them.
 > `K-indexer/KAPOSTS.md`). The engagement endpoint is served as
 > `GET /get-post-engagement?postId=&type=<upvote|downvote|repost|quote|all>&requesterPubkey=&limit=&before=`
 > → `{ engagement: [{ actorPubkey, actionTxId, timestamp, kind }], pagination }`. Removal
-> payloads are finalized in §2. What remains is app-side: re-enable the like/repost toggles
-> to write `unvote`/`unquote`, call `get-post-engagement` from `KaPostEngagementView`, and
-> flip the default indexer URL.
+> payloads are finalized in §2. App-side wiring is DONE too: the like/dislike/repost toggles
+> write `unvote`/`unquote` (behind the 5s undo countdown), `KaPostEngagementView` reads
+> `get-post-engagement` for any post (notification-stream fallback for older deployments),
+> and the default indexer URL points at the fork.
 
 1. **Removal counter-actions.** The chain is immutable but the indexer's *interpretation*
    doesn't have to be. Accept and honor:
