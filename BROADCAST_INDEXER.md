@@ -41,8 +41,9 @@ ciph_msg:1:bcast:<channel>:<content>
 - No signature scheme exists for broadcasts (unlike KaPosts' `k:1:` payloads) — the sender is
   authenticated by having signed the transaction itself. Nothing to verify beyond the tx
   being accepted.
-- Retention: clients prune locally (default caps in-app). Server-side, keep 30 days minimum;
-  keeping everything is fine too — these are two low-volume channels.
+- Retention: **the product retention for these channels is 3 days** — clients display/prune at
+  a fixed 3 days (the in-app retention setting is hidden for them). Serve at least 3 days of
+  history; keeping more server-side is fine (clients just won't show it).
 
 ## 3. REST API (compatibility bar — matches `BroadcastIndexerClient`)
 
@@ -128,16 +129,51 @@ defaults to `https://kaposts.duckdns.org`, so the reverse proxy there must route
 `/get-broadcasts` (and `/health` if implemented) to this service alongside the KaPosts
 endpoints. No new DNS needed.
 
-## 5. How the app consumes it (context)
+## 5. Remote push for broadcast rooms (REQUIRED for v1)
+
+The app expects closed-app notifications for these two channels, gated by each channel's
+in-app bell toggle. The plumbing on the app side is DONE:
+
+- The push registration/update payloads sent to the push indexer (the kasia-indexer fork's
+  `/register` + update endpoints - see `PUSH_NOTIFICATIONS.md`) now include
+  `"watched_broadcast_channels": ["kaspa", "kachat-bugs"]` - only channels the user has
+  JOINED with the bell ON. Toggling a bell re-sends the registration, so the server list is
+  always current. Devices with an older app simply omit the field - treat missing as `[]`.
+- Server work: (1) push service stores `watched_broadcast_channels` per device; (2) when the
+  broadcast indexer ingests a new message in a tracked channel, send an APNs alert to every
+  device watching that channel (skip the sender's own device, matched by registered
+  primary/watched address).
+- APNs payload - broadcasts are public/unencrypted, so send a ready-made alert (no mutable
+  content / extension work needed):
+
+```json
+{
+  "aps": {
+    "alert": { "title": "#kaspa", "subtitle": "<sender KNS name or shortened address>",
+               "body": "<message preview>" },
+    "sound": "default",
+    "thread-id": "broadcast:kaspa"
+  }
+}
+```
+
+  - `thread-id` MUST be `broadcast:<channel>` - the app routes notification taps by that
+    prefix straight into the channel screen.
+  - Set the HTTP/2 header `apns-collapse-id` to the message txId so retries never duplicate.
+  - Body preview: if content is a reply envelope (`{"type":"reply",...}`) use its inner
+    `content`; if a file/audio envelope, send "Voice message"; else the text verbatim
+    (truncate ~150 chars).
+
+## 6. How the app consumes it (context)
 
 - Setting: `AppSettings.broadcastIndexerURL` (empty = feature off; app then behaves exactly as
   before, live scanning only).
 - On opening a channel screen the app calls `/get-broadcasts` once per channel per session,
   inserts rows into its local Core Data store (dedupe by txId; hidden-sender filter and local
   retention pruning still apply), and refreshes the visible list.
-- Live messages keep arriving via the app's own block scanning; the indexer is history/gap
-  fill, not a realtime feed. (A future extension — push notifications for broadcast mentions —
-  would follow the push indexer's `PushNotificationActor` pattern; out of scope for v1.)
+- Live messages keep arriving via the app's own block scanning while the app is open (for the
+  two indexed channels, scanning follows the bell toggle - they have no "always listen"
+  toggle); remote push (§5) covers the closed-app case.
 - The two tracked channels match the app's curated "Popular" list
   (`BroadcastService.featuredChannels = ["kaspa", "kachat-bugs"]`). If more channels get
   curated later, the allowlist is the only thing to extend.

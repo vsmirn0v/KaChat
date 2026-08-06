@@ -369,6 +369,7 @@ final class PushNotificationManager: ObservableObject {
             platform: platform,
             watchedAddresses: watchedAddresses,
             watchedGroupIds: watchedGroupIds,
+            watchedBroadcastChannels: collectWatchedBroadcastChannels(),
             primaryAddress: primaryAddress,
             aliases: aliases,
             auth: auth
@@ -644,6 +645,7 @@ final class PushNotificationManager: ObservableObject {
             deviceToken: token,
             watchedAddresses: watchedAddresses,
             watchedGroupIds: watchedGroupIds,
+            watchedBroadcastChannels: collectWatchedBroadcastChannels(),
             primaryAddress: primaryAddress,
             aliases: aliases,
             auth: auth
@@ -746,7 +748,8 @@ final class PushNotificationManager: ObservableObject {
         let groupIds = (watchedGroupIds ?? collectWatchedGroupIds() ?? []).sorted()
         let aliasList = (aliases ?? collectAliases(forWatchedAddresses: addrs)).sorted()
         let primary = primaryAddress ?? collectPrimaryAddress() ?? ""
-        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary]).joined(separator: ",")
+        let broadcastChannels = collectWatchedBroadcastChannels()
+        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels).joined(separator: ",")
     }
 
     /// Unregister device (call on logout/wallet delete)
@@ -1207,6 +1210,16 @@ final class PushNotificationManager: ObservableObject {
                 guard settings.notificationMode == .remotePush else { return }
                 Task { await self.updateWatchedAddresses() }
             }
+    }
+
+    /// Indexer-tracked broadcast channels (#kaspa/#kachat-bugs) whose bell is on - the push
+    /// service sends broadcast-room pushes for these while the app is closed. Bell off =
+    /// channel excluded = no push.
+    private func collectWatchedBroadcastChannels() -> [String] {
+        BroadcastService.shared.channels
+            .filter { BroadcastService.featuredChannels.contains($0.channelName) && $0.notifyEnabled }
+            .map(\.channelName)
+            .sorted()
     }
 
     private func collectWatchedAddresses() -> [String] {
@@ -1825,6 +1838,7 @@ struct PushRegistrationRequest: Codable {
     let platform: String
     let watchedAddresses: [String]
     let watchedGroupIds: [String]
+    let watchedBroadcastChannels: [String]
     let primaryAddress: String?
     let aliases: [String]
     let auth: PushAuthRequest?
@@ -1834,6 +1848,7 @@ struct PushRegistrationRequest: Codable {
         case platform
         case watchedAddresses = "watched_addresses"
         case watchedGroupIds = "watched_group_ids"
+        case watchedBroadcastChannels = "watched_broadcast_channels"
         case primaryAddress = "primary_address"
         case aliases
         case auth
@@ -1844,6 +1859,7 @@ struct PushUpdateRequest: Codable {
     let deviceToken: String
     let watchedAddresses: [String]
     let watchedGroupIds: [String]
+    let watchedBroadcastChannels: [String]
     let primaryAddress: String?
     let aliases: [String]
     let auth: PushAuthRequest?
@@ -1852,6 +1868,7 @@ struct PushUpdateRequest: Codable {
         case deviceToken = "device_token"
         case watchedAddresses = "watched_addresses"
         case watchedGroupIds = "watched_group_ids"
+        case watchedBroadcastChannels = "watched_broadcast_channels"
         case primaryAddress = "primary_address"
         case aliases
         case auth

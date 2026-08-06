@@ -347,7 +347,11 @@ final class BroadcastStore {
             let channelRequest = NSFetchRequest<CDBroadcastChannel>(entityName: CDBroadcastChannel.entityName)
             let channels = (try? context.fetch(channelRequest)) ?? []
             for channel in channels {
-                let retention = min(channel.retentionMillis, Self.maxRetentionMillis)
+                // Indexer-tracked channels have a FIXED 3-day retention (the gear is hidden
+                // for them in the UI; history lives on the indexer, the device keeps 3 days).
+                let retention = BroadcastService.featuredChannels.contains(channel.channelName)
+                    ? Self.maxRetentionMillis
+                    : min(channel.retentionMillis, Self.maxRetentionMillis)
                 let cutoff = nowMillis - retention
                 let request = NSFetchRequest<NSFetchRequestResult>(entityName: CDBroadcastMessage.entityName)
                 request.predicate = NSPredicate(format: "channelName == %@ AND blockTime < %lld", channel.channelName, cutoff)

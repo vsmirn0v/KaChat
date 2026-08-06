@@ -48,6 +48,12 @@ struct BroadcastChannelView: View {
         walletManager.currentWallet?.publicAddress
     }
 
+    /// Indexer-tracked curated channel (#kaspa / #kachat-bugs): history comes from the
+    /// broadcast indexer and retention is fixed at 3 days.
+    private var isIndexedChannel: Bool {
+        BroadcastService.featuredChannels.contains(BroadcastChannelName.normalize(channelName))
+    }
+
     var body: some View {
         messageList
             // Hosting the compose bar as a real `safeAreaInset` (rather than a floating ZStack
@@ -59,8 +65,34 @@ struct BroadcastChannelView: View {
                 composeBar
                     .padding(.bottom, 2)
             }
+            // Permanent notice on the indexed channels - pinned above the messages, never
+            // dismissable.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if isIndexedChannel {
+                    HStack(spacing: 8) {
+                        Image(systemName: "info.circle.fill")
+                            .font(.caption)
+                            .foregroundColor(.accentColor)
+                        Text("All messages are public and are stored for 3 days only.")
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial)
+                    .overlay(alignment: .bottom) {
+                        Divider()
+                    }
+                }
+            }
         .navigationTitle("#\(channelName)")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                ConnectionStatusIndicator()
+            }
+        }
         .navigationDestination(isPresented: Binding(
             get: { openContact != nil },
             set: { if !$0 { openContact = nil } }

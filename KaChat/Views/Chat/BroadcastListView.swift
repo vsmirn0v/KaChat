@@ -311,14 +311,20 @@ struct BroadcastListView: View {
                     }
                     .buttonStyle(.plain)
 
-                    Button {
-                        toggleAlwaysListen(channel)
-                    } label: {
-                        Image(systemName: channel.alwaysListen ? "speaker.wave.2.fill" : "speaker.slash")
-                            .foregroundColor(channel.alwaysListen ? .accentColor : .secondary)
-                            .frame(width: 32, height: 32)
+                    // Indexer-tracked channels (#kaspa / #kachat-bugs) drop the listen toggle
+                    // (the broadcast indexer records history 24/7, nothing to miss) and the
+                    // retention gear (fixed 3 days) - just the bell and Leave.
+                    let isIndexed = BroadcastService.featuredChannels.contains(channel.channelName)
+                    if !isIndexed {
+                        Button {
+                            toggleAlwaysListen(channel)
+                        } label: {
+                            Image(systemName: channel.alwaysListen ? "speaker.wave.2.fill" : "speaker.slash")
+                                .foregroundColor(channel.alwaysListen ? .accentColor : .secondary)
+                                .frame(width: 32, height: 32)
+                        }
+                        .buttonStyle(.borderless)
                     }
-                    .buttonStyle(.borderless)
 
                     Button {
                         toggleNotify(channel)
@@ -329,14 +335,16 @@ struct BroadcastListView: View {
                     }
                     .buttonStyle(.borderless)
 
-                    Button {
-                        retentionSettingsChannel = channel
-                    } label: {
-                        Image(systemName: "gearshape")
-                            .foregroundColor(.secondary)
-                            .frame(width: 32, height: 32)
+                    if !isIndexed {
+                        Button {
+                            retentionSettingsChannel = channel
+                        } label: {
+                            Image(systemName: "gearshape")
+                                .foregroundColor(.secondary)
+                                .frame(width: 32, height: 32)
+                        }
+                        .buttonStyle(.borderless)
                     }
-                    .buttonStyle(.borderless)
 
                     Button {
                         channelToLeave = channel.channelName
@@ -377,8 +385,11 @@ struct BroadcastListView: View {
     private func toggleNotify(_ channel: BroadcastChannel) {
         let newValue = !channel.notifyEnabled
         broadcastService.setNotifyEnabled(newValue, forChannel: channel.channelName)
+        let isIndexed = BroadcastService.featuredChannels.contains(channel.channelName)
         showToast(newValue
-            ? "You'll get a notification for new messages in this broadcast as long as your app remains open"
+            ? (isIndexed
+                ? "You'll get notifications for new messages in this broadcast, even when the app is closed"
+                : "You'll get a notification for new messages in this broadcast as long as your app remains open")
             : "Notifications are off for this broadcast")
     }
 

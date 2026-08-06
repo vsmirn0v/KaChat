@@ -111,6 +111,11 @@ final class BroadcastService: ObservableObject {
     }
 
     func setNotifyEnabled(_ enabled: Bool, forChannel name: String) {
+        // Indexed channels' bells also gate remote push - sync the registration so the push
+        // service starts/stops sending for this channel.
+        if Self.featuredChannels.contains(BroadcastChannelName.normalize(name)) {
+            Task { await PushNotificationManager.shared.updateWatchedAddresses() }
+        }
         store.setNotifyEnabled(enabled, forChannel: name)
         refreshChannels()
         updateScanningStateIfNeeded()
@@ -212,7 +217,10 @@ final class BroadcastService: ObservableObject {
 
     private var wantedChannels: Set<String> {
         var wanted = Set(liveViewRefCounts.keys)
-        for channel in channels where channel.alwaysListen {
+        // Indexed channels have no listen toggle - while the app is OPEN they scan whenever
+        // their bell is on (so in-app banners fire); remote push covers the closed-app case.
+        for channel in channels where channel.alwaysListen
+            || (Self.featuredChannels.contains(channel.channelName) && channel.notifyEnabled) {
             wanted.insert(channel.channelName)
         }
         return wanted
@@ -662,7 +670,14 @@ final class BroadcastService: ObservableObject {
     private func notifyIfEnabled(channel: String, senderAddress: String, content: String) {
         guard senderAddress != WalletManager.shared.currentWallet?.publicAddress else { return }
         guard channels.first(where: { $0.channelName == channel })?.notifyEnabled == true else { return }
-        guard AppSettings.load().notificationsEnabled else { return }
+        let settings = AppSettings.load()
+        guard settings.notificationsEnabled else { return }
+        // Indexed channels are covered by remote push (registered via
+        // watched_broadcast_channels) - skip the scan-driven local banner in remote-push mode
+        // so one message can't notify twice, mirroring sendLocalNotification's chat guard.
+        if Self.featuredChannels.contains(channel), settings.notificationMode == .remotePush {
+            return
+        }
 
         let notificationBody = MessageReplyCodec.previewText(for: content)
 
