@@ -27,10 +27,15 @@ Payload strings (all fields `:`-joined, prefix `k:1:`):
 ```
 k:1:post:<pubkey>:<signature>:<b64_message>:<mentions_json>
 k:1:reply:<pubkey>:<signature>:<post_id>:<b64_message>:<mentions_json>
-k:1:vote:<pubkey>:<signature>:<post_id>:<upvote|downvote>:<author_pubkey>
+k:1:vote:<pubkey>:<signature>:<post_id>:<upvote|downvote|unvote>:<author_pubkey>
 k:1:follow:<pubkey>:<signature>:<follow|unfollow>:<followed_pubkey>
 k:1:quote:<pubkey>:<signature>:<content_id>:<b64_message>:<quoted_author_pubkey>
+k:1:unquote:<pubkey>:<signature>:<content_id>
 ```
+
+`unvote` and `unquote` are the removal counter-actions (§5.1); they are implemented in the
+KaChat indexer fork. The app does not write them yet — it will once the like/repost toggles
+are re-enabled.
 
 - `<pubkey>`: author's **66-hex compressed secp256k1** public key.
 - `<signature>`: 128-hex schnorr signature over the **Kaspa personal-message hash**:
@@ -38,9 +43,10 @@ k:1:quote:<pubkey>:<signature>:<content_id>:<b64_message>:<quoted_author_pubkey>
   Signing strings are the payload minus prefix/kind/pubkey/signature:
   - post: `"<b64_message>:<mentions_json>"`
   - reply: `"<post_id>:<b64_message>:<mentions_json>"`
-  - vote: `"<post_id>:<vote>:<author_pubkey>"`
+  - vote: `"<post_id>:<vote>:<author_pubkey>"` (vote ∈ upvote|downvote|unvote)
   - follow: `"<action>:<followed_pubkey>"`
   - quote: `"<content_id>:<b64_message>:<quoted_author_pubkey>"`
+  - unquote: `"<content_id>"`
 - `<b64_message>`: base64 of the UTF-8 message text.
 - `<mentions_json>`: JSON array of mentioned pubkeys; the app currently always sends `[]`.
 - A **plain repost** is a quote whose message is empty-after-marker (see §3) — the K
@@ -98,6 +104,14 @@ profile features; serve social data only.
 ## 5. NEW capabilities the fork must add (the reason it exists)
 
 These are confirmed product decisions; the iOS UI is already shaped for them.
+
+> **Status:** all four are now implemented in the KaChat indexer fork (see
+> `K-indexer/KAPOSTS.md`). The engagement endpoint is served as
+> `GET /get-post-engagement?postId=&type=<upvote|downvote|repost|quote|all>&requesterPubkey=&limit=&before=`
+> → `{ engagement: [{ actorPubkey, actionTxId, timestamp, kind }], pagination }`. Removal
+> payloads are finalized in §2. What remains is app-side: re-enable the like/repost toggles
+> to write `unvote`/`unquote`, call `get-post-engagement` from `KaPostEngagementView`, and
+> flip the default indexer URL.
 
 1. **Removal counter-actions.** The chain is immutable but the indexer's *interpretation*
    doesn't have to be. Accept and honor:
