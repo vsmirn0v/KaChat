@@ -8,15 +8,16 @@
 // parent app." Routing all three targets through this single file means any tool that bumps
 // the version only has to change it here for it to apply everywhere.
 //
-// Must also stay higher than the highest CFBundleVersion Apple has already accepted for this
-// app - App Store Connect rejects any upload whose value isn't strictly greater than the last
-// one it received, regardless of what scheme produced that prior value. A previous upload (from
-// the old per-target `date +%Y%m%d%H%M` build scripts, since removed) already registered
-// 202607032342, so restarting from a small number like 20/21 gets rejected ("must contain a
-// higher version than that of the previously uploaded version"). Bumping past that recorded
-// high-water mark instead of restarting low.
-CURRENT_PROJECT_VERSION = 202607032343
-MARKETING_VERSION = 3.0
+// Build numbers are scoped PER VERSION TRAIN by App Store Connect: within one marketing
+// version each upload's CFBundleVersion must be strictly greater than the last (that's why
+// 3.0 ended at 202607032343 - an early `date +%Y%m%d%H%M` script set the high-water mark and
+// restarting low inside the 3.0 train was rejected). Moving to a NEW marketing version resets
+// the train, so 4.0 legitimately starts back at build 1 and counts up 2, 3, ... from here.
+// NOTE: Xcode Cloud archives ignore this value - ci_scripts/ci_post_clone.sh stamps every
+// target with Xcode Cloud's own $CI_BUILD_NUMBER, and that counter only goes up. Restarting
+// at 1 applies to local archives.
+CURRENT_PROJECT_VERSION = 1
+MARKETING_VERSION = 4.0
 
 // Required for `agvtool` (used by ci_scripts/ci_post_clone.sh) to be able to write
 // CURRENT_PROJECT_VERSION for every target - without this, agvtool fails with "not using

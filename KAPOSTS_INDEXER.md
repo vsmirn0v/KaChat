@@ -81,7 +81,7 @@ Errors: JSON `{"error": "...", "code": "..."}`. Public indexer rate limit is 100
 | `get-posts?user=<pubkey>` | one user's posts | profile feed |
 | `get-replies?postId=` | replies to a post | |
 | `get-user-details?user=` | `followersCount`, `followingCount`, `followedUser` | |
-| `get-users-following` / `get-users-followers` | follow lists | items: `{userPublicKey, timestamp, followedUser}`; the app tolerates wrapper key `users`/`following`/`followers` |
+| `get-users-following` / `get-users-followers` | follow lists | takes `userPubkey`; items `{id, userPublicKey, timestamp, followedUser, ...}` wrapped under the key `posts` (yes, really - the app also tolerates `users`/`following`/`followers`) |
 | `get-notifications` | actions on MY content | `{id, userPublicKey, postContent, timestamp, contentType, voteType, contentId}` — `id` is the **action's** txid |
 
 Post objects (see `KPost` in the client): `id, userPublicKey, postContent, signature,

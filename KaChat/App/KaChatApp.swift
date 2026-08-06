@@ -82,6 +82,7 @@ struct KaChatApp: App {
         case .background:
             // Persist any debounced message draft immediately so it survives termination.
             ChatService.shared.flushPendingDraftSave()
+            KaPostsNotificationService.shared.stop()
             // Schedule background fetch when app goes to background
             if settingsViewModel.settings.backgroundFetchEnabled {
                 BackgroundTaskManager.shared.scheduleBackgroundFetch()
@@ -112,6 +113,9 @@ struct KaChatApp: App {
         case .active:
             // Cancel background fetch when app becomes active (we'll poll normally)
             BackgroundTaskManager.shared.cancelBackgroundFetch()
+            // KaPosts social pings (likes/replies/quotes on your posts) - local-notification
+            // poller, chat-style. Runs only while the app is active.
+            KaPostsNotificationService.shared.start()
 
             let isFirstActiveTransition = !hasCompletedFirstActiveTransition
             hasCompletedFirstActiveTransition = true

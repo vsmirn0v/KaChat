@@ -84,6 +84,12 @@ struct KaPostsView: View {
     @State private var engagementTarget: DraftPost?
     @State private var profileFollowListKind: KaPostsFollowListView.Kind?
     @State private var myFollowersCount: Int?
+    /// Your on-chain posts fetched from the indexer for the profile feed - local session posts
+    /// alone would make the profile forget everything on relaunch.
+    @State private var myProfileRemotePosts: [DraftPost] = []
+    @State private var isLoadingMyProfilePosts = false
+    /// One self-unfollow scrub per session at most (indexer lag would otherwise resubmit).
+    @State private var selfUnfollowScrubbed = false
     /// Repost tapped on an on-chain post: choose plain repost vs quote.
     @State private var repostDialogTarget: DraftPost?
     @State private var quoteComposerTarget: DraftPost?
@@ -165,7 +171,7 @@ struct KaPostsView: View {
             case .profile:
                 myProfileSheet
             case .notifications:
-                KaPostsMenuComingSoonView(item: item)
+                KaPostsNotificationsView()
             }
         }
     }
@@ -249,6 +255,9 @@ struct KaPostsView: View {
             .presentationDetents([.medium, .large])
         }
         .task {
+            if let myAddress = WalletManager.shared.currentWallet?.publicAddress {
+                followStore.removeIfPresent(myAddress)
+            }
             await loadFeed()
         }
         .onChange(of: selectedFeed) { _ in
@@ -336,9 +345,9 @@ struct KaPostsView: View {
             ForEach(SideMenuItem.allCases) { item in
                 Button {
                     Haptics.impact(.light)
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        showSideMenu = false
-                    }
+                    // The drawer deliberately stays open behind the sheet - coming back from
+                    // Profile/Bookmarks/etc. lands you back on the open menu. Only an explicit
+                    // dismissal (tapping the dimmed scrim) closes it.
                     menuSheet = item
                 } label: {
                     HStack(spacing: 14) {
@@ -960,6 +969,7 @@ struct KaPostsView: View {
     /// Local follow toggle + on-chain K follow/unfollow when the target's compressed pubkey is
     /// known (it comes from post data; profile-sheet follows without one stay local-only).
     private func toggleFollowSubmitting(address: String, pubkey: String?) {
+        guard address != WalletManager.shared.currentWallet?.publicAddress else { return }
         let willFollow = !followStore.isFollowing(address)
         followStore.toggle(address)
         guard let pubkey else { return }
@@ -1012,7 +1022,14 @@ struct KaPostsView: View {
     private var myProfileSheet: some View {
         let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
         let myInfo = knsService.profileCache[myAddress]
-        let myPosts = posts.filter { $0.posterAddress == myAddress }
+        // Indexer-fetched history first, then local session posts that haven't been indexed
+        // yet (unstamped or too fresh), newest first.
+        let remoteIds = Set(myProfileRemotePosts.compactMap(\.remoteId))
+        let localOnly = posts.filter { post in
+            post.posterAddress == myAddress
+                && (post.remoteId == nil || !remoteIds.contains(post.remoteId!))
+        }
+        let myPosts = (myProfileRemotePosts + localOnly).sorted { $0.timestamp > $1.timestamp }
         return NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -1086,7 +1103,11 @@ struct KaPostsView: View {
 
                     Divider()
 
-                    if myPosts.isEmpty {
+                    if myPosts.isEmpty, isLoadingMyProfilePosts {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 40)
+                    } else if myPosts.isEmpty {
                         VStack(spacing: 12) {
                             Image(systemName: "square.and.pencil")
                                 .font(.system(size: 40))
@@ -1138,17 +1159,45 @@ struct KaPostsView: View {
                 _ = await knsService.fetchProfile(for: myAddress)
             }
             .task {
-                guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey(),
-                      let details = try? await KaPostsAPIClient.shared.fetchUserDetails(pubkey: pubkey)
-                else { return }
-                myFollowersCount = details.followersCount
+                guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
+                isLoadingMyProfilePosts = myProfileRemotePosts.isEmpty
+                async let detailsFetch = try? KaPostsAPIClient.shared.fetchUserDetails(pubkey: pubkey)
+                async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey)
+                if let details = await detailsFetch {
+                    // Never count yourself as your own follower. followedUser here means
+                    // "requester follows user" - with both being us, true = a stale on-chain
+                    // self-follow from before the no-self-follow rule. Display without it and
+                    // submit a one-time unfollow to scrub it from the indexer.
+                    if details.followedUser == true {
+                        myFollowersCount = max(0, (details.followersCount ?? 0) - 1)
+                        if !selfUnfollowScrubbed {
+                            selfUnfollowScrubbed = true
+                            Task {
+                                _ = try? await KaPostsAPIClient.shared.submitFollow(false, followedPubkey: pubkey)
+                                AppLog.log("[KaPosts] Submitted self-unfollow scrub")
+                            }
+                        }
+                    } else {
+                        myFollowersCount = details.followersCount
+                    }
+                }
+                if let fetched = await postsFetch {
+                    myProfileRemotePosts = fetched.posts.compactMap(Self.mapRemotePost)
+                }
+                isLoadingMyProfilePosts = false
             }
             .navigationDestination(isPresented: Binding(
                 get: { profileFollowListKind != nil },
                 set: { if !$0 { profileFollowListKind = nil } }
             )) {
                 if let kind = profileFollowListKind {
-                    KaPostsFollowListView(kind: kind, localFollowing: followStore.following)
+                    KaPostsFollowListView(
+                        kind: kind,
+                        localFollowing: followStore.following,
+                        onToggleFollow: { address, pubkey in
+                            toggleFollowSubmitting(address: address, pubkey: pubkey)
+                        }
+                    )
                 }
             }
         }
@@ -1514,11 +1563,16 @@ private struct KaPostCellView: View {
                     // can still interact with you. Block: content gone AND they can't interact
                     // (the interaction half becomes real once wiring lands).
                     Menu {
-                        // Opens the engagement screen (likes/dislikes/reposts/quotes, each row
-                        // linking to its action's tx) with the post's own explorer link inside.
-                        if post.remoteId != nil, let onViewEngagement {
+                        // Own posts open the Post Activity screen first (the network only
+                        // shares who-did-what for your own posts); anyone else's post goes
+                        // straight to the explorer.
+                        if let remoteId = post.remoteId {
                             Button {
-                                onViewEngagement()
+                                if isOwnPost, let onViewEngagement {
+                                    onViewEngagement()
+                                } else if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: remoteId) {
+                                    openURL(url)
+                                }
                             } label: {
                                 Label("View Post in Explorer", systemImage: "globe")
                             }
@@ -1979,6 +2033,7 @@ final class KaPostsActionScheduler: ObservableObject {
 /// Followed poster addresses, persisted locally in UserDefaults. This is deliberately NOT wired
 /// to anything on-chain yet - it exists so Follow/Following state survives relaunch and the
 /// Following feed has something real to filter on once posts are wired.
+@MainActor
 final class KaPostsFollowStore: ObservableObject {
     static let shared = KaPostsFollowStore()
 
@@ -1997,12 +2052,21 @@ final class KaPostsFollowStore: ObservableObject {
     }
 
     func toggle(_ address: String) {
-        guard !address.isEmpty else { return }
+        guard !address.isEmpty,
+              address != WalletManager.shared.currentWallet?.publicAddress else { return }
         if following.contains(address) {
             following.remove(address)
         } else {
             following.insert(address)
         }
+        UserDefaults.standard.set(Array(following), forKey: defaultsKey)
+    }
+
+    /// Scrubs a stale entry (used to drop any old self-follow left from before the
+    /// no-self-follow rule).
+    func removeIfPresent(_ address: String) {
+        guard !address.isEmpty, following.contains(address) else { return }
+        following.remove(address)
         UserDefaults.standard.set(Array(following), forKey: defaultsKey)
     }
 }
@@ -2173,57 +2237,6 @@ struct KaPostsProfileView: View {
                 _ = await knsService.fetchProfile(for: address)
             }
         }
-    }
-}
-
-
-// MARK: - Side-menu coming-soon placeholder
-
-/// Placeholder destination for the side menu's entries - same visual language as the original
-/// KaPosts coming-soon landing, parameterized per item.
-struct KaPostsMenuComingSoonView: View {
-    let item: KaPostsView.SideMenuItem
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 20) {
-                Spacer()
-                Image(systemName: item.icon)
-                    .font(.system(size: 48, weight: .medium))
-                    .foregroundStyle(Color.accentColor)
-                    .padding(24)
-                    .background(
-                        RoundedRectangle(cornerRadius: 28, style: .continuous)
-                            .fill(.regularMaterial)
-                            .overlay(RoundedCornerRectangleStroke())
-                    )
-                Text(item.rawValue)
-                    .font(.title.weight(.bold))
-                Text("Coming Soon")
-                    .font(.headline)
-                    .foregroundColor(.accentColor)
-                Spacer()
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle(item.rawValue)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
-    }
-}
-
-/// Shared hairline stroke used by the coming-soon icon card.
-private struct RoundedCornerRectangleStroke: View {
-    var body: some View {
-        RoundedRectangle(cornerRadius: 28, style: .continuous)
-            .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
     }
 }
 
@@ -2508,11 +2521,16 @@ struct KaPostsFollowListView: View {
 
     let kind: Kind
     let localFollowing: Set<String>
+    /// Routes through KaPostsView.toggleFollowSubmitting - local store toggle + the on-chain
+    /// follow/unfollow tx (and its toast) when the pubkey is known.
+    let onToggleFollow: (String, String?) -> Void
 
     @ObservedObject private var knsService = KNSService.shared
+    @ObservedObject private var followStore = KaPostsFollowStore.shared
 
     struct Entry: Identifiable {
         let address: String
+        let pubkey: String?
         let timestamp: Date?
         var id: String { address }
     }
@@ -2520,9 +2538,10 @@ struct KaPostsFollowListView: View {
     @State private var entries: [Entry] = []
     @State private var isLoading = true
 
-    init(kind: Kind, localFollowing: Set<String>) {
+    init(kind: Kind, localFollowing: Set<String>, onToggleFollow: @escaping (String, String?) -> Void) {
         self.kind = kind
         self.localFollowing = localFollowing
+        self.onToggleFollow = onToggleFollow
     }
 
     var body: some View {
@@ -2562,6 +2581,22 @@ struct KaPostsFollowListView: View {
                 }
             }
             Spacer()
+            // Quick follow controls: Unfollow in the Following list; Follow Back (or Unfollow)
+            // in the Followers list. Rows stay in place after a toggle so it's reversible.
+            if entry.address != WalletManager.shared.currentWallet?.publicAddress {
+                let isFollowing = followStore.isFollowing(entry.address)
+                Button {
+                    Haptics.impact(.light)
+                    onToggleFollow(entry.address, entry.pubkey)
+                } label: {
+                    Text(isFollowing ? "Unfollow" : (kind == .followers ? "Follow Back" : "Follow"))
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(isFollowing ? Color.secondary.opacity(0.35) : Color.accentColor)
+            }
         }
         .task(id: entry.address) {
             guard !entry.address.isEmpty, knsService.profileCache[entry.address] == nil else { return }
@@ -2609,22 +2644,243 @@ struct KaPostsFollowListView: View {
             let users = (try? await KaPostsAPIClient.shared.fetchFollowList(
                 ofPubkey: pubkey, followers: kind == .followers
             )) ?? []
+            let myAddress = WalletManager.shared.currentWallet?.publicAddress
             remote = users.compactMap { user in
-                guard let address = KaPostsAPIClient.kaspaAddress(fromPubkey: user.userPublicKey) else { return nil }
+                guard let address = KaPostsAPIClient.kaspaAddress(fromPubkey: user.userPublicKey),
+                      address != myAddress else { return nil }
                 let date = user.timestamp.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
-                return Entry(address: address, timestamp: date)
+                return Entry(address: address, pubkey: user.userPublicKey, timestamp: date)
             }
         }
         if kind == .following {
             // Merge in locally-stored follows the indexer may not have caught up on yet.
             var seen = Set(remote.map(\.address))
             let localOnly = localFollowing
-                .filter { !seen.contains($0) }
+                .filter { !seen.contains($0) && $0 != WalletManager.shared.currentWallet?.publicAddress }
                 .sorted()
-                .map { Entry(address: $0, timestamp: nil) }
+                .map { Entry(address: $0, pubkey: nil, timestamp: nil) }
             seen.formUnion(localOnly.map(\.address))
             remote.append(contentsOf: localOnly)
         }
         entries = remote.sorted { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+    }
+}
+
+
+// MARK: - Notifications (side menu)
+
+/// Who did what to YOUR content, from the indexer's notification stream - likes, dislikes,
+/// replies, quotes/reposts, X-style. Identity is KNS-resolved from the actor's pubkey like
+/// everywhere else; muted/blocked actors are filtered out.
+struct KaPostsNotificationsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @EnvironmentObject private var settingsViewModel: SettingsViewModel
+    @ObservedObject private var knsService = KNSService.shared
+    @ObservedObject private var moderationStore = KaPostsModerationStore.shared
+
+    struct Item: Identifiable {
+        enum Kind {
+            case like, dislike, reply, quote, repost, follow, other
+
+            var icon: String {
+                switch self {
+                case .like: return "heart.fill"
+                case .dislike: return "hand.thumbsdown.fill"
+                case .reply: return "bubble.left.fill"
+                case .quote, .repost: return "arrow.2.squarepath"
+                case .follow: return "person.fill.badge.plus"
+                case .other: return "bell.fill"
+                }
+            }
+
+            var tint: Color {
+                switch self {
+                case .like: return .red
+                case .dislike: return .orange
+                case .reply: return .accentColor
+                case .quote, .repost: return .green
+                case .follow: return .accentColor
+                case .other: return .secondary
+                }
+            }
+
+            var actionText: String {
+                switch self {
+                case .like: return "liked your post"
+                case .dislike: return "disliked your post"
+                case .reply: return "replied to your post"
+                case .quote: return "quoted your post"
+                case .repost: return "reposted your post"
+                case .follow: return "followed you"
+                case .other: return "interacted with your post"
+                }
+            }
+        }
+
+        let id: String        // the ACTION's txid
+        let actorAddress: String
+        let kind: Kind
+        let snippet: String?  // reply/quote text, marker-stripped
+        let timestamp: Date
+    }
+
+    @State private var items: [Item] = []
+    @State private var isLoading = true
+    @State private var loadFailed = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading, items.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if items.isEmpty {
+                    ScrollView {
+                        emptyState
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 120)
+                    }
+                    .refreshable { await load() }
+                } else {
+                    List(items) { item in
+                        itemRow(item)
+                    }
+                    .listStyle(.plain)
+                    .refreshable { await load() }
+                }
+            }
+            .navigationTitle("Notifications")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func itemRow(_ item: Item) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            KNSAvatarView(
+                avatarURLString: knsService.profileCache[item.actorAddress]?.avatarURL,
+                fallbackText: displayName(for: item.actorAddress),
+                size: 38
+            )
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: item.kind.icon)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(item.kind.tint)
+                    .padding(3)
+                    .background(Circle().fill(Color(uiColor: .systemBackground)))
+                    .offset(x: 4, y: 4)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                (Text(displayName(for: item.actorAddress)).fontWeight(.bold)
+                    + Text(" \(item.kind.actionText)"))
+                    .font(.subheadline)
+                    .lineLimit(2)
+                if let snippet = item.snippet, !snippet.isEmpty {
+                    Text(verbatim: snippet)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .lineLimit(3)
+                }
+                Text(item.timestamp.formatted(.relative(presentation: .named)))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+            Button {
+                if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: item.id) {
+                    openURL(url)
+                }
+            } label: {
+                Text("View")
+                    .font(.caption.weight(.bold))
+                    .foregroundColor(.accentColor)
+                    .underline()
+            }
+            .buttonStyle(.plain)
+        }
+        .task(id: item.actorAddress) {
+            guard !item.actorAddress.isEmpty,
+                  knsService.profileCache[item.actorAddress] == nil else { return }
+            _ = await knsService.fetchProfile(for: item.actorAddress)
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "bell")
+                .font(.system(size: 40))
+                .foregroundColor(.secondary)
+            Text("Nothing yet")
+                .font(.headline)
+            Text("When someone likes, replies to or shares your posts, it shows up here.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+        }
+    }
+
+    private func displayName(for address: String) -> String {
+        guard !address.isEmpty else { return "Unknown" }
+        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
+           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return KaPostsView.strippingKasSuffix(alias)
+        }
+        if let domain = knsService.profileCache[address]?.domainName,
+           !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return KaPostsView.strippingKasSuffix(domain)
+        }
+        return String(address.suffix(10))
+    }
+
+    private func load() async {
+        isLoading = true
+        loadFailed = false
+        defer { isLoading = false }
+        do {
+            let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 100)
+            // Everything now on screen counts as seen - the local-notification poller won't
+            // ping for it later.
+            if let newest = notifications.map(\.timestamp).max() {
+                KaPostsNotificationService.shared.markSeen(upTo: newest)
+            }
+            let myAddress = WalletManager.shared.currentWallet?.publicAddress
+            items = notifications.compactMap { notification in
+                guard let address = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
+                      address != myAddress,
+                      !moderationStore.isHidden(address) else { return nil }
+                let text = KaPostsAPIClient.stripMarker(notification.decodedContent ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let kind: Item.Kind
+                switch notification.contentType {
+                case "vote":
+                    kind = notification.voteType == "downvote" ? .dislike : .like
+                case "reply":
+                    kind = .reply
+                case "quote":
+                    kind = text.isEmpty ? .repost : .quote
+                case "follow":
+                    kind = .follow
+                default:
+                    kind = .other
+                }
+                return Item(
+                    id: notification.id,
+                    actorAddress: address,
+                    kind: kind,
+                    snippet: text.isEmpty ? nil : text,
+                    timestamp: Date(timeIntervalSince1970: TimeInterval(notification.timestamp) / 1000)
+                )
+            }
+        } catch {
+            loadFailed = true
+            AppLog.log("[KaPosts] Notifications load failed: %@", error.localizedDescription)
+        }
     }
 }

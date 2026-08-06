@@ -1,5 +1,6 @@
 import Foundation
 import P256K
+import UserNotifications
 
 /// REST client for the K social-network indexer (Settings > Connection Settings > KaPost
 /// Indexer URL, default mainnet.kaspatalk.net) - the read side of KaPosts wiring.
@@ -139,13 +140,14 @@ final class KaPostsAPIClient: ObservableObject {
         var id: String { userPublicKey }
     }
 
-    /// The users-list endpoints' wrapper key isn't uniform across deployments - accept any of
-    /// the plausible keys and take the first present.
+    /// The users-list endpoints wrap their items under "posts" (verified live) - keep the other
+    /// plausible keys as fallbacks in case deployments differ.
     private struct FollowListResponse: Decodable {
+        let posts: [KFollowUser]?
         let users: [KFollowUser]?
         let following: [KFollowUser]?
         let followers: [KFollowUser]?
-        var items: [KFollowUser] { users ?? following ?? followers ?? [] }
+        var items: [KFollowUser] { posts ?? users ?? following ?? followers ?? [] }
     }
 
     struct KUserDetails: Decodable {
@@ -476,5 +478,132 @@ extension KaPostsAPIClient {
             _ = try? await WalletManager.shared.refreshBalance()
         }
         return txId
+    }
+}
+
+
+// MARK: - KaPosts local notification pings
+
+/// In-app notification pings for KaPosts, mirroring how 1:1/group chats notify: while the app
+/// is running it polls the indexer's notification stream (60s) and posts local iOS
+/// notifications for new actions on your content ("alice liked your post"). Needs no indexer
+/// changes; push while the app is CLOSED arrives with the KaChat-owned indexer fork
+/// (KAPOSTS_INDEXER.md).
+@MainActor
+final class KaPostsNotificationService {
+    static let shared = KaPostsNotificationService()
+
+    private var pollTask: Task<Void, Never>?
+    private static let pollIntervalNanos: UInt64 = 60 * 1_000_000_000
+
+    private init() {}
+
+    /// Last notification timestamp already surfaced (banner or Notifications screen), per
+    /// wallet - anything at or before this never pings.
+    private var lastSeenKey: String? {
+        guard let address = WalletManager.shared.currentWallet?.publicAddress else { return nil }
+        return "kaposts_notifications_last_seen_\(address)"
+    }
+
+    func start() {
+        guard pollTask == nil else { return }
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.pollOnce()
+                try? await Task.sleep(nanoseconds: Self.pollIntervalNanos)
+            }
+        }
+    }
+
+    func stop() {
+        pollTask?.cancel()
+        pollTask = nil
+    }
+
+    /// The Notifications screen calls this with the newest timestamp it displayed - what the
+    /// user has seen on screen shouldn't ping later.
+    func markSeen(upTo timestamp: Int64) {
+        guard let key = lastSeenKey else { return }
+        let current = (UserDefaults.standard.object(forKey: key) as? NSNumber)?.int64Value ?? 0
+        if timestamp > current {
+            UserDefaults.standard.set(NSNumber(value: timestamp), forKey: key)
+        }
+    }
+
+    private func pollOnce() async {
+        let settings = AppSettings.load()
+        guard settings.notificationsEnabled,
+              WalletManager.shared.currentWallet != nil,
+              let key = lastSeenKey else { return }
+        do {
+            let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 50)
+            guard let newest = notifications.map(\.timestamp).max() else { return }
+            guard let lastSeen = (UserDefaults.standard.object(forKey: key) as? NSNumber)?.int64Value else {
+                // First run for this wallet: baseline silently instead of replaying history.
+                UserDefaults.standard.set(NSNumber(value: newest), forKey: key)
+                return
+            }
+            let fresh = notifications.filter { $0.timestamp > lastSeen }
+            guard !fresh.isEmpty else { return }
+            UserDefaults.standard.set(NSNumber(value: max(newest, lastSeen)), forKey: key)
+            // Oldest first so banners arrive in order; cap a burst so a viral post doesn't
+            // fire fifty banners at once.
+            for notification in fresh.sorted(by: { $0.timestamp < $1.timestamp }).suffix(5) {
+                await postLocal(notification)
+            }
+        } catch {
+            AppLog.log("[KaPosts] Notification poll failed: %@", error.localizedDescription)
+        }
+    }
+
+    private func postLocal(_ notification: KaPostsAPIClient.KNotification) async {
+        guard let address = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
+              address != WalletManager.shared.currentWallet?.publicAddress,
+              !KaPostsModerationStore.shared.isHidden(address) else { return }
+
+        let text = KaPostsAPIClient.stripMarker(notification.decodedContent ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let action: String
+        switch notification.contentType {
+        case "vote": action = notification.voteType == "downvote" ? "disliked your post" : "liked your post"
+        case "reply": action = "replied to your post"
+        case "quote": action = text.isEmpty ? "reposted your post" : "quoted your post"
+        case "follow": action = "followed you"
+        default: action = "interacted with your post"
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = "KaPosts"
+        content.body = "\(await actorName(for: address)) \(action)" + (text.isEmpty ? "" : ": \(text)")
+        content.sound = .default
+        content.threadIdentifier = "kaposts"
+
+        let request = UNNotificationRequest(
+            identifier: "kaposts-\(notification.id)",
+            content: content,
+            trigger: nil
+        )
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            AppLog.log("[KaPosts] Failed to post local notification: %@", error.localizedDescription)
+        }
+    }
+
+    /// Contact alias > KNS primary domain (fetched when not cached) > shortened address, .kas
+    /// stripped - the same identity chain as everywhere else in KaPosts.
+    private func actorName(for address: String) async -> String {
+        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
+           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return KaPostsView.strippingKasSuffix(alias)
+        }
+        if KNSService.shared.profileCache[address] == nil {
+            _ = await KNSService.shared.fetchProfile(for: address)
+        }
+        if let domain = KNSService.shared.profileCache[address]?.domainName,
+           !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return KaPostsView.strippingKasSuffix(domain)
+        }
+        return String(address.suffix(10))
     }
 }
