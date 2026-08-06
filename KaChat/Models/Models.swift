@@ -1486,8 +1486,8 @@ struct AppSettings: Codable {
     var indexerURL: String
     /// K social-network indexer powering KaPosts (reusing the already-running public K indexer).
     var kaPostIndexerURL: String
-    /// KaChat-owned broadcast indexer (tracks #kaspa and #kachat-bugs history). Empty =
-    /// disabled; the app then relies on live block scanning only, as before.
+    /// KaChat-owned broadcast indexer (tracks #kaspa and #kachat-bugs history) - served from
+    /// the same box/domain as the KaPosts indexer.
     var broadcastIndexerURL: String
     var pushIndexerURL: String
     var knsBaseURL: String
@@ -1512,7 +1512,7 @@ struct AppSettings: Codable {
     // Default URLs per network
     static let defaultIndexerURL = "https://indexer.kasia.wtf"
     static let defaultKaPostIndexerURL = "https://kaposts.duckdns.org"
-    static let defaultBroadcastIndexerURL = ""
+    static let defaultBroadcastIndexerURL = defaultKaPostIndexerURL
     /// Retired default - the public K social indexer (`mainnet.kaspatalk.net`). KaPosts now
     /// runs on KaChat's own indexer, which enforces two-way KaChat-only exclusivity server-side
     /// and is a fresh network with no relation to the K social graph. Anyone still on the old
@@ -1820,7 +1820,9 @@ struct AppSettings: Codable {
             indexerURL = try container.decodeIfPresent(String.self, forKey: .indexerURL) ?? AppSettings.defaultIndexerURL
         }
         kaPostIndexerURL = try container.decodeIfPresent(String.self, forKey: .kaPostIndexerURL) ?? AppSettings.defaultKaPostIndexerURL
-        broadcastIndexerURL = try container.decodeIfPresent(String.self, forKey: .broadcastIndexerURL) ?? AppSettings.defaultBroadcastIndexerURL
+        let storedBroadcastIndexer = try container.decodeIfPresent(String.self, forKey: .broadcastIndexerURL) ?? ""
+        broadcastIndexerURL = storedBroadcastIndexer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? AppSettings.defaultBroadcastIndexerURL : storedBroadcastIndexer
 
         if let customPushIndexer = try container.decodeIfPresent(String.self, forKey: .pushIndexerURL),
            !customPushIndexer.isEmpty {

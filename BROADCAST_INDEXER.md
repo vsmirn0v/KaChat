@@ -122,10 +122,11 @@ volumes:
   indexer-data:
 ```
 
-Front it with the box's existing reverse proxy for TLS (the app requires https in practice;
-same setup as the KaPosts/push indexer domains). Point a DNS name at it (e.g. a duckdns
-subdomain like the KaPosts indexer uses), then set that URL in the app's Broadcast Indexer
-setting.
+Front it with the box's existing reverse proxy for TLS (the app requires https in practice).
+**Decided: it shares the KaPosts indexer's domain** - the app's Broadcast Indexer setting
+defaults to `https://kaposts.duckdns.org`, so the reverse proxy there must route
+`/get-broadcasts` (and `/health` if implemented) to this service alongside the KaPosts
+endpoints. No new DNS needed.
 
 ## 5. How the app consumes it (context)
 

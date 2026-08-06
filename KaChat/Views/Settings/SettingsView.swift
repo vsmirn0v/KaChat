@@ -1555,7 +1555,7 @@ struct ConnectionSettingsView: View {
                     Text("Broadcast Indexer URL")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    TextField("https://your-broadcast-indexer", text: $broadcastIndexerURL)
+                    TextField(AppSettings.defaultBroadcastIndexerURL, text: $broadcastIndexerURL)
                         .font(.system(.body, design: .monospaced))
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
@@ -1564,7 +1564,7 @@ struct ConnectionSettingsView: View {
             } header: {
                 Text("Broadcast Indexer")
             } footer: {
-                Text("KaChat broadcast history indexer for #kaspa and #kachat-bugs. Leave empty to use live scanning only.")
+                Text("KaChat broadcast history indexer for #kaspa and #kachat-bugs")
             }
 
             Section {
@@ -1775,7 +1775,7 @@ struct ConnectionSettingsView: View {
         settingsViewModel.settings.networkType = networkType
         settingsViewModel.settings.indexerURL = indexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.kaPostIndexerURL = kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AppSettings.defaultKaPostIndexerURL : kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        settingsViewModel.settings.broadcastIndexerURL = broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        settingsViewModel.settings.broadcastIndexerURL = broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AppSettings.defaultBroadcastIndexerURL : broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.pushIndexerURL = pushIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.knsBaseURL = knsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.kaspaRestAPIURL = kaspaRestAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
