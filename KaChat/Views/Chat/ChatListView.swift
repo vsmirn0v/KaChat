@@ -7,7 +7,6 @@ struct ChatListView: View {
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
-    @EnvironmentObject var broadcastService: BroadcastService
     @EnvironmentObject var groupChatService: GroupChatService
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -20,9 +19,9 @@ struct ChatListView: View {
     @State private var selectedGroup: GroupChat?
     @State private var selectedContactStartInPaymentMode = false
     @State private var showAddContact = false
-    @State private var showBroadcastList = false
-    @State private var pendingBroadcastChannel: String?
     @State private var selectedListTab: ChatsListTab = .chats
+    /// The page Select mode started on - page swipes snap back to it while editing.
+    @State private var editModeLockedTab: ChatsListTab?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -37,8 +36,6 @@ struct ChatListView: View {
     @State private var isPullRefreshing = false
     @State private var avatarPrefetchTask: Task<Void, Never>?
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .all
-    @State private var contactPendingDelete: Contact?
-    @State private var groupPendingDelete: GroupChat?
     @State private var showBulkDeleteConfirmation = false
     @State private var editMode: EditMode = .inactive
     @State private var selectedContactIDs: Set<UUID> = []
@@ -142,16 +139,12 @@ struct ChatListView: View {
                 AddContactView { contact in
                     _ = chatService.getOrCreateConversation(for: contact)
                     selectedContactStartInPaymentMode = false
-                    pendingBroadcastChannel = nil
-                    showBroadcastList = false
                     selectedGroup = nil
                     selectedContact = contact
                     selectedListTab = .chats
                     showAddContact = false
                 } onCreateGroup: { group in
                     selectedContactStartInPaymentMode = false
-                    pendingBroadcastChannel = nil
-                    showBroadcastList = false
                     selectedContact = nil
                     selectedGroup = group
                     selectedListTab = .groups
@@ -161,45 +154,6 @@ struct ChatListView: View {
             }
 
         let withAlerts = withPresentation
-            .alert(
-                "Delete Chat with \(contactPendingDelete?.alias ?? "")",
-                isPresented: Binding(
-                    get: { contactPendingDelete != nil },
-                    set: { if !$0 { contactPendingDelete = nil } }
-                )
-            ) {
-                Button("Delete", role: .destructive) {
-                    if let contact = contactPendingDelete {
-                        deleteConversation(contact)
-                    }
-                    contactPendingDelete = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    contactPendingDelete = nil
-                }
-            } message: {
-                Text("This permanently deletes every message with them, including from iCloud, so it's removed from your other devices too. This cannot be undone.")
-            }
-            .alert(
-                "Delete \"\(groupPendingDelete?.name ?? "")\"",
-                isPresented: Binding(
-                    get: { groupPendingDelete != nil },
-                    set: { if !$0 { groupPendingDelete = nil } }
-                )
-            ) {
-                Button("Delete", role: .destructive) {
-                    if let group = groupPendingDelete {
-                        if selectedGroup?.id == group.id { selectedGroup = nil }
-                        groupChatService.deleteGroup(group.id)
-                    }
-                    groupPendingDelete = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    groupPendingDelete = nil
-                }
-            } message: {
-                Text("This removes the group and its messages from this device. This cannot be undone, and other members won't be notified.")
-            }
             .alert(
                 bulkDeleteAlertTitle,
                 isPresented: $showBulkDeleteConfirmation
@@ -222,20 +176,12 @@ struct ChatListView: View {
             }
 
         return withAlerts
-            .modifier(BroadcastListNavigationDestination(
-                mode: BroadcastNavigationPolicy.listPresentationMode(usesSplitLayout: shouldUseSplitLayout),
-                showBroadcastList: $showBroadcastList,
-                pendingBroadcastChannel: $pendingBroadcastChannel
-            ))
             .environment(\EnvironmentValues.editMode, $editMode)
     }
 
     @ViewBuilder
     private var splitDetailPane: some View {
-        if showBroadcastList {
-            BroadcastListView(initialChannel: pendingBroadcastChannel)
-                .id(pendingBroadcastChannel ?? "__broadcasts")
-        } else if let group = selectedGroup {
+        if let group = selectedGroup {
             GroupChatDetailView(group: group, onDeleted: { selectedGroup = nil })
                 .id(group.id)
         } else if let contact = selectedContact {
@@ -250,16 +196,21 @@ struct ChatListView: View {
     private var chatListContent: some View {
         VStack(spacing: 0) {
             chatsTopTabBar
-            // Tap-only, not swipeable - a paging TabView here would fight the row-level
-            // swipe-to-delete/mark-read gestures on both the Chats and Group Chats lists.
-            Group {
-                switch selectedListTab {
-                case .chats:
-                    chatsTabContent
-                case .groups:
-                    groupsTabContent
-                }
+                // The whole tab-bar strip is swipeable left/right - no row gestures up here to
+                // fight with.
+                .contentShape(Rectangle())
+                .gesture(listTabSwipe())
+            // A REAL page-style TabView (same as the KaPosts feeds): interactive, finger-
+            // tracked paging in both directions - far smoother than the transition-based slide
+            // this replaced. Safe now that rows have no swipe actions to fight with (delete/
+            // read live in Select mode). Edit mode pins the page via editModeLockedTab.
+            TabView(selection: $selectedListTab) {
+                chatsTabContent
+                    .tag(ChatsListTab.chats)
+                groupsTabContent
+                    .tag(ChatsListTab.groups)
             }
+            .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .safeAreaInset(edge: .bottom) {
             if editMode == .active {
@@ -275,20 +226,26 @@ struct ChatListView: View {
             if newValue == .inactive {
                 selectedContactIDs = []
                 selectedGroupIDs = []
+                editModeLockedTab = nil
+            } else if newValue == .active {
+                editModeLockedTab = selectedListTab
+            }
+        }
+        .onChange(of: selectedListTab) { newValue in
+            // Selection mode is scoped to the list it started on (see chatsTabButton) - a page
+            // swipe mid-select snaps back to the locked page.
+            if let locked = editModeLockedTab, newValue != locked {
+                selectedListTab = locked
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
             handleOpenChatNotification(notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { notification in
-            handleOpenBroadcastNotification(notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openGroup)) { notification in
             handleOpenGroupNotification(notification)
         }
         .onAppear {
             checkPendingNavigation()
-            checkPendingBroadcastNavigation()
             checkPendingGroupNavigation()
             requestNotificationPermissionIfNeeded()
             loadedConversationCount = conversationPageSize
@@ -327,11 +284,6 @@ struct ChatListView: View {
                 checkPendingNavigation()
             }
         }
-        .onChange(of: broadcastService.pendingBroadcastNavigation) { newValue in
-            if newValue != nil {
-                checkPendingBroadcastNavigation()
-            }
-        }
         .onChange(of: groupChatService.pendingGroupNavigation) { newValue in
             if newValue != nil {
                 checkPendingGroupNavigation()
@@ -356,17 +308,6 @@ struct ChatListView: View {
         navigateToChat(address: contactAddress)
     }
 
-    private func handleOpenBroadcastNotification(_ notification: Notification) {
-        guard let channel = notification.userInfo?["channel"] as? String else { return }
-        navigateToBroadcast(channel: channel)
-    }
-
-    private func checkPendingBroadcastNavigation() {
-        guard let channel = broadcastService.pendingBroadcastNavigation else { return }
-        broadcastService.pendingBroadcastNavigation = nil
-        navigateToBroadcast(channel: channel)
-    }
-
     private func handleOpenGroupNotification(_ notification: Notification) {
         guard let groupId = notification.userInfo?["groupId"] as? String else { return }
         navigateToGroup(groupId: groupId)
@@ -383,20 +324,10 @@ struct ChatListView: View {
         navigateToGroup(groupId: groupId)
     }
 
-    /// Opens the broadcast list already pushed one level deeper into the tapped room, matching
-    /// `navigateToChat`'s cold-start/already-running handling for 1:1 chats.
-    private func navigateToBroadcast(channel: String) {
-        pendingBroadcastChannel = channel
-        selectedContact = nil
-        showBroadcastList = true
-    }
-
     private func navigateToGroup(groupId: String) {
         guard let target = groupChatService.groups.first(where: { $0.id == groupId }) else { return }
         selectedListTab = .groups
         selectedContact = nil
-        pendingBroadcastChannel = nil
-        showBroadcastList = false
         selectedGroup = target
     }
 
@@ -416,8 +347,6 @@ struct ChatListView: View {
 
         if shouldUseSplitLayout {
             selectedContactStartInPaymentMode = startInPaymentMode
-            pendingBroadcastChannel = nil
-            showBroadcastList = false
             selectedContact = target
             return
         }
@@ -426,8 +355,6 @@ struct ChatListView: View {
         // in-place via its own .onReceive(.openChat) handler.
         if selectedContact == nil {
             selectedContactStartInPaymentMode = startInPaymentMode
-            pendingBroadcastChannel = nil
-            showBroadcastList = false
             selectedContact = target
         }
     }
@@ -492,8 +419,7 @@ struct ChatListView: View {
     }
 
     /// Underline-style tab bar (bold labels, teal indicator bar under the selected tab) - same
-    /// visual language as `BroadcastListView.broadcastTabBar`'s own Channels/Popular sub-tabs.
-    /// Tap-only (see `chatListContent`) - Broadcasts isn't one of these tabs, it's the first row
+    /// visual language as the app's other underline tab bars. Tap-only (see `chatListContent`).
     /// inside the Chats tab's own list (see `chatsTabContent`), matching its original
     /// placement/behavior (a pushed screen reached from a chat-like row, not a tab).
     private var chatsTopTabBar: some View {
@@ -504,6 +430,26 @@ struct ChatListView: View {
             }
             Divider()
         }
+    }
+
+    /// Horizontal swipe that switches the Chats/Groups tab - attached to the tab bar and the
+    /// full list surface alike.
+    private func listTabSwipe() -> some Gesture {
+        DragGesture(minimumDistance: 25, coordinateSpace: .global)
+            .onEnded { value in
+                guard editMode != .active else { return }
+                let dx = value.translation.width
+                let dy = value.translation.height
+                // Decisively horizontal only, so vertical list scrolling never trips it.
+                guard abs(dx) > 50, abs(dx) > abs(dy) * 1.5 else { return }
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    if dx < 0, selectedListTab == .chats {
+                        selectedListTab = .groups
+                    } else if dx > 0, selectedListTab == .groups {
+                        selectedListTab = .chats
+                    }
+                }
+            }
     }
 
     private func chatsTabButton(_ title: String, tab: ChatsListTab) -> some View {
@@ -596,8 +542,6 @@ struct ChatListView: View {
                                 selectedGroupIDs.insert(group.id)
                             }
                         } else {
-                            pendingBroadcastChannel = nil
-                            showBroadcastList = false
                             selectedContact = nil
                             selectedGroup = group
                         }
@@ -611,30 +555,6 @@ struct ChatListView: View {
                             ? Color.accentColor.opacity(0.14)
                             : Color.clear
                     )
-                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                        Button {
-                            if groupChatService.unreadCount(for: group) > 0 {
-                                groupChatService.markGroupAsRead(group.id)
-                            } else {
-                                groupChatService.markGroupAsUnread(group.id)
-                            }
-                        } label: {
-                            if groupChatService.unreadCount(for: group) > 0 {
-                                Label("Read", systemImage: "envelope.open")
-                            } else {
-                                Label("Unread", systemImage: "envelope.badge")
-                            }
-                        }
-                        .tint(.accentColor)
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            groupPendingDelete = group
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                        .tint(.red)
-                    }
                 }
 
                 Text("\(groups.count) group\(groups.count == 1 ? "" : "s")")
@@ -684,25 +604,6 @@ struct ChatListView: View {
         }
 
         return List(selection: $selectedContactIDs) {
-            // Restored to its original placement: a row inside the Chats list itself (so it
-            // reads as "just another chat"), not a standalone element above the tabs - only
-            // shown while not searching, matching every other non-conversation row here.
-            if searchText.isEmpty && !settingsViewModel.settings.hideBroadcasts {
-                Button {
-                    pendingBroadcastChannel = nil
-                    selectedContact = nil
-                    selectedGroup = nil
-                    showBroadcastList = true
-                } label: {
-                    BroadcastEntryRow()
-                }
-                .listRowBackground(
-                    shouldUseSplitLayout && showBroadcastList
-                        ? Color.accentColor.opacity(0.14)
-                        : Color.clear
-                )
-            }
-
             if !displayed.isEmpty {
                 ForEach(Array(displayed.enumerated()), id: \.element.id) { index, conversation in
                     Button {
@@ -717,8 +618,6 @@ struct ChatListView: View {
                             }
                         } else {
                             selectedContactStartInPaymentMode = false
-                            pendingBroadcastChannel = nil
-                            showBroadcastList = false
                             selectedGroup = nil
                             selectedContact = conversation.contact
                         }
@@ -732,32 +631,6 @@ struct ChatListView: View {
                             ? Color.accentColor.opacity(0.14)
                             : Color.clear
                     )
-                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                        Button {
-                            if conversation.unreadCount > 0 {
-                                Task {
-                                    await chatService.markConversationAsRead(conversation)
-                                }
-                            } else {
-                                chatService.markConversationAsUnread(conversation)
-                            }
-                        } label: {
-                            if conversation.unreadCount > 0 {
-                                Label("Read", systemImage: "envelope.open")
-                            } else {
-                                Label("Unread", systemImage: "envelope.badge")
-                            }
-                        }
-                        .tint(.accentColor)
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            contactPendingDelete = conversation.contact
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                        .tint(.red)
-                    }
                     .onAppear {
                         maybeLoadMoreConversations(
                             currentIndex: index,
@@ -777,11 +650,8 @@ struct ChatListView: View {
         }
         .listStyle(.plain)
         .overlay {
-            // Rendered as an overlay rather than a List row: as a row, it sat right after the
-            // Broadcasts row with no content to expand into the remaining space, which left a
-            // stray-looking separator line floating above Broadcasts with a large dead gap below
-            // it instead of a normal centered empty state. An overlay isn't subject to List's
-            // row/separator layout at all, so it can just center properly over the whole list area.
+            // Rendered as an overlay rather than a List row so it can center properly over the
+            // whole list area instead of being subject to List's row/separator layout.
             if displayed.isEmpty && searchText.isEmpty {
                 emptyStateView
             }
@@ -1005,13 +875,6 @@ struct ChatListView: View {
         }
     }
 
-    private func deleteConversation(_ contact: Contact) {
-        chatService.removeConversation(for: contact.address)
-        contactsManager.deleteContact(contact)
-        chatService.checkAndResubscribeIfNeeded()
-        showToast("Chat deleted.")
-    }
-
     /// Pulled out of the `.alert(...)` call site as a plain computed property - an inline ternary
     /// nested inside string interpolation there was making the compiler unable to type-check the
     /// `.alert` expression in reasonable time.
@@ -1029,8 +892,8 @@ struct ChatListView: View {
             : "This removes each selected group and its messages from this device. This cannot be undone, and other members won't be notified."
     }
 
-    /// Bulk multi-select delete - same per-contact cleanup as `deleteConversation`, just
-    /// resubscribing and toasting once at the end instead of once per contact.
+    /// Bulk multi-select delete (Select mode is the only delete path now that row swipes are
+    /// gone) - per-contact cleanup with one resubscribe and toast at the end.
     private func deleteConversations(_ contacts: [Contact]) {
         guard !contacts.isEmpty else { return }
         for contact in contacts {
@@ -1149,32 +1012,6 @@ private struct GroupChatDetailNavigationDestination: ViewModifier {
                 } else {
                     EmptyView()
                 }
-            }
-        }
-    }
-}
-
-private struct BroadcastListNavigationDestination: ViewModifier {
-    let mode: BroadcastListPresentationMode
-    @Binding var showBroadcastList: Bool
-    @Binding var pendingBroadcastChannel: String?
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        switch mode {
-        case .splitDetail:
-            content
-        case .navigationDestination:
-            content.navigationDestination(isPresented: Binding(
-                get: { showBroadcastList },
-                set: { isPresented in
-                    showBroadcastList = isPresented
-                    if !isPresented {
-                        pendingBroadcastChannel = nil
-                    }
-                }
-            )) {
-                BroadcastListView(initialChannel: pendingBroadcastChannel)
             }
         }
     }
@@ -1473,28 +1310,6 @@ private struct ShimmerOverlay: View {
     }
 }
 
-struct BroadcastEntryRow: View {
-    var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(Color.accentColor.opacity(0.2))
-                .frame(width: 50, height: 50)
-                .overlay(
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.system(size: 20))
-                        .foregroundColor(.accentColor)
-                )
-
-            Text("Broadcasts")
-                .font(.headline)
-
-            Spacer()
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-    }
-}
-
 struct GroupChatRow: View {
     let group: GroupChat
     @EnvironmentObject var groupChatService: GroupChatService
@@ -1592,5 +1407,4 @@ struct GroupChatRow: View {
         .environmentObject(ChatService.shared)
         .environmentObject(ContactsManager.shared)
         .environmentObject(WalletManager.shared)
-        .environmentObject(BroadcastService.shared)
 }

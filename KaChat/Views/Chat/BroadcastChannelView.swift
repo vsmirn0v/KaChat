@@ -42,6 +42,7 @@ struct BroadcastChannelView: View {
     /// identical pair. `BroadcastMessage.id` is already the wire txId, unlike 1:1/group's `UUID`
     /// row ids, so this stays a `String` throughout.
     @State private var pendingJumpToTxId: String?
+    @State private var showHiddenUsers = false
     @State private var highlightedMessageID: String?
 
     private var myAddress: String? {
@@ -92,6 +93,20 @@ struct BroadcastChannelView: View {
             ToolbarItem(placement: .navigationBarLeading) {
                 ConnectionStatusIndicator()
             }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showHiddenUsers = true
+                } label: {
+                    Image(systemName: "person.crop.circle.badge.xmark")
+                }
+                .accessibilityLabel("Hidden users in this room")
+            }
+        }
+        .sheet(isPresented: $showHiddenUsers) {
+            NavigationStack {
+                HiddenBroadcastSendersView(channel: channelName)
+            }
+            .presentationDetents([.medium, .large])
         }
         .navigationDestination(isPresented: Binding(
             get: { openContact != nil },
@@ -203,7 +218,7 @@ struct BroadcastChannelView: View {
                                             UIPasteboard.general.string = message.senderAddress
                                             showToast("Address copied.")
                                         },
-                                        onHideSender: { broadcastService.hideSender(message.senderAddress) },
+                                        onHideSender: { broadcastService.hideSender(message.senderAddress, inChannel: channelName) },
                                         onReply: { broadcastService.startReplyTo(message) },
                                         onCopyMessage: {
                                             UIPasteboard.general.string = displayContent(for: message).text

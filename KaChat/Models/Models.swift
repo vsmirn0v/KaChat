@@ -1223,6 +1223,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case swap
     case profile
     case kaposts
+    case broadcasts
     /// Not a real page: tapping it opens the Customize Menu settings directly (see MainTabView's
     /// selection interception). Exists as a real case so it participates in ordering/visibility.
     case more
@@ -1237,6 +1238,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .swap: return "Swap"
         case .profile: return "Profile"
         case .kaposts: return "KaPosts"
+        case .broadcasts: return "Broadcasts"
         case .more: return "More"
         }
     }
@@ -1249,6 +1251,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .swap: return "arrow.left.arrow.right"
         case .profile: return "person.crop.circle"
         case .kaposts: return "square.and.pencil"
+        case .broadcasts: return "dot.radiowaves.left.and.right"
         case .more: return "plus.circle"
         }
     }
@@ -1262,6 +1265,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .swap: return 5
         case .kaposts: return 6
         case .more: return 7
+        case .broadcasts: return 8
         }
     }
 
@@ -1270,11 +1274,11 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     var canHide: Bool {
         switch self {
         case .chats, .profile: return false
-        case .portfolio, .coldStorage, .swap, .kaposts, .more: return true
+        case .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .more: return true
         }
     }
 
-    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .swap, .profile, .kaposts, .more]
+    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .swap, .profile, .kaposts, .broadcasts, .more]
 
     /// The dock renders at most this many items; anything past it falls off rather than letting
     /// the system TabView spawn its own "More" list. KaPosts is dropped first when over the cap -
@@ -1299,6 +1303,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .coldStorage: return !settings.hideColdStorageTab
         case .swap: return !settings.hideSwapTab
         case .kaposts: return !settings.hideKaPostsTab
+        case .broadcasts: return !settings.hideBroadcasts
         case .more: return !settings.hideMoreItem
         case .chats, .profile: return true
         }
@@ -1310,8 +1315,12 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     /// Chats); after that the tail of the order falls off.
     static func visible(from settings: AppSettings) -> [AppTab] {
         var tabs = resolvedOrder(from: settings).filter { $0.isEnabled(in: settings) }
-        if tabs.count > maxDockItems, let kapostsIndex = tabs.firstIndex(of: .kaposts) {
-            tabs.remove(at: kapostsIndex)
+        // Over capacity: KaPosts drops out first, then Broadcasts - both stay reachable by
+        // cycling the Chats tab (see MainTabView.handleChatsTabReselection) - then the tail.
+        for cyclable in [AppTab.kaposts, .broadcasts] where tabs.count > maxDockItems {
+            if let index = tabs.firstIndex(of: cyclable) {
+                tabs.remove(at: index)
+            }
         }
         if tabs.count > maxDockItems {
             tabs = Array(tabs.prefix(maxDockItems))
@@ -1319,10 +1328,23 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         return tabs
     }
 
-    /// KaPosts is enabled but didn't fit in the dock - MainTabView then lets a re-tap on the
-    /// Chats tab toggle between Chats and KaPosts.
+    /// KaPosts is enabled but didn't fit in the dock - it joins the Chats-tab cycle.
     static func kaPostsAccessibleViaChatsTab(from settings: AppSettings) -> Bool {
         AppTab.kaposts.isEnabled(in: settings) && !visible(from: settings).contains(.kaposts)
+    }
+
+    /// Broadcasts is enabled but didn't fit in the dock - it joins the Chats-tab cycle.
+    static func broadcastsAccessibleViaChatsTab(from settings: AppSettings) -> Bool {
+        AppTab.broadcasts.isEnabled(in: settings) && !visible(from: settings).contains(.broadcasts)
+    }
+
+    /// What re-tapping the Chats tab cycles through: always Chats itself, then whichever of
+    /// KaPosts/Broadcasts are enabled but masked out of the full dock.
+    static func chatsSlotCycle(from settings: AppSettings) -> [AppTab] {
+        var cycle: [AppTab] = [.chats]
+        if kaPostsAccessibleViaChatsTab(from: settings) { cycle.append(.kaposts) }
+        if broadcastsAccessibleViaChatsTab(from: settings) { cycle.append(.broadcasts) }
+        return cycle
     }
 }
 

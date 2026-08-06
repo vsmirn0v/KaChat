@@ -139,10 +139,13 @@ in-app bell toggle. The plumbing on the app side is DONE:
   `"watched_broadcast_channels": ["kaspa", "kachat-bugs"]` - only channels the user has
   JOINED with the bell ON. Toggling a bell re-sends the registration, so the server list is
   always current. Devices with an older app simply omit the field - treat missing as `[]`.
-- Server work: (1) push service stores `watched_broadcast_channels` per device; (2) when the
-  broadcast indexer ingests a new message in a tracked channel, send an APNs alert to every
-  device watching that channel (skip the sender's own device, matched by registered
-  primary/watched address).
+- Registrations also carry `"hidden_broadcast_senders": {"kaspa": ["kaspa:qq…", …], …}` -
+  per-room senders this device has hidden. Missing field = `{}`.
+- Server work: (1) push service stores `watched_broadcast_channels` AND
+  `hidden_broadcast_senders` per device; (2) when the broadcast indexer ingests a new message
+  in a tracked channel, send an APNs alert to every device watching that channel - skipping
+  the sender's own device (matched by registered primary/watched address) and any device that
+  lists the sender under that channel in `hidden_broadcast_senders`.
 - APNs payload - broadcasts are public/unencrypted, so send a ready-made alert (no mutable
   content / extension work needed):
 

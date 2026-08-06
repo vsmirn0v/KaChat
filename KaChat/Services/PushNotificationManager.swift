@@ -370,6 +370,7 @@ final class PushNotificationManager: ObservableObject {
             watchedAddresses: watchedAddresses,
             watchedGroupIds: watchedGroupIds,
             watchedBroadcastChannels: collectWatchedBroadcastChannels(),
+            hiddenBroadcastSenders: collectHiddenBroadcastSenders(),
             primaryAddress: primaryAddress,
             aliases: aliases,
             auth: auth
@@ -646,6 +647,7 @@ final class PushNotificationManager: ObservableObject {
             watchedAddresses: watchedAddresses,
             watchedGroupIds: watchedGroupIds,
             watchedBroadcastChannels: collectWatchedBroadcastChannels(),
+            hiddenBroadcastSenders: collectHiddenBroadcastSenders(),
             primaryAddress: primaryAddress,
             aliases: aliases,
             auth: auth
@@ -749,7 +751,10 @@ final class PushNotificationManager: ObservableObject {
         let aliasList = (aliases ?? collectAliases(forWatchedAddresses: addrs)).sorted()
         let primary = primaryAddress ?? collectPrimaryAddress() ?? ""
         let broadcastChannels = collectWatchedBroadcastChannels()
-        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels).joined(separator: ",")
+        let hiddenBroadcast = collectHiddenBroadcastSenders()
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key):\($0.value.joined(separator: "+"))" }
+        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels + ["|"] + hiddenBroadcast).joined(separator: ",")
     }
 
     /// Unregister device (call on logout/wallet delete)
@@ -1220,6 +1225,21 @@ final class PushNotificationManager: ObservableObject {
             .filter { BroadcastService.featuredChannels.contains($0.channelName) && $0.notifyEnabled }
             .map(\.channelName)
             .sorted()
+    }
+
+    /// Per-room hidden senders for the watched (indexed) channels - the push service must not
+    /// send pushes from these senders to this device. Legacy global hides apply to every
+    /// watched channel.
+    private func collectHiddenBroadcastSenders() -> [String: [String]] {
+        let hidden = BroadcastService.shared.hiddenSendersByChannel()
+        var result: [String: [String]] = [:]
+        for channel in collectWatchedBroadcastChannels() {
+            let combined = hidden.global.union(hidden.perChannel[channel] ?? [])
+            if !combined.isEmpty {
+                result[channel] = combined.sorted()
+            }
+        }
+        return result
     }
 
     private func collectWatchedAddresses() -> [String] {
@@ -1839,6 +1859,7 @@ struct PushRegistrationRequest: Codable {
     let watchedAddresses: [String]
     let watchedGroupIds: [String]
     let watchedBroadcastChannels: [String]
+    let hiddenBroadcastSenders: [String: [String]]
     let primaryAddress: String?
     let aliases: [String]
     let auth: PushAuthRequest?
@@ -1849,6 +1870,7 @@ struct PushRegistrationRequest: Codable {
         case watchedAddresses = "watched_addresses"
         case watchedGroupIds = "watched_group_ids"
         case watchedBroadcastChannels = "watched_broadcast_channels"
+        case hiddenBroadcastSenders = "hidden_broadcast_senders"
         case primaryAddress = "primary_address"
         case aliases
         case auth
@@ -1860,6 +1882,7 @@ struct PushUpdateRequest: Codable {
     let watchedAddresses: [String]
     let watchedGroupIds: [String]
     let watchedBroadcastChannels: [String]
+    let hiddenBroadcastSenders: [String: [String]]
     let primaryAddress: String?
     let aliases: [String]
     let auth: PushAuthRequest?
@@ -1869,6 +1892,7 @@ struct PushUpdateRequest: Codable {
         case watchedAddresses = "watched_addresses"
         case watchedGroupIds = "watched_group_ids"
         case watchedBroadcastChannels = "watched_broadcast_channels"
+        case hiddenBroadcastSenders = "hidden_broadcast_senders"
         case primaryAddress = "primary_address"
         case aliases
         case auth

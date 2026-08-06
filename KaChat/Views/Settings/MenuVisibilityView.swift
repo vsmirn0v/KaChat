@@ -18,10 +18,9 @@ struct MenuVisibilityView: View {
     }
 
     /// Dock menus currently toggled ON among Portfolio, Storage, Swap and More. Chats/Profile
-    /// are always-on and don't count; Broadcasts doesn't count (it's a row inside the Chats list,
-    /// not a dock item); and KaPosts is EXEMPT - when the dock is full it rides the Chats slot
-    /// (re-tap the Chats tab to open it) instead of taking a dock place, so it never needs to
-    /// push anything out.
+    /// are always-on and don't count; KaPosts and Broadcasts are EXEMPT - when the dock is full
+    /// they ride the Chats slot (re-tapping the Chats tab cycles through them) instead of taking
+    /// a dock place, so they never need to push anything out.
     private var enabledDockToggleCount: Int {
         let settings = settingsViewModel.settings
         return [
@@ -38,6 +37,14 @@ struct MenuVisibilityView: View {
         let settings = settingsViewModel.settings
         guard !settings.hideKaPostsTab else { return nil }
         return AppTab.kaPostsAccessibleViaChatsTab(from: settings)
+            ? "Dock is full - open it by tapping the Chats tab again" : nil
+    }
+
+    /// Same discoverability hint for Broadcasts when it's masked behind the Chats-tab cycle.
+    private var broadcastsReTapHint: String? {
+        let settings = settingsViewModel.settings
+        guard !settings.hideBroadcasts else { return nil }
+        return AppTab.broadcastsAccessibleViaChatsTab(from: settings)
             ? "Dock is full - open it by tapping the Chats tab again" : nil
     }
 
@@ -102,18 +109,19 @@ struct MenuVisibilityView: View {
                     limitLocked: atMenuLimit && settingsViewModel.settings.hideMoreItem
                 )
                 menuRow(
-                    icon: "dot.radiowaves.left.and.right",
-                    label: "Broadcasts",
+                    icon: AppTab.broadcasts.icon,
+                    label: AppTab.broadcasts.label,
                     isOn: Binding(
                         get: { !settingsViewModel.settings.hideBroadcasts },
                         set: { settingsViewModel.settings.hideBroadcasts = !$0; settingsViewModel.saveSettings() }
                     ),
-                    locked: false
+                    locked: false,
+                    hint: broadcastsReTapHint
                 )
             } header: {
                 Text("Choose which tabs appear in your bottom menu.")
             } footer: {
-                Text("Press and drag a tab in the preview below to reorder it. The dock shows up to \(AppTab.maxDockItems) items - if it's full, KaPosts stays available by tapping the Chats tab again. \"More (+)\" opens this screen straight from the dock.")
+                Text("Press and drag a tab in the preview below to reorder it. The dock shows up to \(AppTab.maxDockItems) items - if it's full, KaPosts and Broadcasts stay available by tapping the Chats tab to cycle through them. \"More (+)\" opens this screen straight from the dock.")
             }
         }
         .navigationTitle("Menu")

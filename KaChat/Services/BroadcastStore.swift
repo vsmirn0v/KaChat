@@ -266,7 +266,7 @@ final class BroadcastStore {
     func messages(forChannel channel: String) -> [BroadcastMessage] {
         guard isLoaded else { return [] }
         let normalized = BroadcastChannelName.normalize(channel)
-        let hidden = hiddenSenderAddresses()
+        let hidden = hiddenSenderAddresses(forChannel: normalized)
         var result: [BroadcastMessage] = []
         let context = viewContext
         context.performAndWait {
@@ -290,45 +290,77 @@ final class BroadcastStore {
         return result
     }
 
-    // MARK: - Hidden senders
+    // MARK: - Hidden senders (PER ROOM)
 
-    func hideSender(_ address: String) {
+    func hideSender(_ address: String, inChannel channel: String) {
         guard isLoaded else { return }
+        let normalized = BroadcastChannelName.normalize(channel)
         let context = viewContext
         context.performAndWait {
             let request = NSFetchRequest<CDHiddenBroadcastSender>(entityName: CDHiddenBroadcastSender.entityName)
-            request.predicate = NSPredicate(format: "senderAddress == %@", address)
+            request.predicate = NSPredicate(format: "senderAddress == %@ AND channelName == %@", address, normalized)
             request.fetchLimit = 1
             guard (try? context.fetch(request))?.first == nil else { return }
             let entry = CDHiddenBroadcastSender(context: context)
             entry.senderAddress = address
+            entry.channelName = normalized
             entry.hiddenAt = Date()
             save(context)
         }
     }
 
-    func unhideSender(_ address: String) {
+    /// Removes the room-scoped hide. A matching legacy global row ("" channel) is deleted too -
+    /// otherwise unhiding from the room's list would appear to do nothing.
+    func unhideSender(_ address: String, inChannel channel: String) {
+        let normalized = BroadcastChannelName.normalize(channel)
         let context = viewContext
         context.performAndWait {
             let request = NSFetchRequest<CDHiddenBroadcastSender>(entityName: CDHiddenBroadcastSender.entityName)
-            request.predicate = NSPredicate(format: "senderAddress == %@", address)
-            if let entry = (try? context.fetch(request))?.first {
-                context.delete(entry)
-                save(context)
-            }
+            request.predicate = NSPredicate(
+                format: "senderAddress == %@ AND (channelName == %@ OR channelName == %@)",
+                address, normalized, ""
+            )
+            let rows = (try? context.fetch(request)) ?? []
+            guard !rows.isEmpty else { return }
+            rows.forEach(context.delete)
+            save(context)
         }
     }
 
-    func hiddenSenderAddresses() -> Set<String> {
+    /// Senders hidden in this room: room-scoped rows plus legacy global ("" channel) rows.
+    func hiddenSenderAddresses(forChannel channel: String) -> Set<String> {
         guard isLoaded else { return [] }
+        let normalized = BroadcastChannelName.normalize(channel)
         var result: Set<String> = []
         let context = viewContext
         context.performAndWait {
             let request = NSFetchRequest<CDHiddenBroadcastSender>(entityName: CDHiddenBroadcastSender.entityName)
+            request.predicate = NSPredicate(format: "channelName == %@ OR channelName == %@", normalized, "")
             let rows = (try? context.fetch(request)) ?? []
             result = Set(rows.map { $0.senderAddress })
         }
         return result
+    }
+
+    /// Every hide, grouped for one-pass filtering during block scans and push registration:
+    /// `global` = legacy all-room rows, `perChannel` = room-scoped rows.
+    func hiddenSendersByChannel() -> (global: Set<String>, perChannel: [String: Set<String>]) {
+        guard isLoaded else { return ([], [:]) }
+        var global: Set<String> = []
+        var perChannel: [String: Set<String>] = [:]
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDHiddenBroadcastSender>(entityName: CDHiddenBroadcastSender.entityName)
+            let rows = (try? context.fetch(request)) ?? []
+            for row in rows {
+                if row.channelName.isEmpty {
+                    global.insert(row.senderAddress)
+                } else {
+                    perChannel[row.channelName, default: []].insert(row.senderAddress)
+                }
+            }
+        }
+        return (global, perChannel)
     }
 
     // MARK: - Retention pruning
@@ -428,6 +460,9 @@ final class BroadcastStore {
         hiddenSenderEntity.managedObjectClassName = NSStringFromClass(CDHiddenBroadcastSender.self)
         hiddenSenderEntity.properties = [
             makeAttribute(name: "senderAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            // Room the hide applies to. "" = legacy row from the global-hide era, treated as
+            // hidden in EVERY room (lightweight migration fills existing rows with "").
+            makeAttribute(name: "channelName", type: .stringAttributeType, optional: false, defaultValue: ""),
             makeAttribute(name: "hiddenAt", type: .dateAttributeType, optional: true)
         ]
 
@@ -479,5 +514,6 @@ final class CDHiddenBroadcastSender: NSManagedObject {
     static let entityName = "CDHiddenBroadcastSender"
 
     @NSManaged var senderAddress: String
+    @NSManaged var channelName: String
     @NSManaged var hiddenAt: Date?
 }

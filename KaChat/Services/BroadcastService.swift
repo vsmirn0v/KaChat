@@ -135,22 +135,35 @@ final class BroadcastService: ObservableObject {
 
     // MARK: - Hidden senders
 
-    func hideSender(_ address: String) {
-        store.hideSender(address)
+    func hideSender(_ address: String, inChannel channel: String) {
+        store.hideSender(address, inChannel: channel)
+        syncHiddenSendersToPushIfNeeded(channel: channel)
         for channel in messagesByChannel.keys {
             loadMessages(for: channel)
         }
     }
 
-    func unhideSender(_ address: String) {
-        store.unhideSender(address)
+    func unhideSender(_ address: String, inChannel channel: String) {
+        store.unhideSender(address, inChannel: channel)
+        syncHiddenSendersToPushIfNeeded(channel: channel)
         for channel in messagesByChannel.keys {
             loadMessages(for: channel)
         }
     }
 
-    func hiddenSenderAddresses() -> Set<String> {
-        store.hiddenSenderAddresses()
+    func hiddenSenderAddresses(forChannel channel: String) -> Set<String> {
+        store.hiddenSenderAddresses(forChannel: channel)
+    }
+
+    func hiddenSendersByChannel() -> (global: Set<String>, perChannel: [String: Set<String>]) {
+        store.hiddenSendersByChannel()
+    }
+
+    /// Hides in the indexed channels also gate server-side push - re-sync the registration so
+    /// the push service stops (or resumes) sending for that sender.
+    private func syncHiddenSendersToPushIfNeeded(channel: String) {
+        guard Self.featuredChannels.contains(BroadcastChannelName.normalize(channel)) else { return }
+        Task { await PushNotificationManager.shared.updateWatchedAddresses() }
     }
 
     // MARK: - Live viewing (reference counted)
@@ -162,49 +175,58 @@ final class BroadcastService: ObservableObject {
         store.pruneExpiredMessages()
         loadMessages(for: normalized)
         updateScanningStateIfNeeded()
-        backfillFromIndexerIfConfigured(channel: normalized)
+        startIndexerPollingIfConfigured(channel: normalized)
     }
 
-    /// Channels already history-backfilled this session (one indexer round-trip per channel).
-    private var backfilledChannels = Set<String>()
+    /// Per-channel indexer poll loops, running while that channel's screen is open.
+    private var indexerPollTasks: [String: Task<Void, Never>] = [:]
+    private static let indexerPollIntervalNanos: UInt64 = 8 * 1_000_000_000
 
-    /// Pulls channel history from the KaChat broadcast indexer (Settings > Connection
-    /// Settings > Broadcast Indexer) and merges it into the local store. Live block scanning
-    /// only sees messages while the app is listening - the indexer fills in everything missed.
-    /// No-op when the URL is unset; store insert dedupes by txid; hidden senders and local
-    /// retention pruning apply to backfilled rows exactly like scanned ones.
-    private func backfillFromIndexerIfConfigured(channel: String) {
-        guard !backfilledChannels.contains(channel) else { return }
-        let settings = AppSettings.load()
-        let base = settings.broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// While a room is open, the KaChat broadcast indexer is polled every few seconds and new
+    /// rows merge into the local store (txid-deduped) - live block scanning alone proved
+    /// unreliable for freshness (the indexer had messages the app never showed). First fetch
+    /// fires immediately on open, so history backfill is included. No-op when the URL is unset;
+    /// hidden senders and retention pruning apply exactly like scanned rows.
+    private func startIndexerPollingIfConfigured(channel: String) {
+        guard indexerPollTasks[channel] == nil else { return }
+        let base = AppSettings.load().broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty else { return }
-        backfilledChannels.insert(channel)
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let messages = try await BroadcastIndexerClient.fetchHistory(baseURL: base, channel: channel)
-                let hidden = self.store.hiddenSenderAddresses()
-                var insertedAny = false
-                for message in messages where !hidden.contains(message.senderAddress) {
-                    let inserted = self.store.insertMessage(
-                        id: message.txId,
-                        channel: channel,
-                        senderAddress: message.senderAddress,
-                        content: message.content,
-                        blockTime: message.blockTime,
-                        deliveryStatus: .sent
-                    )
-                    insertedAny = insertedAny || inserted
-                }
-                if insertedAny {
-                    self.store.pruneExpiredMessages()
-                    self.loadMessages(for: channel)
-                }
-            } catch {
-                // Backfill is best-effort on top of live scanning - allow a retry next open.
-                self.backfilledChannels.remove(channel)
-                AppLog.log("%@", "[Broadcast] Indexer backfill failed for #\(channel): \(error.localizedDescription)")
+        indexerPollTasks[channel] = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.fetchFromIndexerAndMerge(baseURL: base, channel: channel)
+                try? await Task.sleep(nanoseconds: Self.indexerPollIntervalNanos)
             }
+        }
+    }
+
+    private func stopIndexerPolling(channel: String) {
+        indexerPollTasks[channel]?.cancel()
+        indexerPollTasks[channel] = nil
+    }
+
+    private func fetchFromIndexerAndMerge(baseURL: String, channel: String) async {
+        do {
+            let messages = try await BroadcastIndexerClient.fetchHistory(baseURL: baseURL, channel: channel)
+            let hidden = store.hiddenSenderAddresses(forChannel: channel)
+            var insertedAny = false
+            for message in messages where !hidden.contains(message.senderAddress) {
+                let inserted = store.insertMessage(
+                    id: message.txId,
+                    channel: channel,
+                    senderAddress: message.senderAddress,
+                    content: message.content,
+                    blockTime: message.blockTime,
+                    deliveryStatus: .sent
+                )
+                insertedAny = insertedAny || inserted
+            }
+            if insertedAny {
+                store.pruneExpiredMessages()
+                loadMessages(for: channel)
+            }
+        } catch {
+            // Best-effort on top of live scanning - the loop just tries again next tick.
+            AppLog.log("%@", "[Broadcast] Indexer fetch failed for #\(channel): \(error.localizedDescription)")
         }
     }
 
@@ -214,6 +236,7 @@ final class BroadcastService: ObservableObject {
         guard let count = liveViewRefCounts[normalized] else { return }
         if count <= 1 {
             liveViewRefCounts.removeValue(forKey: normalized)
+            stopIndexerPolling(channel: normalized)
         } else {
             liveViewRefCounts[normalized] = count - 1
         }
@@ -625,7 +648,7 @@ final class BroadcastService: ObservableObject {
         guard !wanted.isEmpty else { return }
         guard let notification = try? Protowire_BlockAddedNotificationMessage(serializedBytes: data) else { return }
 
-        let hidden = store.hiddenSenderAddresses()
+        let hidden = store.hiddenSendersByChannel()
         let hrp = AppSettings.load().networkType == .mainnet ? "kaspa" : "kaspatest"
         var touchedChannels = Set<String>()
 
@@ -641,7 +664,8 @@ final class BroadcastService: ObservableObject {
             guard let firstOutput = tx.outputs.first,
                   let scriptData = CryptoUtils.hexToData(firstOutput.scriptPublicKey.scriptPublicKey),
                   let senderAddress = KaspaAddress.address(fromScriptPublicKey: scriptData, hrp: hrp) else { continue }
-            guard !hidden.contains(senderAddress) else { continue }
+            guard !hidden.global.contains(senderAddress),
+                  hidden.perChannel[channel]?.contains(senderAddress) != true else { continue }
 
             let txId = tx.verboseData.transactionID
             guard !txId.isEmpty else { continue }
@@ -675,6 +699,7 @@ final class BroadcastService: ObservableObject {
     private func notifyIfEnabled(channel: String, senderAddress: String, content: String) {
         guard senderAddress != WalletManager.shared.currentWallet?.publicAddress else { return }
         guard channels.first(where: { $0.channelName == channel })?.notifyEnabled == true else { return }
+        guard !store.hiddenSenderAddresses(forChannel: channel).contains(senderAddress) else { return }
         let settings = AppSettings.load()
         guard settings.notificationsEnabled else { return }
         // Indexed channels are covered by remote push (registered via

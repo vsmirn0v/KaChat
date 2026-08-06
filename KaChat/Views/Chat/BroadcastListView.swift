@@ -84,6 +84,12 @@ struct BroadcastListView: View {
                 hasAppliedInitialChannel = true
                 selectedChannel = initialChannel
             }
+            // Cold-start push tap: MainTabView routes here, and the pending channel (set by the
+            // notification handler) is consumed on mount - ChatListView no longer brokers this.
+            if let pending = broadcastService.pendingBroadcastNavigation {
+                broadcastService.pendingBroadcastNavigation = nil
+                selectedChannel = pending
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { notification in
             // Already viewing the broadcast list (or a room within it) when another broadcast
@@ -94,6 +100,7 @@ struct BroadcastListView: View {
         }
         .onChange(of: broadcastService.pendingBroadcastNavigation) { newValue in
             guard let channel = newValue else { return }
+            broadcastService.pendingBroadcastNavigation = nil
             selectedChannel = channel
         }
     }
@@ -510,18 +517,6 @@ private struct BroadcastSettingsView: View {
                 }
             }
 
-            Section {
-                NavigationLink {
-                    HiddenBroadcastSendersView()
-                } label: {
-                    HStack {
-                        Text("Hidden Broadcast Room Users")
-                        Spacer()
-                        Text("\(broadcastService.hiddenSenderAddresses().count)")
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
         }
         .navigationTitle("Broadcast Settings")
         .navigationBarTitleDisplayMode(.inline)
