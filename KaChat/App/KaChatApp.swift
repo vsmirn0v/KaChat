@@ -217,8 +217,19 @@ struct KaChatApp: App {
     }
 
     private func handleIncomingURL(_ url: URL) {
-        guard url.scheme?.lowercased() == "kachat",
-              url.host?.lowercased() == "share",
+        guard url.scheme?.lowercased() == "kachat" else { return }
+
+        // kachat://kapost/<txid> - shared post link: land in KaPosts with the post's comment
+        // thread open. Pending storage covers cold starts (KaPostsView consumes it on mount).
+        if url.host?.lowercased() == "kapost" {
+            let txId = url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !txId.isEmpty, txId != "/" else { return }
+            KaPostsDeepLink.pendingPostTxId = txId
+            NotificationCenter.default.post(name: .openKaPost, object: nil, userInfo: ["txId": txId])
+            return
+        }
+
+        guard url.host?.lowercased() == "share",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let shareId = components.queryItems?.first(where: { $0.name == "id" })?.value,
               !shareId.isEmpty else {
@@ -700,8 +711,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 }
 
+/// Cold-start handoff for kachat://kapost/<txid> links - the notification alone is lost if
+/// KaPostsView isn't mounted yet.
+enum KaPostsDeepLink {
+    static var pendingPostTxId: String?
+}
+
 extension Notification.Name {
     static let openChat = Notification.Name("openChat")
+    static let openKaPost = Notification.Name("openKaPost")
     static let openBroadcast = Notification.Name("openBroadcast")
     static let openGroup = Notification.Name("openGroup")
     static let showGiftClaim = Notification.Name("showGiftClaim")

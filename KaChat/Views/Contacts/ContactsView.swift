@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import UIKit
@@ -61,6 +62,7 @@ struct ProfileView: View {
                         editKNSProfileRow
                         qrButtonsSection(wallet)
                         addressDropdownsSection(wallet)
+                        appsSection
                         helpSection
                         claimGiftSection
                         logOutSection
@@ -373,6 +375,26 @@ struct ProfileView: View {
             Spacer()
         }
         .padding(.top, -8)
+    }
+
+    /// Entry to the Apps screen: quick bubble launchers for Kaspa ecosystem sites.
+    private var appsSection: some View {
+        NavigationLink {
+            ProfileAppsView()
+        } label: {
+            HStack {
+                Label("Apps", systemImage: "square.grid.2x2")
+                    .foregroundColor(.primary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(glassBackground(cornerRadius: 18))
     }
 
     /// Entry to the Help screen: every guide in one place.
@@ -4819,5 +4841,203 @@ struct ProfileHelpView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+
+// MARK: - Profile Apps screen (Kaspa ecosystem quick links)
+
+/// Bubble-style launchers for Kaspa ecosystem sites, each opening in an IN-APP browser
+/// (SFSafariViewController) rather than kicking the user out to Safari.
+struct ProfileAppsView: View {
+    struct EcosystemApp: Identifiable {
+        let name: String
+        let icon: String
+        let usesKaspaLogo: Bool
+        let url: URL
+        var id: String { name }
+    }
+
+    private let apps: [EcosystemApp] = [
+        EcosystemApp(name: "Kaspa.org", icon: "", usesKaspaLogo: true, url: URL(string: "https://kaspa.org")!),
+        EcosystemApp(name: "Kaspa Stream", icon: "waveform.path.ecg", usesKaspaLogo: false, url: URL(string: "https://kaspa.stream")!),
+        EcosystemApp(name: "Kaspa Explorer", icon: "magnifyingglass", usesKaspaLogo: false, url: URL(string: "https://explorer.kaspa.org")!),
+        EcosystemApp(name: "KasMap", icon: "map", usesKaspaLogo: false, url: URL(string: "https://kasmap.org")!),
+        EcosystemApp(name: "KasShi", icon: "play.rectangle.fill", usesKaspaLogo: false, url: URL(string: "https://kasshi.io")!),
+        EcosystemApp(name: "Kaspa News", icon: "newspaper", usesKaspaLogo: false, url: URL(string: "https://kaspa.news")!)
+    ]
+
+    @State private var browserURL: URL?
+
+    private let columns = [GridItem(.adaptive(minimum: 96), spacing: 20)]
+
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 24) {
+                ForEach(apps) { app in
+                    Button {
+                        Haptics.impact(.light)
+                        browserURL = app.url
+                    } label: {
+                        VStack(spacing: 8) {
+                            Group {
+                                if app.usesKaspaLogo {
+                                    Image("KaspaLogo")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 34, height: 34)
+                                } else {
+                                    Image(systemName: app.icon)
+                                        .font(.system(size: 28, weight: .semibold))
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                            .frame(width: 68, height: 68)
+                            .background(
+                                Circle()
+                                    .fill(.regularMaterial)
+                                    .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+                                    .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
+                            )
+                            Text(app.name)
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(24)
+        }
+        .navigationTitle("Apps")
+        .navigationBarTitleDisplayMode(.large)
+        .fullScreenCover(isPresented: Binding(
+            get: { browserURL != nil },
+            set: { if !$0 { browserURL = nil } }
+        )) {
+            if let browserURL {
+                InAppBrowserScreen(url: browserURL) {
+                    self.browserURL = nil
+                }
+            }
+        }
+    }
+}
+
+/// Full-screen in-app browser: the X in the top-left is the ONLY way out (full-screen cover,
+/// so there's no slide-down to dismiss).
+///
+/// While the browser is up, the app powers down like it was backgrounded: node discovery
+/// pauses, the chat poll timer stops, the KaPosts notification poller stops, and (in
+/// remote-push mode) the UTXO subscription is released so notifications arrive via push -
+/// exactly the closed-app path. All of it resumes when the X is tapped.
+struct InAppBrowserScreen: View {
+    let url: URL
+    let onClose: () -> Void
+
+    @State private var isLoading = true
+
+    private func powerDownForBrowsing() {
+        Task { @MainActor in
+            await NodePoolService.shared.pauseDiscovery()
+            ChatService.shared.stopPollingTimerOnly()
+            KaPostsNotificationService.shared.stop()
+            if AppSettings.load().notificationMode == .remotePush {
+                ChatService.shared.pauseUtxoSubscriptionForRemotePush()
+            }
+        }
+    }
+
+    private func powerUpAfterBrowsing() {
+        Task { @MainActor in
+            await NodePoolService.shared.resumeDiscovery()
+            ChatService.shared.startPolling()
+            KaPostsNotificationService.shared.start()
+            if AppSettings.load().notificationMode == .remotePush {
+                await ChatService.shared.resumeUtxoSubscriptionForRemotePush()
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Button {
+                    Haptics.impact(.light)
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(.regularMaterial))
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Text(url.host ?? "")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer()
+                if isLoading {
+                    ProgressView()
+                        .frame(width: 34, height: 34)
+                } else {
+                    Color.clear
+                        .frame(width: 34, height: 34)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            Divider()
+            InAppWebView(url: url, isLoading: $isLoading)
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .background(Color(uiColor: .systemBackground))
+        .onAppear { powerDownForBrowsing() }
+        .onDisappear { powerUpAfterBrowsing() }
+    }
+}
+
+private struct InAppWebView: UIViewRepresentable {
+    let url: URL
+    @Binding var isLoading: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let webView = WKWebView()
+        webView.navigationDelegate = context.coordinator
+        webView.allowsBackForwardNavigationGestures = true
+        webView.load(URLRequest(url: url))
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {}
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        private let parent: InAppWebView
+
+        init(_ parent: InAppWebView) {
+            self.parent = parent
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            parent.isLoading = true
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            parent.isLoading = false
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            parent.isLoading = false
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            parent.isLoading = false
+        }
     }
 }

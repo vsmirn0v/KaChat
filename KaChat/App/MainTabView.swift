@@ -122,6 +122,16 @@ struct MainTabView: View {
                 selectedTab = 1
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openKaPost)) { _ in
+            // Shared-post link: land on KaPosts - its own dock tab when visible, else the
+            // Chats slot cycled onto it. KaPostsView picks up the pending txid itself.
+            if AppTab.visible(from: settingsViewModel.settings).contains(.kaposts) {
+                selectedTab = AppTab.kaposts.tag
+            } else if AppTab.kaPostsAccessibleViaChatsTab(from: settingsViewModel.settings) {
+                chatsSlotTab = .kaposts
+                selectedTab = 1
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openGroup)) { _ in
             if chatsSlotTab != .chats { chatsSlotTab = .chats }
             selectedTab = 1

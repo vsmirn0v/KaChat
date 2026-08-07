@@ -269,6 +269,16 @@ struct KaPostsView: View {
                 followStore.removeIfPresent(myAddress)
             }
             await loadFeed()
+            // Cold-start shared-post link: consume whatever arrived before this view existed.
+            if let pending = KaPostsDeepLink.pendingPostTxId {
+                KaPostsDeepLink.pendingPostTxId = nil
+                await openSharedPost(txId: pending)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openKaPost)) { notification in
+            guard let txId = notification.userInfo?["txId"] as? String else { return }
+            KaPostsDeepLink.pendingPostTxId = nil
+            Task { await openSharedPost(txId: txId) }
         }
         .onChange(of: selectedFeed) { _ in
             Task { await loadFeed() }
@@ -1014,6 +1024,24 @@ struct KaPostsView: View {
             + remotePosts + remotePosts.flatMap { $0.comments }
         return all.filter { $0.bookmarkedByMe && !moderationStore.isHidden($0.posterAddress) }
             .sorted { $0.timestamp > $1.timestamp }
+    }
+
+    /// Shared-link landing: resolve the txid to a loaded post (refreshing the feed once if
+    /// needed) and open its comment thread.
+    private func openSharedPost(txId: String) async {
+        func find() -> DraftPost? {
+            (posts + remotePosts).first { $0.remoteId == txId }
+        }
+        if let post = find() {
+            openDetail(post)
+            return
+        }
+        await loadFeed()
+        if let post = find() {
+            openDetail(post)
+        } else {
+            showActionToast("Post not found - it may be older than the current feed", txId: txId)
+        }
     }
 
     private func openDetail(_ post: DraftPost) {
@@ -1828,7 +1856,7 @@ private struct KaPostCellView: View {
                     quotedEmbedCard(quoted)
                 }
 
-                HStack(spacing: 28) {
+                HStack(spacing: 18) {
                     if let onComment {
                         engagementButton(
                             icon: "bubble.left",
@@ -1866,6 +1894,17 @@ private struct KaPostCellView: View {
                         tint: post.bookmarkedByMe ? .accentColor : .secondary,
                         action: onBookmark
                     )
+                    // Share: a kachat:// link that drops other KaChat users straight into this
+                    // post's comment thread, plus an explorer link for everyone else. Only for
+                    // posts that exist on the network.
+                    if let remoteId = post.remoteId {
+                        ShareLink(item: shareText(remoteId: remoteId)) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
                     Spacer()
                     // Bottom-right: on-chain delivery state, mirroring chat bubbles - green check
                     // once the K transaction is on the network, spinner while submitting, red
@@ -1950,8 +1989,10 @@ private struct KaPostCellView: View {
                 if post.likes > 0 {
                     Text("\(post.likes)")
                         .font(.caption.weight(.semibold))
+                        .lineLimit(1)
                 }
             }
+            .fixedSize()
             .foregroundColor(post.likedByMe ? .red : .secondary)
         }
         .buttonStyle(.plain))
@@ -2057,19 +2098,27 @@ private struct KaPostCellView: View {
         }
     }
 
+    private func shareText(remoteId: String) -> String {
+        let snippet = String(post.text.prefix(60)).trimmingCharacters(in: .whitespacesAndNewlines)
+        let ellipsis = post.text.count > 60 ? "..." : ""
+        return "\"\(snippet)\(ellipsis)\"\n\nOpen in KaChat: kachat://kapost/\(remoteId)"
+    }
+
     private func engagementButton(icon: String, count: Int, tint: Color, action: @escaping () -> Void) -> some View {
         Button {
             Haptics.impact(.light)
             action()
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: 4) {
                 Image(systemName: icon)
                     .font(.subheadline)
                 if count > 0 {
                     Text("\(count)")
                         .font(.caption.weight(.semibold))
+                        .lineLimit(1)
                 }
             }
+            .fixedSize()
             .foregroundColor(tint)
         }
         .buttonStyle(.plain)
