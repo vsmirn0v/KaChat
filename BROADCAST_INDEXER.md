@@ -125,7 +125,7 @@ volumes:
 
 Front it with the box's existing reverse proxy for TLS (the app requires https in practice).
 **Decided: it shares the KaPosts indexer's domain** - the app's Broadcast Indexer setting
-defaults to `https://kaposts.duckdns.org`, so the reverse proxy there must route
+defaults to `https://kachat.duckdns.org`, so the reverse proxy there must route
 `/get-broadcasts` (and `/health` if implemented) to this service alongside the KaPosts
 endpoints. No new DNS needed.
 

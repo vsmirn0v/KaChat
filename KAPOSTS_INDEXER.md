@@ -162,9 +162,9 @@ forked kasia-indexer with a `PushNotificationActor` for chat push (see
 
 ## 7. Universal Links for shared posts (domain config, NOT indexer work)
 
-The app shares posts as `https://kaposts.duckdns.org/post/<txid>`. With KaChat installed,
+The app shares posts as `https://kachat.duckdns.org/post/<txid>`. With KaChat installed,
 iOS opens the app straight into the post (the app ships the
-`applinks:kaposts.duckdns.org` entitlement). Without the app, the browser loads the URL -
+`applinks:kachat.duckdns.org` entitlement). Without the app, the browser loads the URL -
 so the domain must serve two small things (reverse-proxy/static config on the box; the
 indexer process itself is not involved):
 
@@ -185,7 +185,7 @@ indexer process itself is not involved):
 
    (Both Team IDs found in the project are listed - harmless to include both; the one whose
    provisioning actually signs App Store builds is the one that matters. Verify with
-   `curl -s https://kaposts.duckdns.org/.well-known/apple-app-site-association`.)
+   `curl -s https://kachat.duckdns.org/.well-known/apple-app-site-association`.)
 
 2. **`GET /post/<txid>`** - the no-app fallback: respond `302 Location:
    <App-Store-URL>` (the KaChat listing on apps.apple.com - fill in the real URL). iOS

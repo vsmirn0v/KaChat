@@ -1533,7 +1533,7 @@ struct AppSettings: Codable {
 
     // Default URLs per network
     static let defaultIndexerURL = "https://indexer.kasia.wtf"
-    static let defaultKaPostIndexerURL = "https://kaposts.duckdns.org"
+    static let defaultKaPostIndexerURL = "https://kachat.duckdns.org"
     static let defaultBroadcastIndexerURL = defaultKaPostIndexerURL
     /// Retired default - the public K social indexer (`mainnet.kaspatalk.net`). KaPosts now
     /// runs on KaChat's own indexer, which enforces two-way KaChat-only exclusivity server-side
@@ -1841,9 +1841,15 @@ struct AppSettings: Codable {
         } else {
             indexerURL = try container.decodeIfPresent(String.self, forKey: .indexerURL) ?? AppSettings.defaultIndexerURL
         }
-        kaPostIndexerURL = try container.decodeIfPresent(String.self, forKey: .kaPostIndexerURL) ?? AppSettings.defaultKaPostIndexerURL
+        // Old-default migration: stored values pointing at superseded default hosts follow the
+        // default forward; custom URLs are untouched.
+        let storedKaPostIndexer = try container.decodeIfPresent(String.self, forKey: .kaPostIndexerURL) ?? AppSettings.defaultKaPostIndexerURL
+        let supersededIndexerDefaults = ["https://kaposts.duckdns.org", "https://mainnet.kaspatalk.net"]
+        kaPostIndexerURL = supersededIndexerDefaults.contains(storedKaPostIndexer)
+            ? AppSettings.defaultKaPostIndexerURL : storedKaPostIndexer
         let storedBroadcastIndexer = try container.decodeIfPresent(String.self, forKey: .broadcastIndexerURL) ?? ""
         broadcastIndexerURL = storedBroadcastIndexer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || storedBroadcastIndexer == "https://kaposts.duckdns.org"
             ? AppSettings.defaultBroadcastIndexerURL : storedBroadcastIndexer
 
         if let customPushIndexer = try container.decodeIfPresent(String.self, forKey: .pushIndexerURL),

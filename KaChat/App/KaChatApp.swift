@@ -70,7 +70,7 @@ struct KaChatApp: App {
                     handleIncomingURL(url)
                 }
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
-                    // Universal links (https://kaposts.duckdns.org/post/<txid>) - same router.
+                    // Universal links (https://kachat.duckdns.org/post/<txid>) - same router.
                     if let url = activity.webpageURL {
                         handleIncomingURL(url)
                     }
@@ -223,10 +223,10 @@ struct KaChatApp: App {
     }
 
     private func handleIncomingURL(_ url: URL) {
-        // Universal link https://kaposts.duckdns.org/post/<txid> - preferred share form: with
+        // Universal link https://kachat.duckdns.org/post/<txid> - preferred share form: with
         // the app installed iOS routes it here; without it, the domain 302s to the App Store.
         if url.scheme?.lowercased() == "https",
-           url.host?.lowercased() == "kaposts.duckdns.org",
+           url.host?.lowercased() == "kachat.duckdns.org",
            url.pathComponents.count >= 3,
            url.pathComponents[1].lowercased() == "post" {
             openKaPostDeepLink(txId: url.pathComponents[2])
