@@ -2101,7 +2101,7 @@ private struct KaPostCellView: View {
     private func shareText(remoteId: String) -> String {
         let snippet = String(post.text.prefix(60)).trimmingCharacters(in: .whitespacesAndNewlines)
         let ellipsis = post.text.count > 60 ? "..." : ""
-        return "\"\(snippet)\(ellipsis)\"\n\nOpen in KaChat: kachat://kapost/\(remoteId)"
+        return "\"\(snippet)\(ellipsis)\"\n\nOpen in KaChat: https://kaposts.duckdns.org/post/\(remoteId)"
     }
 
     private func engagementButton(icon: String, count: Int, tint: Color, action: @escaping () -> Void) -> some View {

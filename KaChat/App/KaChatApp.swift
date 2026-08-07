@@ -69,6 +69,12 @@ struct KaChatApp: App {
                 .onOpenURL { url in
                     handleIncomingURL(url)
                 }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    // Universal links (https://kaposts.duckdns.org/post/<txid>) - same router.
+                    if let url = activity.webpageURL {
+                        handleIncomingURL(url)
+                    }
+                }
                 .preferredColorScheme(settingsViewModel.settings.appearance.colorScheme)
                 .environment(\.locale, settingsViewModel.settings.language.locale ?? .autoupdatingCurrent)
         }
@@ -217,15 +223,21 @@ struct KaChatApp: App {
     }
 
     private func handleIncomingURL(_ url: URL) {
+        // Universal link https://kaposts.duckdns.org/post/<txid> - preferred share form: with
+        // the app installed iOS routes it here; without it, the domain 302s to the App Store.
+        if url.scheme?.lowercased() == "https",
+           url.host?.lowercased() == "kaposts.duckdns.org",
+           url.pathComponents.count >= 3,
+           url.pathComponents[1].lowercased() == "post" {
+            openKaPostDeepLink(txId: url.pathComponents[2])
+            return
+        }
+
         guard url.scheme?.lowercased() == "kachat" else { return }
 
-        // kachat://kapost/<txid> - shared post link: land in KaPosts with the post's comment
-        // thread open. Pending storage covers cold starts (KaPostsView consumes it on mount).
+        // kachat://kapost/<txid> - legacy scheme form of the same link.
         if url.host?.lowercased() == "kapost" {
-            let txId = url.lastPathComponent.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !txId.isEmpty, txId != "/" else { return }
-            KaPostsDeepLink.pendingPostTxId = txId
-            NotificationCenter.default.post(name: .openKaPost, object: nil, userInfo: ["txId": txId])
+            openKaPostDeepLink(txId: url.lastPathComponent)
             return
         }
 
@@ -240,6 +252,13 @@ struct KaChatApp: App {
         Task {
             await processPendingOutboundShareIfNeeded()
         }
+    }
+
+    private func openKaPostDeepLink(txId rawTxId: String) {
+        let txId = rawTxId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !txId.isEmpty, txId != "/" else { return }
+        KaPostsDeepLink.pendingPostTxId = txId
+        NotificationCenter.default.post(name: .openKaPost, object: nil, userInfo: ["txId": txId])
     }
 
     @MainActor

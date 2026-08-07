@@ -158,3 +158,42 @@ forked kasia-indexer with a `PushNotificationActor` for chat push (see
 - **Order of work:** (1) scan+verify+store `k:1:` payloads with marker filtering, (2) serve
   the §4 compatibility endpoints, (3) add removals + actor lists (§5), (4) flip the app to
   the new URL as default.
+
+
+## 7. Universal Links for shared posts (domain config, NOT indexer work)
+
+The app shares posts as `https://kaposts.duckdns.org/post/<txid>`. With KaChat installed,
+iOS opens the app straight into the post (the app ships the
+`applinks:kaposts.duckdns.org` entitlement). Without the app, the browser loads the URL -
+so the domain must serve two small things (reverse-proxy/static config on the box; the
+indexer process itself is not involved):
+
+1. **`GET /.well-known/apple-app-site-association`** - JSON (Content-Type
+   `application/json`, HTTPS, NO redirect, no auth):
+
+```json
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      { "appID": "RP4Z22SFSD.com.kachat.app", "paths": ["/post/*"] },
+      { "appID": "5V64BP2H3P.com.kachat.app", "paths": ["/post/*"] }
+    ]
+  }
+}
+```
+
+   (Both Team IDs found in the project are listed - harmless to include both; the one whose
+   provisioning actually signs App Store builds is the one that matters. Verify with
+   `curl -s https://kaposts.duckdns.org/.well-known/apple-app-site-association`.)
+
+2. **`GET /post/<txid>`** - the no-app fallback: respond `302 Location:
+   <App-Store-URL>` (the KaChat listing on apps.apple.com - fill in the real URL). iOS
+   auto-opens the App Store app on that URL, so users without KaChat land straight on the
+   listing. Optional later upgrade: render a small post-preview page (fetch the post from
+   the indexer by txid) with an App Store button instead of a bare redirect - better link
+   unfurls in chat apps too.
+
+Note: Apple's CDN fetches the AASA file when the app is installed - after first deploying
+it, reinstall the app (or wait for the periodic refresh) before judging whether links open
+the app.
