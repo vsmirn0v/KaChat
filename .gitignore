@@ -37,3 +37,6 @@ external/*
 
 # Claude Code
 .claude/
+
+# Local API keys (see KaChat/Secrets.xcconfig.example)
+KaChat/Secrets.xcconfig

@@ -1,11 +1,14 @@
 import Foundation
 
 /// ChangeNOW's v2 exchange API — lets KaChat swap KAS for another coin (and back) without
-/// leaving the app. Auth is a per-request `x-changenow-api-key` header, read from the
-/// `CHANGENOW_API_KEY` environment variable (set it under Xcode > Product > Scheme > Edit
-/// Scheme > Run > Arguments > Environment Variables - schemes are per-user/gitignored, so the
-/// real key never lands in source control) - mirrors Android's own compile-time key (sourced
-/// from a local, gitignored `local.properties` value via BuildConfig).
+/// leaving the app. Auth is a per-request `x-changenow-api-key` header.
+///
+/// Key sourcing: `KaChat/Secrets.xcconfig` (local, gitignored - copy Secrets.xcconfig.example)
+/// feeds `$(CHANGENOW_API_KEY)` into Info.plist at build time, so archives/TestFlight builds
+/// carry the key. The env-var path exists as a dev-run override only - the old env-var-ONLY
+/// scheme shipped release builds with an empty key, which is exactly a ChangeNOW 401 (env
+/// vars only exist when Xcode itself launches the process). Mirrors Android's compile-time
+/// key from gitignored `local.properties` via BuildConfig - same client-embedded exposure.
 struct ChangeNowEstimateResponse: Decodable {
     let fromAmount: Double
     let toAmount: Double
@@ -60,7 +63,12 @@ final class ChangeNowAPIClient {
     private init() {}
 
     private let baseURL = "https://api.changenow.io"
-    private let apiKey = ProcessInfo.processInfo.environment["CHANGENOW_API_KEY"] ?? ""
+    private let apiKey: String = {
+        if let env = ProcessInfo.processInfo.environment["CHANGENOW_API_KEY"], !env.isEmpty {
+            return env
+        }
+        return (Bundle.main.object(forInfoDictionaryKey: "ChangeNowAPIKey") as? String) ?? ""
+    }()
 
     private func makeRequest(path: String, queryItems: [URLQueryItem] = [], method: String = "GET", body: Data? = nil) throws -> URLRequest {
         guard var components = URLComponents(string: baseURL + path) else { throw ChangeNowError.invalidURL }

@@ -1,3 +1,8 @@
+// Local, gitignored secrets (API keys). Optional include: missing file is fine - the app
+// builds with empty keys and the affected feature (Swap) degrades instead of the build
+// breaking. Copy Secrets.xcconfig.example to Secrets.xcconfig and fill in real values.
+#include? "Secrets.xcconfig"
+
 // Shared version/build-number source for every target (main app, KaChatNotificationService,
 // KaChatShareExtension). App Store Connect requires every bundle in an archive to share the
 // exact same CFBundleVersion - before this file existed, each target carried its own

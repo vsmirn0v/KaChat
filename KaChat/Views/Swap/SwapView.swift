@@ -258,14 +258,6 @@ struct SwapView: View {
             .padding(16)
         }
         .scrollDismissesKeyboard(.immediately)
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") {
-                    focusedField = nil
-                }
-            }
-        }
     }
 
     private var swapButtonTitle: String { "Get Deposit Address" }
