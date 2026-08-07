@@ -1,3 +1,8 @@
+// Local, gitignored secrets (API keys). Optional include: missing file is fine - the app
+// builds with empty keys and the affected feature (Swap) degrades instead of the build
+// breaking. Copy Secrets.xcconfig.example to Secrets.xcconfig and fill in real values.
+#include? "Secrets.xcconfig"
+
 // Shared version/build-number source for every target (main app, KaChatNotificationService,
 // KaChatShareExtension). App Store Connect requires every bundle in an archive to share the
 // exact same CFBundleVersion - before this file existed, each target carried its own
@@ -16,7 +21,7 @@
 // higher version than that of the previously uploaded version"). Bumping past that recorded
 // high-water mark instead of restarting low.
 CURRENT_PROJECT_VERSION = 202607032343
-MARKETING_VERSION = 3.0
+MARKETING_VERSION = 3.1
 
 // Required for `agvtool` (used by ci_scripts/ci_post_clone.sh) to be able to write
 // CURRENT_PROJECT_VERSION for every target - without this, agvtool fails with "not using

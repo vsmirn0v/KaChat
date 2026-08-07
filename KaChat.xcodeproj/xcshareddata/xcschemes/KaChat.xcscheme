@@ -51,11 +51,6 @@
          </BuildableReference>
       </BuildableProductRunnable>
       <EnvironmentVariables>
-         <EnvironmentVariable
-            key = "CHANGENOW_API_KEY"
-            value = "11b9ef59f3eebaea2b8e880f53e60081e5d3e0eecfdd61ff2679c159f0e491e9"
-            isEnabled = "YES">
-         </EnvironmentVariable>
       </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction

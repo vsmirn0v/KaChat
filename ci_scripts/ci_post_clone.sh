@@ -23,3 +23,11 @@ if [ "$CI_XCODEBUILD_ACTION" = "archive" ]; then
     cd "$CI_PRIMARY_REPOSITORY_PATH"
     agvtool new-version -all "$CI_BUILD_NUMBER"
 fi
+
+# Secrets: Xcode Cloud has no gitignored Secrets.xcconfig, so materialize it from the
+# workflow's (secret) environment variables. Missing var -> file simply not written, and the
+# optional #include? in Version.xcconfig keeps the build green (Swap runs keyless).
+if [ -n "$CHANGENOW_API_KEY" ]; then
+    cd "$CI_PRIMARY_REPOSITORY_PATH"
+    printf 'CHANGENOW_API_KEY = %s\n' "$CHANGENOW_API_KEY" > KaChat/Secrets.xcconfig
+fi
