@@ -181,6 +181,10 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
     var photoAutoDisplayOverride: PhotoAutoDisplayMode?
     // Local-only enrichment from iOS/macOS system contacts.
     var systemContactId: String?
+    /// Avatar source choice for linked system contacts: nil/false = the Contacts-app photo
+    /// wins (the default whenever one exists); true = the user chose the KNS avatar in Chat
+    /// Info. Optional so contacts stored before this field decode cleanly.
+    var preferKNSAvatar: Bool?
     var systemDisplayNameSnapshot: String?
     var systemContactLinkSource: SystemContactLinkSource?
     var systemMatchConfidence: Double?
@@ -197,6 +201,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         hasSentOutgoingMessage: Bool = false,
         photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil,
         systemContactId: String? = nil,
+        preferKNSAvatar: Bool? = nil,
         systemDisplayNameSnapshot: String? = nil,
         systemContactLinkSource: SystemContactLinkSource? = nil,
         systemMatchConfidence: Double? = nil,
@@ -212,6 +217,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         self.hasSentOutgoingMessage = hasSentOutgoingMessage
         self.photoAutoDisplayOverride = photoAutoDisplayOverride
         self.systemContactId = systemContactId
+        self.preferKNSAvatar = preferKNSAvatar
         self.systemDisplayNameSnapshot = systemDisplayNameSnapshot
         self.systemContactLinkSource = systemContactLinkSource
         self.systemMatchConfidence = systemMatchConfidence
@@ -1224,6 +1230,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case profile
     case kaposts
     case broadcasts
+    case apps
     /// Not a real page: tapping it opens the Customize Menu settings directly (see MainTabView's
     /// selection interception). Exists as a real case so it participates in ordering/visibility.
     case more
@@ -1239,6 +1246,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .profile: return "Profile"
         case .kaposts: return "KaPosts"
         case .broadcasts: return "Broadcasts"
+        case .apps: return "Apps"
         case .more: return "More"
         }
     }
@@ -1252,6 +1260,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .profile: return "person.crop.circle"
         case .kaposts: return "square.and.pencil"
         case .broadcasts: return "dot.radiowaves.left.and.right"
+        case .apps: return "square.grid.2x2"
         case .more: return "plus.circle"
         }
     }
@@ -1266,6 +1275,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .kaposts: return 6
         case .more: return 7
         case .broadcasts: return 8
+        case .apps: return 9
         }
     }
 
@@ -1274,11 +1284,11 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     var canHide: Bool {
         switch self {
         case .chats, .profile: return false
-        case .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .more: return true
+        case .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .apps, .more: return true
         }
     }
 
-    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .swap, .profile, .kaposts, .broadcasts, .more]
+    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .swap, .profile, .kaposts, .broadcasts, .apps, .more]
 
     /// The dock renders at most this many items; anything past it falls off rather than letting
     /// the system TabView spawn its own "More" list. KaPosts is dropped first when over the cap -
@@ -1304,6 +1314,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .swap: return !settings.hideSwapTab
         case .kaposts: return !settings.hideKaPostsTab
         case .broadcasts: return !settings.hideBroadcasts
+        case .apps: return !settings.hideAppsTab
         case .more: return !settings.hideMoreItem
         case .chats, .profile: return true
         }
@@ -1487,6 +1498,9 @@ struct AppSettings: Codable {
     /// `chatsTabContent`) but is still user-hideable from Settings > Customization > Menu, so it
     /// gets its own flag here rather than a case in `AppTab`.
     var hideBroadcasts: Bool
+    /// Apps (ecosystem link bubbles) as a dock tab. Hidden (default) = the Apps row lives on
+    /// the Profile screen instead; toggled on = dock tab, Profile row disappears.
+    var hideAppsTab: Bool
     /// Raw values of `AppTab`, in display order - user-customizable via Settings > Customization
     /// > Menu's drag-to-reorder preview strip.
     var tabOrder: [String]
@@ -1610,6 +1624,7 @@ struct AppSettings: Codable {
             hideKaPostsTab: true,
             hideMoreItem: false,
             hideBroadcasts: false,
+            hideAppsTab: true,
             tabOrder: [AppTab.chats, AppTab.profile, AppTab.more].map { $0.rawValue },
             biometricSeedPhraseEnabled: true,
             biometricAccountLoginEnabled: true,
@@ -1657,6 +1672,7 @@ struct AppSettings: Codable {
         case hideKaPostsTab
         case hideMoreItem
         case hideBroadcasts
+        case hideAppsTab
         case tabOrder
         case biometricSeedPhraseEnabled
         case biometricAccountLoginEnabled
@@ -1712,6 +1728,7 @@ struct AppSettings: Codable {
         hideKaPostsTab: Bool = true,
         hideMoreItem: Bool = true,
         hideBroadcasts: Bool = false,
+        hideAppsTab: Bool = true,
         tabOrder: [String] = AppTab.defaultOrder.map { $0.rawValue },
         biometricSeedPhraseEnabled: Bool = true,
         biometricAccountLoginEnabled: Bool = true,
@@ -1757,6 +1774,7 @@ struct AppSettings: Codable {
         self.hideKaPostsTab = hideKaPostsTab
         self.hideMoreItem = hideMoreItem
         self.hideBroadcasts = hideBroadcasts
+        self.hideAppsTab = hideAppsTab
         self.tabOrder = tabOrder
         self.biometricSeedPhraseEnabled = biometricSeedPhraseEnabled
         self.biometricAccountLoginEnabled = biometricAccountLoginEnabled
@@ -1829,6 +1847,7 @@ struct AppSettings: Codable {
         hideKaPostsTab = try container.decodeIfPresent(Bool.self, forKey: .hideKaPostsTab) ?? true
         hideMoreItem = try container.decodeIfPresent(Bool.self, forKey: .hideMoreItem) ?? true
         hideBroadcasts = try container.decodeIfPresent(Bool.self, forKey: .hideBroadcasts) ?? false
+        hideAppsTab = try container.decodeIfPresent(Bool.self, forKey: .hideAppsTab) ?? true
         tabOrder = try container.decodeIfPresent([String].self, forKey: .tabOrder) ?? AppTab.defaultOrder.map { $0.rawValue }
         biometricSeedPhraseEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSeedPhraseEnabled) ?? true
         biometricAccountLoginEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricAccountLoginEnabled) ?? true
@@ -1908,6 +1927,7 @@ struct AppSettings: Codable {
         try container.encode(hideKaPostsTab, forKey: .hideKaPostsTab)
         try container.encode(hideMoreItem, forKey: .hideMoreItem)
         try container.encode(hideBroadcasts, forKey: .hideBroadcasts)
+        try container.encode(hideAppsTab, forKey: .hideAppsTab)
         try container.encode(tabOrder, forKey: .tabOrder)
         try container.encode(biometricSeedPhraseEnabled, forKey: .biometricSeedPhraseEnabled)
         try container.encode(biometricAccountLoginEnabled, forKey: .biometricAccountLoginEnabled)

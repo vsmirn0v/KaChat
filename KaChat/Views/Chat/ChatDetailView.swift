@@ -596,7 +596,8 @@ struct ChatDetailView: View {
                         KNSAvatarView(
                             avatarURLString: knsService.profileCache[contact.address]?.avatarURL,
                             fallbackText: contact.alias,
-                            size: 36
+                            size: 36,
+                            overrideImage: SystemContactAvatarStore.shared.displayImage(for: contactsManager.getContact(byAddress: contact.address) ?? contact)
                         )
                         Text(contact.alias)
                             .font(.headline)

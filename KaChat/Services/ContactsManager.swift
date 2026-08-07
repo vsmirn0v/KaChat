@@ -1,5 +1,6 @@
 import Foundation
 import Contacts
+import UIKit
 
 @MainActor
 final class ContactsManager: ObservableObject {
@@ -1782,4 +1783,85 @@ actor SystemContactsService {
         return normalizeKnsDomain(value)
     }
 
+}
+
+
+// MARK: - System-contact avatar store
+
+/// Photos from the iOS Contacts app for linked contacts, cached in memory + on disk. The
+/// Contacts-app photo is the DEFAULT avatar for a linked contact (priority over KNS) unless
+/// the user flips that contact's Chat Info "Avatar" picker to KNS (`Contact.preferKNSAvatar`).
+@MainActor
+final class SystemContactAvatarStore: ObservableObject {
+    static let shared = SystemContactAvatarStore()
+
+    /// systemContactId -> thumbnail. Published so avatar views refresh when a fetch lands.
+    @Published private(set) var images: [String: UIImage] = [:]
+    /// Ids already attempted this session (including photo-less contacts) - one CN fetch each.
+    private var attemptedIds = Set<String>()
+
+    private init() {}
+
+    private var diskDirectory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("ContactAvatars", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func diskURL(for id: String) -> URL {
+        let safe = id.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_")
+        return diskDirectory.appendingPathComponent(safe + ".jpg")
+    }
+
+    /// The avatar to DISPLAY for this contact - nil when unlinked, photo-less, or the user
+    /// chose KNS for it. Triggers a lazy fetch on first ask; views observing the store
+    /// re-render when it lands.
+    func displayImage(for contact: Contact?) -> UIImage? {
+        guard let contact, contact.preferKNSAvatar != true else { return nil }
+        return rawImage(for: contact)
+    }
+
+    /// The Contacts-app photo regardless of the user's per-contact choice (Chat Info picker
+    /// availability check + preview).
+    func rawImage(for contact: Contact?) -> UIImage? {
+        guard let id = contact?.systemContactId else { return nil }
+        if let image = images[id] { return image }
+        fetchIfNeeded(id: id)
+        return nil
+    }
+
+    /// Overwrites the cached photo (memory + disk) - used after writing a new photo into the
+    /// system contact so the in-app avatar updates immediately.
+    func storeImage(_ image: UIImage, data: Data, forSystemContactId id: String) {
+        images[id] = image
+        attemptedIds.insert(id)
+        try? data.write(to: diskURL(for: id))
+    }
+
+    private func fetchIfNeeded(id: String) {
+        guard !attemptedIds.contains(id) else { return }
+        attemptedIds.insert(id)
+
+        if let data = try? Data(contentsOf: diskURL(for: id)), let image = UIImage(data: data) {
+            images[id] = image
+            return
+        }
+
+        let status = CNContactStore.authorizationStatus(for: .contacts)
+        guard status == .authorized else { return }
+
+        let targetURL = diskURL(for: id)
+        Task.detached(priority: .utility) {
+            let store = CNContactStore()
+            let keys = [CNContactThumbnailImageDataKey as CNKeyDescriptor]
+            guard let cnContact = try? store.unifiedContact(withIdentifier: id, keysToFetch: keys),
+                  let data = cnContact.thumbnailImageData,
+                  let image = UIImage(data: data) else { return }
+            try? data.write(to: targetURL)
+            await MainActor.run {
+                SystemContactAvatarStore.shared.images[id] = image
+            }
+        }
+    }
 }

@@ -27,6 +27,7 @@ struct MenuVisibilityView: View {
             !settings.hidePortfolioTab,
             !settings.hideColdStorageTab,
             !settings.hideSwapTab,
+            !settings.hideAppsTab,
             !settings.hideMoreItem
         ].filter { $0 }.count
     }
@@ -97,6 +98,17 @@ struct MenuVisibilityView: View {
                     ),
                     locked: false,
                     hint: kaPostsReTapHint
+                )
+                menuRow(
+                    icon: AppTab.apps.icon,
+                    label: AppTab.apps.label,
+                    isOn: Binding(
+                        get: { !settingsViewModel.settings.hideAppsTab },
+                        set: { settingsViewModel.settings.hideAppsTab = !$0; settingsViewModel.saveSettings() }
+                    ),
+                    locked: false,
+                    limitLocked: atMenuLimit && settingsViewModel.settings.hideAppsTab,
+                    hint: settingsViewModel.settings.hideAppsTab ? nil : "Moved out of Profile while on the dock"
                 )
                 menuRow(
                     icon: AppTab.more.icon,

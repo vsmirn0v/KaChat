@@ -21,7 +21,9 @@ struct MainTabView: View {
     @State private var slotMenuVisible = false
     @State private var slotMenuHighlight: AppTab?
     @State private var slotMenuArmTask: Task<Void, Never>?
+    @State private var slotMenuFailsafeTask: Task<Void, Never>?
     @State private var slotDragActive = false
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var giftService: GiftService
@@ -139,6 +141,11 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showGiftClaim)) { _ in
             presentGiftSheetIfEligibleForZeroBalance()
         }
+        .onChange(of: scenePhase) { phase in
+            // Leaving the foreground mid-hold cancels the touch without onEnded - never let
+            // the hold menu survive that.
+            if phase != .active { resetSlotMenu() }
+        }
         .onChange(of: AppTab.visible(from: settingsViewModel.settings).map(\.tag)) { visibleTags in
             // Menu toggles can remove the currently-selected page (or hand its position to
             // another tab) mid-flight - a TabView whose selection points at a page that no longer
@@ -197,6 +204,18 @@ struct MainTabView: View {
         case .broadcasts:
             NavigationStack {
                 BroadcastListView()
+            }
+        case .apps:
+            NavigationStack {
+                ProfileAppsView()
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            ConnectionStatusIndicator()
+                        }
+                        ToolbarItem(placement: .principal) {
+                            BalanceToolbarLabel()
+                        }
+                    }
             }
         case .more:
             // Tapping More presents the Customize Menu sheet and the selection snaps back to the
@@ -314,6 +333,13 @@ struct MainTabView: View {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             slotMenuVisible = true
                         }
+                        // Failsafe: a cancelled touch (no onEnded) must never strand the menu.
+                        slotMenuFailsafeTask?.cancel()
+                        slotMenuFailsafeTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: 8_000_000_000)
+                            guard !Task.isCancelled else { return }
+                            resetSlotMenu()
+                        }
                     }
                 }
                 guard slotMenuVisible else { return }
@@ -324,12 +350,9 @@ struct MainTabView: View {
                 }
             }
             .onEnded { value in
-                slotMenuArmTask?.cancel()
                 let menuWasOpen = slotMenuVisible
                 let highlight = slotMenuHighlight
-                withAnimation(.easeOut(duration: 0.15)) { slotMenuVisible = false }
-                slotMenuHighlight = nil
-                slotDragActive = false
+                resetSlotMenu()
                 if menuWasOpen {
                     if let highlight {
                         Haptics.impact(.light)
@@ -354,6 +377,21 @@ struct MainTabView: View {
         let index = Int((point.x - rect.minX - 8) / Self.slotMenuItemWidth)
         guard options.indices.contains(index) else { return nil }
         return options[index]
+    }
+
+    /// Tears the hold-menu down completely. iOS can CANCEL a touch (backgrounding, incoming
+    /// call, control center) without DragGesture.onEnded ever firing - that stranded the menu
+    /// on screen until the next tap. Called on any scene-phase dip and by an 8s failsafe.
+    private func resetSlotMenu() {
+        slotMenuArmTask?.cancel()
+        slotMenuArmTask = nil
+        slotMenuFailsafeTask?.cancel()
+        slotMenuFailsafeTask = nil
+        slotDragActive = false
+        if slotMenuVisible {
+            withAnimation(.easeOut(duration: 0.15)) { slotMenuVisible = false }
+        }
+        slotMenuHighlight = nil
     }
 
     private func selectChatsSlot(_ tab: AppTab) {

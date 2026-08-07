@@ -10,6 +10,7 @@ struct ChatInfoView: View {
     var showsNotificationSettings: Bool = true
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var contactsManager: ContactsManager
+    @ObservedObject private var contactAvatars = SystemContactAvatarStore.shared
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
@@ -112,7 +113,8 @@ struct ChatInfoView: View {
                             KNSAvatarView(
                                 avatarURLString: knsProfileInfo?.avatarURL,
                                 fallbackText: contact.alias,
-                                size: 60
+                                size: 60,
+                                overrideImage: contactAvatars.displayImage(for: contact)
                             )
                         }
                         .buttonStyle(.plain)
@@ -149,6 +151,24 @@ struct ChatInfoView: View {
                         .padding(.leading, 8)
                     }
                     .padding(.vertical, 8)
+
+                    // Both avatar sources exist (linked Contacts-app photo AND a KNS avatar):
+                    // let the user pick which one represents this contact. Contacts photo is
+                    // the default; the choice persists per contact.
+                    if contactAvatars.rawImage(for: contact) != nil,
+                       knsProfileInfo?.avatarURL != nil {
+                        Picker("Avatar", selection: Binding(
+                            get: { contact.preferKNSAvatar == true },
+                            set: { preferKNS in
+                                contact.preferKNSAvatar = preferKNS
+                                contactsManager.updateContact(contact)
+                            }
+                        )) {
+                            Text("Contacts Photo").tag(false)
+                            Text("KNS Avatar").tag(true)
+                        }
+                        .pickerStyle(.segmented)
+                    }
 
                     if !knsDomains.isEmpty {
                         // Same DisclosureGroup used by the user's own Profile view's KNS card
@@ -348,7 +368,8 @@ struct ChatInfoView: View {
                 KNSAvatarFullscreenView(
                     avatarURLString: knsProfileInfo?.avatarURL,
                     fallbackText: contact.alias,
-                    title: contact.alias
+                    title: contact.alias,
+                    systemContactId: contact.systemContactId
                 )
             }
             .sheet(isPresented: $showSystemContactLinkPicker) {

@@ -1,12 +1,16 @@
 import CryptoKit
 import Foundation
 import SwiftUI
+import Contacts
 import UIKit
 
 struct KNSAvatarView: View {
     let avatarURLString: String?
     let fallbackText: String
     var size: CGFloat = 44
+    /// When set (a linked system contact's Contacts-app photo), it wins over the KNS avatar
+    /// and the initials fallback alike.
+    var overrideImage: UIImage? = nil
 
     @State private var loadedImage: UIImage?
     @State private var isLoading = false
@@ -26,7 +30,11 @@ struct KNSAvatarView: View {
 
     var body: some View {
         Group {
-            if let loadedImage {
+            if let overrideImage {
+                Image(uiImage: overrideImage)
+                    .resizable()
+                    .scaledToFill()
+            } else if let loadedImage {
                 Image(uiImage: loadedImage)
                     .resizable()
                     .scaledToFill()
@@ -153,12 +161,16 @@ struct KNSAvatarFullscreenView: View {
     let avatarURLString: String?
     let fallbackText: String
     var title: String = "Avatar"
+    /// Linked iOS contact id: enables "add this KNS avatar as their photo in the Contacts
+    /// app" from the top bar.
+    var systemContactId: String? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var loadedImage: UIImage?
     @State private var isLoading = false
     @State private var showShareSheet = false
     @State private var lastLoadedIdentity: String?
+    @State private var contactSaveMessage: String?
 
     private var avatarURL: URL? {
         KNSProfileLinkBuilder.websiteURL(from: avatarURLString)
@@ -222,6 +234,22 @@ struct KNSAvatarFullscreenView: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
+                if systemContactId != nil {
+                    Button {
+                        saveAvatarToSystemContact()
+                    } label: {
+                        Image(systemName: "person.crop.circle.badge.plus")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(width: 36, height: 36)
+                            .background(Color.white.opacity(0.18))
+                            .clipShape(Circle())
+                    }
+                    .disabled(loadedImage == nil)
+                    .opacity(loadedImage == nil ? 0.45 : 1)
+                    .accessibilityLabel("Add as contact photo in Contacts")
+                }
+
                 Button {
                     showShareSheet = true
                 } label: {
@@ -238,6 +266,18 @@ struct KNSAvatarFullscreenView: View {
             .padding(.horizontal, 16)
             .padding(.top, 12)
         }
+        .overlay(alignment: .bottom) {
+            if let contactSaveMessage {
+                Text(contactSaveMessage)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color.white.opacity(0.18)))
+                    .padding(.bottom, 30)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .task(id: avatarURL?.absoluteString) {
             await loadRemoteAvatarIfNeeded()
         }
@@ -247,6 +287,48 @@ struct KNSAvatarFullscreenView: View {
             } else {
                 KNSAvatarShareSheet(activityItems: shareItems)
             }
+        }
+    }
+
+    /// Writes the loaded KNS avatar into the linked contact's card in the iOS Contacts app,
+    /// then refreshes the in-app cache so KaChat's own avatar reflects it immediately.
+    private func saveAvatarToSystemContact() {
+        guard let systemContactId,
+              let image = loadedImage,
+              let data = image.jpegData(compressionQuality: 0.9) else { return }
+        guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else {
+            showContactSaveMessage("Contacts access isn't granted.")
+            return
+        }
+        Task.detached(priority: .userInitiated) {
+            let store = CNContactStore()
+            do {
+                let keys = [CNContactImageDataKey as CNKeyDescriptor]
+                let cnContact = try store.unifiedContact(withIdentifier: systemContactId, keysToFetch: keys)
+                guard let mutable = cnContact.mutableCopy() as? CNMutableContact else {
+                    throw CocoaError(.featureUnsupported)
+                }
+                mutable.imageData = data
+                let saveRequest = CNSaveRequest()
+                saveRequest.update(mutable)
+                try store.execute(saveRequest)
+                await MainActor.run {
+                    SystemContactAvatarStore.shared.storeImage(image, data: data, forSystemContactId: systemContactId)
+                    showContactSaveMessage("Saved as their photo in Contacts.")
+                }
+            } catch {
+                await MainActor.run {
+                    showContactSaveMessage("Couldn't update Contacts.")
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func showContactSaveMessage(_ message: String) {
+        withAnimation(.easeOut(duration: 0.2)) { contactSaveMessage = message }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            withAnimation(.easeIn(duration: 0.2)) { contactSaveMessage = nil }
         }
     }
 

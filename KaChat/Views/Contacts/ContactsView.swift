@@ -16,6 +16,7 @@ struct ProfileView: View {
     // which was the scroll jank. The connection dot is its own small view with its own observation.
     @EnvironmentObject var giftService: GiftService
     @EnvironmentObject var contactsManager: ContactsManager
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
 
     @State private var editedAlias = ""
     @State private var aliasSaveTask: Task<Void, Never>?
@@ -62,7 +63,11 @@ struct ProfileView: View {
                         editKNSProfileRow
                         qrButtonsSection(wallet)
                         addressDropdownsSection(wallet)
-                        appsSection
+                        if settingsViewModel.settings.hideAppsTab {
+                            // Apps lives here only while it's NOT a dock tab (Menu settings
+                            // toggle) - on the dock, this row disappears.
+                            appsSection
+                        }
                         helpSection
                         claimGiftSection
                         logOutSection

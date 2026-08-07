@@ -1018,6 +1018,7 @@ private struct GroupChatDetailNavigationDestination: ViewModifier {
 }
 
 struct ConversationRow: View {
+    @ObservedObject private var contactAvatars = SystemContactAvatarStore.shared
     let conversation: Conversation
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var walletManager: WalletManager
@@ -1040,7 +1041,8 @@ struct ConversationRow: View {
             KNSAvatarView(
                 avatarURLString: avatarURLString,
                 fallbackText: conversation.contact.alias,
-                size: 50
+                size: 50,
+                overrideImage: contactAvatars.displayImage(for: conversation.contact)
             )
 
             // Content
