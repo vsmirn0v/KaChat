@@ -16,18 +16,6 @@ struct KNSAvatarView: View {
     @State private var isLoading = false
     @State private var lastLoadedIdentity: String?
 
-    private var initials: String {
-        let trimmed = fallbackText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "?" }
-
-        let words = trimmed.split(separator: " ").prefix(2)
-        if words.count >= 2 {
-            let chars = words.compactMap { $0.first }.map { String($0).uppercased() }.joined()
-            if !chars.isEmpty { return chars }
-        }
-        return String(trimmed.prefix(2)).uppercased()
-    }
-
     var body: some View {
         Group {
             if let overrideImage {
@@ -57,11 +45,12 @@ struct KNSAvatarView: View {
     }
 
     private var fallbackAvatar: some View {
+        // Person glyph instead of initials for anyone without a photo/KNS avatar.
         Circle()
             .fill(Color.accentColor.opacity(0.2))
             .overlay(
-                Text(initials)
-                    .font(.system(size: max(12, size * 0.34), weight: .semibold))
+                Image(systemName: "person.fill")
+                    .font(.system(size: max(12, size * 0.42), weight: .medium))
                     .foregroundColor(.accentColor)
             )
     }
