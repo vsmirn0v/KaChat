@@ -42,7 +42,136 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Customization") {
+                settingsCategoryRow("Customization", icon: "paintbrush.pointed", tint: .accentColor) {
+                    customizationPage
+                }
+                settingsCategoryRow("Security", icon: "lock.shield", tint: .accentColor) {
+                    securityPage
+                }
+                settingsCategoryRow("Connection", icon: "antenna.radiowaves.left.and.right", tint: .accentColor) {
+                    connectionPage
+                }
+                settingsCategoryRow("Chats", icon: "bubble.left.and.bubble.right", tint: .accentColor) {
+                    chatsPage
+                }
+                settingsCategoryRow("Contacts", icon: "person.2", tint: .accentColor) {
+                    contactsPage
+                }
+                settingsCategoryRow("Storage", icon: "internaldrive", tint: .accentColor) {
+                    storagePage
+                }
+                settingsCategoryRow("Chat History", icon: "clock.arrow.circlepath", tint: .accentColor) {
+                    chatHistoryPage
+                }
+                settingsCategoryRow("Diagnostics", icon: "stethoscope", tint: .accentColor) {
+                    diagnosticsPage
+                }
+                // Direct action, not a sub-page: straight into the seed phrase (behind the
+                // biometric gate when enabled).
+                Button {
+                    if settingsViewModel.settings.biometricSeedPhraseEnabled {
+                        DeviceAuth.authenticate(reason: "Unlock to view your seed phrase") {
+                            showSeedPhrase = true
+                        }
+                    } else {
+                        showSeedPhrase = true
+                    }
+                } label: {
+                    Label {
+                        Text("View Seed Phrase")
+                            .foregroundColor(.primary)
+                    } icon: {
+                        Image(systemName: "key")
+                            .foregroundColor(.accentColor)
+                    }
+                }
+                settingsCategoryRow("Danger Zone", icon: "exclamationmark.triangle", tint: .red) {
+                    dangerZonePage
+                }
+            }
+            .toast(message: toastMessage, style: toastStyle)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    ConnectionStatusIndicator()
+                }
+                ToolbarItem(placement: .principal) {
+                    balanceToolbarView
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+            .sheet(isPresented: $showSeedPhrase) {
+                SeedPhraseView()
+            }
+            .sheet(isPresented: $showDiagnosticsShareSheet) {
+                if let diagnosticsArchiveURL {
+                    DiagnosticsShareSheet(fileURL: diagnosticsArchiveURL)
+                }
+            }
+            .sheet(isPresented: $showPhotoQualitySheet) {
+                PhotoQualitySettingsSheet(currentPreset: settingsViewModel.settings.chatPhotoQualityPreset)
+            }
+            .sheet(isPresented: $showChatHistoryShareSheet) {
+                if let chatHistoryArchiveURL {
+                    DiagnosticsShareSheet(fileURL: chatHistoryArchiveURL)
+                }
+            }
+            .fileImporter(
+                isPresented: $showChatHistoryImporter,
+                allowedContentTypes: [.json]
+            ) { result in
+                Task {
+                    await importChatHistoryArchive(result: result)
+                }
+            }
+            .confirmationDialog(
+                "Delete Account",
+                isPresented: $showDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    Task {
+                        try? await walletManager.deleteWallet()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will permanently delete your account from this device. Make sure you have backed up your seed phrase.")
+            }
+        }
+        .onAppear {
+            refreshMessageStoreSize()
+            Task { _ = try? await walletManager.refreshBalance() }
+        }
+    }
+
+    // MARK: - Settings categories (each section is its own page)
+
+    private func settingsCategoryRow<Destination: View>(
+        _ title: String,
+        icon: String,
+        tint: Color,
+        @ViewBuilder destination: () -> Destination
+    ) -> some View {
+        NavigationLink {
+            destination()
+        } label: {
+            Label {
+                Text(title)
+                    .foregroundColor(tint == .red ? .red : .primary)
+            } icon: {
+                Image(systemName: icon)
+                    .foregroundColor(tint)
+            }
+        }
+    }
+
+    private var customizationPage: some View {
+        Form {
+            Section("Customization") {
                     Picker("Appearance", selection: $settingsViewModel.settings.appearance) {
                         ForEach(AppAppearance.allCases, id: \.self) { option in
                             Text(option.displayName).tag(option)
@@ -82,8 +211,14 @@ struct SettingsView: View {
                         set: { walletManager.showSetupGuides = $0 }
                     ))
                 }
+        }
+        .navigationTitle("Customization")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 
-                Section("Security") {
+    private var securityPage: some View {
+        Form {
+            Section("Security") {
                     Toggle("Biometrics for Seed Phrase", isOn: $settingsViewModel.settings.biometricSeedPhraseEnabled)
                         .onChange(of: settingsViewModel.settings.biometricSeedPhraseEnabled) { _ in
                             settingsViewModel.saveSettings()
@@ -99,9 +234,14 @@ struct SettingsView: View {
                             settingsViewModel.saveSettings()
                         }
                 }
+        }
+        .navigationTitle("Security")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 
-                // Connection Section
-                Section("Connection") {
+    private var connectionPage: some View {
+        Form {
+            Section("Connection") {
                     NavigationLink {
                         ConnectionSettingsView()
                     } label: {
@@ -126,8 +266,14 @@ struct SettingsView: View {
                         }
                     }
                 }
+        }
+        .navigationTitle("Connection")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 
-                Section("Chats") {
+    private var chatsPage: some View {
+        Form {
+            Section("Chats") {
                     Toggle("Show Fee Estimate", isOn: $settingsViewModel.settings.showFeeEstimate)
                         .onChange(of: settingsViewModel.settings.showFeeEstimate) { _ in
                             settingsViewModel.saveSettings()
@@ -173,8 +319,14 @@ struct SettingsView: View {
                         }
                     }
                 }
+        }
+        .navigationTitle("Chats")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 
-                Section("Contacts") {
+    private var contactsPage: some View {
+        Form {
+            Section("Contacts") {
                     Toggle("Sync system contacts", isOn: Binding(
                         get: { settingsViewModel.settings.syncSystemContacts },
                         set: { enabled in
@@ -194,8 +346,14 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
+        }
+        .navigationTitle("Contacts")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 
-                Section("Storage") {
+    private var storagePage: some View {
+        Form {
+            Section("Storage") {
                     Toggle("Store encrypted messages in iCloud CloudKit", isOn: $settingsViewModel.settings.storeMessagesInICloud)
                         .onChange(of: settingsViewModel.settings.storeMessagesInICloud) { _ in
                             settingsViewModel.saveSettings()
@@ -242,8 +400,14 @@ struct SettingsView: View {
                         }
                     }
                 }
+        }
+        .navigationTitle("Storage")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 
-                Section("Chat History") {
+    private var chatHistoryPage: some View {
+        Form {
+            Section("Chat History") {
                     Button {
                         Task {
                             await exportChatHistoryArchive()
@@ -272,8 +436,14 @@ struct SettingsView: View {
                     }
                     .disabled(isPreparingChatHistoryExport || isImportingChatHistory)
                 }
+        }
+        .navigationTitle("Chat History")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 
-                Section("Diagnostics") {
+    private var diagnosticsPage: some View {
+        Form {
+            Section("Diagnostics") {
                     Button {
                         Task {
                             await exportDiagnosticsArchive()
@@ -300,23 +470,14 @@ struct SettingsView: View {
                     }
                     .disabled(isPreparingDiagnostics)
                 }
+        }
+        .navigationTitle("Diagnostics")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 
-                // Danger Zone
-                Section("Actions") {
-                    Button {
-                        if settingsViewModel.settings.biometricSeedPhraseEnabled {
-                            DeviceAuth.authenticate(reason: "Unlock to view your seed phrase") {
-                                showSeedPhrase = true
-                            }
-                        } else {
-                            showSeedPhrase = true
-                        }
-                    } label: {
-                        Label("View Seed Phrase", systemImage: "key")
-                    }
-                }
-
-                Section("Danger Zone") {
+    private var dangerZonePage: some View {
+        Form {
+            Section("Danger Zone") {
                     if dpiWarningActive {
                         VStack(alignment: .leading, spacing: 8) {
                             Label("Sync warning detected", systemImage: "exclamationmark.triangle.fill")
@@ -395,66 +556,11 @@ struct SettingsView: View {
                         Text("This deletes all local data and CloudKit message records. This cannot be undone.")
                     }
                 }
-
-            }
-            .toast(message: toastMessage, style: toastStyle)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    ConnectionStatusIndicator()
-                }
-                ToolbarItem(placement: .principal) {
-                    balanceToolbarView
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-            .sheet(isPresented: $showSeedPhrase) {
-                SeedPhraseView()
-            }
-            .sheet(isPresented: $showDiagnosticsShareSheet) {
-                if let diagnosticsArchiveURL {
-                    DiagnosticsShareSheet(fileURL: diagnosticsArchiveURL)
-                }
-            }
-            .sheet(isPresented: $showPhotoQualitySheet) {
-                PhotoQualitySettingsSheet(currentPreset: settingsViewModel.settings.chatPhotoQualityPreset)
-            }
-            .sheet(isPresented: $showChatHistoryShareSheet) {
-                if let chatHistoryArchiveURL {
-                    DiagnosticsShareSheet(fileURL: chatHistoryArchiveURL)
-                }
-            }
-            .fileImporter(
-                isPresented: $showChatHistoryImporter,
-                allowedContentTypes: [.json]
-            ) { result in
-                Task {
-                    await importChatHistoryArchive(result: result)
-                }
-            }
-            .confirmationDialog(
-                "Delete Account",
-                isPresented: $showDeleteConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("Delete", role: .destructive) {
-                    Task {
-                        try? await walletManager.deleteWallet()
-                    }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This will permanently delete your account from this device. Make sure you have backed up your seed phrase.")
-            }
         }
-        .onAppear {
-            refreshMessageStoreSize()
-            Task { _ = try? await walletManager.refreshBalance() }
-        }
+        .navigationTitle("Danger Zone")
+        .navigationBarTitleDisplayMode(.inline)
     }
+
 
     private var balanceToolbarView: some View {
         let sompi = walletManager.currentWallet?.balanceSompi
@@ -1954,6 +2060,29 @@ struct ConnectionStatusIndicator: View {
             return .orange
         case .disconnected:
             return .red
+        }
+    }
+}
+
+/// Kaspa-logo chatting-address balance for navigation bars - shared by the main pages
+/// (KaPosts, Broadcasts, Cold Storage, Portfolio, Swap) so the centered header reads
+/// identically across tabs. Chats keeps its own tap-to-copy variant.
+struct BalanceToolbarLabel: View {
+    @EnvironmentObject var walletManager: WalletManager
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image("KaspaLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 15, height: 15)
+            Text("\(String(format: "%.8f", Double(walletManager.currentWallet?.balanceSompi ?? 0) / 100_000_000.0)) KAS")
+                .font(.footnote.weight(.semibold))
+                .monospacedDigit()
+                .foregroundColor(.secondary)
+        }
+        .task {
+            _ = try? await walletManager.refreshBalance()
         }
     }
 }

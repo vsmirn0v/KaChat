@@ -84,8 +84,8 @@ struct ChatListView: View {
         // expression - that combination is what triggered "unable to type-check in reasonable
         // time" once the third `.alert` (bulk delete) was added.
         let withToolbar = chatListContent
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Chats")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     ConnectionStatusIndicator()

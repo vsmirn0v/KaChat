@@ -7,6 +7,9 @@ struct MainTabView: View {
     @State private var tabWorkTask: Task<Void, Never>?
     @State private var showGiftSheet = false
     @State private var showWelcomeGuide = false
+    /// 4.0 "what's new" wizard: shown on every entry into the app until the user taps
+    /// Don't Show Again (persisted per device).
+    @State private var showDockWizard = false
     /// "+ More" dock item tapped - opens Customize Menu directly (selection never moves there).
     @State private var showCustomizeMenuSheet = false
     @State private var isSnappingBackFromMore = false
@@ -63,10 +66,22 @@ struct MainTabView: View {
             if walletManager.justCreatedNewWallet {
                 walletManager.justCreatedNewWallet = false
                 showWelcomeGuide = true
+            } else if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey) {
+                // What's-new wizard for everyone else, every entry until dismissed for good.
+                // Slightly deferred so the first render settles before a sheet animates in.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey) {
+                        showDockWizard = true
+                    }
+                }
             }
         }
         .sheet(isPresented: $showGiftSheet) {
             GiftClaimView()
+        }
+        .sheet(isPresented: $showDockWizard) {
+            DockWizardView()
+                .presentationDetents([.large])
         }
         .sheet(isPresented: $showCustomizeMenuSheet) {
             NavigationStack {
@@ -74,7 +89,16 @@ struct MainTabView: View {
             }
         }
         .fullScreenCover(isPresented: $showWelcomeGuide) {
-            WelcomeGuideView(onFinished: { showWelcomeGuide = false })
+            WelcomeGuideView(onFinished: {
+                showWelcomeGuide = false
+                // Fresh installs chain straight into the 4.0 what's-new wizard once the full
+                // setup guide is done (returning users get it from onAppear instead).
+                if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                        showDockWizard = true
+                    }
+                }
+            })
         }
         .onChange(of: walletManager.currentWallet?.publicAddress) { _ in
             preloadProfileResources()
@@ -129,29 +153,26 @@ struct MainTabView: View {
             }
         case .chats:
             // When no tab is masked behind the slot (most users), this is BYTE-IDENTICAL to
-            // 3.0: bare ChatListView, no ZStack, no opacity. Wrapping the app's main screen in
-            // a permanent .opacity() compositing group cost per-frame GPU work for everyone -
-            // the 4.0 "lag everywhere" regression. The KaPosts overlay is mounted only while
-            // ACTIVE, and stays bare (no NavigationStack - overlaying a second wrapped
-            // navigation controller on ChatListView's is a UIKit crash). Broadcasts NEEDS its
-            // own NavigationStack (title + toolbar + room pushes), so that mode structurally
-            // swaps ChatListView out instead of overlaying - the only slot state where the
-            // chat list unmounts.
+            // 3.0: bare ChatListView, no ZStack, no wrappers (a permanent compositing wrapper
+            // on the app's main screen was the 4.0 "lag everywhere" regression).
             if AppTab.chatsSlotCycle(from: settingsViewModel.settings).count > 1 {
+                // Structural swap per mode: each masked tab brings its OWN NavigationStack, so
+                // KaPosts/Broadcasts render the identical UIKit header bar (dot / balance /
+                // large title) as Chats - nothing shifts when cycling. Only one nav stack is
+                // ever mounted at a time (overlaying two in a slot is a UIKit crash).
                 ZStack {
-                    if chatsSlotMode == .broadcasts {
+                    switch chatsSlotMode {
+                    case .kaposts:
+                        KaPostsPageView()
+                            .transition(.opacity)
+                    case .broadcasts:
                         NavigationStack {
                             BroadcastListView()
                         }
                         .transition(.opacity)
-                    } else {
+                    default:
                         ChatListView()
-                            .opacity(chatsSlotMode == .chats ? 1 : 0)
-                            .allowsHitTesting(chatsSlotMode == .chats)
-                        if chatsSlotMode == .kaposts {
-                            KaPostsView()
-                                .transition(.opacity)
-                        }
+                            .transition(.opacity)
                     }
                 }
             } else {
@@ -162,11 +183,7 @@ struct MainTabView: View {
         case .profile:
             ProfileView()
         case .kaposts:
-            NavigationStack {
-                KaPostsView()
-                    .navigationTitle("KaPosts")
-                    .navigationBarTitleDisplayMode(.inline)
-            }
+            KaPostsPageView()
         case .broadcasts:
             NavigationStack {
                 BroadcastListView()
@@ -449,4 +466,264 @@ struct MainTabView: View {
         .environmentObject(SettingsViewModel())
         .environmentObject(GiftService.shared)
         .environmentObject(BroadcastService.shared)
+}
+
+
+// MARK: - 4.0 dock wizard (what's new popup)
+
+/// Multi-page walkthrough of the 4.0 dock: KaPosts and Broadcasts riding the Chats tab
+/// (tap to cycle, hold to slide-select) and where to customize it. Presented from
+/// MainTabView on every app entry until "Don't Show Again".
+struct DockWizardView: View {
+    static let dismissedKey = "kachat_dock_wizard_dismissed_40"
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var page = 0
+    /// Drives the page-2 icon-morph demo.
+    @State private var demoIndex = 0
+    /// Drives the page-3 hold-and-slide demo: 0 = pressing the dock, 1 = menu popped,
+    /// 2-4 = finger on Chats/KaPosts/Broadcasts, 5 = selected (menu gone, dock icon flipped).
+    @State private var holdPhase = 0
+
+    private let demoIcons = [AppTab.chats.icon, AppTab.kaposts.icon, AppTab.broadcasts.icon]
+    private let demoLabels = [AppTab.chats.label, AppTab.kaposts.label, AppTab.broadcasts.label]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TabView(selection: $page) {
+                wizardPage(
+                    icon: "sparkles",
+                    title: "What's New in 4.0",
+                    text: "KaPosts - an on-chain social feed - and Broadcasts now live right behind your Chats tab. Everything happens on the Kaspa network, KaChat style.",
+                    demo: { dockMock(highlightIcon: AppTab.kaposts.icon, label: AppTab.kaposts.label) }
+                )
+                .tag(0)
+
+                wizardPage(
+                    icon: "hand.tap",
+                    title: "Tap Chats to Cycle",
+                    text: "Already on Chats? Tap the Chats tab again to flip to KaPosts, again for Broadcasts, and once more to come back. The dock icon follows along.",
+                    demo: {
+                        dockMock(highlightIcon: demoIcons[demoIndex], label: demoLabels[demoIndex])
+                            .onAppear { demoIndex = 0 }
+                            .task {
+                                while !Task.isCancelled {
+                                    try? await Task.sleep(nanoseconds: 1_200_000_000)
+                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                        demoIndex = (demoIndex + 1) % demoIcons.count
+                                    }
+                                }
+                            }
+                    }
+                )
+                .tag(1)
+
+                wizardPage(
+                    icon: "hand.draw",
+                    title: "Hold to Jump",
+                    text: "In a hurry? Press and hold the Chats tab - a menu pops up above the dock. Slide your finger onto Chats, KaPosts or Broadcasts and let go.",
+                    demo: { holdMenuMock }
+                )
+                .tag(2)
+
+                wizardPage(
+                    icon: "slider.horizontal.3",
+                    title: "Make It Yours",
+                    text: "Want them as their own dock buttons instead? Turn tabs on and off in Settings > Customize Menu (or tap the + More dock item). If the dock is full, they stay reachable through the Chats tab.",
+                    demo: { dockMock(highlightIcon: AppTab.more.icon, label: AppTab.more.label) }
+                )
+                .tag(3)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .always))
+            .indexViewStyle(.page(backgroundDisplayMode: .always))
+
+            VStack(spacing: 10) {
+                Button {
+                    Haptics.impact(.light)
+                    if page < 3 {
+                        withAnimation(.easeInOut(duration: 0.25)) { page += 1 }
+                    } else {
+                        dismiss()
+                    }
+                } label: {
+                    Text(page < 3 ? "Next" : "Got It")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.accentColor)
+
+                Button {
+                    UserDefaults.standard.set(true, forKey: Self.dismissedKey)
+                    dismiss()
+                } label: {
+                    Text("Don't Show Again")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 18)
+            .padding(.top, 6)
+        }
+        .background(Color(uiColor: .systemBackground))
+    }
+
+    private func wizardPage<Demo: View>(
+        icon: String,
+        title: String,
+        text: String,
+        @ViewBuilder demo: () -> Demo
+    ) -> some View {
+        VStack(spacing: 22) {
+            Spacer(minLength: 12)
+            Image(systemName: icon)
+                .font(.system(size: 44, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+                .padding(26)
+                .background(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(.regularMaterial)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                                .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+                        )
+                        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+                )
+            Text(title)
+                .font(.title2.weight(.bold))
+                .multilineTextAlignment(.center)
+            Text(text)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 30)
+            demo()
+                .padding(.top, 4)
+            Spacer()
+        }
+        .padding(.top, 8)
+    }
+
+    /// A miniature dock with the Chats slot centered - `highlightIcon` morphs to show the
+    /// cycling behavior. Real Liquid Glass on iOS 26+, the app's glass-card fallback earlier.
+    private func dockMock(highlightIcon: String, label: String) -> some View {
+        HStack(spacing: 0) {
+            ForEach(0..<5, id: \.self) { index in
+                VStack(spacing: 4) {
+                    Image(systemName: index == 2 ? highlightIcon : mockIcon(index))
+                        .font(.system(size: 20, weight: .semibold))
+                        .frame(height: 24)
+                    Text(index == 2 ? label : mockLabel(index))
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .foregroundColor(index == 2 ? .accentColor : .secondary.opacity(0.55))
+                .frame(width: 62)
+                .id(index == 2 ? label : mockLabel(index))
+                .transition(.scale(scale: 0.6).combined(with: .opacity))
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 6)
+        .background(wizardGlass(cornerRadius: 22))
+    }
+
+    private func mockIcon(_ index: Int) -> String {
+        [AppTab.portfolio.icon, AppTab.coldStorage.icon, "", AppTab.profile.icon, AppTab.swap.icon][index]
+    }
+
+    private func mockLabel(_ index: Int) -> String {
+        [AppTab.portfolio.label, AppTab.coldStorage.label, "", AppTab.profile.label, AppTab.swap.label][index]
+    }
+
+    /// Liquid Glass on iOS 26+ (the system's real glass material), falling back to the app's
+    /// established glass-card look - same pattern as KaPostsView's side-menu drawer.
+    @ViewBuilder
+    private func wizardGlass(cornerRadius: CGFloat) -> some View {
+        if #available(iOS 26.0, *) {
+            Color.clear
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(.regularMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+                )
+                .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+        }
+    }
+
+    /// Animated hold-and-slide demo: the finger presses the Chats slot, the menu pops above
+    /// the dock, the finger slides across the three options with the highlight following, and
+    /// Broadcasts gets "picked" - then it loops.
+    private var holdMenuMock: some View {
+        let menuVisible = holdPhase >= 1 && holdPhase <= 4
+        let highlightIndex = (2...4).contains(holdPhase) ? holdPhase - 2 : nil
+        let itemWidth: CGFloat = 76
+        // Finger target: on the dock's Chats slot while pressing/selected, else on the
+        // highlighted menu item.
+        let fingerX: CGFloat = {
+            guard let highlightIndex else { return 0 }
+            return (CGFloat(highlightIndex) - 1) * itemWidth
+        }()
+        let fingerY: CGFloat = menuVisible && highlightIndex != nil ? 30 : 118
+
+        return ZStack(alignment: .top) {
+            // Menu card (pops in above the dock).
+            HStack(spacing: 0) {
+                ForEach(Array(zip(demoIcons.indices, zip(demoIcons, demoLabels))), id: \.0) { index, pair in
+                    VStack(spacing: 5) {
+                        Image(systemName: pair.0)
+                            .font(.system(size: 19, weight: .semibold))
+                        Text(pair.1)
+                            .font(.system(size: 10, weight: .bold))
+                    }
+                    .foregroundColor(highlightIndex == index ? .white : .primary)
+                    .frame(width: itemWidth, height: 52)
+                    .background(
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .fill(highlightIndex == index ? Color.accentColor : Color.clear)
+                    )
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(wizardGlass(cornerRadius: 18))
+            .scaleEffect(menuVisible ? 1 : 0.75, anchor: .bottom)
+            .opacity(menuVisible ? 1 : 0)
+
+            // Mini dock below; its Chats slot flips to the picked tab at the end of the loop.
+            dockMock(
+                highlightIcon: holdPhase == 5 ? AppTab.broadcasts.icon : AppTab.chats.icon,
+                label: holdPhase == 5 ? AppTab.broadcasts.label : AppTab.chats.label
+            )
+            .padding(.top, 86)
+
+            // The finger.
+            Image(systemName: "hand.point.up.left.fill")
+                .font(.system(size: 26))
+                .foregroundColor(.accentColor)
+                .shadow(color: Color.black.opacity(0.25), radius: 4, x: 0, y: 2)
+                .scaleEffect(holdPhase == 0 ? 0.85 : 1)
+                .offset(x: fingerX + 12, y: fingerY)
+                .opacity(holdPhase == 5 ? 0 : 1)
+        }
+        .frame(height: 165)
+        .task {
+            // Phase timeline, looping: press-and-hold -> menu pops -> slide across the three
+            // options -> pick Broadcasts -> reset.
+            while !Task.isCancelled {
+                for (phase, holdNanos) in [(0, UInt64(900)), (1, 500), (2, 800), (3, 800), (4, 800), (5, 1_300)] {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        holdPhase = phase
+                    }
+                    try? await Task.sleep(nanoseconds: UInt64(holdNanos) * 1_000_000)
+                    if Task.isCancelled { return }
+                }
+            }
+        }
+    }
 }

@@ -42,7 +42,15 @@ struct SwapView: View {
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
             .navigationTitle("Swap")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    ConnectionStatusIndicator()
+                }
+                ToolbarItem(placement: .principal) {
+                    BalanceToolbarLabel()
+                }
+            }
             .toast(message: toastMessage)
             .onChange(of: swapService.createSwapState.status) { status in
                 if status == .success {

@@ -1,8 +1,25 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct PortfolioTransactionsView: View {
+/// Shared formatter at file scope - the view is generic now (header slot), and generic types
+/// can't carry static stored properties.
+private let kasAmountFormatter: NumberFormatter = {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.usesGroupingSeparator = true
+    formatter.groupingSeparator = ","
+    formatter.minimumFractionDigits = 0
+    formatter.maximumFractionDigits = 4
+    formatter.locale = Locale(identifier: "en_US")
+    return formatter
+}()
+
+struct PortfolioTransactionsView<Header: View>: View {
     @ObservedObject var viewModel: PortfolioViewModel
+    /// Rendered above the Transactions section - PortfolioView passes the picker cards and
+    /// data cards here so the whole page is ONE list (continuous scroll, native large-title
+    /// collapse, transactions reachable by just scrolling).
+    @ViewBuilder let header: () -> Header
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
 
     @State private var editingTransaction: PortfolioTransaction?
@@ -21,26 +38,43 @@ struct PortfolioTransactionsView: View {
 
     var body: some View {
         List(selection: $selectedIDs) {
-            if viewModel.transactionsDescending.isEmpty {
-                emptyState
-            } else {
-                ForEach(viewModel.transactionsDescending) { tx in
-                    Button {
-                        editingTransaction = tx
-                    } label: {
-                        transactionRow(tx)
-                    }
-                    .buttonStyle(.plain)
-                    .tag(tx.id)
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            viewModel.deleteTransaction(id: tx.id)
+            header()
+
+            Section {
+                if viewModel.transactionsDescending.isEmpty {
+                    emptyState
+                } else {
+                    ForEach(viewModel.transactionsDescending) { tx in
+                        Button {
+                            editingTransaction = tx
                         } label: {
-                            Label("Delete", systemImage: "trash")
+                            transactionRow(tx)
                         }
-                        .tint(.red)
+                        .buttonStyle(.plain)
+                        .tag(tx.id)
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                viewModel.deleteTransaction(id: tx.id)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            .tint(.red)
+                        }
                     }
                 }
+            } header: {
+                // Add + import/export live right on the section header now, replacing the old
+                // floating overlay buttons.
+                HStack(spacing: 16) {
+                    Text("Transactions")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                        .textCase(nil)
+                    Spacer()
+                    addTransactionButton
+                    importExportButton
+                }
+                .padding(.bottom, 2)
             }
         }
         .listStyle(.insetGrouped)
@@ -84,15 +118,6 @@ struct PortfolioTransactionsView: View {
                     }
                 }
                 .disabled(viewModel.transactionsDescending.isEmpty && !isSelecting)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if !isSelecting {
-                HStack(spacing: 12) {
-                    addTransactionButton
-                    importExportButton
-                }
-                .padding(.bottom, 16)
             }
         }
         .sheet(isPresented: $showAddSheet) {
@@ -223,16 +248,6 @@ struct PortfolioTransactionsView: View {
         .padding(.vertical, 4)
     }
 
-    private static let kasAmountFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.usesGroupingSeparator = true
-        formatter.groupingSeparator = ","
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 4
-        formatter.locale = Locale(identifier: "en_US")
-        return formatter
-    }()
 
     /// Comma-grouped for display only (e.g. "12,345.6789 KAS") — never used for a value that
     /// gets parsed back, unlike the plain, non-grouped formatting the editable quantity field uses.
@@ -255,16 +270,9 @@ struct PortfolioTransactionsView: View {
                 Label("Add Kaspa Address", systemImage: "arrow.left.arrow.right")
             }
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 20, weight: .semibold))
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: 22))
                 .foregroundColor(.accentColor)
-                .frame(width: 56, height: 56)
-                .background(
-                    Circle()
-                        .fill(.regularMaterial)
-                        .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
-                        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
-                )
         }
         .tint(.accentColor)
     }
@@ -283,16 +291,9 @@ struct PortfolioTransactionsView: View {
                 Label("Export CSV", systemImage: "square.and.arrow.up")
             }
         } label: {
-            Image(systemName: "arrow.up.arrow.down")
-                .font(.system(size: 18, weight: .semibold))
+            Image(systemName: "square.and.arrow.up.on.square")
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundColor(.accentColor)
-                .frame(width: 56, height: 56)
-                .background(
-                    Circle()
-                        .fill(.regularMaterial)
-                        .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
-                        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
-                )
         }
         .tint(.accentColor)
     }

@@ -51,6 +51,9 @@ struct KaPostsView: View {
         /// sent by definition.
         enum Delivery: Equatable { case pending, sent, failed }
         var deliveryStatus: Delivery = .sent
+        /// The indexer's reply count for this post - feed cells show it before any replies
+        /// have actually been fetched (they load lazily on opening the thread).
+        var remoteReplyCount: Int = 0
         /// One flat level of replies, X-style. Comments are themselves DraftPosts so the cell
         /// (avatar/KNS name/follow/engagement) is reused wholesale - they just can't be
         /// commented on in turn (no nested threads yet).
@@ -183,7 +186,6 @@ struct KaPostsView: View {
 
     private var feedLayer: some View {
         VStack(spacing: 0) {
-            balanceHeader
             feedTabBar
             // Horizontal paging between the three feeds, synced both ways with the top tab bar
             // (tap animates the page across; swipe moves the underline). Page-style TabView is
@@ -275,29 +277,6 @@ struct KaPostsView: View {
 
     // MARK: - Feed tabs (mirrors ChatListView.chatsTopTabBar)
 
-    /// Chatting-address Kaspa balance, centered at the very top - same source as the chat
-    /// list's toolbar balance.
-    private var balanceHeader: some View {
-        HStack(spacing: 6) {
-            Image("KaspaLogo")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 15, height: 15)
-            Text("\(Self.formatKas(walletManager.currentWallet?.balanceSompi ?? 0)) KAS")
-                .font(.footnote.weight(.semibold))
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 8)
-        .padding(.bottom, 2)
-        .task {
-            _ = try? await walletManager.refreshBalance()
-        }
-    }
-
-    private static func formatKas(_ sompi: UInt64) -> String {
-        String(format: "%.8f", Double(sompi) / 100_000_000.0)
-    }
 
     private var feedTabBar: some View {
         VStack(spacing: 0) {
@@ -344,12 +323,8 @@ struct KaPostsView: View {
 
     private var sideMenuCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("KaPosts")
-                .font(.title2.weight(.bold))
-                .padding(.horizontal, 20)
-                .padding(.top, 24)
-                .padding(.bottom, 12)
-            Divider()
+            // No card title - the page's bold KaPosts header is still visible behind the
+            // drawer, so repeating it here just doubled up.
             ForEach(SideMenuItem.allCases) { item in
                 Button {
                     Haptics.impact(.light)
@@ -364,8 +339,8 @@ struct KaPostsView: View {
                             .frame(width: 26)
                         Text(item.rawValue)
                             .font(.body.weight(.semibold))
-                        Spacer()
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .foregroundColor(.primary)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 14)
@@ -373,14 +348,15 @@ struct KaPostsView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Spacer()
         }
-        .frame(width: min(UIScreen.main.bounds.width * 0.72, 300), alignment: .topLeading)
-        .frame(maxHeight: .infinity, alignment: .top)
+        .padding(.vertical, 8)
+        .fixedSize(horizontal: true, vertical: false)
         // Liquid Glass on iOS 26+ (the system's real glass material), falling back to the app's
-        // established glass-card look (material + hairline + shadow) on older iOS. Either way the
-        // card floats inside the content area - no ignoresSafeArea - so it stops above the dock.
+        // established glass-card look (material + hairline + shadow) on older iOS. The glass
+        // wraps ONLY the options (background applied before the positioning frame), so the card
+        // hugs its content instead of stretching to the bottom.
         .background(drawerGlassBackground)
+        .frame(maxHeight: .infinity, alignment: .top)
         .padding(.leading, 10)
         .padding(.vertical, 12)
     }
@@ -445,7 +421,7 @@ struct KaPostsView: View {
                             displayName: posterDisplayName(post.posterAddress),
                             avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
                             isFollowing: followStore.isFollowing(post.posterAddress),
-                            commentCount: visibleComments(of: post).count,
+                            commentCount: commentCount(of: post),
                             truncatesLongText: true,
                             onComment: { openDetail(post) },
                             onMute: { moderationStore.mute(post.posterAddress) },
@@ -499,6 +475,12 @@ struct KaPostsView: View {
     /// A post's comments minus muted/blocked authors - used for both display and counts.
     private func visibleComments(of post: DraftPost) -> [DraftPost] {
         post.comments.filter { !moderationStore.isHidden($0.posterAddress) }
+    }
+
+    /// Comment count for a cell: the indexer's reply count until the thread has been opened
+    /// and replies actually loaded (locally-added comments can exceed the stale remote count).
+    private func commentCount(of post: DraftPost) -> Int {
+        max(post.remoteReplyCount, visibleComments(of: post).count)
     }
 
     private func emptyState(for tab: FeedTab) -> some View {
@@ -604,6 +586,7 @@ struct KaPostsView: View {
         mapped.remoteId = post.id
         mapped.posterPubkey = post.userPublicKey
         mapped.likes = post.upVotesCount ?? 0
+        mapped.remoteReplyCount = post.repliesCount ?? 0
         mapped.dislikes = post.downVotesCount ?? 0
         mapped.reposts = post.quotesCount ?? 0
         mapped.likedByMe = post.isUpvoted ?? false
@@ -1163,7 +1146,7 @@ struct KaPostsView: View {
                                 displayName: posterDisplayName(post.posterAddress),
                                 avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
                                 isFollowing: followStore.isFollowing(post.posterAddress),
-                                commentCount: visibleComments(of: post).count,
+                                commentCount: commentCount(of: post),
                                 onComment: nil,
                                 onMute: { moderationStore.mute(post.posterAddress) },
                                 onBlock: { moderationStore.block(post.posterAddress) },
@@ -1358,7 +1341,7 @@ struct KaPostsView: View {
                                 displayName: posterDisplayName(post.posterAddress),
                                 avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
                                 isFollowing: followStore.isFollowing(post.posterAddress),
-                                commentCount: visibleComments(of: post).count,
+                                commentCount: commentCount(of: post),
                                 onComment: nil,
                                 onMute: { moderationStore.mute(post.posterAddress) },
                                 onBlock: { moderationStore.block(post.posterAddress) },
@@ -1539,7 +1522,7 @@ struct KaPostsView: View {
                                     displayName: posterDisplayName(post.posterAddress),
                                     avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
                                     isFollowing: followStore.isFollowing(post.posterAddress),
-                                    commentCount: visibleComments(of: post).count,
+                                    commentCount: commentCount(of: post),
                                     onComment: nil,
                                     onMute: { moderationStore.mute(post.posterAddress) },
                                     onBlock: { moderationStore.block(post.posterAddress) },
@@ -1583,7 +1566,7 @@ struct KaPostsView: View {
                                 displayName: posterDisplayName(post.posterAddress),
                                 avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
                                 isFollowing: followStore.isFollowing(post.posterAddress),
-                                commentCount: visibleComments(of: post).count,
+                                commentCount: commentCount(of: post),
                                 onComment: nil,
                                 onMute: { moderationStore.mute(post.posterAddress) },
                                 onBlock: { moderationStore.block(post.posterAddress) },
@@ -2970,6 +2953,31 @@ struct KaPostsNotificationsView: View {
         } catch {
             loadFailed = true
             AppLog.log("[KaPosts] Notifications load failed: %@", error.localizedDescription)
+        }
+    }
+}
+
+
+// MARK: - KaPosts page wrapper (shared navigation chrome)
+
+/// KaPosts inside its navigation chrome - used by BOTH the standalone dock tab and the
+/// chats-slot presentation, so the header (green connection dot leading, balance centered,
+/// bold large title) is rendered by the exact same UIKit bar as Chats and Broadcasts and
+/// never shifts between pages.
+struct KaPostsPageView: View {
+    var body: some View {
+        NavigationStack {
+            KaPostsView()
+                .navigationTitle("KaPosts")
+                .navigationBarTitleDisplayMode(.large)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        ConnectionStatusIndicator()
+                    }
+                    ToolbarItem(placement: .principal) {
+                        BalanceToolbarLabel()
+                    }
+                }
         }
     }
 }

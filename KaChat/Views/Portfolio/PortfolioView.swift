@@ -1,98 +1,57 @@
 import SwiftUI
 
-private enum PortfolioContentTab: Hashable {
-    case data
-    case transactions
-}
-
 struct PortfolioView: View {
     @ObservedObject private var viewModel = PortfolioViewModel.shared
     @ObservedObject private var portfolioManager = PortfolioManager.shared
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @State private var scrubbedValuePoint: PricePoint?
-    @State private var selectedContentTab: PortfolioContentTab = .data
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                PortfolioPickerHeader(
-                    portfolios: portfolioManager.portfolios,
-                    activePortfolioId: portfolioManager.activePortfolioId,
-                    cardModel: cardModel(for:),
-                    formatCurrency: formatCurrency,
-                    onSelect: { portfolioManager.setActivePortfolio($0) },
-                    onAdd: { portfolioManager.addPortfolio(name: $0) },
-                    onRename: { portfolioManager.renamePortfolio($0, to: $1) },
-                    onDelete: { portfolioManager.deletePortfolio($0) }
-                )
-                contentTabBar
-
-                // .page style gives left/right swipe between tabs for free, kept in sync with
-                // contentTabBar's buttons via the shared $selectedContentTab binding; index dots
-                // are hidden since that tab bar is already the visible selector.
-                TabView(selection: $selectedContentTab) {
-                    dataTabContent
-                        .tag(PortfolioContentTab.data)
-                    PortfolioTransactionsView(viewModel: viewModel)
-                        .tag(PortfolioContentTab.transactions)
+            // One continuous page: portfolio picker cards, then the data cards, then the
+            // Transactions section - no Data/Transactions tabs. Everything lives in the
+            // transactions view's List, so scrolling flows straight from cards into
+            // transactions, the picker cards scroll away (collapse) cleanly, and the large
+            // nav title tracks the scroll natively.
+            PortfolioTransactionsView(viewModel: viewModel) {
+                Section {
+                    PortfolioPickerHeader(
+                        portfolios: portfolioManager.portfolios,
+                        activePortfolioId: portfolioManager.activePortfolioId,
+                        cardModel: cardModel(for:),
+                        formatCurrency: formatCurrency,
+                        onSelect: { portfolioManager.setActivePortfolio($0) },
+                        onAdd: { portfolioManager.addPortfolio(name: $0) },
+                        onRename: { portfolioManager.renamePortfolio($0, to: $1) },
+                        onDelete: { portfolioManager.deletePortfolio($0) }
+                    )
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+
+                Section {
+                    summaryCard
+                    priceChartCard
+                    if viewModel.valueHistory.count >= 2 {
+                        valueChartCard
+                    }
+                }
+                .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
             .navigationTitle("Portfolio")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-
-    private var dataTabContent: some View {
-        ScrollView {
-            // Matches Android's Data tab spacing (12.dp outer padding, 10.dp between cards) -
-            // this was previously 16pt everywhere, tall enough to force a scroll on most iPhones
-            // even though every card's content already fits without it.
-            VStack(spacing: 10) {
-                summaryCard
-                priceChartCard
-                if viewModel.valueHistory.count >= 2 {
-                    valueChartCard
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    ConnectionStatusIndicator()
+                }
+                ToolbarItem(placement: .principal) {
+                    BalanceToolbarLabel()
                 }
             }
-            .padding(12)
         }
-        .refreshable {
-            await viewModel.refreshPriceAsync()
-        }
-    }
-
-    // MARK: - Data / Transactions tab bar (styled like ChatListView's Chats/Group Chats tabs)
-
-    private var contentTabBar: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                contentTabButton("Data", tab: .data)
-                contentTabButton("Transactions", tab: .transactions)
-            }
-            Divider()
-        }
-        .background(.ultraThinMaterial)
-    }
-
-    private func contentTabButton(_ title: String, tab: PortfolioContentTab) -> some View {
-        let isSelected = selectedContentTab == tab
-        return Button {
-            withAnimation(.easeInOut(duration: 0.2)) { selectedContentTab = tab }
-        } label: {
-            VStack(spacing: 8) {
-                Text(title)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 10)
-
-                Rectangle()
-                    .fill(isSelected ? Color.accentColor : Color.clear)
-                    .frame(height: 2.5)
-            }
-        }
-        .buttonStyle(.plain)
     }
 
     private func cardModel(for portfolio: Portfolio) -> PortfolioCardModel {

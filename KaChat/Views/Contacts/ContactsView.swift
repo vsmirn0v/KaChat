@@ -45,6 +45,7 @@ struct ProfileView: View {
     @State private var isResolvingDonateAddress = false
     @State private var showLogoutConfirmation = false
     @State private var showWelcomeGuideReplay = false
+    @State private var isEditingAccountName = false
 
     static func preloadQRCode(for address: String) {
         ProfileQRCodeCache.preload(address: address, completion: nil)
@@ -55,16 +56,15 @@ struct ProfileView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if let wallet = walletManager.currentWallet {
-                        accountNameCard(wallet)
-                        if walletManager.showSetupGuides {
-                            welcomeGuideSection
-                        }
-                        knsProfileSection
+                        accountNameRow(wallet)
+                        profileHeroSection(wallet)
+                        editKNSProfileRow
                         qrButtonsSection(wallet)
                         addressDropdownsSection(wallet)
-                        aboutSection(wallet)
+                        helpSection
                         claimGiftSection
                         logOutSection
+                        aboutSection(wallet)
                     } else {
                         Text("No active account")
                             .foregroundColor(.secondary)
@@ -76,6 +76,8 @@ struct ProfileView: View {
                 _ = try? await walletManager.refreshBalance()
                 await loadSpendingAddressBalance()
             }
+            .navigationTitle("Profile")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     ConnectionStatusIndicator()
@@ -93,6 +95,65 @@ struct ProfileView: View {
                 }
             }
             .toast(message: toastMessage, style: toastStyle)
+            // KNS save progress: a PERSISTENT banner (state-driven, no auto-dismiss timer) that
+            // stays up from "Preparing profile update..." through each "Updating X (n/m)..."
+            // step until the save finishes. If fields failed, it flips into a red banner with
+            // Retry All / dismiss.
+            .overlay(alignment: .bottom) {
+                if isSavingKNSProfile {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .scaleEffect(0.85)
+                        Text(knsSaveProgressText ?? localized("Saving profile..."))
+                            .font(.footnote.weight(.semibold))
+                            .lineLimit(2)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(
+                        Capsule()
+                            .fill(.regularMaterial)
+                            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+                            .shadow(color: Color.black.opacity(0.15), radius: 10, x: 0, y: 4)
+                    )
+                    .padding(.bottom, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if !failedKNSUpdates.isEmpty {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                        Text(localizedFormat("%d profile update(s) failed", failedKNSUpdates.count))
+                            .font(.footnote.weight(.semibold))
+                        Button {
+                            retryAllFailedKNSUpdates()
+                        } label: {
+                            Text("Retry")
+                                .font(.footnote.weight(.bold))
+                                .foregroundColor(.accentColor)
+                                .underline()
+                        }
+                        .buttonStyle(.plain)
+                        Button {
+                            withAnimation(.easeIn(duration: 0.2)) { failedKNSUpdates = [:] }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(
+                        Capsule()
+                            .fill(.regularMaterial)
+                            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+                            .shadow(color: Color.black.opacity(0.15), radius: 10, x: 0, y: 4)
+                    )
+                    .padding(.bottom, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isSavingKNSProfile)
             .sheet(isPresented: $showSettings) {
                 SettingsView()
             }
@@ -277,35 +338,144 @@ struct ProfileView: View {
         }
     }
 
-    /// Read-only display of which account is currently active. Renaming stays confined to
-    /// the saved-accounts list in Onboarding (`walletManager.renameSavedAccount`) — this card
-    /// is purely informative so there's no ambiguity about which account is signed in here.
-    private func accountNameCard(_ wallet: Wallet) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Account")
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundColor(.secondary)
-            Text(wallet.alias)
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(.primary)
+    /// Account name sitting right up against the bold Profile title - tap the pencil to
+    /// rename in place (renaming used to live only on the logged-out accounts list).
+    private func accountNameRow(_ wallet: Wallet) -> some View {
+        HStack(spacing: 8) {
+            if isEditingAccountName {
+                TextField("Account name", text: $editedAlias)
+                    .font(.title3.weight(.semibold))
+                    .textFieldStyle(.plain)
+                    .submitLabel(.done)
+                    .onSubmit { commitAccountRename(wallet) }
+                Button {
+                    commitAccountRename(wallet)
+                } label: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text(wallet.alias)
+                    .font(.title3.weight(.semibold))
+                    .lineLimit(1)
+                Button {
+                    editedAlias = wallet.alias
+                    isEditingAccountName = true
+                } label: {
+                    Image(systemName: "pencil.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, -8)
+    }
+
+    /// Entry to the Help screen: every guide in one place.
+    private var helpSection: some View {
+        NavigationLink {
+            ProfileHelpView(
+                onWelcomeGuide: { showWelcomeGuideReplay = true },
+                onKNSSetupGuide: { showCreateKNSProfileFlow = true }
+            )
+        } label: {
+            HStack {
+                Label("Help", systemImage: "questionmark.circle")
+                    .foregroundColor(.primary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
         .background(glassBackground(cornerRadius: 18))
     }
 
-    /// Replays the same first-run walkthrough shown automatically after onboarding a wallet
-    /// (created or imported) - `WelcomeGuideView`, triggered from `MainTabView` via
-    /// `walletManager.justCreatedNewWallet` - distinct `@State` name from `showSetupGuide` below,
-    /// which re-launches the unrelated KNS domain/avatar creation wizard.
-    private var welcomeGuideSection: some View {
+    private func commitAccountRename(_ wallet: Wallet) {
+        let trimmed = editedAlias.trimmingCharacters(in: .whitespacesAndNewlines)
+        isEditingAccountName = false
+        guard !trimmed.isEmpty, trimmed != wallet.alias,
+              let account = walletManager.savedAccounts.first(where: { $0.publicAddress == wallet.publicAddress })
+        else { return }
+        walletManager.renameSavedAccount(account, to: trimmed)
+        showToast("Account renamed.")
+    }
+
+    /// KaPosts-style hero: KNS banner (gradient fallback), overlapping avatar, display name
+    /// (primary KNS domain, .kas dropped, else the account name) and bio.
+    private func profileHeroSection(_ wallet: Wallet) -> some View {
+        let displayName: String = {
+            if let domain = knsPrimaryDomain ?? knsProfileInfo?.domainName,
+               !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return KaPostsView.strippingKasSuffix(domain)
+            }
+            return wallet.alias
+        }()
+        return VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let bannerURL = knsProfileInfo?.profile?.bannerUrl,
+                   KNSProfileLinkBuilder.websiteURL(from: bannerURL) != nil {
+                    KNSBannerImageView(bannerURLString: bannerURL, height: 140, cornerRadius: 0)
+                } else {
+                    LinearGradient(
+                        colors: [Color.accentColor.opacity(0.55), Color.accentColor.opacity(0.15)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .frame(height: 140)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .clipped()
+
+            KNSAvatarView(
+                avatarURLString: knsProfileInfo?.avatarURL,
+                fallbackText: displayName,
+                size: 76
+            )
+            .overlay(Circle().stroke(Color(uiColor: .systemBackground), lineWidth: 3))
+            .padding(.leading, 16)
+            .padding(.top, -38)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(displayName)
+                    .font(.title3.weight(.bold))
+                    .lineLimit(1)
+                if let bio = knsProfileInfo?.profile?.bio,
+                   !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(bio)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 14)
+        }
+        .background(glassBackground(cornerRadius: 18))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    /// Straight to the KNS editor screen (same destination the old profile card's tap used);
+    /// no domain yet -> the create-profile flow instead.
+    private var editKNSProfileRow: some View {
         Button {
-            showWelcomeGuideReplay = true
+            let hasDomain = !(knsProfileInfo?.domainName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if hasDomain {
+                showKNSEditor = true
+            } else {
+                showCreateKNSProfileFlow = true
+            }
         } label: {
             HStack {
-                Label("Welcome Guide", systemImage: "sparkles")
+                Label("Edit KNS Profile", systemImage: "person.text.rectangle")
                     .foregroundColor(.primary)
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -1550,6 +1720,25 @@ struct ProfileView: View {
         guard parts.count == 2 else { return false }
         guard !parts[0].isEmpty, !parts[1].isEmpty else { return false }
         return parts[1].contains(".")
+    }
+
+    /// Banner's Retry: replays every failed field sequentially through the same single-field
+    /// retry path (which itself updates isSavingKNSProfile/progress, so the banner shows the
+    /// per-field progress again).
+    private func retryAllFailedKNSUpdates() {
+        guard let profileInfo = knsProfileInfo,
+              let assetId = profileInfo.assetId, !assetId.isEmpty else { return }
+        let pending = failedKNSUpdates
+        Task {
+            for (key, value) in pending {
+                await retryFailedKNSField(
+                    key: key,
+                    value: value,
+                    assetId: assetId,
+                    domainName: profileInfo.domainName
+                )
+            }
+        }
     }
 
     private func retryFailedKNSField(
@@ -4552,4 +4741,83 @@ struct SystemContactLinkPickerSheet: View {
         .environmentObject(ContactsManager.shared)
         .environmentObject(ChatService.shared)
         .environmentObject(GiftService.shared)
+}
+
+
+// MARK: - Profile Help screen
+
+/// All the app's guides in one place, reached from Profile > Help: the first-run Welcome
+/// Guide, the KNS profile setup wizard, and the 4.0 dock walkthrough (Chats-tab cycling).
+/// Welcome/KNS replay through ProfileView's own covers (callbacks); the dock guide presents
+/// right here.
+struct ProfileHelpView: View {
+    let onWelcomeGuide: () -> Void
+    let onKNSSetupGuide: () -> Void
+
+    @State private var showDockGuide = false
+
+    var body: some View {
+        List {
+            Section {
+                helpRow(
+                    icon: "sparkles",
+                    title: "Welcome Guide",
+                    subtitle: "The full first-run tour: wallet, chats, payments and more."
+                ) {
+                    onWelcomeGuide()
+                }
+                helpRow(
+                    icon: "person.text.rectangle",
+                    title: "KNS Profile Setup Guide",
+                    subtitle: "Set up your KNS domain, avatar, banner and bio step by step."
+                ) {
+                    onKNSSetupGuide()
+                }
+                helpRow(
+                    icon: "hand.tap",
+                    title: "Dock Guide",
+                    subtitle: "How KaPosts and Broadcasts ride the Chats tab - tap to cycle, hold to jump."
+                ) {
+                    showDockGuide = true
+                }
+            }
+        }
+        .navigationTitle("Help")
+        .navigationBarTitleDisplayMode(.large)
+        .sheet(isPresented: $showDockGuide) {
+            DockWizardView()
+                .presentationDetents([.large])
+        }
+    }
+
+    private func helpRow(
+        icon: String,
+        title: String,
+        subtitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 }

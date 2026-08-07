@@ -75,7 +75,15 @@ struct ColdStorageListView: View {
             .padding(.bottom, 16)
         }
         .navigationTitle("Cold Storage")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                ConnectionStatusIndicator()
+            }
+            ToolbarItem(placement: .principal) {
+                BalanceToolbarLabel()
+            }
+        }
         .toast(message: toastMessage)
         .sheet(isPresented: $showScanner) {
             QRScannerView { code in

@@ -111,20 +111,19 @@ struct BroadcastListView: View {
         combinedList
         .navigationTitle("Broadcasts")
         .toolbar {
+            // Same header anatomy as Chats/KaPosts: green connection dot leading, total
+            // balance dead-center, actions trailing.
+            ToolbarItem(placement: .navigationBarLeading) {
+                ConnectionStatusIndicator()
+            }
+            ToolbarItem(placement: .principal) {
+                BalanceToolbarLabel()
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     showBroadcastSettings = true
                 } label: {
                     Image(systemName: "gearshape")
-                }
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    joinFieldText = ""
-                    joinError = nil
-                    showJoinAlert = true
-                } label: {
-                    Image(systemName: "plus")
                 }
             }
         }
@@ -253,7 +252,22 @@ struct BroadcastListView: View {
                     }
                 }
             } header: {
-                sectionHeader("Your Channels")
+                HStack {
+                    sectionHeader("Your Channels")
+                    Spacer()
+                    Button {
+                        Haptics.impact(.light)
+                        joinFieldText = ""
+                        joinError = nil
+                        showJoinAlert = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 4)
+                }
             }
         }
         .listStyle(.plain)
