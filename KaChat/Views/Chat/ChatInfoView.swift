@@ -281,6 +281,26 @@ struct ChatInfoView: View {
                             .foregroundColor(.secondary)
                     }
 
+                    if contact.systemContactId == nil {
+                        // Replaces the old "autocreate" setting: one tap creates a dedicated
+                        // entry in the iOS Contacts app for this contact and links it.
+                        Button {
+                            Task {
+                                if let updated = await contactsManager.createSystemContact(for: contact) {
+                                    contact = updated
+                                    linkedSystemContactId = updated.systemContactId
+                                    linkedSystemContactName = updated.systemDisplayNameSnapshot
+                                    linkedSystemContactSource = updated.systemContactLinkSource
+                                    showToast(localized("Contact created in Contacts app."))
+                                } else {
+                                    showToast(localized("Couldn't create the contact. Check Contacts access."))
+                                }
+                            }
+                        } label: {
+                            Label("Create System Contact", systemImage: "person.badge.plus")
+                        }
+                    }
+
                     Button {
                         showSystemContactLinkPicker = true
                     } label: {
@@ -481,13 +501,6 @@ struct ChatInfoView: View {
         updatedContact.systemContactId = linkedSystemContactId
         updatedContact.systemDisplayNameSnapshot = linkedSystemContactName
         updatedContact.systemContactLinkSource = linkedSystemContactSource
-        if !settingsViewModel.settings.autoCreateSystemContacts,
-           updatedContact.systemContactLinkSource == .autoCreated {
-            updatedContact.systemContactId = nil
-            updatedContact.systemDisplayNameSnapshot = nil
-            updatedContact.systemContactLinkSource = nil
-            updatedContact.systemMatchConfidence = nil
-        }
         contactsManager.updateContact(updatedContact)
         contact = updatedContact
     }

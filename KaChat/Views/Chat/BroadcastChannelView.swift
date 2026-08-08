@@ -280,6 +280,9 @@ struct BroadcastChannelView: View {
                         .onAppear {
                             scrollToBottom(using: proxy, animated: false)
                         }
+                        // Same interactive drag-down keyboard dismissal as ChatDetailView - the
+                        // room's keyboard had no way down other than sending a message.
+                        .scrollDismissesKeyboard(.interactively)
                         .simultaneousGesture(
                             // Swipe-left-to-reveal-timestamps (iMessage-style), matching Android:
                             // dragging left across the message list shifts every row left by the

@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import UIKit
 
@@ -26,8 +27,15 @@ struct KaPostsView: View {
     }
 
     /// In-memory only - a post is PLAIN TEXT, nothing else. No links (rendered inert), no photos.
+    /// X-matching post/reply length cap.
+    static let postCharacterLimit = 25_000
+
     struct DraftPost: Identifiable, Equatable {
-        let id = UUID()
+        /// Local session posts get a random id; indexer-fetched posts get a STABLE id derived
+        /// from their txid (see mapRemotePost) - refreshing a feed must not hand every row a
+        /// new identity, or LazyVStack rebuilds the whole feed (scroll jumps + a beefy hang,
+        /// seen on resume when an in-flight load completed).
+        var id = UUID()
         let text: String
         let timestamp: Date
         /// Kaspa address of the author - drives KNS avatar/name resolution and follow state.
@@ -54,9 +62,9 @@ struct KaPostsView: View {
         /// The indexer's reply count for this post - feed cells show it before any replies
         /// have actually been fetched (they load lazily on opening the thread).
         var remoteReplyCount: Int = 0
-        /// One flat level of replies, X-style. Comments are themselves DraftPosts so the cell
-        /// (avatar/KNS name/follow/engagement) is reused wholesale - they just can't be
-        /// commented on in turn (no nested threads yet).
+        /// Replies, X-style. Comments are themselves DraftPosts so the cell (avatar/KNS
+        /// name/follow/engagement) is reused wholesale - and they nest: a comment carries its
+        /// own comments, opened as its own thread.
         var comments: [DraftPost] = []
         /// X-style quote embed: set when this post quotes another (locally at compose time, or
         /// from the indexer's embedded quote reference). Renders as a bordered mini card under
@@ -585,6 +593,14 @@ struct KaPostsView: View {
 
     /// K wire post -> UI model. Content arrives base64-decoded with the KaChat marker stripped;
     /// counts map 1:1 (K "reposts" are quotes - quotesCount is the live counter).
+    /// Deterministic UUID from a txid so re-fetches keep row identity stable.
+    static func stableId(forTxId txId: String) -> UUID {
+        let digest = SHA256.hash(data: Data(txId.utf8))
+        let bytes = Array(digest.prefix(16))
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                           bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+
     static func mapRemotePost(_ post: KaPostsAPIClient.KPost) -> DraftPost? {
         guard let content = post.decodedContent,
               let address = KaPostsAPIClient.kaspaAddress(fromPubkey: post.userPublicKey) else { return nil }
@@ -593,6 +609,7 @@ struct KaPostsView: View {
             timestamp: Date(timeIntervalSince1970: TimeInterval(post.timestamp) / 1000),
             posterAddress: address
         )
+        mapped.id = Self.stableId(forTxId: post.id)
         mapped.remoteId = post.id
         mapped.posterPubkey = post.userPublicKey
         mapped.likes = post.upVotesCount ?? 0
@@ -643,31 +660,37 @@ struct KaPostsView: View {
 
     /// Applies a mutation to a post OR any of its comments, found by id - one code path for
     /// engagement on both levels of the thread.
+    /// Mutates a post ANYWHERE in the trees - top level or nested comments at any depth
+    /// (comment threads can nest now).
     private func mutatePost(id: UUID, _ transform: (inout DraftPost) -> Void) {
-        for index in posts.indices {
-            if posts[index].id == id {
-                transform(&posts[index])
-                return
+        func mutate(_ list: inout [DraftPost]) -> Bool {
+            for index in list.indices {
+                if list[index].id == id {
+                    transform(&list[index])
+                    return true
+                }
+                if mutate(&list[index].comments) {
+                    return true
+                }
             }
-            for commentIndex in posts[index].comments.indices where posts[index].comments[commentIndex].id == id {
-                transform(&posts[index].comments[commentIndex])
-                return
-            }
+            return false
         }
-        for index in remotePosts.indices {
-            if remotePosts[index].id == id {
-                transform(&remotePosts[index])
-                return
+        if mutate(&posts) { return }
+        if mutate(&remotePosts) { return }
+        if mutate(&posterProfilePosts) { return }
+        _ = mutate(&myProfileRemotePosts)
+    }
+
+    /// Recursive lookup mirroring mutatePost's search order.
+    private func findPost(id: UUID) -> DraftPost? {
+        func search(_ list: [DraftPost]) -> DraftPost? {
+            for post in list {
+                if post.id == id { return post }
+                if let hit = search(post.comments) { return hit }
             }
-            for commentIndex in remotePosts[index].comments.indices where remotePosts[index].comments[commentIndex].id == id {
-                transform(&remotePosts[index].comments[commentIndex])
-                return
-            }
+            return nil
         }
-        for index in posterProfilePosts.indices where posterProfilePosts[index].id == id {
-            transform(&posterProfilePosts[index])
-            return
-        }
+        return search(posts) ?? search(remotePosts) ?? search(posterProfilePosts) ?? search(myProfileRemotePosts)
     }
 
     /// Bottom toast stack: the post-undo countdown (while a submit is being held) above the
@@ -967,6 +990,18 @@ struct KaPostsView: View {
         }
     }
 
+    /// Recursive parent lookup for retry: who owns this comment, at any nesting depth.
+    private func findParent(ofCommentId id: UUID) -> DraftPost? {
+        func search(_ list: [DraftPost]) -> DraftPost? {
+            for post in list {
+                if post.comments.contains(where: { $0.id == id }) { return post }
+                if let hit = search(post.comments) { return hit }
+            }
+            return nil
+        }
+        return search(posts) ?? search(remotePosts) ?? search(posterProfilePosts) ?? search(myProfileRemotePosts)
+    }
+
     /// Re-submits a failed post or reply (found by id; replies resolve their parent for the
     /// reply payload). Pending while in flight, back to failed on another miss.
     private func retryPost(_ post: DraftPost) {
@@ -974,7 +1009,7 @@ struct KaPostsView: View {
         Task {
             do {
                 let txId: String
-                if let parent = (posts + remotePosts).first(where: { candidate in candidate.comments.contains { $0.id == post.id } }) {
+                if let parent = findParent(ofCommentId: post.id) {
                     guard let parentRemoteId = parent.remoteId else {
                         throw KaPostsAPIClient.KaPostsAPIError.badResponse
                     }
@@ -1585,7 +1620,7 @@ struct KaPostsView: View {
     @ViewBuilder
     private func postDetailSheet(postId: UUID) -> some View {
         NavigationStack {
-            if let post = (posts + remotePosts).first(where: { $0.id == postId }) {
+            if let post = findPost(id: postId) {
                 VStack(spacing: 0) {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
@@ -1631,8 +1666,12 @@ struct KaPostsView: View {
                                         displayName: posterDisplayName(comment.posterAddress),
                                         avatarURLString: knsService.profileCache[comment.posterAddress]?.avatarURL,
                                         isFollowing: followStore.isFollowing(comment.posterAddress),
-                                        commentCount: 0,
-                                        onComment: nil,
+                                        commentCount: commentCount(of: comment),
+                                        // Comments are threads too: tapping one swaps the
+                                        // sheet to that comment's own thread (reply bar
+                                        // replies to it - K's reply payload is identical for
+                                        // replies-to-replies).
+                                        onComment: { openDetail(comment) },
                                         onMute: { moderationStore.mute(comment.posterAddress) },
                                         onBlock: { moderationStore.block(comment.posterAddress) },
                                         onBookmark: { toggleBookmark(comment) },
@@ -1654,11 +1693,17 @@ struct KaPostsView: View {
                     // X's "Post your reply" bar - text only, same rule as posts.
                     HStack(spacing: 10) {
                         TextField("Post your reply", text: $replyText, axis: .vertical)
+                            .onChange(of: replyText) { newValue in
+                                if newValue.count > KaPostsView.postCharacterLimit {
+                                    replyText = String(newValue.prefix(KaPostsView.postCharacterLimit))
+                                }
+                            }
                             .lineLimit(1...4)
                             .textFieldStyle(.plain)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                        KaPostCharacterMeter(count: replyText.count)
                         Button {
                             let trimmed = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !trimmed.isEmpty else { return }
@@ -1757,6 +1802,9 @@ private struct KaPostCellView: View {
     /// checkmark's timed window); pending/failed always show.
     @State private var sentCheckExpired = false
 
+    /// URL tapped in the post text - drives the Copy / Open option menu.
+    @State private var tappedLinkURL: URL?
+
     // Kaspa-logo like burst: appears over the heart, spins, then dissolves into the liked state.
     @State private var burstVisible = false
     @State private var burstScale: CGFloat = 0.2
@@ -1832,14 +1880,40 @@ private struct KaPostCellView: View {
                     }
                 }
 
-                // PLAIN TEXT by design: a KaPost is text only - no tappable links, no previews,
-                // no photos. Rendering with Text (never markdown/link detection) keeps any URL
-                // inert on screen.
-                Text(verbatim: post.text)
+                // Text-only posts, but URLs are TAPPABLE: tapping a link opens a Copy/Open
+                // option menu (never auto-opens - OpenURLAction intercepts). No previews, no
+                // photos, no markdown - just detected links styled accent+underline.
+                Text(Self.linkified(post.text))
                     .font(.body)
                     .foregroundColor(.primary)
+                    .tint(.accentColor)
+                    .environment(\.openURL, OpenURLAction { url in
+                        tappedLinkURL = url
+                        return .handled
+                    })
                     .lineLimit(truncatesLongText && isLongPost ? 8 : nil)
                     .fixedSize(horizontal: false, vertical: true)
+                    .confirmationDialog(
+                        tappedLinkURL?.absoluteString ?? "",
+                        isPresented: Binding(
+                            get: { tappedLinkURL != nil },
+                            set: { if !$0 { tappedLinkURL = nil } }
+                        ),
+                        titleVisibility: .visible
+                    ) {
+                        Button("Open Link") {
+                            if let url = tappedLinkURL {
+                                openURL(url)
+                            }
+                        }
+                        Button("Copy Link") {
+                            if let url = tappedLinkURL {
+                                UIPasteboard.general.string = url.absoluteString
+                                Haptics.success()
+                            }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    }
                 if truncatesLongText && isLongPost {
                     Button {
                         onComment?()
@@ -1998,6 +2072,28 @@ private struct KaPostCellView: View {
         .buttonStyle(.plain))
     }
 
+    private static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+
+    /// Post text with detected URLs carrying tappable link attributes (accent + underline);
+    /// everything else stays plain.
+    static func linkified(_ text: String) -> AttributedString {
+        var attributed = AttributedString(text)
+        guard let detector = linkDetector else { return attributed }
+        let nsText = text as NSString
+        for match in detector.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) {
+            guard let url = match.url,
+                  let stringRange = Range(match.range, in: text) else { continue }
+            // Offset-mapped (not range(of:)) so repeated identical URLs each get linked.
+            let startOffset = text.distance(from: text.startIndex, to: stringRange.lowerBound)
+            let length = text.distance(from: stringRange.lowerBound, to: stringRange.upperBound)
+            let start = attributed.index(attributed.startIndex, offsetByCharacters: startOffset)
+            let end = attributed.index(start, offsetByCharacters: length)
+            attributed[start..<end].link = url
+            attributed[start..<end].underlineStyle = .single
+        }
+        return attributed
+    }
+
     private func quotedDisplayName(_ address: String) -> String {
         guard !address.isEmpty else { return "Unknown" }
         if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
@@ -2101,7 +2197,7 @@ private struct KaPostCellView: View {
     private func shareText(remoteId: String) -> String {
         let snippet = String(post.text.prefix(60)).trimmingCharacters(in: .whitespacesAndNewlines)
         let ellipsis = post.text.count > 60 ? "..." : ""
-        return "\"\(snippet)\(ellipsis)\"\n\nOpen in KaChat: https://kachat.duckdns.org/post/\(remoteId)"
+        return "\"\(snippet)\(ellipsis)\"\n\nOpen in KaChat: kachat://kapost/\(remoteId)"
     }
 
     private func engagementButton(icon: String, count: Int, tint: Color, action: @escaping () -> Void) -> some View {
@@ -2181,9 +2277,7 @@ private struct KaPostComposerView: View {
                 }
                 Divider()
                 HStack {
-                    Text("Text only - no photos or links")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    characterMeter
                     Spacer()
                     // Live network-fee estimate while typing (Settings > Show Fee Estimate),
                     // matching the chat composer's behavior.
@@ -2214,7 +2308,17 @@ private struct KaPostComposerView: View {
                 }
             }
             .onAppear { isFocused = true }
+            .onChange(of: text) { newValue in
+                // Hard cap at the limit, X-style.
+                if newValue.count > KaPostsView.postCharacterLimit {
+                    text = String(newValue.prefix(KaPostsView.postCharacterLimit))
+                }
+            }
         }
+    }
+
+    private var characterMeter: some View {
+        KaPostCharacterMeter(count: text.count)
     }
 
     /// X-style embedded preview of the post being quoted.
@@ -3028,5 +3132,40 @@ struct KaPostsPageView: View {
                     }
                 }
         }
+    }
+}
+
+
+/// X-style ring meter shared by the post composer and the reply bar: fills toward the
+/// 25,000-character limit, flips orange in the final 10% with a live remaining count, red at
+/// the wall. Hidden while empty.
+struct KaPostCharacterMeter: View {
+    let count: Int
+
+    var body: some View {
+        let limit = KaPostsView.postCharacterLimit
+        let progress = min(1, Double(count) / Double(limit))
+        let remaining = limit - count
+        let nearLimit = progress >= 0.9
+        let ringColor: Color = remaining <= 0 ? .red : (nearLimit ? .orange : .accentColor)
+        return HStack(spacing: 6) {
+            if nearLimit {
+                Text("\(remaining)")
+                    .font(.caption2.weight(.bold))
+                    .monospacedDigit()
+                    .foregroundColor(ringColor)
+            }
+            ZStack {
+                Circle()
+                    .stroke(Color.secondary.opacity(0.25), lineWidth: 2.5)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(ringColor, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 20, height: 20)
+            .animation(.easeOut(duration: 0.15), value: progress)
+        }
+        .opacity(count == 0 ? 0 : 1)
     }
 }

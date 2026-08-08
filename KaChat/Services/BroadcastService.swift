@@ -208,19 +208,11 @@ final class BroadcastService: ObservableObject {
         do {
             let messages = try await BroadcastIndexerClient.fetchHistory(baseURL: baseURL, channel: channel)
             let hidden = store.hiddenSenderAddresses(forChannel: channel)
-            var insertedAny = false
-            for message in messages where !hidden.contains(message.senderAddress) {
-                let inserted = store.insertMessage(
-                    id: message.txId,
-                    channel: channel,
-                    senderAddress: message.senderAddress,
-                    content: message.content,
-                    blockTime: message.blockTime,
-                    deliveryStatus: .sent
-                )
-                insertedAny = insertedAny || inserted
-            }
-            if insertedAny {
+            let rows = messages
+                .filter { !hidden.contains($0.senderAddress) }
+                .map { (id: $0.txId, channel: channel, senderAddress: $0.senderAddress, content: $0.content, blockTime: $0.blockTime) }
+            let insertedCount = await store.insertMessages(rows)
+            if insertedCount > 0 {
                 store.pruneExpiredMessages()
                 loadMessages(for: channel)
             }

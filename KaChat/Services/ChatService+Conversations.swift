@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Combine
 import UIKit
 import UserNotifications
@@ -1042,7 +1043,12 @@ extension ChatService {
                 messageType: messageType,
                 deliveryStatus: .pending
             )
-            addMessageToConversation(pendingMessage, contactAddress: contact.address)
+            // Animated publish: the outgoing bubble flows into the list (layout change +
+            // the detail view's animated scroll ride the same transaction) - matching the
+            // broadcast room's send feel.
+            withAnimation(.easeOut(duration: 0.25)) {
+                addMessageToConversation(pendingMessage, contactAddress: contact.address)
+            }
             enqueuePendingOutgoing(contactAddress: contact.address, pendingTxId: resolvedPendingTxId, messageType: messageType, timestamp: pendingTimestamp)
             activePendingMessageId = pendingMessage.id
         } else {

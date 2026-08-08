@@ -1466,7 +1466,6 @@ struct AppSettings: Codable {
     var networkType: NetworkType
     var autoAddContacts: Bool
     var syncSystemContacts: Bool
-    var autoCreateSystemContacts: Bool
     var notificationMode: NotificationMode
     var notificationPermissionRequested: Bool
     var incomingNotificationSoundEnabled: Bool
@@ -1600,7 +1599,6 @@ struct AppSettings: Codable {
             networkType: .mainnet,
             autoAddContacts: true,
             syncSystemContacts: true,
-            autoCreateSystemContacts: true,
             notificationMode: .remotePush,
             notificationPermissionRequested: false,
             incomingNotificationSoundEnabled: true,
@@ -1652,7 +1650,6 @@ struct AppSettings: Codable {
         case networkType
         case autoAddContacts
         case syncSystemContacts
-        case autoCreateSystemContacts
         case notificationMode
         case notificationPermissionRequested
         case incomingNotificationSoundEnabled
@@ -1708,7 +1705,6 @@ struct AppSettings: Codable {
         networkType: NetworkType,
         autoAddContacts: Bool,
         syncSystemContacts: Bool,
-        autoCreateSystemContacts: Bool,
         notificationMode: NotificationMode,
         notificationPermissionRequested: Bool = false,
         incomingNotificationSoundEnabled: Bool = true,
@@ -1754,7 +1750,6 @@ struct AppSettings: Codable {
         // Auto-add contacts is always enabled.
         self.autoAddContacts = true
         self.syncSystemContacts = syncSystemContacts
-        self.autoCreateSystemContacts = autoCreateSystemContacts
         self.notificationMode = notificationMode
         self.notificationPermissionRequested = notificationPermissionRequested
         self.incomingNotificationSoundEnabled = incomingNotificationSoundEnabled
@@ -1803,7 +1798,6 @@ struct AppSettings: Codable {
         // Ignore persisted value and keep this feature always enabled.
         autoAddContacts = true
         syncSystemContacts = try container.decodeIfPresent(Bool.self, forKey: .syncSystemContacts) ?? true
-        autoCreateSystemContacts = try container.decodeIfPresent(Bool.self, forKey: .autoCreateSystemContacts) ?? true
         if let storedModeRaw = try container.decodeIfPresent(String.self, forKey: .notificationMode) {
             switch storedModeRaw {
             case NotificationMode.disabled.rawValue:
@@ -1907,7 +1901,6 @@ struct AppSettings: Codable {
         // Persist as enabled for forward/backward compatibility.
         try container.encode(true, forKey: .autoAddContacts)
         try container.encode(syncSystemContacts, forKey: .syncSystemContacts)
-        try container.encode(autoCreateSystemContacts, forKey: .autoCreateSystemContacts)
         try container.encode(notificationMode, forKey: .notificationMode)
         try container.encode(notificationPermissionRequested, forKey: .notificationPermissionRequested)
         try container.encode(incomingNotificationSoundEnabled, forKey: .incomingNotificationSoundEnabled)

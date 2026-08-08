@@ -43,7 +43,6 @@ final class ContactsManager: ObservableObject {
     private let systemContactLinkTargetsTimeout: TimeInterval = 8.0
     private let systemContactLinkWriteTimeout: TimeInterval = 6.0
     private var syncSystemContactsEnabled = AppSettings.load().syncSystemContacts
-    private var autoCreateSystemContactsEnabled = AppSettings.load().autoCreateSystemContacts
     private var didBootstrapSystemContacts = false
     private var settingsObserver: NSObjectProtocol?
     private var isSystemContactRefreshInProgress = false
@@ -363,7 +362,6 @@ final class ContactsManager: ObservableObject {
             if contact.alias != previous.alias,
                let sysId = contact.systemContactId,
                contact.systemContactLinkSource == .autoCreated,
-               autoCreateSystemContactsEnabled,
                allowAutomaticSystemContactWrites {
                 Task {
                     try? await systemContactsService.updateAutoCreatedContactName(
@@ -542,10 +540,7 @@ final class ContactsManager: ObservableObject {
         }
 
         do {
-            let rawCandidates = try await systemContactsService.fetchCandidates()
-            let candidates = autoCreateSystemContactsEnabled
-                ? rawCandidates
-                : rawCandidates.filter { !$0.isAutoCreated }
+            let candidates = try await systemContactsService.fetchCandidates()
             systemContactCandidates = candidates
             return candidates
         } catch {
@@ -626,20 +621,7 @@ final class ContactsManager: ObservableObject {
         let contactIds = contacts.map(\.id)
         for contactId in contactIds {
             guard let index = contacts.firstIndex(where: { $0.id == contactId }) else { continue }
-            var current = contacts[index]
-
-            if !autoCreateSystemContactsEnabled, current.systemContactLinkSource == .autoCreated {
-                if let previousId = current.systemContactId {
-                    staleAutoCreatedIds.append((contactIdentifier: previousId, appContactId: current.id))
-                }
-                contacts[index].systemContactId = nil
-                contacts[index].systemDisplayNameSnapshot = nil
-                contacts[index].systemContactLinkSource = nil
-                contacts[index].systemMatchConfidence = nil
-                contacts[index].systemLastSyncedAt = now
-                updated = true
-                current = contacts[index]
-            }
+            let current = contacts[index]
 
             let addressKey = current.address.lowercased()
             if let candidate = contactsByAddress[addressKey] {
@@ -687,32 +669,6 @@ final class ContactsManager: ObservableObject {
                             updated = true
                         }
                     }
-                }
-            } else if autoCreateSystemContactsEnabled &&
-                        allowAutomaticSystemContactWrites &&
-                        current.systemContactId == nil {
-                // No existing link and no non-duplicate match in system contacts:
-                // auto-create a dedicated system contact and link to it.
-                let domains = await fetchKNSInfo(for: current)?.allDomains.map { $0.fullName } ?? []
-                do {
-                    let created = try await systemContactsService.createKaChatContact(
-                        displayName: current.alias,
-                        address: current.address,
-                        domains: domains,
-                        appContactId: current.id
-                    )
-                    if !created.contactIdentifier.isEmpty,
-                       let writeIndex = contacts.firstIndex(where: { $0.id == contactId }),
-                       contacts[writeIndex].systemContactId == nil {
-                        contacts[writeIndex].systemContactId = created.contactIdentifier
-                        contacts[writeIndex].systemDisplayNameSnapshot = created.displayName
-                        contacts[writeIndex].systemContactLinkSource = .autoCreated
-                        contacts[writeIndex].systemMatchConfidence = 1.0
-                        contacts[writeIndex].systemLastSyncedAt = now
-                        updated = true
-                    }
-                } catch {
-                    // Best effort only.
                 }
             }
 
@@ -908,8 +864,6 @@ final class ContactsManager: ObservableObject {
         saveContacts(syncShared: true, updatePush: false, publishContacts: true)
 
         let contactId = contact.id
-        let alias = contact.alias
-        let address = contact.address
         Task {
             if let previousId {
                 if previousSource == .autoCreated {
@@ -925,29 +879,35 @@ final class ContactsManager: ObservableObject {
                     )
                 }
             }
-            // Re-create a shadow auto-created contact for cross-device sync.
-            guard autoCreateSystemContactsEnabled, allowAutomaticSystemContactWrites else { return }
-            let domains = await fetchKNSInfo(for: contact)?.allDomains.map { $0.fullName } ?? []
-            do {
-                let created = try await systemContactsService.createKaChatContact(
-                    displayName: alias,
-                    address: address,
-                    domains: domains,
-                    appContactId: contactId
-                )
-                if !created.contactIdentifier.isEmpty,
-                   let writeIndex = contacts.firstIndex(where: { $0.id == contactId }),
-                   contacts[writeIndex].systemContactId == nil {
-                    contacts[writeIndex].systemContactId = created.contactIdentifier
-                    contacts[writeIndex].systemDisplayNameSnapshot = created.displayName
-                    contacts[writeIndex].systemContactLinkSource = .autoCreated
-                    contacts[writeIndex].systemMatchConfidence = 1.0
-                    contacts[writeIndex].systemLastSyncedAt = Date()
-                    saveContacts(syncShared: true, updatePush: false, publishContacts: true)
-                }
-            } catch {
-                // Best effort only.
-            }
+        }
+    }
+
+    /// Manual "Create System Contact" (Chat Info): creates a dedicated entry in the iOS
+    /// Contacts app for this KaChat contact and links it. Replaces the removed auto-create
+    /// setting - system-contact creation is user-initiated per contact now.
+    func createSystemContact(for contact: Contact) async -> Contact? {
+        guard contact.systemContactId == nil else { return nil }
+        guard await systemContactsService.requestAccessIfNeeded() else { return nil }
+        await updateSystemContactsAuthorization()
+        let domains = await fetchKNSInfo(for: contact)?.allDomains.map { $0.fullName } ?? []
+        do {
+            let created = try await systemContactsService.createKaChatContact(
+                displayName: contact.alias,
+                address: contact.address,
+                domains: domains,
+                appContactId: contact.id
+            )
+            guard !created.contactIdentifier.isEmpty,
+                  let index = contacts.firstIndex(where: { $0.id == contact.id }) else { return nil }
+            contacts[index].systemContactId = created.contactIdentifier
+            contacts[index].systemDisplayNameSnapshot = created.displayName
+            contacts[index].systemContactLinkSource = .autoCreated
+            contacts[index].systemMatchConfidence = 1.0
+            contacts[index].systemLastSyncedAt = Date()
+            saveContacts(syncShared: true, updatePush: false, publishContacts: true)
+            return contacts[index]
+        } catch {
+            return nil
         }
     }
 
@@ -1094,65 +1054,15 @@ final class ContactsManager: ObservableObject {
             guard let self else { return }
             guard let settings = notification.object as? AppSettings else { return }
             Task { @MainActor [weak self] in
-                self?.applySystemContactsSetting(
-                    syncEnabled: settings.syncSystemContacts,
-                    autoCreateEnabled: settings.autoCreateSystemContacts
-                )
+                self?.applySystemContactsSetting(syncEnabled: settings.syncSystemContacts)
             }
         }
     }
 
-    private func applySystemContactsSetting(syncEnabled: Bool, autoCreateEnabled: Bool) {
-        let previousAutoCreate = autoCreateSystemContactsEnabled
+    private func applySystemContactsSetting(syncEnabled: Bool) {
         syncSystemContactsEnabled = syncEnabled
-        autoCreateSystemContactsEnabled = autoCreateEnabled
         if !syncEnabled {
             systemContactCandidates = []
-        }
-        if previousAutoCreate && !autoCreateEnabled {
-            Task { @MainActor [weak self] in
-                await self?.disableAutoCreatedSystemContacts()
-            }
-        }
-    }
-
-    private func disableAutoCreatedSystemContacts() async {
-        let now = Date()
-        var linkedAutoCreatedContacts: [(contactIdentifier: String, appContactId: UUID)] = []
-        var updated = false
-
-        for index in contacts.indices {
-            guard contacts[index].systemContactLinkSource == .autoCreated else { continue }
-            if let systemId = contacts[index].systemContactId {
-                linkedAutoCreatedContacts.append((contactIdentifier: systemId, appContactId: contacts[index].id))
-            }
-            contacts[index].systemContactId = nil
-            contacts[index].systemDisplayNameSnapshot = nil
-            contacts[index].systemContactLinkSource = nil
-            contacts[index].systemMatchConfidence = nil
-            contacts[index].systemLastSyncedAt = now
-            updated = true
-        }
-
-        if updated {
-            saveContacts(syncShared: true, updatePush: false, publishContacts: true)
-        }
-
-        guard allowAutomaticSystemContactWrites else { return }
-        await updateSystemContactsAuthorization()
-        guard systemContactsAuthorized else { return }
-
-        for linked in linkedAutoCreatedContacts {
-            _ = try? await systemContactsService.deleteAutoCreatedKaChatContact(
-                contactIdentifier: linked.contactIdentifier,
-                appContactId: linked.appContactId
-            )
-        }
-
-        _ = await systemContactsService.removeOrphanedAutoCreatedContacts(activeLinks: [:])
-
-        if syncSystemContactsEnabled {
-            await refreshSystemContactLinks(promptIfNeeded: false, force: true)
         }
     }
 
@@ -1843,16 +1753,19 @@ final class SystemContactAvatarStore: ObservableObject {
         guard !attemptedIds.contains(id) else { return }
         attemptedIds.insert(id)
 
-        if let data = try? Data(contentsOf: diskURL(for: id)), let image = UIImage(data: data) {
-            images[id] = image
-            return
-        }
-
-        let status = CNContactStore.authorizationStatus(for: .contacts)
-        guard status == .authorized else { return }
-
+        // Everything - including the disk-cache hit - publishes from a detached task, never
+        // synchronously: views ask for avatars during body evaluation, and a synchronous
+        // `images` write there is SwiftUI's "publishing changes from within view updates".
         let targetURL = diskURL(for: id)
+        let status = CNContactStore.authorizationStatus(for: .contacts)
         Task.detached(priority: .utility) {
+            if let data = try? Data(contentsOf: targetURL), let image = UIImage(data: data) {
+                await MainActor.run {
+                    SystemContactAvatarStore.shared.images[id] = image
+                }
+                return
+            }
+            guard status == .authorized else { return }
             let store = CNContactStore()
             let keys = [CNContactThumbnailImageDataKey as CNKeyDescriptor]
             guard let cnContact = try? store.unifiedContact(withIdentifier: id, keysToFetch: keys),

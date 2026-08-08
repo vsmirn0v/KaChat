@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Combine
 import CryptoKit
 import P256K
@@ -836,7 +837,10 @@ final class GroupChatService: ObservableObject {
             senderIdHex: senderId.hexString, content: payload, timestamp: pendingTimestamp,
             blockTime: Int64(pendingTimestamp.timeIntervalSince1970 * 1000), isOutgoing: true, deliveryStatus: .pending
         )
-        groupMessages[groupId, default: []].append(pendingMessage)
+        // Animated publish - see ChatService.sendMessageInternal's identical treatment.
+        withAnimation(.easeOut(duration: 0.25)) {
+            groupMessages[groupId, default: []].append(pendingMessage)
+        }
         store.insertMessage(
             txId: pendingId, groupId: groupId, senderAddress: wallet.publicAddress, senderIdHex: senderId.hexString,
             epoch: bag.currentEpoch, msgIdHex: msgId.hexString, contentEncrypted: ciphertext,

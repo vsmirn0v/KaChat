@@ -197,6 +197,41 @@ final class BroadcastStore {
 
     // MARK: - Messages
 
+    /// Batch insert for indexer-fetched history: ONE async background-context pass for the
+    /// whole page instead of a synchronous main-thread performAndWait per row - a resume-time
+    /// poll of 200 rows was hard main-thread work exactly while CloudKit import/WAL
+    /// checkpointing contend for the store (the app-freeze-after-resume class of bug).
+    /// Returns how many rows were actually new.
+    func insertMessages(
+        _ messages: [(id: String, channel: String, senderAddress: String, content: String, blockTime: Int64)]
+    ) async -> Int {
+        guard isLoaded, !messages.isEmpty else { return 0 }
+        return await withCheckedContinuation { continuation in
+            container.performBackgroundTask { context in
+                var inserted = 0
+                for message in messages {
+                    let normalized = BroadcastChannelName.normalize(message.channel)
+                    let request = NSFetchRequest<CDBroadcastMessage>(entityName: CDBroadcastMessage.entityName)
+                    request.predicate = NSPredicate(format: "id == %@", message.id)
+                    request.fetchLimit = 1
+                    guard (try? context.fetch(request))?.first == nil else { continue }
+                    let row = CDBroadcastMessage(context: context)
+                    row.id = message.id
+                    row.channelName = normalized
+                    row.senderAddress = message.senderAddress
+                    row.content = message.content
+                    row.blockTime = message.blockTime
+                    row.deliveryStatus = BroadcastMessage.DeliveryStatus.sent.rawValue
+                    inserted += 1
+                }
+                if context.hasChanges {
+                    try? context.save()
+                }
+                continuation.resume(returning: inserted)
+            }
+        }
+    }
+
     /// Insert a message if its id isn't already present. Returns false if it was a duplicate.
     @discardableResult
     func insertMessage(

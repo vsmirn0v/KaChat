@@ -334,14 +334,6 @@ struct SettingsView: View {
                         }
                     ))
 
-                    Toggle("Autocreate system contacts", isOn: Binding(
-                        get: { settingsViewModel.settings.autoCreateSystemContacts },
-                        set: { enabled in
-                            handleAutoCreateSystemContactsToggle(enabled)
-                        }
-                    ))
-                    .disabled(!settingsViewModel.settings.syncSystemContacts)
-
                     Text("Uses your device contacts to match and enrich Kaspa contacts.")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -881,11 +873,6 @@ struct SettingsView: View {
                 }
             }
         }
-    }
-
-    private func handleAutoCreateSystemContactsToggle(_ enabled: Bool) {
-        settingsViewModel.settings.autoCreateSystemContacts = enabled
-        settingsViewModel.saveSettings()
     }
 
     private func showToast(_ message: String, style: ToastStyle = .success) {
