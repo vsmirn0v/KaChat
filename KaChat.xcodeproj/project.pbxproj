@@ -23,7 +23,7 @@
 		4D3D20092F72000900000002 /* BroadcastNavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D3D20092F72000900000001 /* BroadcastNavigationPolicy.swift */; };
 		588DACE23026E3D300D94B9B /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 588DACE13026E3D300D94B9B /* WidgetKit.framework */; };
 		588DACE43026E3D300D94B9B /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 588DACE33026E3D300D94B9B /* SwiftUI.framework */; };
-		588DACF53026E3D500D94B9B /* KaChatWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 588DACDF3026E3D300D94B9B /* KaChatWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		588DACF53026E3D500D94B9B /* KaChatWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 588DACDF3026E3D300D94B9B /* KaChatWidgetsExtension.appex */; platformFilters = (ios, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A91062000000000000000001 /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91062000000000000000002 /* AppLog.swift */; };
 		APLC00010000000000000BF1 /* AppLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = APLC00010000000000000BF2 /* AppLocalization.swift */; };
 		B2B2B2B20001000100000001 /* Blake2b.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2B2B2B20001000000000001 /* Blake2b.swift */; };
@@ -1166,6 +1166,9 @@
 		};
 		588DACF43026E3D500D94B9B /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
+			platformFilters = (
+				ios,
+			);
 			target = 588DACDE3026E3D300D94B9B /* KaChatWidgetsExtension */;
 			targetProxy = 588DACF33026E3D500D94B9B /* PBXContainerItemProxy */;
 		};
