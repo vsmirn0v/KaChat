@@ -84,7 +84,7 @@ Errors: JSON `{"error": "...", "code": "..."}`. Public indexer rate limit is 100
 |---|---|---|
 | `get-posts-watching` | global feed | returns `{posts: [...], pagination: {hasMore, nextCursor, prevCursor}}` |
 | `get-contents-following` | posts+replies from followed users | app filters replies out client-side |
-| `get-posts?user=<pubkey>` | one user's posts | profile feed |
+| `get-posts?user=<pubkey>` | one user's posts | profile feed. **NEEDED: `includeReplies=true`** must also return the user's replies (with `parentPostId` set) - the app's profile Posts/Replies tabs split on it client-side; without server support the Replies tab stays empty |
 | `get-replies?postId=` | replies to a post | |
 | `get-user-details?user=` | `followersCount`, `followingCount`, `followedUser` | |
 | `get-users-following` / `get-users-followers` | follow lists | takes `userPubkey`; items `{id, userPublicKey, timestamp, followedUser, ...}` wrapped under the key `posts` (yes, really - the app also tolerates `users`/`following`/`followers`) |

@@ -2770,6 +2770,22 @@ extension ChatService {
         return false
     }
 
+    /// Removes DELIVERED notifications for one thread from the lock screen / Notification
+    /// Center - reading a chat must take its banners with it, or they linger (and can appear
+    /// to "come back" when the lock screen re-sorts). Matches every notification the app or
+    /// its extension posts, local and push alike, by threadIdentifier.
+    nonisolated static func clearDeliveredNotifications(threadIdentifier: String) {
+        UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
+            let ids = delivered
+                .filter { $0.request.content.threadIdentifier == threadIdentifier }
+                .map { $0.request.identifier }
+            if !ids.isEmpty {
+                // Re-fetched rather than captured - UNUserNotificationCenter isn't Sendable.
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
+            }
+        }
+    }
+
     func sendLocalNotification(for message: ChatMessage, from contact: Contact) {
         let settings = currentSettings
         // Check if notifications are enabled

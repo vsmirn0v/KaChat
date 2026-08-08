@@ -254,6 +254,7 @@ final class GroupChatService: ObservableObject {
 
     /// Marks a group as opened, clearing its unread badge contribution.
     func markGroupAsRead(_ groupId: String) {
+        ChatService.clearDeliveredNotifications(threadIdentifier: "group:\(groupId)")
         groupLastReadAt[groupId] = Date()
         saveGroupLastReadAt()
         ChatService.shared.scheduleBadgeUpdate()

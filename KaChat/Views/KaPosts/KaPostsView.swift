@@ -76,6 +76,8 @@ struct KaPostsView: View {
             let timestamp: Date?
         }
         var quoted: QuotedRef? = nil
+        /// Set for replies fetched from the indexer - splits profile feeds into Posts/Replies.
+        var parentRemoteId: String? = nil
     }
 
     @State private var selectedFeed: FeedTab = .feed
@@ -99,6 +101,15 @@ struct KaPostsView: View {
     /// alone would make the profile forget everything on relaunch.
     @State private var myProfileRemotePosts: [DraftPost] = []
     @State private var isLoadingMyProfilePosts = false
+    @State private var myProfileRemoteReplies: [DraftPost] = []
+    @State private var myProfileFeedTab: ProfileFeedTab = .posts
+    @State private var posterProfileReplies: [DraftPost] = []
+    @State private var posterProfileFeedTab: ProfileFeedTab = .posts
+
+    enum ProfileFeedTab: String, CaseIterable {
+        case posts = "Posts"
+        case replies = "Replies"
+    }
     /// One self-unfollow scrub per session at most (indexer lag would otherwise resubmit).
     @State private var selfUnfollowScrubbed = false
     /// The tapped poster's on-chain posts + counts for the full-profile sheet.
@@ -282,11 +293,25 @@ struct KaPostsView: View {
                 KaPostsDeepLink.pendingPostTxId = nil
                 await openSharedPost(txId: pending)
             }
+            if KaPostsDeepLink.pendingOpenNotifications {
+                KaPostsDeepLink.pendingOpenNotifications = false
+                menuSheet = .notifications
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openKaPost)) { notification in
-            guard let txId = notification.userInfo?["txId"] as? String else { return }
-            KaPostsDeepLink.pendingPostTxId = nil
-            Task { await openSharedPost(txId: txId) }
+            if let txId = notification.userInfo?["txId"] as? String {
+                KaPostsDeepLink.pendingPostTxId = nil
+                Task { await openSharedPost(txId: txId) }
+                return
+            }
+            // Push-tap variants: a pending post id or the Notifications screen.
+            if let pending = KaPostsDeepLink.pendingPostTxId {
+                KaPostsDeepLink.pendingPostTxId = nil
+                Task { await openSharedPost(txId: pending) }
+            } else if KaPostsDeepLink.pendingOpenNotifications {
+                KaPostsDeepLink.pendingOpenNotifications = false
+                menuSheet = .notifications
+            }
         }
         .onChange(of: selectedFeed) { _ in
             Task { await loadFeed() }
@@ -610,6 +635,7 @@ struct KaPostsView: View {
             posterAddress: address
         )
         mapped.id = Self.stableId(forTxId: post.id)
+        mapped.parentRemoteId = post.parentPostId
         mapped.remoteId = post.id
         mapped.posterPubkey = post.userPublicKey
         mapped.likes = post.upVotesCount ?? 0
@@ -1183,27 +1209,30 @@ struct KaPostsView: View {
                     .padding(.top, 8)
                     .padding(.bottom, 14)
 
-                    Divider()
+                    profileFeedTabBar(selection: $myProfileFeedTab)
 
-                    if myPosts.isEmpty, isLoadingMyProfilePosts {
+                    let myFeedItems = myProfileFeedTab == .posts ? myPosts : myProfileRemoteReplies
+                    if myFeedItems.isEmpty, isLoadingMyProfilePosts {
                         ProgressView()
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 40)
-                    } else if myPosts.isEmpty {
+                    } else if myFeedItems.isEmpty {
                         VStack(spacing: 12) {
-                            Image(systemName: "square.and.pencil")
+                            Image(systemName: myProfileFeedTab == .posts ? "square.and.pencil" : "bubble.left")
                                 .font(.system(size: 40))
                                 .foregroundColor(.secondary)
-                            Text("No posts yet")
+                            Text(myProfileFeedTab == .posts ? "No posts yet" : "No replies yet")
                                 .font(.headline)
-                            Text("Your posts will show up here.")
+                            Text(myProfileFeedTab == .posts
+                                 ? "Your posts will show up here."
+                                 : "Replies you post will show up here.")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 40)
                     } else {
-                        ForEach(myPosts) { post in
+                        ForEach(myFeedItems) { post in
                             KaPostCellView(
                                 post: post,
                                 displayName: posterDisplayName(post.posterAddress),
@@ -1229,6 +1258,7 @@ struct KaPostsView: View {
                 }
             }
             .ignoresSafeArea(edges: .top)
+            .simultaneousGesture(profileFeedSwipe(selection: $myProfileFeedTab))
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1244,7 +1274,7 @@ struct KaPostsView: View {
                 guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
                 isLoadingMyProfilePosts = myProfileRemotePosts.isEmpty
                 async let detailsFetch = try? KaPostsAPIClient.shared.fetchUserDetails(pubkey: pubkey)
-                async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey)
+                async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey, includeReplies: true)
                 if let details = await detailsFetch {
                     // Never count yourself as your own follower. followedUser here means
                     // "requester follows user" - with both being us, true = a stale on-chain
@@ -1264,7 +1294,9 @@ struct KaPostsView: View {
                     }
                 }
                 if let fetched = await postsFetch {
-                    myProfileRemotePosts = fetched.posts.compactMap(Self.mapRemotePost)
+                    let mapped = fetched.posts.compactMap(Self.mapRemotePost)
+                    myProfileRemotePosts = mapped.filter { $0.parentRemoteId == nil }
+                    myProfileRemoteReplies = mapped.filter { $0.parentRemoteId != nil }
                 }
                 isLoadingMyProfilePosts = false
             }
@@ -1383,22 +1415,25 @@ struct KaPostsView: View {
 
                     Divider()
 
-                    if posterProfilePosts.isEmpty, isLoadingPosterProfile {
+                    profileFeedTabBar(selection: $posterProfileFeedTab)
+
+                    let posterFeedItems = posterProfileFeedTab == .posts ? posterProfilePosts : posterProfileReplies
+                    if posterFeedItems.isEmpty, isLoadingPosterProfile {
                         ProgressView()
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 40)
-                    } else if posterProfilePosts.isEmpty {
+                    } else if posterFeedItems.isEmpty {
                         VStack(spacing: 12) {
-                            Image(systemName: "square.and.pencil")
+                            Image(systemName: posterProfileFeedTab == .posts ? "square.and.pencil" : "bubble.left")
                                 .font(.system(size: 40))
                                 .foregroundColor(.secondary)
-                            Text("No posts yet")
+                            Text(posterProfileFeedTab == .posts ? "No posts yet" : "No replies yet")
                                 .font(.headline)
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 40)
                     } else {
-                        ForEach(posterProfilePosts) { post in
+                        ForEach(posterFeedItems) { post in
                             KaPostCellView(
                                 post: post,
                                 displayName: posterDisplayName(post.posterAddress),
@@ -1424,6 +1459,7 @@ struct KaPostsView: View {
                 }
             }
             .ignoresSafeArea(edges: .top)
+            .simultaneousGesture(profileFeedSwipe(selection: $posterProfileFeedTab))
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -1433,6 +1469,8 @@ struct KaPostsView: View {
             }
             .task(id: target.id) {
                 posterProfilePosts = []
+                posterProfileReplies = []
+                posterProfileFeedTab = .posts
                 posterProfileFollowers = nil
                 posterProfileFollowing = nil
                 if knsService.profileCache[address] == nil {
@@ -1441,13 +1479,15 @@ struct KaPostsView: View {
                 guard let pubkey = target.pubkey else { return }
                 isLoadingPosterProfile = true
                 async let detailsFetch = try? KaPostsAPIClient.shared.fetchUserDetails(pubkey: pubkey)
-                async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey)
+                async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey, includeReplies: true)
                 if let details = await detailsFetch {
                     posterProfileFollowers = details.followersCount
                     posterProfileFollowing = details.followingCount
                 }
                 if let fetched = await postsFetch {
-                    posterProfilePosts = fetched.posts.compactMap(Self.mapRemotePost)
+                    let mapped = fetched.posts.compactMap(Self.mapRemotePost)
+                    posterProfilePosts = mapped.filter { $0.parentRemoteId == nil }
+                    posterProfileReplies = mapped.filter { $0.parentRemoteId != nil }
                 }
                 isLoadingPosterProfile = false
             }
@@ -1474,6 +1514,49 @@ struct KaPostsView: View {
                 userInfo: ["contactAddress": contact.address]
             )
         }
+    }
+
+    /// Underline tab bar for profile feeds (Posts | Replies), matching the app's other tab
+    /// bars; swiping the sheet content switches too (profileFeedSwipe).
+    private func profileFeedTabBar(selection: Binding<ProfileFeedTab>) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(ProfileFeedTab.allCases, id: \.self) { tab in
+                    Button {
+                        Haptics.impact(.light)
+                        withAnimation(.easeInOut(duration: 0.2)) { selection.wrappedValue = tab }
+                    } label: {
+                        VStack(spacing: 8) {
+                            Text(tab.rawValue)
+                                .font(.subheadline.weight(.bold))
+                                .foregroundColor(selection.wrappedValue == tab ? .accentColor : .accentColor.opacity(0.5))
+                                .frame(maxWidth: .infinity)
+                                .padding(.top, 10)
+                            Rectangle()
+                                .fill(selection.wrappedValue == tab ? Color.accentColor : Color.clear)
+                                .frame(height: 2.5)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Divider()
+        }
+    }
+
+    private func profileFeedSwipe(selection: Binding<ProfileFeedTab>) -> some Gesture {
+        DragGesture(minimumDistance: 25)
+            .onEnded { value in
+                let dx = value.translation.width
+                guard abs(dx) > 50, abs(dx) > abs(value.translation.height) * 1.5 else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if dx < 0, selection.wrappedValue == .posts {
+                        selection.wrappedValue = .replies
+                    } else if dx > 0, selection.wrappedValue == .replies {
+                        selection.wrappedValue = .posts
+                    }
+                }
+            }
     }
 
     private var bannerFallback: some View {

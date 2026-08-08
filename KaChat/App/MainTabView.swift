@@ -65,6 +65,10 @@ struct MainTabView: View {
         .onAppear {
             chatService.startPolling()
             preloadProfileResources()
+            // Warm the portfolio view model: its init fetches the price and publishes the
+            // Home Screen widget snapshot - without this, the widget stays empty until the
+            // user first visits the Portfolio tab.
+            _ = PortfolioViewModel.shared
             if walletManager.justCreatedNewWallet {
                 walletManager.justCreatedNewWallet = false
                 showWelcomeGuide = true
@@ -132,6 +136,13 @@ struct MainTabView: View {
             } else if AppTab.kaPostsAccessibleViaChatsTab(from: settingsViewModel.settings) {
                 chatsSlotTab = .kaposts
                 selectedTab = 1
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openPortfolio)) { _ in
+            // Widget tap: land on Portfolio when it's in the dock (its data is what the
+            // widget shows either way).
+            if AppTab.visible(from: settingsViewModel.settings).contains(.portfolio) {
+                handleTabSelectionChange(AppTab.portfolio.tag)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openGroup)) { _ in

@@ -235,6 +235,12 @@ struct KaChatApp: App {
 
         guard url.scheme?.lowercased() == "kachat" else { return }
 
+        // kachat://portfolio - the Home Screen widget's tap target.
+        if url.host?.lowercased() == "portfolio" {
+            NotificationCenter.default.post(name: .openPortfolio, object: nil)
+            return
+        }
+
         // kachat://kapost/<txid> - legacy scheme form of the same link.
         if url.host?.lowercased() == "kapost" {
             openKaPostDeepLink(txId: url.lastPathComponent)
@@ -660,6 +666,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // "group:<groupId>" for a group chat notification.
         let threadIdentifier = response.notification.request.content.threadIdentifier
 
+        // KaPosts push (server thread-id "kaposts"): straight to the post's thread when the
+        // payload names one, else into KaPosts with the Notifications screen opened.
+        if threadIdentifier == "kaposts" {
+            let userInfo = response.notification.request.content.userInfo
+            if let postId = userInfo["postId"] as? String, !postId.isEmpty {
+                KaPostsDeepLink.pendingPostTxId = postId
+            } else {
+                KaPostsDeepLink.pendingOpenNotifications = true
+            }
+            NotificationCenter.default.post(name: .openKaPost, object: nil, userInfo: [:])
+            completionHandler()
+            return
+        }
+
         // Quick reply: send straight from the notification (long-press on iPhone, Reply on
         // Apple Watch) without opening the app UI.
         if response.actionIdentifier == Self.replyActionId,
@@ -734,11 +754,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
 /// KaPostsView isn't mounted yet.
 enum KaPostsDeepLink {
     static var pendingPostTxId: String?
+    /// KaPosts push tapped without a specific post - open the Notifications screen on mount.
+    static var pendingOpenNotifications = false
 }
 
 extension Notification.Name {
     static let openChat = Notification.Name("openChat")
     static let openKaPost = Notification.Name("openKaPost")
+    static let openPortfolio = Notification.Name("openPortfolio")
     static let openBroadcast = Notification.Name("openBroadcast")
     static let openGroup = Notification.Name("openGroup")
     static let showGiftClaim = Notification.Name("showGiftClaim")

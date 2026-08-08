@@ -3396,6 +3396,7 @@ extension ChatService {
     }
 
     func markConversationAsRead(_ conversation: Conversation) async {
+        Self.clearDeliveredNotifications(threadIdentifier: conversation.contact.address)
         if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
             // Use both in-memory window and persistent store cursor so pagination does not
             // block read marker advancement.

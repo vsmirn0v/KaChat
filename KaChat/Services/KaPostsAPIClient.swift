@@ -267,8 +267,9 @@ final class KaPostsAPIClient: ObservableObject {
     }
 
     /// One user's posts (by K pubkey).
-    func fetchUserPosts(pubkey: String, limit: Int = 50, before: String? = nil) async throws -> (posts: [KPost], pagination: KPagination?) {
+    func fetchUserPosts(pubkey: String, limit: Int = 50, before: String? = nil, includeReplies: Bool = false) async throws -> (posts: [KPost], pagination: KPagination?) {
         var query = ["user": pubkey, "requesterPubkey": try requesterPubkey(), "limit": "\(limit)"]
+        if includeReplies { query["includeReplies"] = "true" }
         if let before { query["before"] = before }
         let response: PostsResponse = try await get("get-posts", query: query)
         return (Self.filterKaChat(response.posts), response.pagination)
@@ -576,6 +577,7 @@ final class KaPostsNotificationService {
     /// The Notifications screen calls this with the newest timestamp it displayed - what the
     /// user has seen on screen shouldn't ping later.
     func markSeen(upTo timestamp: Int64) {
+        ChatService.clearDeliveredNotifications(threadIdentifier: "kaposts")
         guard let key = lastSeenKey else { return }
         let current = (UserDefaults.standard.object(forKey: key) as? NSNumber)?.int64Value ?? 0
         if timestamp > current {
@@ -588,6 +590,9 @@ final class KaPostsNotificationService {
         guard settings.notificationsEnabled,
               WalletManager.shared.currentWallet != nil,
               let key = lastSeenKey else { return }
+        // Remote-push mode: the push service delivers KaPosts pings (registered via
+        // kaposts_pubkey) - polling here would double-notify, mirroring the broadcast guard.
+        guard settings.notificationMode != .remotePush else { return }
         do {
             let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 50)
             guard let newest = notifications.map(\.timestamp).max() else { return }

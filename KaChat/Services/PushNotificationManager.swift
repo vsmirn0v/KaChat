@@ -371,6 +371,7 @@ final class PushNotificationManager: ObservableObject {
             watchedGroupIds: watchedGroupIds,
             watchedBroadcastChannels: collectWatchedBroadcastChannels(),
             hiddenBroadcastSenders: collectHiddenBroadcastSenders(),
+            kapostsPubkey: collectKaPostsPubkey(),
             primaryAddress: primaryAddress,
             aliases: aliases,
             auth: auth
@@ -648,6 +649,7 @@ final class PushNotificationManager: ObservableObject {
             watchedGroupIds: watchedGroupIds,
             watchedBroadcastChannels: collectWatchedBroadcastChannels(),
             hiddenBroadcastSenders: collectHiddenBroadcastSenders(),
+            kapostsPubkey: collectKaPostsPubkey(),
             primaryAddress: primaryAddress,
             aliases: aliases,
             auth: auth
@@ -751,10 +753,11 @@ final class PushNotificationManager: ObservableObject {
         let aliasList = (aliases ?? collectAliases(forWatchedAddresses: addrs)).sorted()
         let primary = primaryAddress ?? collectPrimaryAddress() ?? ""
         let broadcastChannels = collectWatchedBroadcastChannels()
+        let kapostsKey = collectKaPostsPubkey() ?? ""
         let hiddenBroadcast = collectHiddenBroadcastSenders()
             .sorted { $0.key < $1.key }
             .map { "\($0.key):\($0.value.joined(separator: "+"))" }
-        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels + ["|"] + hiddenBroadcast).joined(separator: ",")
+        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels + ["|"] + hiddenBroadcast + ["|", kapostsKey]).joined(separator: ",")
     }
 
     /// Unregister device (call on logout/wallet delete)
@@ -1240,6 +1243,12 @@ final class PushNotificationManager: ObservableObject {
             }
         }
         return result
+    }
+
+    /// The wallet's K (KaPosts) identity - the push service sends "actions on your content"
+    /// pushes for it while the app is closed. Nil when no wallet is loaded.
+    private func collectKaPostsPubkey() -> String? {
+        try? KaPostsAPIClient.shared.requesterPubkey()
     }
 
     private func collectWatchedAddresses() -> [String] {
@@ -1860,6 +1869,7 @@ struct PushRegistrationRequest: Codable {
     let watchedGroupIds: [String]
     let watchedBroadcastChannels: [String]
     let hiddenBroadcastSenders: [String: [String]]
+    let kapostsPubkey: String?
     let primaryAddress: String?
     let aliases: [String]
     let auth: PushAuthRequest?
@@ -1871,6 +1881,7 @@ struct PushRegistrationRequest: Codable {
         case watchedGroupIds = "watched_group_ids"
         case watchedBroadcastChannels = "watched_broadcast_channels"
         case hiddenBroadcastSenders = "hidden_broadcast_senders"
+        case kapostsPubkey = "kaposts_pubkey"
         case primaryAddress = "primary_address"
         case aliases
         case auth
@@ -1883,6 +1894,7 @@ struct PushUpdateRequest: Codable {
     let watchedGroupIds: [String]
     let watchedBroadcastChannels: [String]
     let hiddenBroadcastSenders: [String: [String]]
+    let kapostsPubkey: String?
     let primaryAddress: String?
     let aliases: [String]
     let auth: PushAuthRequest?
@@ -1893,6 +1905,7 @@ struct PushUpdateRequest: Codable {
         case watchedGroupIds = "watched_group_ids"
         case watchedBroadcastChannels = "watched_broadcast_channels"
         case hiddenBroadcastSenders = "hidden_broadcast_senders"
+        case kapostsPubkey = "kaposts_pubkey"
         case primaryAddress = "primary_address"
         case aliases
         case auth

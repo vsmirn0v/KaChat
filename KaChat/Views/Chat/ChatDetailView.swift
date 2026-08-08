@@ -583,6 +583,16 @@ struct ChatDetailView: View {
             perform: handleImageDrop
         )
         .toast(message: toastMessage, style: toastStyle)
+        // Reactive read-marking: the once-at-appear mark silently no-ops when a notification
+        // tap opens this chat BEFORE the conversation has loaded (cold start / mid-catch-up),
+        // leaving the badge stuck. Whenever unread is nonzero while this chat is open, clear
+        // it - covers late loads, catch-up bumps, and CloudKit merges alike.
+        .onChange(of: conversation?.unreadCount ?? 0) { count in
+            guard count > 0, let conversation else { return }
+            Task {
+                await chatService.markConversationAsRead(conversation)
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {

@@ -214,14 +214,19 @@ final class SwapService: ObservableObject {
     }
 
     func refreshSwapStatus(id: String) {
-        Task {
-            guard let response = try? await ChangeNowAPIClient.shared.getTransactionStatus(id: id),
-                  let status = response.status else { return }
-            if let index = history.firstIndex(where: { $0.id == id }) {
-                history[index].status = status
-                saveHistory()
-            }
+        Task { _ = await refreshSwapStatusAsync(id: id) }
+    }
+
+    /// Awaitable variant for the detail screen's Refresh button: returns the fresh status on
+    /// success (history is updated + published either way) so the UI can give real feedback.
+    func refreshSwapStatusAsync(id: String) async -> String? {
+        guard let response = try? await ChangeNowAPIClient.shared.getTransactionStatus(id: id),
+              let status = response.status else { return nil }
+        if let index = history.firstIndex(where: { $0.id == id }) {
+            history[index].status = status
+            saveHistory()
         }
+        return status
     }
 
     func deleteSwap(id: String) {
@@ -258,7 +263,7 @@ final class SwapService: ObservableObject {
         )
     }
 
-    func confirmAddToPortfolio(_ prefill: PortfolioPrefill, swapId: String) {
+    func confirmAddToPortfolio(_ prefill: PortfolioPrefill, swapId: String, portfolioId: UUID? = nil) {
         // Goes through the shared view model (not a direct PortfolioLedgerStore write) so
         // Portfolio's own @Published transactions list picks this up immediately if it's already
         // open, instead of only reflecting it after the app is relaunched.
@@ -267,7 +272,8 @@ final class SwapService: ObservableObject {
             amountKas: prefill.amountKas,
             fiatValue: prefill.fiatValue,
             timestamp: prefill.timestamp,
-            notes: prefill.notes
+            notes: prefill.notes,
+            portfolioId: portfolioId
         )
 
         if let index = history.firstIndex(where: { $0.id == swapId }) {

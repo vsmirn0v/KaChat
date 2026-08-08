@@ -171,6 +171,7 @@ final class BroadcastService: ObservableObject {
     /// Call when a broadcast channel screen appears; pairs with `release`.
     func acquire(_ name: String) {
         let normalized = BroadcastChannelName.normalize(name)
+        ChatService.clearDeliveredNotifications(threadIdentifier: "broadcast:\(normalized)")
         liveViewRefCounts[normalized, default: 0] += 1
         store.pruneExpiredMessages()
         loadMessages(for: normalized)

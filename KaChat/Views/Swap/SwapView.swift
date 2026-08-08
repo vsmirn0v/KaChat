@@ -61,8 +61,6 @@ struct SwapView: View {
             }
             .sheet(item: $selectedSwap) { swap in
                 SwapDetailView(swap: swap) {
-                    swapService.refreshSwapStatus(id: swap.id)
-                } onAddToPortfolio: {
                     guard let prefill = swapService.portfolioPrefill(for: swap) else {
                         showToast("Couldn't read this swap's amounts")
                         return
@@ -83,14 +81,17 @@ struct SwapView: View {
                     swapService.setOtherCoin(coin)
                 }
             }
-            .alert("Add to Portfolio", isPresented: $showPortfolioConfirm) {
-                Button("Add") {
-                    if let prefill = pendingPortfolioPrefill, let swapId = pendingPortfolioSwapId {
-                        swapService.confirmAddToPortfolio(prefill, swapId: swapId)
-                        showToast("Added to Portfolio")
+            .confirmationDialog("Add to Portfolio", isPresented: $showPortfolioConfirm, titleVisibility: .visible) {
+                // One button per portfolio - the swap lands in the one you pick.
+                ForEach(PortfolioManager.shared.portfolios) { portfolio in
+                    Button(portfolio.name) {
+                        if let prefill = pendingPortfolioPrefill, let swapId = pendingPortfolioSwapId {
+                            swapService.confirmAddToPortfolio(prefill, swapId: swapId, portfolioId: portfolio.id)
+                            showToast("Added to \(portfolio.name)")
+                        }
+                        pendingPortfolioPrefill = nil
+                        pendingPortfolioSwapId = nil
                     }
-                    pendingPortfolioPrefill = nil
-                    pendingPortfolioSwapId = nil
                 }
                 Button("Cancel", role: .cancel) {
                     pendingPortfolioPrefill = nil
@@ -98,7 +99,7 @@ struct SwapView: View {
                 }
             } message: {
                 if let prefill = pendingPortfolioPrefill {
-                    Text("\(prefill.type == .buy ? "Buy" : "Sell") \(formatKas(UInt64((prefill.amountKas * 100_000_000).rounded()))) KAS at \(currencySymbol)\(String(format: "%.2f", prefill.fiatValue)) will be added to your Portfolio ledger.")
+                    Text("\(prefill.type == .buy ? "Buy" : "Sell") \(formatKas(UInt64((prefill.amountKas * 100_000_000).rounded()))) KAS at \(currencySymbol)\(String(format: "%.2f", prefill.fiatValue)) - choose which portfolio to add it to.")
                 }
             }
             .confirmationDialog(
@@ -677,12 +678,24 @@ private func statusColor(_ status: String) -> Color {
 /// Full detail for one past swap — its deposit QR again, live-ish status, the ChangeNOW exchange
 /// id, and a link to track it on changenow.io.
 private struct SwapDetailView: View {
-    let swap: SwapTransaction
-    let onRefresh: () -> Void
+    let initialSwap: SwapTransaction
     let onAddToPortfolio: () -> Void
 
+    init(swap: SwapTransaction, onAddToPortfolio: @escaping () -> Void) {
+        self.initialSwap = swap
+        self.onAddToPortfolio = onAddToPortfolio
+    }
+
+    @ObservedObject private var swapService = SwapService.shared
     @Environment(\.dismiss) private var dismiss
     @State private var toastMessage: String?
+    @State private var isRefreshingStatus = false
+
+    /// The LIVE history entry - the sheet used to render the captured value, so Refresh
+    /// updated storage but the visible status never changed.
+    private var swap: SwapTransaction {
+        swapService.history.first { $0.id == initialSwap.id } ?? initialSwap
+    }
 
     var body: some View {
         NavigationStack {
@@ -751,8 +764,25 @@ private struct SwapDetailView: View {
                 }
 
                 Section {
-                    Button("Refresh Status", action: onRefresh)
-                        .foregroundColor(.accentColor)
+                    Button {
+                        guard !isRefreshingStatus else { return }
+                        isRefreshingStatus = true
+                        Task {
+                            let status = await SwapService.shared.refreshSwapStatusAsync(id: swap.id)
+                            isRefreshingStatus = false
+                            toastMessage = status.map { "Status: \($0.capitalized)" } ?? "Couldn't reach ChangeNOW - try again"
+                        }
+                    } label: {
+                        HStack {
+                            Text("Refresh Status")
+                                .foregroundColor(.accentColor)
+                            Spacer()
+                            if isRefreshingStatus {
+                                ProgressView()
+                                    .scaleEffect(0.85)
+                            }
+                        }
+                    }
                     if let url = URL(string: "https://changenow.io/exchange/txs/\(swap.id)") {
                         Link("View on ChangeNOW", destination: url)
                             .foregroundColor(.accentColor)

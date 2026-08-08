@@ -43,6 +43,12 @@ enum GroupMentionCodec {
 /// `BroadcastAudioRecorder`'s simpler engine (broadcast already proved out group-shaped media
 /// without 1:1's payment-integrated fee-estimation machinery).
 struct GroupChatDetailView: View {
+    /// Hoisted out of the body chain - an inline service call in .onChange tipped the
+    /// compiler's type-check budget for this (large) body expression.
+    private var currentGroupUnreadCount: Int {
+        groupChatService.unreadCount(for: group)
+    }
+
     let group: GroupChat
     var onDeleted: (() -> Void)? = nil
     @EnvironmentObject var groupChatService: GroupChatService
@@ -336,6 +342,13 @@ struct GroupChatDetailView: View {
                     // Matches 1:1 chat's gated behavior.
                     if messages.last?.isOutgoing == true || isBottomAnchorVisible {
                         scrollToBottom(using: proxy, animated: true)
+                    }
+                    // Reactive read-marking, same as ChatDetailView: a notification tap can
+                    // open this group before its messages have loaded (cold start /
+                    // mid-catch-up), making the one-shot .task mark a no-op and leaving the
+                    // badge stuck. Message arrivals are exactly when unread can bump.
+                    if currentGroupUnreadCount > 0 {
+                        groupChatService.markGroupAsRead(group.id)
                     }
                 }
                 .onChange(of: isComposerFocused) { focused in
