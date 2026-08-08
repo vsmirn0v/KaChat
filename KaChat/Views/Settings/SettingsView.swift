@@ -1665,7 +1665,7 @@ struct ConnectionSettingsView: View {
                     Text("Push Indexer URL")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    TextField("https://indexer.kasia.wtf", text: $pushIndexerURL)
+                    TextField(AppSettings.defaultPushIndexerURL, text: $pushIndexerURL)
                         .font(.system(.body, design: .monospaced))
                         .autocapitalization(.none)
                         .autocorrectionDisabled()

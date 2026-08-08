@@ -1557,7 +1557,10 @@ struct AppSettings: Codable {
     /// (`/group-messages/...`, `/group-control/...`), only `indexer.kasia.wtf` does. See
     /// `AppSettings.load()`'s one-time migration off this value.
     static let legacyDefaultIndexerURL = "https://indexer.kasia.fyi"
-    static let defaultPushIndexerURL = "https://indexer.kasia.wtf"
+    /// Our own push service (chat/group push + the broadcast/KaPosts extensions - see
+    /// PUSH_EXTENSIONS.md). Superseded the community indexer.kasia.wtf once kachat.duckdns.org
+    /// went live.
+    static let defaultPushIndexerURL = "https://kachat.duckdns.org"
     static let defaultKNSMainnetURL = "https://api.knsdomains.org/mainnet/api/v1"
     static let defaultKNSTestnetURL = "https://api.knsdomains.org/tn10/api/v1"
     static let defaultKaspaMainnetURL = "https://api.kaspa.org"
@@ -1866,7 +1869,10 @@ struct AppSettings: Codable {
             ? AppSettings.defaultBroadcastIndexerURL : storedBroadcastIndexer
 
         if let customPushIndexer = try container.decodeIfPresent(String.self, forKey: .pushIndexerURL),
-           !customPushIndexer.isEmpty {
+           !customPushIndexer.isEmpty,
+           customPushIndexer != "https://indexer.kasia.wtf" {
+            // Stored custom URLs are honored; the superseded kasia.wtf default migrates
+            // forward to our own push service.
             pushIndexerURL = customPushIndexer
         } else {
             pushIndexerURL = AppSettings.defaultPushIndexerURL

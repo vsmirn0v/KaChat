@@ -9,15 +9,12 @@ The app is the source of truth for payload shapes: `PushNotificationManager.swif
 
 ## 0a. Deployment reality (read first)
 
-The app's push service currently defaults to `https://indexer.kasia.wtf` - a host we do NOT
-control, which therefore can never gain these extensions. The plan: stand up OUR OWN push
-service on `kachat.duckdns.org` implementing the FULL push spec - the base chat/group system
-from `PUSH_NOTIFICATIONS.md` (registration, auth, encrypted chat payloads, blinded group ids)
-PLUS everything in this doc. Requirements only the operator can supply: the team's APNs auth
-key (.p8), Team ID, bundle id `com.kachat.app`. Once live and verified, the app's default
-Push Indexer URL flips to this box (stored-value migration handled app-side) and every device
-re-registers here on its next update. Until then, chat push keeps flowing via kasia.wtf and
-broadcast/KaPosts push stays silent.
+**LIVE:** the push service runs on `kachat.duckdns.org` and the app's default Push Indexer
+URL points there (stored kasia.wtf values migrate forward; hand-entered custom URLs are
+honored). This box must therefore serve the FULL push spec - the base chat/group system from
+`PUSH_NOTIFICATIONS.md` (registration, auth, encrypted chat payloads, blinded group ids)
+PLUS everything in this doc, signed with the operator-supplied APNs auth key (.p8) for team
+RP4Z22SFSD / bundle `com.kachat.app`.
 
 ## 0. Routing — where registrations go
 
