@@ -43,7 +43,7 @@ final class BroadcastService: ObservableObject {
     /// Fast pre-filter for the broadcast payload prefix, applied to the still-hex-encoded
     /// `Protowire_RpcTransaction.payload` before paying the cost of hex-decoding it - avoids
     /// decoding every transaction in every new block just to reject non-broadcast ones.
-    private static let bcastPrefixHex: String = "ciph_msg:1:bcast:".utf8
+    private nonisolated static let bcastPrefixHex: String = "ciph_msg:1:bcast:".utf8
         .map { String(format: "%02x", $0) }
         .joined()
 
@@ -614,12 +614,57 @@ final class BroadcastService: ObservableObject {
         }
     }
 
+    private nonisolated static let blockScanQueue = DispatchQueue(label: "com.kachat.broadcastBlockScan", qos: .utility)
+
+    /// One fully-parsed broadcast candidate from a scanned block.
+    struct BlockScanHit {
+        let channel: String
+        let txId: String
+        let senderAddress: String
+        let content: String
+        let blockTime: Int64
+    }
+
+    /// OFF-MAIN block parsing: protobuf-decoding every ~1s block (and reconnect BURSTS of
+    /// them) on the main actor was hard main-thread work - the app-freeze-on-reconnect class
+    /// of bug (GroupChatService got the identical treatment). Pure extraction, no state:
+    /// wanted/hidden filtering happens on the main hop, which only fires for actual hits
+    /// (almost every block has zero).
+    private nonisolated static func extractBroadcastHits(_ data: Data, hrp: String) -> [BlockScanHit] {
+        guard let notification = try? Protowire_BlockAddedNotificationMessage(serializedBytes: data) else { return [] }
+        var hits: [BlockScanHit] = []
+        for tx in notification.block.transactions {
+            guard tx.payload.hasPrefix(bcastPrefixHex) else { continue }
+            guard let payloadData = CryptoUtils.hexToData(tx.payload),
+                  let payloadString = String(data: payloadData, encoding: .utf8),
+                  let parsed = KasiaTransactionBuilder.parseBroadcastPayload(payloadString) else { continue }
+            guard let firstOutput = tx.outputs.first,
+                  let scriptData = CryptoUtils.hexToData(firstOutput.scriptPublicKey.scriptPublicKey),
+                  let senderAddress = KaspaAddress.address(fromScriptPublicKey: scriptData, hrp: hrp) else { continue }
+            let txId = tx.verboseData.transactionID
+            guard !txId.isEmpty else { continue }
+            hits.append(BlockScanHit(
+                channel: BroadcastChannelName.normalize(parsed.channel),
+                txId: txId,
+                senderAddress: senderAddress,
+                content: parsed.content,
+                blockTime: Int64(tx.verboseData.blockTime)
+            ))
+        }
+        return hits
+    }
+
     private func startScanning() {
         if blockNotificationHandlerId == nil {
             blockNotificationHandlerId = NodePoolService.shared.addNotificationHandler { [weak self] type, data in
                 guard type == .blockAdded else { return }
-                Task { @MainActor in
-                    self?.handleBlockAddedData(data)
+                Self.blockScanQueue.async {
+                    let hrp = AppSettings.load().networkType == .mainnet ? "kaspa" : "kaspatest"
+                    let hits = Self.extractBroadcastHits(data, hrp: hrp)
+                    guard !hits.isEmpty else { return }
+                    Task { @MainActor in
+                        self?.processBroadcastHits(hits)
+                    }
                 }
             }
         }
@@ -636,44 +681,29 @@ final class BroadcastService: ObservableObject {
 
     // MARK: - Block scanning
 
-    private func handleBlockAddedData(_ data: Data) {
+    /// Main-actor tail of the block scan: runs ONLY when a block actually contained broadcast
+    /// payloads (rare). State filtering + store insert + UI refresh.
+    private func processBroadcastHits(_ hits: [BlockScanHit]) {
         let wanted = wantedChannels
         guard !wanted.isEmpty else { return }
-        guard let notification = try? Protowire_BlockAddedNotificationMessage(serializedBytes: data) else { return }
-
         let hidden = store.hiddenSendersByChannel()
-        let hrp = AppSettings.load().networkType == .mainnet ? "kaspa" : "kaspatest"
         var touchedChannels = Set<String>()
 
-        for tx in notification.block.transactions {
-            guard tx.payload.hasPrefix(Self.bcastPrefixHex) else { continue }
-            guard let payloadData = CryptoUtils.hexToData(tx.payload),
-                  let payloadString = String(data: payloadData, encoding: .utf8),
-                  let parsed = KasiaTransactionBuilder.parseBroadcastPayload(payloadString) else { continue }
-
-            let channel = BroadcastChannelName.normalize(parsed.channel)
-            guard wanted.contains(channel) else { continue }
-
-            guard let firstOutput = tx.outputs.first,
-                  let scriptData = CryptoUtils.hexToData(firstOutput.scriptPublicKey.scriptPublicKey),
-                  let senderAddress = KaspaAddress.address(fromScriptPublicKey: scriptData, hrp: hrp) else { continue }
-            guard !hidden.global.contains(senderAddress),
-                  hidden.perChannel[channel]?.contains(senderAddress) != true else { continue }
-
-            let txId = tx.verboseData.transactionID
-            guard !txId.isEmpty else { continue }
-
+        for hit in hits {
+            guard wanted.contains(hit.channel) else { continue }
+            guard !hidden.global.contains(hit.senderAddress),
+                  hidden.perChannel[hit.channel]?.contains(hit.senderAddress) != true else { continue }
             let inserted = store.insertMessage(
-                id: txId,
-                channel: channel,
-                senderAddress: senderAddress,
-                content: parsed.content,
-                blockTime: Int64(tx.verboseData.blockTime),
+                id: hit.txId,
+                channel: hit.channel,
+                senderAddress: hit.senderAddress,
+                content: hit.content,
+                blockTime: hit.blockTime,
                 deliveryStatus: .sent
             )
             if inserted {
-                touchedChannels.insert(channel)
-                notifyIfEnabled(channel: channel, senderAddress: senderAddress, content: parsed.content)
+                touchedChannels.insert(hit.channel)
+                notifyIfEnabled(channel: hit.channel, senderAddress: hit.senderAddress, content: hit.content)
             }
         }
 

@@ -2774,7 +2774,22 @@ extension ChatService {
     /// Center - reading a chat must take its banners with it, or they linger (and can appear
     /// to "come back" when the lock screen re-sorts). Matches every notification the app or
     /// its extension posts, local and push alike, by threadIdentifier.
+    /// Throttle bookkeeping for `clearDeliveredNotifications` - the sweep is an XPC
+    /// round-trip to the notification daemon, and mark-read paths can fire in bursts
+    /// during catch-up sync. One sweep per thread per 2s is plenty.
+    private nonisolated static let clearThrottleQueue = DispatchQueue(label: "com.kachat.notifClearThrottle")
+    nonisolated(unsafe) private static var lastClearByThread: [String: Date] = [:]
+
     nonisolated static func clearDeliveredNotifications(threadIdentifier: String) {
+        let allowed = clearThrottleQueue.sync { () -> Bool in
+            let now = Date()
+            if let last = lastClearByThread[threadIdentifier], now.timeIntervalSince(last) < 2.0 {
+                return false
+            }
+            lastClearByThread[threadIdentifier] = now
+            return true
+        }
+        guard allowed else { return }
         UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
             let ids = delivered
                 .filter { $0.request.content.threadIdentifier == threadIdentifier }

@@ -27,6 +27,7 @@ struct ChatDetailView: View {
     @State private var isSelectingMessages = false
     @State private var selectedMessageIDs: Set<String> = []
     @State private var showDeleteMessagesConfirmation = false
+    @State private var reactiveReadMarkPending = false
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -588,9 +589,18 @@ struct ChatDetailView: View {
         // leaving the badge stuck. Whenever unread is nonzero while this chat is open, clear
         // it - covers late loads, catch-up bumps, and CloudKit merges alike.
         .onChange(of: conversation?.unreadCount ?? 0) { count in
-            guard count > 0, let conversation else { return }
+            // DEBOUNCED: catch-up sync can bump unread once per arriving message - marking
+            // read per bump (store fetch + CloudKit read-status + notification sweep each
+            // time) stormed the main thread into a ~1min hang on resume. One mark after the
+            // burst quiets down.
+            guard count > 0, conversation != nil, !reactiveReadMarkPending else { return }
+            reactiveReadMarkPending = true
             Task {
-                await chatService.markConversationAsRead(conversation)
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                reactiveReadMarkPending = false
+                if let current = conversation, current.unreadCount > 0 {
+                    await chatService.markConversationAsRead(current)
+                }
             }
         }
         .navigationBarTitleDisplayMode(.inline)

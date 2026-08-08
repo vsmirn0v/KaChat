@@ -28,6 +28,10 @@ final class PushNotificationManager: ObservableObject {
 
     private let tokenDefaultsKey = "push_device_token"
     private let registeredDefaultsKey = "push_registered"
+    /// Base URL of the service the device last successfully registered with - lets a push-URL
+    /// change unregister from the OLD service (both kept pushing = duplicate notifications).
+    private let registeredBaseURLDefaultsKey = "push_registered_base_url"
+    private let legacyKasiaUnregisterDoneKey = "push_legacy_kasia_unregister_done"
     private let deviceAuthCounterDefaultsKey = "push_device_auth_counter"
 
     private var deviceToken: String?
@@ -281,6 +285,7 @@ final class PushNotificationManager: ObservableObject {
 
     /// Register device with indexer, including watched addresses
     func registerWithIndexer() async throws {
+        await unregisterFromSupersededServiceIfNeeded()
         guard let token = deviceToken else {
             throw PushError.noDeviceToken
         }
@@ -400,6 +405,7 @@ final class PushNotificationManager: ObservableObject {
         isRegistered = true
         lastError = nil
         persistRegistrationStatus(true)
+        UserDefaults.standard.set(AppSettings.load().pushIndexerURL, forKey: registeredBaseURLDefaultsKey)
         clearWalletBindingConflictCooldown()
         lastWatchedSignature = buildWatchedSignature(
             watchedAddresses: watchedAddresses,
@@ -761,6 +767,38 @@ final class PushNotificationManager: ObservableObject {
     }
 
     /// Unregister device (call on logout/wallet delete)
+    /// The push URL changed (e.g. the kasia.wtf -> kachat.duckdns.org default migration) but
+    /// the OLD service still has this device registered and keeps pushing - the source of
+    /// duplicated notifications. One best-effort DELETE against the old base before
+    /// registering with the new one; unsigned (legacy backends accept it), single attempt.
+    private func unregisterFromSupersededServiceIfNeeded() async {
+        guard let token = deviceToken else { return }
+        let currentBase = AppSettings.load().pushIndexerURL
+        var storedOldBase = UserDefaults.standard.string(forKey: registeredBaseURLDefaultsKey)
+        // Devices that migrated BEFORE base-URL tracking existed (the kasia.wtf ->
+        // kachat.duckdns.org default flip) have no stored value - sweep the known legacy
+        // host once so it stops double-pushing.
+        if storedOldBase == nil,
+           !UserDefaults.standard.bool(forKey: legacyKasiaUnregisterDoneKey),
+           UserDefaults.standard.bool(forKey: registeredDefaultsKey) {
+            storedOldBase = "https://indexer.kasia.wtf"
+        }
+        UserDefaults.standard.set(true, forKey: legacyKasiaUnregisterDoneKey)
+        guard let oldBase = storedOldBase,
+              !oldBase.isEmpty,
+              oldBase != currentBase,
+              let url = URL(string: "\(oldBase)\(unregisterEndpoint)") else { return }
+        // Clear first - one attempt per supersession, a dead old host must not retry forever.
+        UserDefaults.standard.removeObject(forKey: registeredBaseURLDefaultsKey)
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "DELETE"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try? JSONEncoder().encode(PushUnregisterRequest(deviceToken: token, auth: nil))
+        urlRequest.timeoutInterval = 20
+        _ = try? await URLSession.shared.data(for: urlRequest)
+        AppLog.log("[Push] Sent unregister to superseded push service: %@", oldBase)
+    }
+
     func unregister() async {
         guard let token = deviceToken else { return }
 

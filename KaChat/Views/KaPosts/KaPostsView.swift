@@ -105,6 +105,8 @@ struct KaPostsView: View {
     @State private var myProfileFeedTab: ProfileFeedTab = .posts
     @State private var posterProfileReplies: [DraftPost] = []
     @State private var posterProfileFeedTab: ProfileFeedTab = .posts
+    /// Comments whose reply chains are expanded inline in the thread view (X-style).
+    @State private var expandedCommentIds: Set<UUID> = []
 
     enum ProfileFeedTab: String, CaseIterable {
         case posts = "Posts"
@@ -476,7 +478,8 @@ struct KaPostsView: View {
                             onOpenProfile: { profileTarget = PosterProfileTarget(address: post.posterAddress, pubkey: post.posterPubkey) },
                             onLike: { toggleLike(post) },
                             onDislike: { toggleDislike(post) },
-                            onRepost: { handleRepostTap(post) }
+                            onRepost: { handleRepostTap(post) },
+                            onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                         )
                         .task(id: post.posterAddress) {
                             guard knsService.profileCache[post.posterAddress] == nil,
@@ -704,7 +707,9 @@ struct KaPostsView: View {
         if mutate(&posts) { return }
         if mutate(&remotePosts) { return }
         if mutate(&posterProfilePosts) { return }
-        _ = mutate(&myProfileRemotePosts)
+        if mutate(&posterProfileReplies) { return }
+        if mutate(&myProfileRemotePosts) { return }
+        _ = mutate(&myProfileRemoteReplies)
     }
 
     /// Recursive lookup mirroring mutatePost's search order.
@@ -716,7 +721,21 @@ struct KaPostsView: View {
             }
             return nil
         }
-        return search(posts) ?? search(remotePosts) ?? search(posterProfilePosts) ?? search(myProfileRemotePosts)
+        return search(posts) ?? search(remotePosts) ?? search(posterProfilePosts)
+            ?? search(posterProfileReplies) ?? search(myProfileRemotePosts) ?? search(myProfileRemoteReplies)
+    }
+
+    /// findPost by the on-chain txid instead of the local UUID, same recursive coverage.
+    private func findPost(byRemoteId remoteId: String) -> DraftPost? {
+        func search(_ list: [DraftPost]) -> DraftPost? {
+            for post in list {
+                if post.remoteId == remoteId { return post }
+                if let hit = search(post.comments) { return hit }
+            }
+            return nil
+        }
+        return search(posts) ?? search(remotePosts) ?? search(posterProfilePosts)
+            ?? search(posterProfileReplies) ?? search(myProfileRemotePosts) ?? search(myProfileRemoteReplies)
     }
 
     /// Bottom toast stack: the post-undo countdown (while a submit is being held) above the
@@ -1025,7 +1044,8 @@ struct KaPostsView: View {
             }
             return nil
         }
-        return search(posts) ?? search(remotePosts) ?? search(posterProfilePosts) ?? search(myProfileRemotePosts)
+        return search(posts) ?? search(remotePosts) ?? search(posterProfilePosts)
+            ?? search(posterProfileReplies) ?? search(myProfileRemotePosts) ?? search(myProfileRemoteReplies)
     }
 
     /// Re-submits a failed post or reply (found by id; replies resolve their parent for the
@@ -1090,18 +1110,128 @@ struct KaPostsView: View {
     /// Shared-link landing: resolve the txid to a loaded post (refreshing the feed once if
     /// needed) and open its comment thread.
     private func openSharedPost(txId: String) async {
-        func find() -> DraftPost? {
-            (posts + remotePosts).first { $0.remoteId == txId }
-        }
-        if let post = find() {
+        if let post = findPost(byRemoteId: txId) {
             openDetail(post)
             return
         }
         await loadFeed()
-        if let post = find() {
+        if let post = findPost(byRemoteId: txId) {
+            openDetail(post)
+            return
+        }
+        // Notification/deep-link targets are usually YOUR OWN content, which lives outside
+        // the feed window - pull own posts+replies from the indexer and look again. (A true
+        // get-post endpoint on the fork would make this exact; flagged in the handoff doc.)
+        if let pubkey = try? KaPostsAPIClient.shared.requesterPubkey(),
+           let fetched = try? await KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey, includeReplies: true) {
+            let mapped = fetched.posts.compactMap(Self.mapRemotePost)
+            myProfileRemotePosts = mapped.filter { $0.parentRemoteId == nil }
+            myProfileRemoteReplies = mapped.filter { $0.parentRemoteId != nil }
+        }
+        if let post = findPost(byRemoteId: txId) {
             openDetail(post)
         } else {
             showActionToast("Post not found - it may be older than the current feed", txId: txId)
+        }
+    }
+
+    /// One place for the thread view's cells (root, comments, inline replies) - identical
+    /// wiring everywhere; non-root cells navigate deeper on tap.
+    private func threadCell(_ item: DraftPost, isRoot: Bool = false) -> KaPostCellView {
+        KaPostCellView(
+            post: item,
+            displayName: posterDisplayName(item.posterAddress),
+            avatarURLString: knsService.profileCache[item.posterAddress]?.avatarURL,
+            isFollowing: followStore.isFollowing(item.posterAddress),
+            commentCount: commentCount(of: item),
+            onComment: isRoot ? nil : { openDetail(item) },
+            onMute: { moderationStore.mute(item.posterAddress) },
+            onBlock: { moderationStore.block(item.posterAddress) },
+            onBookmark: { toggleBookmark(item) },
+            onRetry: { retryPost(item) },
+            onViewEngagement: { engagementTarget = item },
+            onFollowToggle: { toggleFollowSubmitting(address: item.posterAddress, pubkey: item.posterPubkey) },
+            onOpenProfile: { profileTarget = PosterProfileTarget(address: item.posterAddress, pubkey: item.posterPubkey) },
+            onLike: { toggleLike(item) },
+            onDislike: { toggleDislike(item) },
+            onRepost: { handleRepostTap(item) },
+            onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
+        )
+    }
+
+    /// X-style inline reply chain under a comment: "View N replies" expands the chain in
+    /// place with a connector line; tapping a reply dives into its own thread.
+    @ViewBuilder
+    private func threadRepliesSection(for comment: DraftPost) -> some View {
+        let replyCount = commentCount(of: comment)
+        if replyCount > 0 {
+            if expandedCommentIds.contains(comment.id) {
+                HStack(alignment: .top, spacing: 0) {
+                    // Connector dropping from the comment's avatar column.
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(Color.secondary.opacity(0.3))
+                        .frame(width: 2)
+                        .padding(.leading, 35)
+                    VStack(alignment: .leading, spacing: 0) {
+                        if visibleComments(of: comment).isEmpty {
+                            HStack(spacing: 8) {
+                                ProgressView().scaleEffect(0.8)
+                                Text("Loading replies...")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.vertical, 12)
+                            .padding(.leading, 16)
+                        } else {
+                            ForEach(visibleComments(of: comment)) { reply in
+                                threadCell(reply)
+                            }
+                        }
+                    }
+                }
+                threadToggleButton("Hide replies") {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        _ = expandedCommentIds.remove(comment.id)
+                    }
+                }
+            } else {
+                threadToggleButton("View \(replyCount) \(replyCount == 1 ? "reply" : "replies")") {
+                    expandReplies(for: comment)
+                }
+            }
+        }
+    }
+
+    private func threadToggleButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(Color.secondary.opacity(0.3))
+                    .frame(width: 18, height: 2)
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.accentColor)
+            }
+            .padding(.leading, 36)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Expands a comment's reply chain inline, fetching its replies from the indexer.
+    private func expandReplies(for comment: DraftPost) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            _ = expandedCommentIds.insert(comment.id)
+        }
+        guard let remoteId = comment.remoteId else { return }
+        Task {
+            guard let replies = try? await KaPostsAPIClient.shared.fetchReplies(postId: remoteId).posts else { return }
+            let mapped = replies.compactMap { Self.mapRemotePost($0) }
+            mutatePost(id: comment.id) { target in
+                let localOnly = target.comments.filter { $0.remoteId == nil }
+                target.comments = mapped + localOnly
+            }
         }
     }
 
@@ -1249,7 +1379,8 @@ struct KaPostsView: View {
                                 onOpenProfile: {},
                                 onLike: { toggleLike(post) },
                                 onDislike: { toggleDislike(post) },
-                                onRepost: { handleRepostTap(post) }
+                                onRepost: { handleRepostTap(post) },
+                                onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                             )
                             Divider()
                                 .padding(.leading, 68)
@@ -1450,7 +1581,8 @@ struct KaPostsView: View {
                                 onOpenProfile: {},
                                 onLike: { toggleLike(post) },
                                 onDislike: { toggleDislike(post) },
-                                onRepost: { handleRepostTap(post) }
+                                onRepost: { handleRepostTap(post) },
+                                onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                             )
                             Divider()
                                 .padding(.leading, 68)
@@ -1679,7 +1811,8 @@ struct KaPostsView: View {
                                     onOpenProfile: {},
                                     onLike: { toggleLike(post) },
                                     onDislike: { toggleDislike(post) },
-                                    onRepost: { handleRepostTap(post) }
+                                    onRepost: { handleRepostTap(post) },
+                                    onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                                 )
                                 Divider()
                                     .padding(.leading, 68)
@@ -1707,24 +1840,26 @@ struct KaPostsView: View {
                 VStack(spacing: 0) {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            KaPostCellView(
-                                post: post,
-                                displayName: posterDisplayName(post.posterAddress),
-                                avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
-                                isFollowing: followStore.isFollowing(post.posterAddress),
-                                commentCount: commentCount(of: post),
-                                onComment: nil,
-                                onMute: { moderationStore.mute(post.posterAddress) },
-                                onBlock: { moderationStore.block(post.posterAddress) },
-                                onBookmark: { toggleBookmark(post) },
-                                onRetry: { retryPost(post) },
-                                onViewEngagement: { engagementTarget = post },
-                                onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
-                                onOpenProfile: { profileTarget = PosterProfileTarget(address: post.posterAddress, pubkey: post.posterPubkey) },
-                                onLike: { toggleLike(post) },
-                                onDislike: { toggleDislike(post) },
-                                onRepost: { handleRepostTap(post) }
-                            )
+                            // X-style upward context: when this thread's root is itself a
+                            // reply, link back to what it replies to.
+                            if let parent = findParent(ofCommentId: post.id) {
+                                Button {
+                                    openDetail(parent)
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "arrow.turn.up.left")
+                                            .font(.caption2.weight(.semibold))
+                                        Text("Replying to \(posterDisplayName(parent.posterAddress))")
+                                            .font(.caption.weight(.semibold))
+                                    }
+                                    .foregroundColor(.accentColor)
+                                    .padding(.horizontal, 16)
+                                    .padding(.top, 10)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            threadCell(post, isRoot: true)
                             Divider()
 
                             HStack {
@@ -1744,28 +1879,8 @@ struct KaPostsView: View {
                                     .padding(.vertical, 20)
                             } else {
                                 ForEach(visibleComments(of: post)) { comment in
-                                    KaPostCellView(
-                                        post: comment,
-                                        displayName: posterDisplayName(comment.posterAddress),
-                                        avatarURLString: knsService.profileCache[comment.posterAddress]?.avatarURL,
-                                        isFollowing: followStore.isFollowing(comment.posterAddress),
-                                        commentCount: commentCount(of: comment),
-                                        // Comments are threads too: tapping one swaps the
-                                        // sheet to that comment's own thread (reply bar
-                                        // replies to it - K's reply payload is identical for
-                                        // replies-to-replies).
-                                        onComment: { openDetail(comment) },
-                                        onMute: { moderationStore.mute(comment.posterAddress) },
-                                        onBlock: { moderationStore.block(comment.posterAddress) },
-                                        onBookmark: { toggleBookmark(comment) },
-                                        onRetry: { retryPost(comment) },
-                                        onViewEngagement: { engagementTarget = comment },
-                                        onFollowToggle: { toggleFollowSubmitting(address: comment.posterAddress, pubkey: comment.posterPubkey) },
-                                        onOpenProfile: { profileTarget = PosterProfileTarget(address: comment.posterAddress, pubkey: comment.posterPubkey) },
-                                        onLike: { toggleLike(comment) },
-                                        onDislike: { toggleDislike(comment) },
-                                        onRepost: { handleRepostTap(comment) }
-                                    )
+                                    threadCell(comment)
+                                    threadRepliesSection(for: comment)
                                     Divider()
                                         .padding(.leading, 68)
                                 }
@@ -1864,6 +1979,8 @@ private struct KaPostCellView: View {
     let onLike: () -> Void
     let onDislike: () -> Void
     let onRepost: () -> Void
+    /// Tapping the quoted-post embed opens that post's own thread (comments and all).
+    var onOpenQuoted: ((String) -> Void)? = nil
 
     /// Long enough that the feed should fold it behind "Show more" (X-style ~280-char threshold,
     /// or a wall of newlines).
@@ -2008,9 +2125,19 @@ private struct KaPostCellView: View {
                     .buttonStyle(.plain)
                 }
 
-                // X-style quote embed: the quoted post in a bordered mini card under the text.
+                // X-style quote embed: the quoted post in a bordered mini card under the
+                // text - tappable through to the quoted post's own thread.
                 if let quoted = post.quoted {
-                    quotedEmbedCard(quoted)
+                    if let onOpenQuoted, let quotedId = quoted.remoteId {
+                        Button {
+                            onOpenQuoted(quotedId)
+                        } label: {
+                            quotedEmbedCard(quoted)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        quotedEmbedCard(quoted)
+                    }
                 }
 
                 HStack(spacing: 18) {
@@ -3031,6 +3158,10 @@ struct KaPostsNotificationsView: View {
         let kind: Kind
         let snippet: String?  // reply/quote text, marker-stripped
         let timestamp: Date
+        /// Post to open in-app when the row is tapped: the reply/quote itself (it's a post,
+        /// shown with its "Replying to"/embed context), or YOUR post for votes/reposts.
+        /// Nil for follows (nothing to open).
+        let targetTxId: String?
     }
 
     @State private var items: [Item] = []
@@ -3112,6 +3243,19 @@ struct KaPostsNotificationsView: View {
             }
             .buttonStyle(.plain)
         }
+        .contentShape(Rectangle())
+        // Tap the row -> the relevant post opens in-app (the inner explorer View button still
+        // wins its own taps). Rides the shared deep-link plumbing: close this sheet, let
+        // KaPostsView pick up the pending id and open the thread.
+        .onTapGesture {
+            guard let target = item.targetTxId else { return }
+            Haptics.impact(.light)
+            KaPostsDeepLink.pendingPostTxId = target
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                NotificationCenter.default.post(name: .openKaPost, object: nil, userInfo: [:])
+            }
+        }
         .task(id: item.actorAddress) {
             guard !item.actorAddress.isEmpty,
                   knsService.profileCache[item.actorAddress] == nil else { return }
@@ -3166,24 +3310,31 @@ struct KaPostsNotificationsView: View {
                 let text = KaPostsAPIClient.stripMarker(notification.decodedContent ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let kind: Item.Kind
+                let targetTxId: String?
                 switch notification.contentType {
                 case "vote":
                     kind = notification.voteType == "downvote" ? .dislike : .like
+                    targetTxId = notification.contentId
                 case "reply":
                     kind = .reply
+                    targetTxId = notification.id
                 case "quote":
                     kind = text.isEmpty ? .repost : .quote
+                    targetTxId = text.isEmpty ? notification.contentId : notification.id
                 case "follow":
                     kind = .follow
+                    targetTxId = nil
                 default:
                     kind = .other
+                    targetTxId = notification.contentId
                 }
                 return Item(
                     id: notification.id,
                     actorAddress: address,
                     kind: kind,
                     snippet: text.isEmpty ? nil : text,
-                    timestamp: Date(timeIntervalSince1970: TimeInterval(notification.timestamp) / 1000)
+                    timestamp: Date(timeIntervalSince1970: TimeInterval(notification.timestamp) / 1000),
+                    targetTxId: targetTxId
                 )
             }
         } catch {

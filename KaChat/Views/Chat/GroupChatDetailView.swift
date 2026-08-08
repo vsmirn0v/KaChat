@@ -58,6 +58,7 @@ struct GroupChatDetailView: View {
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @State private var draft = ""
+    @State private var reactiveReadMarkPending = false
     @State private var showInfo = false
     /// Local-only multi-select for deleting individual messages (never the whole group - see
     /// `GroupChatInfoView`'s delete for that) - toggled from the toolbar's "Select" button.
@@ -347,8 +348,17 @@ struct GroupChatDetailView: View {
                     // open this group before its messages have loaded (cold start /
                     // mid-catch-up), making the one-shot .task mark a no-op and leaving the
                     // badge stuck. Message arrivals are exactly when unread can bump.
-                    if currentGroupUnreadCount > 0 {
-                        groupChatService.markGroupAsRead(group.id)
+                    // DEBOUNCED: catch-up sync delivers messages one by one - marking read per
+                    // arrival (badge update + delivered-notification sweep each time) stormed
+                    // the main thread on resume. One mark after the burst quiets down.
+                    if currentGroupUnreadCount > 0, !reactiveReadMarkPending {
+                        reactiveReadMarkPending = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            reactiveReadMarkPending = false
+                            if currentGroupUnreadCount > 0 {
+                                groupChatService.markGroupAsRead(group.id)
+                            }
+                        }
                     }
                 }
                 .onChange(of: isComposerFocused) { focused in
