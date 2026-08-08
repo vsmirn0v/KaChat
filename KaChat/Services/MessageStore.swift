@@ -3533,7 +3533,13 @@ final class MessageStore {
         guard ensureStoreLoaded() else { return }
 
         let context = container.newBackgroundContext()
-        context.performAndWait {
+        // ASYNC perform, never performAndWait: this is fired from the scene-phase handler when
+        // the app backgrounds (tapping a link -> Safari), exactly when the CloudKit export flush
+        // is using the store. performAndWait blocked the MAIN thread on the SQLite lock, iOS
+        // suspended the process mid-wait, and the app resumed still frozen inside that wait
+        // (~1min hang + "unsafeForcedSync called from Swift Concurrent context"). Every caller
+        // is fire-and-forget; a checkpoint is pure maintenance nobody needs to wait for.
+        context.perform {
             do {
                 let startTime = Date()
 

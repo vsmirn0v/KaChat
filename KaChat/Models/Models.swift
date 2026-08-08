@@ -1797,7 +1797,11 @@ struct AppSettings: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         storeMessagesInICloud = try container.decodeIfPresent(Bool.self, forKey: .storeMessagesInICloud) ?? false
         messageRetention = try container.decodeIfPresent(MessageRetention.self, forKey: .messageRetention) ?? .forever
-        networkType = try container.decodeIfPresent(NetworkType.self, forKey: .networkType) ?? .mainnet
+        // Testnet is no longer selectable anywhere in the app - always run mainnet. Installs
+        // that previously switched to testnet get migrated back (network-scoped URLs that
+        // still match the testnet defaults snap back to mainnet defaults below).
+        let storedNetworkType = try container.decodeIfPresent(NetworkType.self, forKey: .networkType) ?? .mainnet
+        networkType = .mainnet
         // Ignore persisted value and keep this feature always enabled.
         autoAddContacts = true
         syncSystemContacts = try container.decodeIfPresent(Bool.self, forKey: .syncSystemContacts) ?? true
@@ -1880,6 +1884,14 @@ struct AppSettings: Codable {
 
         knsBaseURL = try container.decodeIfPresent(String.self, forKey: .knsBaseURL) ?? AppSettings.defaultKNSURL(for: networkType)
         kaspaRestAPIURL = try container.decodeIfPresent(String.self, forKey: .kaspaRestAPIURL) ?? AppSettings.defaultKaspaRestURL(for: networkType)
+        if storedNetworkType == .testnet {
+            if knsBaseURL == AppSettings.defaultKNSURL(for: .testnet) {
+                knsBaseURL = AppSettings.defaultKNSURL(for: .mainnet)
+            }
+            if kaspaRestAPIURL == AppSettings.defaultKaspaRestURL(for: .testnet) {
+                kaspaRestAPIURL = AppSettings.defaultKaspaRestURL(for: .mainnet)
+            }
+        }
         kaspaExplorer = try container.decodeIfPresent(KaspaExplorer.self, forKey: .kaspaExplorer) ?? .default
         trustedNodeAddress = try container.decodeIfPresent(String.self, forKey: .trustedNodeAddress) ?? AppSettings.defaultTrustedNodeAddress
         savedNodeAddresses = try container.decodeIfPresent([SavedNodeAddress].self, forKey: .savedNodeAddresses) ?? []

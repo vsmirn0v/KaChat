@@ -245,13 +245,7 @@ struct SettingsView: View {
                     NavigationLink {
                         ConnectionSettingsView()
                     } label: {
-                        HStack {
-                            Label("Connection Settings", systemImage: "network")
-                            Spacer()
-                            Text(settingsViewModel.settings.networkType.displayName)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                        Label("Connection Settings", systemImage: "network")
                     }
 
                     NavigationLink {
@@ -1569,7 +1563,6 @@ struct ConnectionSettingsView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @Environment(\.dismiss) private var dismiss
 
-    @State private var networkType: NetworkType = .mainnet
     @State private var indexerURL: String = ""
     @State private var kaPostIndexerURL: String = ""
     @State private var broadcastIndexerURL: String = ""
@@ -1587,28 +1580,6 @@ struct ConnectionSettingsView: View {
 
     var body: some View {
         Form {
-            Section {
-                Picker("Network", selection: $networkType) {
-                    ForEach(NetworkType.allCases, id: \.self) { network in
-                        Text(network.displayName).tag(network)
-                    }
-                }
-                .onChange(of: networkType) { newValue in
-                    // Update URLs to defaults for new network if they match old defaults
-                    let oldNetwork = settingsViewModel.settings.networkType
-                    if knsBaseURL == AppSettings.defaultKNSURL(for: oldNetwork) {
-                        knsBaseURL = AppSettings.defaultKNSURL(for: newValue)
-                    }
-                    if kaspaRestAPIURL == AppSettings.defaultKaspaRestURL(for: oldNetwork) {
-                        kaspaRestAPIURL = AppSettings.defaultKaspaRestURL(for: newValue)
-                    }
-                }
-            } header: {
-                Text("Network")
-            } footer: {
-                Text("Select mainnet for real transactions or testnet for testing")
-            }
-
             Section {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Indexer URL")
@@ -1855,7 +1826,6 @@ struct ConnectionSettingsView: View {
     }
 
     private func loadCurrentSettings() {
-        networkType = settingsViewModel.settings.networkType
         indexerURL = settingsViewModel.settings.indexerURL
         kaPostIndexerURL = settingsViewModel.settings.kaPostIndexerURL
         broadcastIndexerURL = settingsViewModel.settings.broadcastIndexerURL
@@ -1865,7 +1835,6 @@ struct ConnectionSettingsView: View {
     }
 
     private func saveSettings() {
-        settingsViewModel.settings.networkType = networkType
         settingsViewModel.settings.indexerURL = indexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.kaPostIndexerURL = kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AppSettings.defaultKaPostIndexerURL : kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsViewModel.settings.broadcastIndexerURL = broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AppSettings.defaultBroadcastIndexerURL : broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
