@@ -198,3 +198,21 @@ indexer process itself is not involved):
 Note: Apple's CDN fetches the AASA file when the app is installed - after first deploying
 it, reinstall the app (or wait for the periodic refresh) before judging whether links open
 the app.
+
+3. **`GET /.well-known/assetlinks.json`** - the Android equivalent of the AASA file (the
+   Android app declares an autoVerify intent filter for `https://kachat.duckdns.org/post/*`):
+
+```json
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.kachat.app",
+    "sha256_cert_fingerprints": ["<SHA256 of the Play signing cert - from Play Console > Setup > App integrity>"]
+  }
+}]
+```
+
+   Same serving rules as the AASA file: HTTPS, no redirect, `application/json`. Without it,
+   Android falls back to showing an app-chooser for the https link (the `kachat://kapost/`
+   scheme form in share texts still opens the app directly either way).

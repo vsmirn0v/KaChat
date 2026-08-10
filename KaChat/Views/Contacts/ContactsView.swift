@@ -2469,13 +2469,16 @@ private struct KNSDomainsListView: View {
             Button {
                 showInscribeSheet = true
             } label: {
+                // Deliberately NOT the accent fill - the domain cards above are accent-filled,
+                // so the action button gets a contrasting glass capsule with a teal outline.
                 Text("Inscribe New Domain")
                     .font(.subheadline)
                     .fontWeight(.bold)
-                    .foregroundColor(.black)
+                    .foregroundColor(.accentColor)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(Capsule().fill(Color.accentColor))
+                    .background(Capsule().fill(.regularMaterial))
+                    .overlay(Capsule().stroke(Color.accentColor, lineWidth: 1.5))
             }
             .padding(.horizontal)
             .padding(.bottom, 16)

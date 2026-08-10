@@ -1624,7 +1624,7 @@ struct AppSettings: Codable {
             hideColdStorageTab: true,
             hideKaPostsTab: true,
             hideMoreItem: false,
-            hideBroadcasts: false,
+            hideBroadcasts: true,
             hideAppsTab: true,
             tabOrder: [AppTab.chats, AppTab.profile, AppTab.more].map { $0.rawValue },
             biometricSeedPhraseEnabled: true,
@@ -1845,8 +1845,12 @@ struct AppSettings: Codable {
         hidePortfolioTab = try container.decodeIfPresent(Bool.self, forKey: .hidePortfolioTab) ?? false
         hideSwapTab = try container.decodeIfPresent(Bool.self, forKey: .hideSwapTab) ?? false
         hideColdStorageTab = try container.decodeIfPresent(Bool.self, forKey: .hideColdStorageTab) ?? false
-        hideKaPostsTab = try container.decodeIfPresent(Bool.self, forKey: .hideKaPostsTab) ?? true
-        hideMoreItem = try container.decodeIfPresent(Bool.self, forKey: .hideMoreItem) ?? true
+        // 4.0 seeding for EXISTING users (blobs saved before these keys existed): KaPosts,
+        // Broadcasts and "+More" all land ENABLED. With a full 5-tab dock the cap drops
+        // KaPosts/Broadcasts into the Chats-slot cycle (dock unchanged); with a free slot,
+        // "+More" fills it (KaPosts/Broadcasts still cycle - see AppTab.visible).
+        hideKaPostsTab = try container.decodeIfPresent(Bool.self, forKey: .hideKaPostsTab) ?? false
+        hideMoreItem = try container.decodeIfPresent(Bool.self, forKey: .hideMoreItem) ?? false
         hideBroadcasts = try container.decodeIfPresent(Bool.self, forKey: .hideBroadcasts) ?? false
         hideAppsTab = try container.decodeIfPresent(Bool.self, forKey: .hideAppsTab) ?? true
         tabOrder = try container.decodeIfPresent([String].self, forKey: .tabOrder) ?? AppTab.defaultOrder.map { $0.rawValue }

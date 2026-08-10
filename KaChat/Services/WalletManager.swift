@@ -135,6 +135,7 @@ final class WalletManager: ObservableObject {
                     PortfolioManager.shared.setCurrentWallet(nil)
                     PortfolioViewModel.shared.setCurrentWallet(nil)
                     SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
                     SharedDataManager.setPrivateKeyAvailable(false)
                     return
                 }
@@ -154,6 +155,7 @@ final class WalletManager: ObservableObject {
                 ContactsManager.shared.setActiveWalletAddress(canonicalWallet.publicAddress)
                 ChatService.shared.loadChatListSnapshot(for: canonicalWallet.publicAddress)
                 SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
                 SharedDataManager.setPrivateKeyAvailable(true)
                 isLoading = false
                 // Switch MessageStore to this wallet's store and CloudKit zone
@@ -182,6 +184,7 @@ final class WalletManager: ObservableObject {
             PortfolioManager.shared.setCurrentWallet(nil)
             PortfolioViewModel.shared.setCurrentWallet(nil)
             SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
             SharedDataManager.setPrivateKeyAvailable(false)
         } catch {
             self.error = .keychainError(error.localizedDescription)
@@ -282,6 +285,7 @@ final class WalletManager: ObservableObject {
         PortfolioManager.shared.setCurrentWallet(wallet.publicAddress)
         PortfolioViewModel.shared.setCurrentWallet(wallet.publicAddress)
         SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         SharedDataManager.setPrivateKeyAvailable(true)
 
         // Reset chat and contacts data when importing a new/different wallet
@@ -354,6 +358,7 @@ final class WalletManager: ObservableObject {
         PortfolioManager.shared.setCurrentWallet(nil)
         PortfolioViewModel.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         SharedDataManager.setPrivateKeyAvailable(false)
     }
 
@@ -380,6 +385,7 @@ final class WalletManager: ObservableObject {
         PortfolioManager.shared.setCurrentWallet(nil)
         PortfolioViewModel.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         SharedDataManager.setPrivateKeyAvailable(false)
     }
 
@@ -502,6 +508,7 @@ final class WalletManager: ObservableObject {
         ContactsManager.shared.setActiveWalletAddress(nil)
         SharedDataManager.clearAllSharedData()
         SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         SharedDataManager.setPrivateKeyAvailable(false)
     }
 

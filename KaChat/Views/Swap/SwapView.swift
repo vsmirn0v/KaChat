@@ -11,6 +11,7 @@ struct SwapView: View {
 
     private enum Tab: Int { case swap, history }
     @State private var selectedTab: Tab = .swap
+    @State private var hasReadChangeNowTerms = false
 
     @State private var selectedSwap: SwapTransaction?
     @State private var showToAddressPicker = false
@@ -512,9 +513,34 @@ struct SwapView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Before You Swap")
                     .font(.headline.weight(.bold))
-                Text("Swaps are processed by ChangeNOW, a third-party exchange. By continuing, you confirm you've read and agree to ChangeNOW's own Terms of Service. KaChat only submits your swap request and displays its status; KaChat is not responsible for failed, delayed, or lost swaps. If a swap doesn't go through, contact ChangeNOW support directly.")
+                Text("Swaps are processed by ChangeNOW, a third-party exchange. KaChat only submits your swap request and displays its status; KaChat is not responsible for failed, delayed, or lost swaps. If a swap doesn't go through, contact ChangeNOW support directly.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+                Button {
+                    if let url = URL(string: "https://changenow.io/terms-of-use") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Text("Read ChangeNOW's Terms of Use")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.accentColor)
+                        .underline()
+                }
+                .buttonStyle(.plain)
+                // Agreeing is gated on explicitly confirming the terms were read.
+                Button {
+                    hasReadChangeNowTerms.toggle()
+                } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: hasReadChangeNowTerms ? "checkmark.square.fill" : "square")
+                            .foregroundColor(hasReadChangeNowTerms ? .accentColor : .secondary)
+                        Text("I have read and agree to ChangeNOW's Terms of Use")
+                            .font(.footnote)
+                            .foregroundColor(.primary)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+                .buttonStyle(.plain)
                 HStack {
                     Button("Not Now") {
                         selectedTab = .swap
@@ -525,7 +551,8 @@ struct SwapView: View {
                         swapService.agreeToSwapDisclaimer()
                     }
                     .fontWeight(.bold)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(hasReadChangeNowTerms ? .accentColor : .secondary)
+                    .disabled(!hasReadChangeNowTerms)
                 }
             }
             .padding(24)
