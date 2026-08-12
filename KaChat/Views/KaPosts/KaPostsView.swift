@@ -1153,11 +1153,17 @@ struct KaPostsView: View {
         // Notification/deep-link targets are usually YOUR OWN content, which lives outside
         // the feed window - pull own posts+replies from the indexer and look again. (A true
         // get-post endpoint on the fork would make this exact; flagged in the handoff doc.)
-        if let pubkey = try? KaPostsAPIClient.shared.requesterPubkey(),
-           let fetched = try? await KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey, includeReplies: true) {
-            let mapped = fetched.posts.compactMap(Self.mapRemotePost)
-            myProfileRemotePosts = mapped.filter { $0.parentRemoteId == nil }
-            myProfileRemoteReplies = mapped.filter { $0.parentRemoteId != nil }
+        // Replies come from get-replies?user= - the indexer's get-posts never returns them.
+        if let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() {
+            async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey)
+            async let repliesFetch = try? KaPostsAPIClient.shared.fetchUserReplies(pubkey: pubkey)
+            if let fetched = await postsFetch {
+                myProfileRemotePosts = fetched.posts.compactMap(Self.mapRemotePost)
+                    .filter { $0.parentRemoteId == nil }
+            }
+            if let fetchedReplies = await repliesFetch {
+                myProfileRemoteReplies = fetchedReplies.posts.compactMap(Self.mapRemotePost)
+            }
         }
         if let post = findPost(byRemoteId: txId) {
             openDetail(post)
@@ -1436,7 +1442,8 @@ struct KaPostsView: View {
                 guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
                 isLoadingMyProfilePosts = myProfileRemotePosts.isEmpty
                 async let detailsFetch = try? KaPostsAPIClient.shared.fetchUserDetails(pubkey: pubkey)
-                async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey, includeReplies: true)
+                async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey)
+                async let repliesFetch = try? KaPostsAPIClient.shared.fetchUserReplies(pubkey: pubkey)
                 if let details = await detailsFetch {
                     // Never count yourself as your own follower. followedUser here means
                     // "requester follows user" - with both being us, true = a stale on-chain
@@ -1456,9 +1463,11 @@ struct KaPostsView: View {
                     }
                 }
                 if let fetched = await postsFetch {
-                    let mapped = fetched.posts.compactMap(Self.mapRemotePost)
-                    myProfileRemotePosts = mapped.filter { $0.parentRemoteId == nil }
-                    myProfileRemoteReplies = mapped.filter { $0.parentRemoteId != nil }
+                    myProfileRemotePosts = fetched.posts.compactMap(Self.mapRemotePost)
+                        .filter { $0.parentRemoteId == nil }
+                }
+                if let fetchedReplies = await repliesFetch {
+                    myProfileRemoteReplies = fetchedReplies.posts.compactMap(Self.mapRemotePost)
                 }
                 isLoadingMyProfilePosts = false
             }
@@ -1642,15 +1651,18 @@ struct KaPostsView: View {
                 guard let pubkey = target.pubkey else { return }
                 isLoadingPosterProfile = true
                 async let detailsFetch = try? KaPostsAPIClient.shared.fetchUserDetails(pubkey: pubkey)
-                async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey, includeReplies: true)
+                async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey)
+                async let repliesFetch = try? KaPostsAPIClient.shared.fetchUserReplies(pubkey: pubkey)
                 if let details = await detailsFetch {
                     posterProfileFollowers = details.followersCount
                     posterProfileFollowing = details.followingCount
                 }
                 if let fetched = await postsFetch {
-                    let mapped = fetched.posts.compactMap(Self.mapRemotePost)
-                    posterProfilePosts = mapped.filter { $0.parentRemoteId == nil }
-                    posterProfileReplies = mapped.filter { $0.parentRemoteId != nil }
+                    posterProfilePosts = fetched.posts.compactMap(Self.mapRemotePost)
+                        .filter { $0.parentRemoteId == nil }
+                }
+                if let fetchedReplies = await repliesFetch {
+                    posterProfileReplies = fetchedReplies.posts.compactMap(Self.mapRemotePost)
                 }
                 isLoadingPosterProfile = false
             }

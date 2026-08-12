@@ -266,13 +266,25 @@ final class KaPostsAPIClient: ObservableObject {
         return (Self.filterKaChat(response.posts).filter { ($0.contentType ?? "post") != "reply" }, response.pagination)
     }
 
-    /// One user's posts (by K pubkey).
+    /// One user's posts (by K pubkey). NOTE: the deployed indexer ignores includeReplies
+    /// (get-posts serves content_type post/quote only) - use fetchUserReplies for replies.
     func fetchUserPosts(pubkey: String, limit: Int = 50, before: String? = nil, includeReplies: Bool = false) async throws -> (posts: [KPost], pagination: KPagination?) {
         var query = ["user": pubkey, "requesterPubkey": try requesterPubkey(), "limit": "\(limit)"]
         if includeReplies { query["includeReplies"] = "true" }
         if let before { query["before"] = before }
         let response: PostsResponse = try await get("get-posts", query: query)
         return (Self.filterKaChat(response.posts), response.pagination)
+    }
+
+    /// One user's replies across ALL threads: get-replies with `user` instead of `post`
+    /// (verified live). The indexer's get-posts only serves content_type post/quote and
+    /// ignores includeReplies, so the profile Replies tab must read this endpoint.
+    /// Items carry parentPostId. KaChat-filtered like everything else.
+    func fetchUserReplies(pubkey: String, limit: Int = 50, before: String? = nil) async throws -> (posts: [KPost], pagination: KPagination?) {
+        var query = ["user": pubkey, "requesterPubkey": try requesterPubkey(), "limit": "\(limit)"]
+        if let before { query["before"] = before }
+        let response: RepliesResponse = try await get("get-replies", query: query)
+        return (Self.filterKaChat(response.replies), response.pagination)
     }
 
     /// Replies to a post. KaChat-filtered like everything else.
