@@ -218,19 +218,35 @@ is baked in so uploaded **videos** generate thumbnails too.
 # === KaChat self-hosted cloud: Nextcloud + Portainer + Nginx Proxy Manager ===
 KC_DIR="$HOME/kachat-cloud"; mkdir -p "$KC_DIR"; cd "$KC_DIR" || exit 1
 
-# 1) Install Docker if it is missing
-if ! command -v docker >/dev/null 2>&1; then
+# 1) Install Docker if it is missing, then make sure the engine is running
+if command -v docker >/dev/null 2>&1; then
+  echo "Docker is already installed."
+else
   echo "Docker not found — installing..."
   if [ "$(uname)" = "Darwin" ]; then
     command -v brew >/dev/null 2>&1 || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     brew install --cask docker; open -a Docker
   else
-    curl -fsSL https://get.docker.com | sh; sudo usermod -aG docker "$USER" 2>/dev/null || true
+    curl -fsSL https://get.docker.com | sh
+    sudo usermod -aG docker "$USER" 2>/dev/null || true
   fi
 fi
+
+# On Linux the daemon often isn't started right after install — start it now.
+# (systemd on normal distros; 'service' is the fallback for WSL/older init.)
+if [ "$(uname)" != "Darwin" ]; then
+  sudo systemctl enable --now docker 2>/dev/null || sudo service docker start 2>/dev/null || true
+fi
+
 echo "Waiting for the Docker engine to be ready..."
-until docker info >/dev/null 2>&1 || sudo docker info >/dev/null 2>&1; do sleep 3; done
+tries=0
+until docker info >/dev/null 2>&1 || sudo docker info >/dev/null 2>&1; do
+  tries=$((tries+1))
+  [ "$tries" -eq 10 ] && echo "Still starting... if this hangs, in another terminal run:  sudo systemctl start docker   (WSL:  sudo service docker start)"
+  sleep 3
+done
 if docker info >/dev/null 2>&1; then DK="docker"; else DK="sudo docker"; fi
+echo "Docker engine is ready."
 
 # 2) Generate secrets and detect this machine's LAN IP
 gen() { openssl rand -hex 16; }
