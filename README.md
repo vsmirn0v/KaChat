@@ -709,6 +709,29 @@ docker compose up -d        # start again
 docker compose pull && docker compose up -d --build   # update to newest images
 ```
 
+
+### Uninstall / revert everything
+
+To completely undo this setup on the machine — remove the KaChat cloud containers, all
+their data and images, the `kachat-cloud` folder, **and Docker itself** — run the one-liner
+for your system.
+
+**macOS & Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vsmirn0v/KaChat/main/scripts/kachat-cloud-uninstall.sh | bash
+```
+
+**Windows** — PowerShell as Administrator:
+
+```powershell
+irm https://raw.githubusercontent.com/vsmirn0v/KaChat/main/scripts/kachat-cloud-uninstall.ps1 | iex
+```
+
+> This permanently deletes the Nextcloud data volumes and uninstalls Docker. To wipe the
+> KaChat cloud but **keep** Docker, instead run:
+> `cd ~/kachat-cloud && docker compose --profile public down -v --rmi all && cd ~ && rm -rf ~/kachat-cloud`
+
 </details>
 
 ## Support
