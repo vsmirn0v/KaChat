@@ -1376,7 +1376,11 @@ private struct BroadcastMessageRow: View {
                     }
             }
         }
-            .frame(maxWidth: 280, alignment: isOwnMessage ? .trailing : .leading)
+            // Overlays are attached HERE - to the content-hugging Group, BEFORE the
+            // `.frame(maxWidth: 280)` below - exactly like 1:1's `MessageBubbleView` and group
+            // chat anchor theirs to the bubble itself. That frame EXPANDS to fill up to 280pt
+            // regardless of how narrow the bubble is, so anything overlaid after it anchors to
+            // the frame's screen-side corner and visibly floats away from a short bubble.
             .overlay(alignment: .bottomTrailing) {
                 if isOwnMessage {
                     deliveryBadge
@@ -1389,8 +1393,10 @@ private struct BroadcastMessageRow: View {
                         .offset(y: 10)
                 }
             }
-            // Reserve the overlay pill's ~10pt overhang so it doesn't overlap the next message.
+            // The pill is an overlay (no layout footprint) offset ~10pt below the bubble, so
+            // reserve that space when reactions exist - otherwise it overlaps the next message.
             .padding(.bottom, reactions.isEmpty ? 0 : 16)
+            .frame(maxWidth: 280, alignment: isOwnMessage ? .trailing : .leading)
             .tint(.accentColor)
             // `.simultaneousGesture` rather than `.onTapGesture(count: 2)`: the latter is a
             // discrete, exclusive gesture that a Button descendant (the truncated-text preview's
