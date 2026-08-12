@@ -1,4 +1,6 @@
 # KaChat (iOS)
+<details>
+<summary>Summary</summary>
 
 KaChat is a native SwiftUI iOS app for encrypted peer-to-peer messaging and payments on the Kaspa blockchain.
 
@@ -13,8 +15,6 @@ It combines:
 
 ## Project Status
 
-<details>
-<summary>Summary</summary>
 
 This repository contains an actively developed app and companion extensions:
 - Main app target: `KaChat`
@@ -23,12 +23,7 @@ This repository contains an actively developed app and companion extensions:
 
 Current deployment target is iOS 16.0.
 
-</details>
-
 ## Key Features
-
-<details>
-<summary>Summary</summary>
 
 - Wallet onboarding/import and secure key handling
 - One-to-one encrypted chats using handshake + contextual message flow
@@ -41,12 +36,7 @@ Current deployment target is iOS 16.0.
 - Per-wallet CloudKit zones for message isolation
 - Localization support across multiple languages (`*.lproj`)
 
-</details>
-
 ## Architecture
-
-<details>
-<summary>Summary</summary>
 
 KaChat follows MVVM with singleton services injected through `@EnvironmentObject`.
 
@@ -67,12 +57,9 @@ Core service responsibilities:
 - `MessageStore`: Core Data + CloudKit persistence
 - `PushNotificationManager`: APNs registration and reliability logic
 
-</details>
 
 ## Messaging and Payment Model
 
-<details>
-<summary>Summary</summary>
 
 KaChat uses Kasia protocol payloads embedded in Kaspa transactions:
 
@@ -90,12 +77,8 @@ Payments and handshakes are recipient-addressed transactions and require sender 
 
 See [MESSAGING.md](MESSAGING.md) for full protocol details.
 
-</details>
 
 ## Networking and Sync
-
-<details>
-<summary>Summary</summary>
 
 KaChat combines multiple channels:
 - Kaspa gRPC nodes for UTXO subscriptions and transaction operations
@@ -112,12 +95,9 @@ Node connectivity is managed by the POOLS_v2 architecture:
 
 See [POOLS_v2.md](POOLS_v2.md) for details.
 
-</details>
 
 ## Security and Storage
 
-<details>
-<summary>Summary</summary>
 
 - Keys/seeds are wrapped with device-specific Secure Enclave keys
 - Message persistence uses Core Data with CloudKit sync
@@ -129,12 +109,7 @@ Bundle identifiers used by the app:
 - CloudKit container: `iCloud.com.kachat.app`
 - App Group: `group.com.kachat.app`
 
-</details>
-
 ## Push Notifications
-
-<details>
-<summary>Summary</summary>
 
 Push supports background/terminated message delivery using a push-capable Kasia indexer.
 
@@ -145,12 +120,7 @@ Push supports background/terminated message delivery using a push-capable Kasia 
 
 See [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md) and [PUSH_SECURITY_AUDIT.md](PUSH_SECURITY_AUDIT.md).
 
-</details>
-
 ## Repository Structure
-
-<details>
-<summary>Summary</summary>
 
 ```text
 .
@@ -169,23 +139,13 @@ See [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md) and [PUSH_SECURITY_AUDIT.md](
 └── *.md                          # Architecture/protocol/security docs
 ```
 
-</details>
-
 ## Dependencies
-
-<details>
-<summary>Summary</summary>
 
 - `P256K.xcframework` for secp256k1 operations/signing
 - `GRPCAll.xcframework` and `SwiftProtobuf.xcframework` for gRPC stack
 - `YbridOpus` Swift package (from `opus-swift`) for voice codec integration
 
-</details>
-
 ## Getting Started
-
-<details>
-<summary>Summary</summary>
 
 1. Open `KaChat.xcodeproj` in Xcode.
 2. Configure signing/capabilities for your Apple team.
@@ -197,12 +157,7 @@ See [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md) and [PUSH_SECURITY_AUDIT.md](
 4. Select a simulator/device (iOS 16+).
 5. Build and run.
 
-</details>
-
 ## Build and Test Commands
-
-<details>
-<summary>Summary</summary>
 
 ```bash
 # Open in Xcode
@@ -218,12 +173,7 @@ xcodebuild -project KaChat.xcodeproj -scheme KaChat -destination 'platform=iOS S
 xcodebuild -project KaChat.xcodeproj -scheme KaChat clean
 ```
 
-</details>
-
 ## Configuration
-
-<details>
-<summary>Summary</summary>
 
 Connection settings are user-configurable in-app:
 - Network: mainnet/testnet
@@ -233,12 +183,7 @@ Connection settings are user-configurable in-app:
 
 Defaults are managed via `AppSettings`.
 
-</details>
-
 ## Documentation Map
-
-<details>
-<summary>Summary</summary>
 
 - [CLAUDE.md](CLAUDE.md): architecture and development guidance
 - [MESSAGING.md](MESSAGING.md): protocol and transaction semantics
@@ -246,12 +191,7 @@ Defaults are managed via `AppSettings`.
 - [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md): push delivery design
 - [PUSH_SECURITY_AUDIT.md](PUSH_SECURITY_AUDIT.md): push threat model/mitigations
 
-</details>
-
 ## Known Limitations
-
-<details>
-<summary>Summary</summary>
 
 - Per-contact realtime disable path is currently documented as unstable/broken and needs follow-up fixes.
 - TODO: Integrate VCC2 API in a future update; this is strongly desired to provide a more stable messaging pipeline.
@@ -259,7 +199,6 @@ Defaults are managed via `AppSettings`.
 </details>
 
 ## Self-Hosted Cloud (Nextcloud) Setup
-
 <details>
 <summary>Summary</summary>
 
