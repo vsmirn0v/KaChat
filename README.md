@@ -233,7 +233,7 @@ Proxy Manager. Re-running is safe — it reuses the passwords already saved in `
 **macOS & Linux** — open a terminal and run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vsmirn0v/KaChat/main/scripts/kachat-cloud-setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/vsmirn0v/KaChat/main/scripts/kachat-cloud-setup.sh -o /tmp/kachat-cloud-setup.sh && bash /tmp/kachat-cloud-setup.sh
 ```
 
 **Windows** — open **PowerShell as Administrator** and run:
@@ -260,7 +260,12 @@ kachat_install() {
   elif [ "$OS" = "Darwin" ]; then
     echo "Docker not found — installing Docker Desktop (Homebrew)..."
     command -v brew >/dev/null 2>&1 || /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    brew install --cask docker && open -a Docker
+    brew install --cask docker || brew install --cask docker-desktop
+    open -a Docker
+    echo ""
+    echo ">> A Docker Desktop window will open. Complete its first-run setup (accept the terms and"
+    echo ">> let it start). This script continues automatically once the engine is running. If it"
+    echo ">> doesn't continue within a few minutes, just run the same command again."
   else
     echo "Docker not found — installing..."
     # get.docker.com needs curl; install it first if missing
@@ -296,9 +301,15 @@ kachat_install() {
   tries=0
   until docker info >/dev/null 2>&1 || sudo docker info >/dev/null 2>&1; do
     tries=$((tries+1))
-    [ "$tries" -eq 20 ] && echo "Still waiting — in another terminal check:  sudo systemctl status docker   (WSL:  sudo service docker start)"
-    if [ "$tries" -ge 60 ]; then
-      echo "!! Docker engine did not become ready. Start it with the hint above, then run this block again."
+    if [ "$tries" -eq 20 ]; then
+      if [ "$OS" = "Darwin" ]; then
+        echo "Still waiting — make sure the Docker Desktop window has finished starting (whale icon steady)."
+      else
+        echo "Still waiting — in another terminal check:  sudo systemctl status docker   (WSL:  sudo service docker start)"
+      fi
+    fi
+    if [ "$tries" -ge 100 ]; then
+      echo "!! Docker isn't ready yet. Once Docker is running, run the same command again to continue."
       return 1
     fi
     sleep 3
@@ -719,7 +730,7 @@ for your system.
 **macOS & Linux:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vsmirn0v/KaChat/main/scripts/kachat-cloud-uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/vsmirn0v/KaChat/main/scripts/kachat-cloud-uninstall.sh -o /tmp/kachat-cloud-uninstall.sh && bash /tmp/kachat-cloud-uninstall.sh
 ```
 
 **Windows** — PowerShell as Administrator:
