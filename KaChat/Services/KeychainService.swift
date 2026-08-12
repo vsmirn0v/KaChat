@@ -24,6 +24,7 @@ final class KeychainService {
         case wallet = "kachat_wallet"
         case privateKey = "kachat_private_key"
         case groupBag = "kachat_group_bag"
+        case nextcloudCredentials = "kachat_nextcloud_credentials"
     }
 
     private enum SecureEnclaveAlgorithm: UInt8 {
@@ -98,6 +99,20 @@ final class KeychainService {
         } catch {
             return false
         }
+    }
+
+    // MARK: - Nextcloud (server + app-password credentials, see NextcloudService)
+
+    func saveNextcloudCredentials(_ data: Data) throws {
+        _ = try save(data: data, forKey: .nextcloudCredentials)
+    }
+
+    func loadNextcloudCredentials() throws -> Data? {
+        try load(forKey: .nextcloudCredentials)
+    }
+
+    func deleteNextcloudCredentials() throws {
+        try delete(forKey: .nextcloudCredentials)
     }
 
     // MARK: - Wallet

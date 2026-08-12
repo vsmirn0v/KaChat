@@ -128,6 +128,10 @@ struct ChatDetailView: View {
     @State private var recordingTimer: Timer?
     @State private var recordingDuration: TimeInterval = 0
     @State private var recordingFeeSompi: UInt64?
+    /// Untouched copy of the recorder's full-length PCM, kept only in Nextcloud mode — the
+    /// on-chain WebM/Opus encode truncates to the ~13KB payload cap (≈9s), and exporting the
+    /// M4A from that would silently re-cap a long Nextcloud recording.
+    @State private var nextcloudOriginalRecordingURL: URL?
     @State private var recordingFeeTask: Task<Void, Never>?
     @State private var feeShimmerPhase: CGFloat = -1
     @State private var previewPlayer: AVAudioPlayer?
@@ -138,8 +142,17 @@ struct ChatDetailView: View {
     @State private var recorderDelegate = AudioRecorderDelegate()
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var showPhotoPickerFromMenu = false
+    @State private var showNextcloudPicker = false
+    /// Drives the connected-state composer layout: with a Nextcloud server linked, the + menu
+    /// drops Send Photo / Send Audio in favor of "Send from Nextcloud", and the message bar
+    /// grows camera + mic buttons whose captures ride the Nextcloud auto-upload send path.
+    @ObservedObject private var nextcloudService = NextcloudService.shared
     @State private var showCamera = false
     @State private var pendingPhotoImage: UIImage?
+    /// The exact bytes the pending photo was attached from (picker/camera/paste/drop), kept so
+    /// "Send Media via Nextcloud" can upload the untouched original (HEIC/PNG/JPEG, full
+    /// resolution) instead of a re-encode of the decoded UIImage. Cleared with the pending photo.
+    @State private var pendingPhotoOriginalData: Data?
     @State private var isCompressingPhoto = false
     @State private var hasPerformedInitialSetup = false
     @State private var isImageDropTarget = false
@@ -152,7 +165,16 @@ struct ChatDetailView: View {
     @State private var activeChessGameId: String?
     @FocusState private var isPaymentFocused: Bool
 
-    private let maxRecordingDuration: TimeInterval = 10 // seconds
+    private let maxRecordingDuration: TimeInterval = 10 // seconds (on-chain payload cap)
+    /// Nextcloud-uploaded voice notes aren't payload-bound — only the server carries them —
+    /// so the ceiling relaxes to 10 minutes while "Send Media via Nextcloud" is active.
+    private let maxNextcloudRecordingDuration: TimeInterval = 600
+
+    private var effectiveMaxRecordingDuration: TimeInterval {
+        (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+            ? maxNextcloudRecordingDuration
+            : maxRecordingDuration
+    }
     private let maxAudioBytes: Int = 13_000
     private let opusBitrate: Int32 = 6_000
     private let opusSampleRate: Double = 48_000
@@ -752,6 +774,7 @@ struct ChatDetailView: View {
             if messageText.isEmpty {
                 messageText = chatService.draft(for: contact.address)
             }
+            attachPendingShareImageIfAvailable(for: contact.address)
             previousMessagesCount = messages.count
             // Mark conversation as read once when view appears
             if let conversation = conversation {
@@ -806,8 +829,19 @@ struct ChatDetailView: View {
             _ = await knsService.fetchProfile(for: contact.address)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
-            guard let targetAddress = notification.userInfo?["contactAddress"] as? String,
-                  targetAddress != contact.address else { return }
+            guard let targetAddress = notification.userInfo?["contactAddress"] as? String else { return }
+            if targetAddress == contact.address {
+                // Share-sheet handoff into the chat that's already open: refresh the composer
+                // pre-fill in place (the draft was just written by the share intake) and attach
+                // any staged shared image.
+                let draft = chatService.draft(for: contact.address)
+                if !draft.isEmpty && draft != messageText {
+                    messageText = draft
+                }
+                attachPendingShareImageIfAvailable(for: contact.address)
+                chatService.pendingChatNavigation = nil
+                return
+            }
             let startInPaymentMode = notification.userInfo?["paymentMode"] as? Bool ?? false
             // Find the target contact
             let target: Contact?
@@ -871,6 +905,7 @@ struct ChatDetailView: View {
             previousMessagesCount = messages.count
             chatService.enterConversation(for: newContact.address)
             messageText = chatService.draft(for: newContact.address)
+            attachPendingShareImageIfAvailable(for: newContact.address)
             if let conv = chatService.conversations.first(where: { $0.contact.address == newContact.address }) {
                 Task {
                     await chatService.markConversationAsRead(conv)
@@ -1242,9 +1277,61 @@ struct ChatDetailView: View {
                     showCamera = false
                     _ = attachImageData(data)
                 },
-                onCancel: { showCamera = false }
+                onCancel: { showCamera = false },
+                // Video mode only exists when the Nextcloud media route can carry the file —
+                // there is no on-chain path that fits a video.
+                onCaptureVideo: (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+                    ? { fileURL in
+                        showCamera = false
+                        sendNextcloudVideo(fileURL)
+                    }
+                    : nil
             )
             .ignoresSafeArea()
+        }
+    }
+
+    /// Pre-seeds the link-preview cache with what we just uploaded — the sender's own bubble
+    /// renders the media card instantly with zero network, no probe round trip needed (we
+    /// KNOW the kind/name/size; only recipients have to discover them).
+    private func seedNextcloudPreview(for shareURL: URL, kind: NextcloudMediaKind, title: String, byteSize: Int) async {
+        guard let endpoints = LinkPreviewService.nextcloudShareEndpoints(for: shareURL) else { return }
+        await LinkPreviewService.shared.seed(LinkPreviewData(
+            url: shareURL,
+            title: title,
+            description: nil,
+            imageURLString: endpoints.previewURL.absoluteString,
+            siteName: shareURL.host.map { "Nextcloud · \($0)" } ?? "Nextcloud",
+            nextcloudMedia: kind,
+            mediaDownloadURLString: endpoints.downloadURL.absoluteString,
+            mediaByteSize: Int64(byteSize)
+        ))
+    }
+
+    /// Uploads a just-recorded camera clip to Nextcloud and sends its share link — the
+    /// recipient's preview renders it as a playable video bubble. On failure the clip can't
+    /// fall back on-chain (videos don't fit a payload), so the error surfaces directly.
+    private func sendNextcloudVideo(_ fileURL: URL) {
+        Task {
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let ext = fileURL.pathExtension.isEmpty ? "mov" : fileURL.pathExtension.lowercased()
+                let contentType = ext == "mp4" ? "video/mp4" : "video/quicktime"
+                let videoFilename = "video_\(Int(Date().timeIntervalSince1970)).\(ext)"
+                let shareURL = try await NextcloudService.shared.uploadMediaAndShare(
+                    data: data,
+                    filename: videoFilename,
+                    contentType: contentType
+                )
+                await seedNextcloudPreview(for: shareURL, kind: .video, title: videoFilename, byteSize: data.count)
+                try await chatService.sendMessage(to: contact, content: shareURL.absoluteString, feeOverride: nil)
+            } catch {
+                AppLog.log("[ChatDetailView] Nextcloud video send failed: %@", error.localizedDescription)
+                await MainActor.run {
+                    self.error = displayErrorMessage(error)
+                }
+            }
         }
     }
 
@@ -1330,16 +1417,29 @@ struct ChatDetailView: View {
     /// button that used to clutter this same spot.
     private var composerPlusMenu: some View {
         Menu {
-            Button {
-                showPhotoPickerFromMenu = true
-            } label: {
-                Label("Send Photo", systemImage: "photo")
+            // With "Send Media via Nextcloud" toggled on, the composer bar's own camera/mic
+            // buttons cover native capture (uploading via the server), so the menu offers only
+            // the server browser. Toggle off keeps the classic Send Photo / Send Audio entries
+            // (plus the browser row whenever a server is connected).
+            if nextcloudService.isConnected {
+                Button {
+                    showNextcloudPicker = true
+                } label: {
+                    Label("Send from Nextcloud", systemImage: "externaldrive.connected.to.line.below")
+                }
             }
-            Button {
-                switchMode(.audio)
-                startRecording()
-            } label: {
-                Label("Send Audio Message", systemImage: "mic.circle.fill")
+            if !(nextcloudService.isConnected && nextcloudService.mediaSendEnabled) {
+                Button {
+                    showPhotoPickerFromMenu = true
+                } label: {
+                    Label("Send Photo", systemImage: "photo")
+                }
+                Button {
+                    switchMode(.audio)
+                    startRecording()
+                } label: {
+                    Label("Send Audio Message", systemImage: "mic.circle.fill")
+                }
             }
             Button {
                 switchMode(.payment)
@@ -1374,6 +1474,11 @@ struct ChatDetailView: View {
         .tint(.accentColor)
         .accessibilityLabel(Text("More options"))
         .photosPicker(isPresented: $showPhotoPickerFromMenu, selection: $photoPickerItem, matching: .images)
+        .sheet(isPresented: $showNextcloudPicker) {
+            NextcloudPickerView { url, _ in
+                sendNextcloudLink(url)
+            }
+        }
         .onChange(of: photoPickerItem) { newItem in
             guard let newItem else { return }
             Task {
@@ -1676,6 +1781,27 @@ struct ChatDetailView: View {
         }
     }
 
+    /// Sends a just-created Nextcloud share link as a normal text message — the recipient's
+    /// link-preview feature renders it as tappable media. Same send path and error handling as
+    /// a typed message; the link is tiny, so no fee override machinery is needed.
+    private func sendNextcloudLink(_ url: URL) {
+        Task {
+            do {
+                try await chatService.sendMessage(to: contact, content: url.absoluteString, feeOverride: nil)
+            } catch {
+                if shouldPromptGiftClaim(for: error) {
+                    await MainActor.run {
+                        NotificationCenter.default.post(name: .showGiftClaim, object: nil)
+                    }
+                }
+                AppLog.log("[ChatDetailView] Nextcloud link send failed: %@", error.localizedDescription)
+                await MainActor.run {
+                    self.error = displayErrorMessage(error)
+                }
+            }
+        }
+    }
+
     private var paymentField: some View {
         HStack {
             // Toggles KAS/fiat entry mode, matching Cold Storage's send flow - the leading icon is
@@ -1766,7 +1892,8 @@ struct ChatDetailView: View {
 
                         // Quick-access camera, replacing what used to be a "Camera" entry in the
                         // "+" menu - living right in the compose bubble instead since it's the
-                        // most common non-text action.
+                        // most common non-text action. When "Send Media via Nextcloud" is on,
+                        // captures ride the auto-upload send path automatically.
                         Button {
                             takePhoto()
                         } label: {
@@ -1776,6 +1903,21 @@ struct ChatDetailView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(Text("Take Photo"))
+
+                        // Its voice-note sibling: one tap starts recording, same as the old
+                        // "+"-menu entry — and the finished note likewise uploads via Nextcloud
+                        // whenever the toggle is on.
+                        Button {
+                            switchMode(.audio)
+                            startRecording()
+                        } label: {
+                            Image(systemName: "mic")
+                                .font(.body)
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.leading, 6)
+                        .accessibilityLabel(Text("Record Voice Message"))
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -2453,18 +2595,23 @@ struct ChatDetailView: View {
             isEstimatingFee = false
             return
         }
-        let dummyPayload = Data(
-            count: ImagePrep.estimatedWirePayloadSize(
+        // Via Nextcloud, the chain only carries the ~80-byte share link — the photo bytes live
+        // on the server — so the fee shown is the link-message fee, not the envelope fee.
+        let payloadSize = (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+            ? Self.nextcloudLinkPayloadSize
+            : ImagePrep.estimatedWirePayloadSize(
                 targetBytes: settingsViewModel.settings.chatPhotoQualityPreset.targetBytes
             )
-        )
         feeEstimateSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
-            payload: dummyPayload,
+            payload: Data(count: payloadSize),
             inputCount: 1,
             senderScriptPubKey: senderScriptPubKey
         )
         isEstimatingFee = false
     }
+
+    /// Representative encrypted-payload size of a Nextcloud `/s/TOKEN` share-link message.
+    private static let nextcloudLinkPayloadSize = 96
 
     private func schedulePaymentFee(for text: String) {
         feeEstimateTask?.cancel()
@@ -2567,6 +2714,10 @@ struct ChatDetailView: View {
                     self.isRecording = true
                     self.recordedAudioURL = nil
                     self.recordedAudioPreviewURL = nil
+                    if let stale = self.nextcloudOriginalRecordingURL {
+                        self.secureDeleteTempFile(stale)
+                        self.nextcloudOriginalRecordingURL = nil
+                    }
                     self.isEncodingAudio = false
                     self.recordingDuration = 0
                     self.feeEstimateSompi = nil
@@ -2605,6 +2756,10 @@ struct ChatDetailView: View {
         if let url = recordedAudioURL {
             secureDeleteTempFile(url)
         }
+        if let originalURL = nextcloudOriginalRecordingURL {
+            secureDeleteTempFile(originalURL)
+            nextcloudOriginalRecordingURL = nil
+        }
         recorder = nil
         recordedAudioURL = nil
         recordedAudioPreviewURL = nil
@@ -2622,9 +2777,21 @@ struct ChatDetailView: View {
 
     private func cancelPendingPhoto() {
         pendingPhotoImage = nil
+        pendingPhotoOriginalData = nil
         photoPickerItem = nil
         feeEstimateSompi = nil
         isEstimatingFee = false
+    }
+
+    /// Attaches an image staged by the Share Extension handoff (see
+    /// `ChatService.pendingShareImage(for:)`) as the composer's pending photo. Leaves the image
+    /// staged when the composer can't take an attachment right now (e.g. another photo pending);
+    /// it will be retried the next time this chat appears.
+    private func attachPendingShareImageIfAvailable(for address: String) {
+        guard canAcceptImageAttachment,
+              let data = chatService.pendingShareImage(for: address) else { return }
+        chatService.clearPendingShareImage(for: address)
+        _ = attachImageData(data)
     }
 
     @discardableResult
@@ -2636,6 +2803,7 @@ struct ChatDetailView: View {
         }
 
         pendingPhotoImage = image
+        pendingPhotoOriginalData = data
         isMessageFocused = false
         schedulePhotoFeeEstimate()
         return true
@@ -2687,6 +2855,60 @@ struct ChatDetailView: View {
             isCompressingPhoto = false
             isSending = false
         }
+
+        // "Send Media via Nextcloud" (1:1 chats only — this view; groups/broadcasts keep their
+        // own send paths): upload the best-quality bytes we have and send the public share link
+        // as a normal text message (the recipient's link-preview feature renders it as a media
+        // bubble). Any upload/share failure falls back to the on-chain envelope below, with a
+        // toast so the sender knows the full-quality upload didn't happen.
+        if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+            var shareURL: URL?
+            do {
+                guard let upload = nextcloudPhotoUpload(for: image) else {
+                    throw KasiaError.networkError("Couldn't encode the photo for upload.")
+                }
+                shareURL = try await NextcloudService.shared.uploadMediaAndShare(
+                    data: upload.data,
+                    filename: upload.filename,
+                    contentType: upload.contentType
+                )
+                if let shareURL {
+                    await seedNextcloudPreview(for: shareURL, kind: .image, title: upload.filename, byteSize: upload.data.count)
+                }
+            } catch {
+                AppLog.log("[ChatDetailView] Nextcloud photo upload failed, falling back to on-chain: %@",
+                           error.localizedDescription)
+                await MainActor.run {
+                    showToast("Nextcloud upload failed — sending on-chain instead", style: .error)
+                }
+            }
+            if let shareURL {
+                do {
+                    try await chatService.sendMessage(to: contact, content: shareURL.absoluteString, feeOverride: nil)
+                    await MainActor.run {
+                        pendingPhotoImage = nil
+                        pendingPhotoOriginalData = nil
+                        photoPickerItem = nil
+                        feeEstimateSompi = nil
+                        isEstimatingFee = false
+                    }
+                } catch {
+                    // The chain send itself failed — an on-chain image envelope would fail the
+                    // same way, so surface the error instead of falling back.
+                    if shouldPromptGiftClaim(for: error) {
+                        await MainActor.run {
+                            NotificationCenter.default.post(name: .showGiftClaim, object: nil)
+                        }
+                    }
+                    await MainActor.run {
+                        self.error = displayErrorMessage(error)
+                    }
+                }
+                return
+            }
+            // No share link — fall through to the on-chain envelope path.
+        }
+
         do {
             let preparedImage = try ImagePrep.prepareForChatMessage(
                 image,
@@ -2700,6 +2922,7 @@ struct ChatDetailView: View {
             )
             await MainActor.run {
                 pendingPhotoImage = nil
+                pendingPhotoOriginalData = nil
                 photoPickerItem = nil
                 feeEstimateSompi = nil
                 isEstimatingFee = false
@@ -2723,13 +2946,36 @@ struct ChatDetailView: View {
     private func preparePreview() {
         guard let audioURL = recordedAudioURL else { return }
         stopPreview()
+
+        // Nextcloud mode: preview the full-length original — that's what actually uploads.
+        // The WebM decode below reflects only the payload-capped on-chain encode (~9s), which
+        // would make a long recording sound truncated in preview while sending fine.
+        if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected,
+           let originalURL = nextcloudOriginalRecordingURL,
+           FileManager.default.fileExists(atPath: originalURL.path) {
+            do {
+                if let oldPreview = recordedAudioPreviewURL, oldPreview != originalURL {
+                    secureDeleteTempFile(oldPreview)
+                }
+                recordedAudioPreviewURL = originalURL
+                try setPlaybackSession()
+                let player = try AVAudioPlayer(contentsOf: originalURL, fileTypeHint: AVFileType.caf.rawValue)
+                previewPlayer = player
+                previewLabel = formatDuration(player.duration)
+                return
+            } catch {
+                // Original unreadable for some reason — fall through to the WebM-decode preview.
+            }
+        }
+
         do {
             // Decode WebM/Opus to CAF for preview playback (same quality as recipient will hear)
             let audioData = try Data(contentsOf: audioURL)
             let decoded = try decodeWebMForPreview(data: audioData)
 
-            // Clean up old preview file
-            if let oldPreview = recordedAudioPreviewURL {
+            // Clean up old preview file (never the stashed Nextcloud original — the upload
+            // path still needs it).
+            if let oldPreview = recordedAudioPreviewURL, oldPreview != nextcloudOriginalRecordingURL {
                 secureDeleteTempFile(oldPreview)
             }
             recordedAudioPreviewURL = decoded.url
@@ -2773,6 +3019,96 @@ struct ChatDetailView: View {
         return (decoded.url, decoded.duration)
     }
 
+    // MARK: - Nextcloud media send helpers ("Send Media via Nextcloud" toggle)
+
+    /// Human-sortable timestamp for uploaded media filenames (photo_20260811-101502.jpg).
+    private static let mediaTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter
+    }()
+
+    /// The best-quality photo bytes available for a Nextcloud upload: the exact original data
+    /// the photo was attached from (untouched HEIC/PNG/JPEG at full resolution) when the
+    /// composer still holds it, else a high-quality JPEG re-encode of the decoded image.
+    /// Nil only if even the JPEG re-encode fails (caller treats that as an upload failure).
+    private func nextcloudPhotoUpload(for image: UIImage) -> (data: Data, filename: String, contentType: String)? {
+        let stamp = Self.mediaTimestampFormatter.string(from: Date())
+        if let original = pendingPhotoOriginalData {
+            let format = Self.sniffImageFormat(original)
+            return (original, "photo_\(stamp).\(format.ext)", format.contentType)
+        }
+        guard let jpeg = image.jpegData(compressionQuality: 0.9) else { return nil }
+        return (jpeg, "photo_\(stamp).jpg", "image/jpeg")
+    }
+
+    /// Magic-byte sniff so the uploaded file keeps an extension matching its actual container —
+    /// Nextcloud derives the served Content-Type from the extension, and the recipient's media
+    /// card branches on that Content-Type. Unknown formats default to .jpg: any image/* type
+    /// still renders as an image card, and UIImage decodes from the real bytes regardless.
+    private static func sniffImageFormat(_ data: Data) -> (ext: String, contentType: String) {
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return ("jpg", "image/jpeg") }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return ("png", "image/png") }
+        if data.starts(with: [0x47, 0x49, 0x46, 0x38]) { return ("gif", "image/gif") }
+        if data.count >= 12,
+           data.prefix(4) == Data("RIFF".utf8),
+           data[data.startIndex + 8 ..< data.startIndex + 12] == Data("WEBP".utf8) {
+            return ("webp", "image/webp")
+        }
+        if data.count >= 12, data[data.startIndex + 4 ..< data.startIndex + 8] == Data("ftyp".utf8) {
+            return ("heic", "image/heic")
+        }
+        return ("jpg", "image/jpeg")
+    }
+
+    /// Builds an AAC .m4a of the current recording for the Nextcloud upload. PCM source: the
+    /// already-decoded preview CAF when it exists (decoded from the same Opus bytes the
+    /// recipient would have heard), else the WebM payload is decoded again on the spot.
+    private func exportRecordingAsM4A(webmData: Data) async throws -> URL {
+        let pcmURL: URL
+        let deletePCMAfter: Bool
+        if let originalURL = nextcloudOriginalRecordingURL,
+           FileManager.default.fileExists(atPath: originalURL.path) {
+            // The pre-encode original: full length, never truncated by the payload cap.
+            pcmURL = originalURL
+            deletePCMAfter = false // cleaned up by the send/cancel paths, not here
+        } else if let previewURL = recordedAudioPreviewURL, FileManager.default.fileExists(atPath: previewURL.path) {
+            pcmURL = previewURL
+            deletePCMAfter = false
+        } else {
+            pcmURL = try decodeWebMForPreview(data: webmData).url
+            deletePCMAfter = true
+        }
+        defer {
+            if deletePCMAfter { secureDeleteTempFile(pcmURL) }
+        }
+
+        guard let export = AVAssetExportSession(asset: AVURLAsset(url: pcmURL),
+                                                presetName: AVAssetExportPresetAppleM4A) else {
+            throw KasiaError.networkError("Audio export is unavailable on this device.")
+        }
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kachat-voice-\(UUID().uuidString).m4a")
+        export.outputURL = outputURL
+        export.outputFileType = .m4a
+        // AVAssetExportSession isn't Sendable, but this is safe: after exportAsynchronously
+        // starts, the session is only touched from its own one-shot completion callback —
+        // `nonisolated(unsafe)` records that reasoning for the strict-concurrency checker.
+        nonisolated(unsafe) let session = export
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            session.exportAsynchronously {
+                if session.status == .completed {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: session.error
+                        ?? KasiaError.networkError("Audio export failed."))
+                }
+            }
+        }
+        return outputURL
+    }
+
     private func startPreviewTimer() {
         previewTimer?.invalidate()
         previewTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
@@ -2806,7 +3142,7 @@ struct ChatDetailView: View {
             } else {
                 recordingDuration += 1
             }
-            if recordingDuration >= maxRecordingDuration {
+            if recordingDuration >= effectiveMaxRecordingDuration {
                 stopRecording()
             }
             updateRecordingFee()
@@ -2831,6 +3167,21 @@ struct ChatDetailView: View {
 
     private func updateRecordingFee() {
         recordingFeeTask?.cancel()
+
+        // Via Nextcloud, the recording uploads to the server and the chain only carries the
+        // share link — the fee is the link-message fee regardless of recording length.
+        if nextcloudService.isConnected && nextcloudService.mediaSendEnabled {
+            if let wallet = walletManager.currentWallet,
+               let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) {
+                recordingFeeSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
+                    payload: Data(count: Self.nextcloudLinkPayloadSize),
+                    inputCount: 1,
+                    senderScriptPubKey: senderScriptPubKey
+                )
+            }
+            isEstimatingFee = false
+            return
+        }
 
         // During recording, estimate based on duration
         // After encoding, use actual file data
@@ -2909,6 +3260,18 @@ struct ChatDetailView: View {
             self.isEncodingAudio = true
         }
         await waitForRecordingFile(url)
+        // Nextcloud mode: stash the full-length original BEFORE the payload-capped encode —
+        // the M4A upload exports from this copy so long recordings survive intact.
+        if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+            let keepURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("kachat-voice-original-\(UUID().uuidString).caf")
+            if (try? FileManager.default.copyItem(at: url, to: keepURL)) != nil {
+                await MainActor.run {
+                    if let stale = nextcloudOriginalRecordingURL { secureDeleteTempFile(stale) }
+                    nextcloudOriginalRecordingURL = keepURL
+                }
+            }
+        }
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("kasia-audio-\(UUID().uuidString).webm")
         do {
@@ -3023,6 +3386,69 @@ struct ChatDetailView: View {
         do {
             let payloadData = try Data(contentsOf: url)
             let mime = mimeType(for: url)
+
+            // "Send Media via Nextcloud" (1:1 chats only — this view): upload an AAC .m4a of
+            // the recording and send the public share link instead of the on-chain WebM/Opus
+            // envelope. The .m4a re-export matters: the recipient's link-preview audio card
+            // streams through AVPlayer, which cannot decode WebM/Opus, so uploading the
+            // envelope bytes verbatim would produce an unplayable card. Any failure falls
+            // back to the on-chain path below, with a toast.
+            if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+                recordingFeeTask?.cancel()
+                isSending = true
+                var shareURL: URL?
+                do {
+                    let m4aURL = try await exportRecordingAsM4A(webmData: payloadData)
+                    let m4aData = try Data(contentsOf: m4aURL)
+                    secureDeleteTempFile(m4aURL)
+                    if let originalURL = nextcloudOriginalRecordingURL {
+                        secureDeleteTempFile(originalURL)
+                        nextcloudOriginalRecordingURL = nil
+                    }
+                    let stamp = Self.mediaTimestampFormatter.string(from: Date())
+                    let voiceFilename = "voice_\(stamp).m4a"
+                    shareURL = try await NextcloudService.shared.uploadMediaAndShare(
+                        data: m4aData,
+                        filename: voiceFilename,
+                        contentType: "audio/mp4"
+                    )
+                    if let shareURL {
+                        await seedNextcloudPreview(for: shareURL, kind: .audio, title: voiceFilename, byteSize: m4aData.count)
+                    }
+                } catch {
+                    AppLog.log("[ChatDetailView] Nextcloud audio upload failed, falling back to on-chain: %@",
+                               error.localizedDescription)
+                    showToast("Nextcloud upload failed — sending on-chain instead", style: .error)
+                }
+                if let shareURL {
+                    do {
+                        try await chatService.sendMessage(to: contact, content: shareURL.absoluteString, feeOverride: nil)
+                        if let previewURL = recordedAudioPreviewURL {
+                            secureDeleteTempFile(previewURL)
+                        }
+                        if let encodedURL = recordedAudioURL {
+                            secureDeleteTempFile(encodedURL)
+                        }
+                        recordedAudioURL = nil
+                        recordedAudioPreviewURL = nil
+                        recordingFeeSompi = nil
+                        feeEstimateSompi = nil
+                        stopPreview()
+                        previewLabel = "--:--"
+                    } catch {
+                        // The chain send itself failed — an on-chain audio envelope would fail
+                        // the same way, so surface the error instead of falling back.
+                        if shouldPromptGiftClaim(for: error) {
+                            NotificationCenter.default.post(name: .showGiftClaim, object: nil)
+                        }
+                        self.error = displayErrorMessage(error)
+                    }
+                    isSending = false
+                    return
+                }
+                isSending = false
+                // No share link — fall through to the on-chain envelope path.
+            }
 
             recordingFeeTask?.cancel()
             isSending = true

@@ -24,8 +24,6 @@ struct SettingsView: View {
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
     @State private var messageStoreSize = "Unknown"
-    @State private var cloudKitStorageSize: String = "Not checked"
-    @State private var isRefreshingCloudKitStorage = false
     @State private var diagnosticsArchiveURL: URL?
     @State private var showDiagnosticsShareSheet = false
     @State private var chatHistoryArchiveURL: URL?
@@ -337,58 +335,60 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    /// Storage hub: a category list like the main Settings screen — each provider row leads
+    /// into its own screen.
     private var storagePage: some View {
         Form {
             Section("Storage") {
-                    Toggle("Store encrypted messages in iCloud CloudKit", isOn: $settingsViewModel.settings.storeMessagesInICloud)
-                        .onChange(of: settingsViewModel.settings.storeMessagesInICloud) { _ in
-                            settingsViewModel.saveSettings()
-                            refreshMessageStoreSize()
-                        }
+                settingsCategoryRow("iCloud", icon: "icloud", tint: .accentColor) {
+                    iCloudStoragePage
+                }
+                settingsCategoryRow("Nextcloud", icon: "externaldrive.connected.to.line.below", tint: .accentColor) {
+                    nextcloudStoragePage
+                }
+            }
+        }
+        .navigationTitle("Storage")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 
-                    Text("Required for cross-device sync and backup of sent messages.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Picker("Message retention", selection: $settingsViewModel.settings.messageRetention) {
-                        ForEach(MessageRetention.allCases, id: \.self) { option in
-                            Text(option.displayName).tag(option)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .onChange(of: settingsViewModel.settings.messageRetention) { _ in
+    private var iCloudStoragePage: some View {
+        Form {
+            Section("iCloud") {
+                Toggle("Store encrypted messages in iCloud CloudKit", isOn: $settingsViewModel.settings.storeMessagesInICloud)
+                    .onChange(of: settingsViewModel.settings.storeMessagesInICloud) { _ in
                         settingsViewModel.saveSettings()
                         refreshMessageStoreSize()
                     }
 
-                    Text("Local storage used: \(messageStoreSize)")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
+                Text("Required for cross-device sync and backup of sent messages.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
 
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("iCloud storage used: \(cloudKitStorageSize)")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                            Text("This is a live check of your iCloud account, separate from local storage above.")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        if isRefreshingCloudKitStorage {
-                            ProgressView()
-                        } else {
-                            Button {
-                                Task { await refreshCloudKitStorageSize() }
-                            } label: {
-                                Image(systemName: "arrow.clockwise")
-                            }
-                        }
+                Picker("Message retention", selection: $settingsViewModel.settings.messageRetention) {
+                    ForEach(MessageRetention.allCases, id: \.self) { option in
+                        Text(option.displayName).tag(option)
                     }
                 }
+                .pickerStyle(.menu)
+                .onChange(of: settingsViewModel.settings.messageRetention) { _ in
+                    settingsViewModel.saveSettings()
+                    refreshMessageStoreSize()
+                }
+
+                Text("Local storage used: \(messageStoreSize)")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
         }
-        .navigationTitle("Storage")
+        .navigationTitle("iCloud")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var nextcloudStoragePage: some View {
+        NextcloudSettingsView()
+            .navigationTitle("Nextcloud")
+            .navigationBarTitleDisplayMode(.inline)
     }
 
     private var chatHistoryPage: some View {
@@ -568,24 +568,6 @@ struct SettingsView: View {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         messageStoreSize = formatter.string(fromByteCount: bytes)
-    }
-
-    /// Live server round-trip - unlike `refreshMessageStoreSize()`, this isn't refreshed
-    /// automatically on every settings change, since it costs a network request.
-    private func refreshCloudKitStorageSize() async {
-        isRefreshingCloudKitStorage = true
-        defer { isRefreshingCloudKitStorage = false }
-        let result = await MessageStore.shared.estimateCurrentWalletCloudKitStorage()
-        switch result {
-        case .success(let estimate):
-            let formatter = ByteCountFormatter()
-            formatter.countStyle = .file
-            let bytesText = formatter.string(fromByteCount: estimate.estimatedBytes)
-            cloudKitStorageSize = "\(bytesText) (\(estimate.recordCount) records)"
-        case .failure(let error):
-            cloudKitStorageSize = "Unavailable"
-            AppLog.log("[SettingsView] Failed to estimate CloudKit storage: \(error)")
-        }
     }
 
     private func wipeIncomingMessages() async {
@@ -2782,4 +2764,290 @@ private struct AllNodesRow: View {
         .environmentObject(PushNotificationManager.shared)
         .environmentObject(ContactsManager.shared)
         .environmentObject(ChatService.shared)
+}
+
+/// Settings > Storage > Nextcloud tab: connect/disconnect the user's own Nextcloud server,
+/// plus start-folder choice and message backup. Renders bare Sections (no Form of its own) so
+/// the Storage page's segmented iCloud/Nextcloud tabs can embed it directly in their Form.
+/// Credentials are verified against the OCS user endpoint before being stored in the Keychain
+/// (see NextcloudService). The connected account powers the chat attach picker's
+/// "From Nextcloud" flow (photos/videos sent as public share links).
+struct NextcloudSettingsView: View {
+    @ObservedObject private var service = NextcloudService.shared
+
+    @State private var serverInput = ""
+    @State private var usernameInput = ""
+    @State private var appPasswordInput = ""
+    @State private var isConnecting = false
+    @State private var errorMessage: String?
+    @State private var showDisconnectConfirm = false
+    @State private var showStartFolderPicker = false
+    @State private var backupInfo: NextcloudFile?
+    @State private var isBackingUp = false
+    @State private var isRestoring = false
+    @State private var showRestoreConfirm = false
+    @State private var showBackupFolderPicker = false
+    @State private var backupStatusMessage: String?
+    @State private var backupErrorMessage: String?
+
+    private var canConnect: Bool {
+        !serverInput.trimmingCharacters(in: .whitespaces).isEmpty
+            && !usernameInput.trimmingCharacters(in: .whitespaces).isEmpty
+            && !appPasswordInput.trimmingCharacters(in: .whitespaces).isEmpty
+            && !isConnecting
+    }
+
+    var body: some View {
+        // One concrete container (NOT a Group): presentation modifiers below — .sheet/.alert —
+        // must attach to a single view. On a Group they replicate onto every child Section,
+        // and the competing presentation attempts pop the whole settings navigation instead
+        // of showing the folder picker.
+        Form {
+            if let account = service.account {
+                Section("Connected Account") {
+                    HStack {
+                        Text("Server")
+                        Spacer()
+                        Text(account.serverURL?.host ?? account.serverURLString)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    HStack {
+                        Text("Username")
+                        Spacer()
+                        Text(account.username)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Section {
+                    Button {
+                        showStartFolderPicker = true
+                    } label: {
+                        HStack {
+                            Text("Start Folder")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text(account.defaultFolder ?? "All Files")
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.head)
+                        }
+                    }
+                } footer: {
+                    Text("\"Send from Nextcloud\" in chats opens this folder first.")
+                }
+                Section {
+                    Toggle("Send Media via Nextcloud", isOn: $service.mediaSendEnabled)
+                } header: {
+                    Text("Chat Media")
+                } footer: {
+                    Text("When on, photos and voice messages you send in private chats upload in full quality to this server's \(NextcloudService.mediaFolderPath) folder, and the chat carries a share link instead — recipients see a normal media bubble. The message with the link stays end-to-end encrypted, but the files themselves are stored unencrypted on your server and are reachable by anyone who has the unguessable link. When off, media is embedded in the encrypted on-chain payload as before.")
+                }
+                Section {
+                    Toggle("Automatic Backup", isOn: $service.autoBackupEnabled)
+
+                    Button {
+                        showBackupFolderPicker = true
+                    } label: {
+                        HStack {
+                            Text("Backup Folder")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text(account.backupFolder ?? "\(NextcloudService.backupFolderName) (default)")
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.head)
+                        }
+                    }
+
+                    Button {
+                        backUpNow()
+                    } label: {
+                        HStack {
+                            Label("Back Up Messages Now", systemImage: "arrow.up.doc")
+                            Spacer()
+                            if isBackingUp { ProgressView() }
+                        }
+                    }
+                    .disabled(isBackingUp || isRestoring)
+
+                    Button {
+                        showRestoreConfirm = true
+                    } label: {
+                        HStack {
+                            Label("Restore from Backup", systemImage: "arrow.down.doc")
+                            Spacer()
+                            if isRestoring { ProgressView() }
+                        }
+                    }
+                    .disabled(isBackingUp || isRestoring || backupInfo == nil)
+
+                    if let backupInfo, let modified = backupInfo.modified {
+                        HStack {
+                            Text("Last backup")
+                            Spacer()
+                            Text("\(modified.formatted(date: .abbreviated, time: .shortened))\(backupInfo.size.map { " · \(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file))" } ?? "")")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        }
+                    } else if backupInfo == nil {
+                        Text("No backup on this server yet.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let backupStatusMessage {
+                        Text(backupStatusMessage)
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                    if let backupErrorMessage {
+                        Text(backupErrorMessage)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                } header: {
+                    Text("Message Backup")
+                } footer: {
+                    Text("Backs up your full chat history archive as \(NextcloudService.backupFileName) in the folder above (choosing All Files resets to the default \(NextcloudService.backupFolderName) folder). Automatic Backup uploads when you leave the app, at most once per hour. Restoring merges the archive into this device's history.")
+                }
+
+                Section {
+                    Button("Disconnect", role: .destructive) {
+                        showDisconnectConfirm = true
+                    }
+                } footer: {
+                    Text("Disconnecting removes the stored app password from this device. Nothing changes on your Nextcloud server.")
+                }
+            } else {
+                Section {
+                    TextField("cloud.example.com", text: $serverInput)
+                        .keyboardType(.URL)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                    TextField("Username", text: $usernameInput)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                    SecureField("App password", text: $appPasswordInput)
+                } header: {
+                    Text("Server")
+                } footer: {
+                    Text("Create an app password in Nextcloud under Settings → Security → Devices & sessions — don't use your account password. KaChat stores it in the device Keychain.")
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+
+                Section {
+                    Button {
+                        connect()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if isConnecting {
+                                ProgressView()
+                            } else {
+                                Text("Connect")
+                                    .fontWeight(.semibold)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .disabled(!canConnect)
+                }
+            }
+        }
+        .alert("Disconnect Nextcloud", isPresented: $showDisconnectConfirm) {
+            Button("Disconnect", role: .destructive) {
+                service.disconnect()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The app password is removed from this device's Keychain. You can reconnect any time.")
+        }
+        .sheet(isPresented: $showStartFolderPicker) {
+            NextcloudFolderSelectView { path in
+                service.setDefaultFolder(path)
+            }
+        }
+        .sheet(isPresented: $showBackupFolderPicker) {
+            NextcloudFolderSelectView { path in
+                service.setBackupFolder(path)
+                // The backup lives per-folder — re-check what exists at the new destination.
+                Task { backupInfo = await NextcloudService.shared.fetchBackupInfo() }
+            }
+        }
+        .alert("Restore from Backup", isPresented: $showRestoreConfirm) {
+            Button("Restore") { restoreNow() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Messages from the server backup are merged into this device's chat history. Nothing is deleted.")
+        }
+        .task {
+            guard service.isConnected else { return }
+            backupInfo = await NextcloudService.shared.fetchBackupInfo()
+        }
+    }
+
+    private func backUpNow() {
+        guard !isBackingUp else { return }
+        isBackingUp = true
+        backupStatusMessage = nil
+        backupErrorMessage = nil
+        Task {
+            do {
+                let fileURL = try await ChatService.shared.exportChatHistoryArchive()
+                let data = try Data(contentsOf: fileURL)
+                try await NextcloudService.shared.uploadBackup(data)
+                try? FileManager.default.removeItem(at: fileURL)
+                backupInfo = await NextcloudService.shared.fetchBackupInfo()
+                backupStatusMessage = "Backup uploaded."
+            } catch {
+                backupErrorMessage = error.localizedDescription
+            }
+            isBackingUp = false
+        }
+    }
+
+    private func restoreNow() {
+        guard !isRestoring else { return }
+        isRestoring = true
+        backupStatusMessage = nil
+        backupErrorMessage = nil
+        Task {
+            do {
+                let data = try await NextcloudService.shared.downloadBackup()
+                let summary = try await ChatService.shared.importChatHistoryArchive(data)
+                backupStatusMessage = "Restored \(summary.messageCount) messages from \(summary.conversationCount) chats."
+            } catch {
+                backupErrorMessage = error.localizedDescription
+            }
+            isRestoring = false
+        }
+    }
+
+    private func connect() {
+        guard !isConnecting else { return }
+        isConnecting = true
+        errorMessage = nil
+        Task {
+            do {
+                try await NextcloudService.shared.connect(
+                    serverInput: serverInput,
+                    username: usernameInput,
+                    appPassword: appPasswordInput
+                )
+                appPasswordInput = ""
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isConnecting = false
+        }
+    }
 }

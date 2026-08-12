@@ -2727,7 +2727,10 @@ private struct ImagePreviewView: View {
 
 }
 
-private struct ZoomableImageView: UIViewRepresentable {
+/// Pinch-zoomable full-screen image host. Internal (not private) because the Nextcloud media
+/// viewer (`LinkPreviewCardView.swift`) reuses it for remote photos — same zoom behavior as
+/// the local chat-photo preview.
+struct ZoomableImageView: UIViewRepresentable {
     let image: UIImage
     @Binding var isZoomed: Bool
 

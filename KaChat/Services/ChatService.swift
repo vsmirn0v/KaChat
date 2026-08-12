@@ -86,6 +86,23 @@ final class ChatService: ObservableObject {
     /// Pending navigation from notification tap (used when app launches from terminated state)
     @Published var pendingChatNavigation: String?
 
+    /// Images handed over from the Share Extension, keyed by contact address. Staged here until
+    /// that contact's chat opens, then attached to the composer as a pending photo
+    /// (see `ChatDetailView.attachPendingShareImageIfAvailable`). Session-only by design.
+    var pendingShareImages: [String: Data] = [:]
+
+    func stagePendingShareImage(_ data: Data, for contactAddress: String) {
+        pendingShareImages[contactAddress] = data
+    }
+
+    func pendingShareImage(for contactAddress: String) -> Data? {
+        pendingShareImages[contactAddress]
+    }
+
+    func clearPendingShareImage(for contactAddress: String) {
+        pendingShareImages.removeValue(forKey: contactAddress)
+    }
+
     // Connection status properties
     @Published var isRpcSubscribed = false
     @Published var lastSuccessfulSyncDate: Date?

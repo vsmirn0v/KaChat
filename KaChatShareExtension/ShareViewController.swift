@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import Intents
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
@@ -7,6 +8,12 @@ import UniformTypeIdentifiers
 private struct SharedContactRecord: Codable {
     let address: String
     let alias: String
+}
+
+private struct SharedRecentRecord: Codable {
+    let address: String
+    let alias: String
+    let lastUsedMs: Int64
 }
 
 private struct ShareContact: Identifiable, Hashable {
@@ -18,6 +25,11 @@ private struct ShareContact: Identifiable, Hashable {
     var displayName: String {
         let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? String(address.suffix(8)) : trimmed
+    }
+
+    var shortAddress: String {
+        guard address.count > 24 else { return address }
+        return "\(address.prefix(16))…\(address.suffix(6))"
     }
 }
 
@@ -43,6 +55,7 @@ private struct SharePayload {
 private enum ShareStore {
     static let appGroupIdentifier = "group.com.kachat.app"
     static let contactsKey = "shared_contacts"
+    static let recentsKey = "kachat_recent_conversations"
     static let outboundSharesKey = "outbound_shares"
     static let maxQueuedShares = 50
     static let maxShareAgeMs: Int64 = 7 * 24 * 60 * 60 * 1000
@@ -71,6 +84,29 @@ private enum ShareStore {
             }
     }
 
+    /// Recent conversations maintained by the main app (chat opens + message sends), newest first.
+    /// Aliases are reconciled against the synced contact list, which is fresher.
+    static func loadRecents() -> [ShareContact] {
+        guard let data = sharedDefaults?.data(forKey: recentsKey),
+              let decoded = try? JSONDecoder().decode([SharedRecentRecord].self, from: data) else {
+            return []
+        }
+
+        let contactAliases = Dictionary(
+            loadContacts().map { ($0.address, $0.alias) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return decoded
+            .sorted { $0.lastUsedMs > $1.lastUsedMs }
+            .map { record in
+                let syncedAlias = contactAliases[record.address]?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let alias = (syncedAlias?.isEmpty == false) ? syncedAlias! : record.alias
+                return ShareContact(address: record.address, alias: alias)
+            }
+    }
+
     static func enqueueOutboundShare(contactAddress: String, text: String, image: ShareImageAttachment?) -> String? {
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty || image != nil else { return nil }
@@ -86,13 +122,15 @@ private enum ShareStore {
         if image != nil, storedImage == nil {
             return nil
         }
+        // autoSend: false - the main app lands the user in the chat with the shared content
+        // pre-filled in the composer instead of sending immediately.
         let share = SharedOutboundShare(
             id: shareId,
             contactAddress: contactAddress,
             text: cleaned,
             image: storedImage,
             createdAtMs: nowMs,
-            autoSend: true
+            autoSend: false
         )
 
         shares.append(share)
@@ -438,6 +476,7 @@ private enum SharePayloadExtractor {
 @MainActor
 private final class ShareViewModel: ObservableObject {
     @Published var contacts: [ShareContact] = []
+    @Published var recentContacts: [ShareContact] = []
     @Published var selectedContactAddress: String?
     @Published var searchText = ""
     @Published var payloadText = ""
@@ -448,9 +487,17 @@ private final class ShareViewModel: ObservableObject {
 
     private let maxPayloadLength = 2_000
 
+    var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var filteredContacts: [ShareContact] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return contacts }
+        guard !query.isEmpty else {
+            // Recents get their own section; don't repeat them in the full list.
+            let recentAddresses = Set(recentContacts.map(\.address))
+            return contacts.filter { !recentAddresses.contains($0.address) }
+        }
 
         let normalized = query.lowercased()
         return contacts.filter {
@@ -466,13 +513,23 @@ private final class ShareViewModel: ObservableObject {
             && (!payloadText.isEmpty || imageAttachment != nil)
     }
 
-    func load(inputItems: [Any]) async {
+    func load(inputItems: [Any], preselectedAddress: String?) async {
         isLoading = true
         defer { isLoading = false }
 
         contacts = ShareStore.loadContacts()
+        recentContacts = ShareStore.loadRecents()
+
+        // Pre-select in priority order: the share-sheet direct target the user tapped
+        // (INSendMessageIntent conversationIdentifier), then most recent chat, then first contact.
+        if selectedContactAddress == nil,
+           let preselectedAddress,
+           contacts.contains(where: { $0.address == preselectedAddress })
+            || recentContacts.contains(where: { $0.address == preselectedAddress }) {
+            selectedContactAddress = preselectedAddress
+        }
         if selectedContactAddress == nil {
-            selectedContactAddress = contacts.first?.address
+            selectedContactAddress = recentContacts.first?.address ?? contacts.first?.address
         }
 
         let extracted = await SharePayloadExtractor.extractPayload(from: inputItems)
@@ -557,8 +614,16 @@ private struct ShareRootView: View {
                     }
                 }
 
+                if !viewModel.recentContacts.isEmpty && !viewModel.isSearching {
+                    Section("Recent") {
+                        ForEach(viewModel.recentContacts) { contact in
+                            contactRow(contact)
+                        }
+                    }
+                }
+
                 Section("Choose Contact") {
-                    if viewModel.contacts.isEmpty {
+                    if viewModel.contacts.isEmpty && viewModel.recentContacts.isEmpty {
                         Text("No contacts available. Add contacts in KaChat first.")
                             .foregroundStyle(.secondary)
                     } else {
@@ -567,26 +632,7 @@ private struct ShareRootView: View {
                             .disableAutocorrection(true)
 
                         ForEach(viewModel.filteredContacts) { contact in
-                            Button {
-                                viewModel.selectedContactAddress = contact.address
-                            } label: {
-                                HStack(spacing: 10) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(contact.displayName)
-                                            .foregroundStyle(.primary)
-                                        Text(contact.address)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                    }
-                                    Spacer()
-                                    if viewModel.selectedContactAddress == contact.address {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.tint)
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
+                            contactRow(contact)
                         }
                     }
                 }
@@ -607,11 +653,40 @@ private struct ShareRootView: View {
                         .disabled(viewModel.isSending)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(viewModel.isSending ? "Sending..." : "Send", action: onSend)
+                    Button(viewModel.isSending ? "Opening..." : "Share", action: onSend)
                         .disabled(!viewModel.canSend)
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func contactRow(_ contact: ShareContact) -> some View {
+        Button {
+            viewModel.selectedContactAddress = contact.address
+        } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(contact.displayName)
+                        .foregroundStyle(.primary)
+                    Text(contact.shortAddress)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if viewModel.selectedContactAddress == contact.address {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.tint)
+                }
+            }
+            // .plain buttons only hit-test the label's opaque content - without an explicit
+            // content shape, taps on the row's blank space (most of it, thanks to the Spacer)
+            // are dead and contacts can't be selected.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -647,9 +722,13 @@ final class ShareViewController: UIViewController {
         guard !didLoadData else { return }
         didLoadData = true
 
+        // When the user tapped a KaChat conversation direct target in the share sheet
+        // (donated INSendMessageIntent), pre-select that contact.
+        let intentAddress = (extensionContext?.intent as? INSendMessageIntent)?.conversationIdentifier
+
         let inputItems = extensionContext?.inputItems ?? []
         Task {
-            await viewModel.load(inputItems: inputItems)
+            await viewModel.load(inputItems: inputItems, preselectedAddress: intentAddress)
         }
     }
 
@@ -678,31 +757,23 @@ final class ShareViewController: UIViewController {
             return
         }
 
-        openContainingApp(url) { [weak self] success in
-            guard let self else { return }
-            Task { @MainActor in
-                if success {
-                    self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
-                } else {
-                    // Keep the queued share and finish gracefully.
-                    // Main app will pick it up from shared storage when user opens KaChat manually.
-                    self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
-                }
-            }
+        // Try the responder-chain openURL: workaround FIRST. NSExtensionContext.open is
+        // documented to work only from Today widgets; in share extensions it usually fails and
+        // on several iOS versions never even calls its completion handler - putting the
+        // fallback and completeRequest inside that completion left this sheet permanently
+        // stuck on "Opening..." with the app never launching.
+        if !openViaResponderChain(url) {
+            // Best-effort backup; deliberately fire-and-forget (see above - the completion
+            // handler cannot be relied on to run).
+            extensionContext?.open(url, completionHandler: nil)
         }
-    }
 
-    private func openContainingApp(_ url: URL, completion: @escaping (Bool) -> Void) {
-        extensionContext?.open(url) { [weak self] success in
-            guard let self else {
-                completion(success)
-                return
-            }
-            if success {
-                completion(true)
-                return
-            }
-            completion(self.openViaResponderChain(url))
+        // Always complete, but on a short delay: completing in the same runloop turn as the
+        // openURL: perform can tear the extension down before the system processes the open.
+        // The queued share is already persisted in the App Group, so even if the open fails
+        // the main app picks it up on its next activation.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
         }
     }
 

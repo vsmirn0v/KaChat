@@ -107,7 +107,13 @@ final class BroadcastAudioRecorder: NSObject, ObservableObject, AVAudioRecorderD
 
     /// Stops recording, encodes to Opus/WebM, and delivers wire-ready data. Safe to call once
     /// `elapsedSeconds` reaches `maxDuration` too (the caller drives that cutoff).
-    func stopAndEncode() async throws -> (data: Data, fileName: String, mimeType: String) {
+    ///
+    /// `keepOriginalPCMAt`: optional destination the full-length recorded PCM (CAF) is copied to
+    /// BEFORE the payload-capped WebM encode - the encode truncates to ~13KB (≈9s), so callers
+    /// that upload the recording elsewhere (group chat's "Send Media via Nextcloud") need the
+    /// untouched original. The copy is the CALLER's to clean up; this class still deletes its own
+    /// working PCM as before. Defaulted so existing callers (broadcast) are untouched.
+    func stopAndEncode(keepOriginalPCMAt keepURL: URL? = nil) async throws -> (data: Data, fileName: String, mimeType: String) {
         timer?.invalidate()
         timer = nil
         guard state == .recording, let recorder, let pcmURL else {
@@ -116,6 +122,9 @@ final class BroadcastAudioRecorder: NSObject, ObservableObject, AVAudioRecorderD
         state = .encoding
         recorder.stop()
         self.recorder = nil
+        if let keepURL {
+            try? FileManager.default.copyItem(at: pcmURL, to: keepURL)
+        }
 
         defer {
             try? FileManager.default.removeItem(at: pcmURL)

@@ -44,6 +44,7 @@
 		CS0001B0000000000000001 /* Base58.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0001A0000000000000001 /* Base58.swift */; };
 		CS0002B0000000000000001 /* KaspaExtendedPublicKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */; };
 		CS0003B0000000000000001 /* ColdStorageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0003A0000000000000001 /* ColdStorageManager.swift */; };
+		NC0001B0000000000000001 /* NextcloudService.swift in Sources */ = {isa = PBXBuildFile; fileRef = NC0001A0000000000000001 /* NextcloudService.swift */; };
 		CS0004B0000000000000001 /* ColdStorageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0004A0000000000000001 /* ColdStorageView.swift */; };
 		CS0006B0000000000000001 /* KsptCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0006A0000000000000001 /* KsptCodec.swift */; };
 		CS0007B0000000000000001 /* QrFrameChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0007A0000000000000001 /* QrFrameChunker.swift */; };
@@ -116,6 +117,7 @@
 		L10N000300000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = L10N000200000001 /* Localizable.strings */; };
 		LPRVB0000000000000001 /* LinkPreviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = LPRVA0000000000000001 /* LinkPreviewService.swift */; };
 		LPRVD0000000000000001 /* LinkPreviewCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LPRVC0000000000000001 /* LinkPreviewCardView.swift */; };
+		NC0002B0000000000000001 /* NextcloudPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = NC0002A0000000000000001 /* NextcloudPickerView.swift */; };
 		MSGS00012F5C000100000002 /* MessageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = MSGS00012F5C000100000001 /* MessageStore.swift */; };
 		MV0001B0000000000000001 /* MenuVisibilityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = MV0001A0000000000000001 /* MenuVisibilityView.swift */; };
 		NODEPOOL000100010001 /* NodeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = NODEPOOL000100010002 /* NodeModels.swift */; };
@@ -241,6 +243,7 @@
 		CS0001A0000000000000001 /* Base58.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base58.swift; sourceTree = "<group>"; };
 		CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaExtendedPublicKey.swift; sourceTree = "<group>"; };
 		CS0003A0000000000000001 /* ColdStorageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColdStorageManager.swift; sourceTree = "<group>"; };
+		NC0001A0000000000000001 /* NextcloudService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudService.swift; sourceTree = "<group>"; };
 		CS0004A0000000000000001 /* ColdStorageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColdStorageView.swift; sourceTree = "<group>"; };
 		CS0006A0000000000000001 /* KsptCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KsptCodec.swift; sourceTree = "<group>"; };
 		CS0007A0000000000000001 /* QrFrameChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrFrameChunker.swift; sourceTree = "<group>"; };
@@ -333,6 +336,7 @@
 		L10N000100000012 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		LPRVA0000000000000001 /* LinkPreviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkPreviewService.swift; sourceTree = "<group>"; };
 		LPRVC0000000000000001 /* LinkPreviewCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkPreviewCardView.swift; sourceTree = "<group>"; };
+		NC0002A0000000000000001 /* NextcloudPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudPickerView.swift; sourceTree = "<group>"; };
 		MSGS00012F5C000100000001 /* MessageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageStore.swift; sourceTree = "<group>"; };
 		MV0001A0000000000000001 /* MenuVisibilityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuVisibilityView.swift; sourceTree = "<group>"; };
 		NODEPOOL000100010002 /* NodeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeModels.swift; sourceTree = "<group>"; };
@@ -570,6 +574,7 @@
 				PF0008A0000000000000001 /* PortfolioManager.swift */,
 				PF0010A0000000000000001 /* PortfolioAddressImporter.swift */,
 				CS0003A0000000000000001 /* ColdStorageManager.swift */,
+				NC0001A0000000000000001 /* NextcloudService.swift */,
 				CS0009A0000000000000001 /* ColdStorageSendEngine.swift */,
 				KPAPI001A000000000000001 /* KaPostsAPIClient.swift */,
 				CH0002A0000000000000001 /* ChessGameService.swift */,
@@ -725,6 +730,7 @@
 				FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */,
 				CS0010A0000000000000001 /* MultiFrameQRViews.swift */,
 				LPRVC0000000000000001 /* LinkPreviewCardView.swift */,
+				NC0002A0000000000000001 /* NextcloudPickerView.swift */,
 				CAMV0000000000000002 /* CameraCaptureView.swift */,
 			);
 			path = Shared;
@@ -1055,6 +1061,7 @@
 				CS0001B0000000000000001 /* Base58.swift in Sources */,
 				CS0002B0000000000000001 /* KaspaExtendedPublicKey.swift in Sources */,
 				CS0003B0000000000000001 /* ColdStorageManager.swift in Sources */,
+				NC0001B0000000000000001 /* NextcloudService.swift in Sources */,
 				CH0002B0000000000000001 /* ChessGameService.swift in Sources */,
 				CS0004B0000000000000001 /* ColdStorageView.swift in Sources */,
 				CS0006B0000000000000001 /* KsptCodec.swift in Sources */,
@@ -1077,6 +1084,7 @@
 				KNSPROB0000000000000001 /* KNSCreateProfileFlowView.swift in Sources */,
 				LPRVB0000000000000001 /* LinkPreviewService.swift in Sources */,
 				LPRVD0000000000000001 /* LinkPreviewCardView.swift in Sources */,
+				NC0002B0000000000000001 /* NextcloudPickerView.swift in Sources */,
 				CAMV0000000000000001 /* CameraCaptureView.swift in Sources */,
 				E810001D2D4C00010000000F /* SettingsView.swift in Sources */,
 				MV0001B0000000000000001 /* MenuVisibilityView.swift in Sources */,

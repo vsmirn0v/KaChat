@@ -4,6 +4,7 @@ import Combine
 import UIKit
 import UserNotifications
 import CryptoKit
+import Intents
 
 // MARK: - Conversation state, message sending, handshake sending, fee estimation
 
@@ -12,6 +13,9 @@ extension ChatService {
         activeConversationAddress = address
         AppLog.log("[ChatService] Entered conversation for %@", String(address.suffix(12)))
         loadReactions(for: address)
+        // Keep the Share Extension's "Recent" list fresh: opening a chat counts as touching it.
+        let alias = ContactsManager.shared.getContact(byAddress: address)?.alias ?? ""
+        SharedDataManager.recordRecentConversation(address: address, alias: alias)
     }
 
     /// Returns total number of stored messages using a background worker to avoid
@@ -908,6 +912,50 @@ extension ChatService {
             )
         }
         replyingTo = nil
+
+        // Successful send: refresh the Share Extension's recents and donate an
+        // INSendMessageIntent so iOS can surface this conversation as a share-sheet
+        // direct target (requires IntentsSupported in the extension's Info.plist).
+        SharedDataManager.recordRecentConversation(address: contact.address, alias: contact.alias)
+        donateSendMessageIntent(for: contact)
+    }
+
+    /// Donates an INSendMessageIntent for this conversation. After a few donations iOS shows the
+    /// conversation as a suggested direct target in the system share sheet; the Share Extension
+    /// reads the donated `conversationIdentifier` (the contact address) back from
+    /// `extensionContext.intent` to pre-select the contact.
+    private func donateSendMessageIntent(for contact: Contact) {
+        let trimmedAlias = contact.alias.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = trimmedAlias.isEmpty ? String(contact.address.suffix(8)) : trimmedAlias
+
+        let recipient = INPerson(
+            personHandle: INPersonHandle(value: contact.address, type: .unknown),
+            nameComponents: nil,
+            displayName: displayName,
+            image: nil,
+            contactIdentifier: nil,
+            customIdentifier: contact.address
+        )
+
+        let intent = INSendMessageIntent(
+            recipients: [recipient],
+            outgoingMessageType: .outgoingMessageText,
+            content: nil,
+            speakableGroupName: INSpeakableString(spokenPhrase: displayName),
+            conversationIdentifier: contact.address,
+            serviceName: "KaChat",
+            sender: nil,
+            attachments: nil
+        )
+
+        let interaction = INInteraction(intent: intent, response: nil)
+        interaction.groupIdentifier = contact.address
+        interaction.direction = .outgoing
+        interaction.donate { error in
+            if let error {
+                AppLog.log("[ChatService] INSendMessageIntent donation failed: %@", error.localizedDescription)
+            }
+        }
     }
 
     func sendAudio(

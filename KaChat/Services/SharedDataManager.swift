@@ -29,6 +29,7 @@ final class SharedDataManager {
         static let pendingMessages = "pending_messages"
         static let storedMessages = "stored_messages"
         static let outboundShares = "outbound_shares"
+        static let recentConversations = "kachat_recent_conversations"
         static let privateKeyAvailable = "private_key_available"
         static let walletAddress = "wallet_address"
         static let unreadCount = "shared_unread_count"
@@ -57,6 +58,52 @@ final class SharedDataManager {
 
         sharedDefaults?.set(data, forKey: Keys.contacts)
         AppLog.log("[SharedData] Synced %d contacts to shared container", contacts.count)
+    }
+
+    // MARK: - Recent Conversations (Share Extension direct targets)
+
+    /// Most-recently-used 1:1 conversation list surfaced by the Share Extension's "Recent"
+    /// section. Kept fresh from chat opens and message sends (see `ChatService`). Newest first.
+    static let maxRecentConversations = 8
+
+    static func recordRecentConversation(address: String, alias: String) {
+        let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAddress.isEmpty else { return }
+
+        var recents = getRecentConversations().filter { $0.address != trimmedAddress }
+        recents.insert(
+            SharedRecentConversation(
+                address: trimmedAddress,
+                alias: alias.trimmingCharacters(in: .whitespacesAndNewlines),
+                lastUsedMs: Int64(Date().timeIntervalSince1970 * 1000)
+            ),
+            at: 0
+        )
+        if recents.count > maxRecentConversations {
+            recents = Array(recents.prefix(maxRecentConversations))
+        }
+
+        guard let data = try? JSONEncoder().encode(recents) else { return }
+        sharedDefaults?.set(data, forKey: Keys.recentConversations)
+    }
+
+    static func getRecentConversations() -> [SharedRecentConversation] {
+        guard let data = sharedDefaults?.data(forKey: Keys.recentConversations),
+              let recents = try? JSONDecoder().decode([SharedRecentConversation].self, from: data) else {
+            return []
+        }
+        return recents
+    }
+
+    static func removeRecentConversation(address: String) {
+        let recents = getRecentConversations()
+        let filtered = recents.filter { $0.address != address }
+        guard filtered.count != recents.count else { return }
+        if filtered.isEmpty {
+            sharedDefaults?.removeObject(forKey: Keys.recentConversations)
+        } else if let data = try? JSONEncoder().encode(filtered) {
+            sharedDefaults?.set(data, forKey: Keys.recentConversations)
+        }
     }
 
     // MARK: - Group Sync
@@ -419,6 +466,7 @@ final class SharedDataManager {
         sharedDefaults?.removeObject(forKey: Keys.storedMessages)
         sharedDefaults?.removeObject(forKey: Keys.privateKeyAvailable)
         sharedDefaults?.removeObject(forKey: Keys.outboundShares)
+        sharedDefaults?.removeObject(forKey: Keys.recentConversations)
         sharedDefaults?.removeObject(forKey: Keys.unreadCount)
         sharedDefaults?.removeObject(forKey: Keys.incomingNotificationSoundEnabled)
         sharedDefaults?.removeObject(forKey: Keys.incomingNotificationVibrationEnabled)
@@ -475,6 +523,13 @@ struct SharedGroupMember: Codable {
     /// `GroupMember.displayName`) - lets the notification extension show a real name for the
     /// sender of a group message instead of falling back to their raw address.
     let displayName: String?
+}
+
+/// Recent conversation entry shared with the Share Extension (see `recordRecentConversation`).
+struct SharedRecentConversation: Codable {
+    let address: String
+    let alias: String
+    let lastUsedMs: Int64
 }
 
 /// Pending message that needs to be fetched

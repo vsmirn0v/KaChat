@@ -12,10 +12,19 @@ import UIKit
 struct CameraCaptureView: UIViewControllerRepresentable {
     let onCapture: (Data) -> Void
     let onCancel: () -> Void
+    /// When set, the camera UI offers its native Photo/Video mode switcher and recorded clips
+    /// come back here as a temp-file URL (the caller owns deleting it). Nil keeps the picker
+    /// photo-only — video has no on-chain send path, so callers enable this only when the
+    /// Nextcloud media-send route can carry the file.
+    var onCaptureVideo: ((URL) -> Void)? = nil
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
+        if onCaptureVideo != nil {
+            picker.mediaTypes = ["public.image", "public.movie"]
+            picker.videoQuality = .typeHigh
+        }
         picker.delegate = context.coordinator
         return picker
     }
@@ -23,19 +32,34 @@ struct CameraCaptureView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onCapture: onCapture, onCancel: onCancel)
+        Coordinator(onCapture: onCapture, onCancel: onCancel, onCaptureVideo: onCaptureVideo)
     }
 
     final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         private let onCapture: (Data) -> Void
         private let onCancel: () -> Void
+        private let onCaptureVideo: ((URL) -> Void)?
 
-        init(onCapture: @escaping (Data) -> Void, onCancel: @escaping () -> Void) {
+        init(onCapture: @escaping (Data) -> Void, onCancel: @escaping () -> Void, onCaptureVideo: ((URL) -> Void)?) {
             self.onCapture = onCapture
             self.onCancel = onCancel
+            self.onCaptureVideo = onCaptureVideo
         }
 
         func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            // Recorded video: the picker's media URL lives in a system temp spot that can be
+            // reclaimed after dismissal — copy it into our own temp dir before handing it over.
+            if let onCaptureVideo, let mediaURL = info[.mediaURL] as? URL {
+                let stableURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("kachat-capture-\(UUID().uuidString).\(mediaURL.pathExtension.isEmpty ? "mov" : mediaURL.pathExtension)")
+                do {
+                    try FileManager.default.copyItem(at: mediaURL, to: stableURL)
+                    onCaptureVideo(stableURL)
+                } catch {
+                    onCancel()
+                }
+                return
+            }
             guard let image = info[.originalImage] as? UIImage else {
                 onCancel()
                 return

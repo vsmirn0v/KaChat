@@ -35,6 +35,10 @@ struct KaChatApp: App {
         Task.detached(priority: .utility) {
             await Self.warmUp()
         }
+        // Touch the (lazy) Nextcloud singleton so its lifecycle observers — the on-background
+        // auto-backup and the launch catch-up — are registered from the very first launch
+        // moment, not only after the user first visits a screen that references it.
+        _ = NextcloudService.shared
     }
 
     var body: some Scene {
@@ -122,6 +126,12 @@ struct KaChatApp: App {
             // KaPosts social pings (likes/replies/quotes on your posts) - local-notification
             // poller, chat-style. Runs only while the app is active.
             KaPostsNotificationService.shared.start()
+
+            // Keep the Share Extension's data sources fresh on activation too - previously
+            // contacts synced only on .background, so a fresh install that had never
+            // backgrounded showed an empty contact list in the share sheet.
+            SharedDataManager.syncContactsForExtension()
+            SharedDataManager.syncWalletAddressForExtension()
 
             let isFirstActiveTransition = !hasCompletedFirstActiveTransition
             hasCompletedFirstActiveTransition = true
@@ -299,13 +309,14 @@ struct KaChatApp: App {
             ?? contactsManager.getOrCreateContact(address: share.contactAddress)
 
         chatService.pendingChatNavigation = share.contactAddress
-        NotificationCenter.default.post(
-            name: .openChat,
-            object: nil,
-            userInfo: ["contactAddress": share.contactAddress]
-        )
 
         if share.autoSend {
+            // Legacy path: shares queued by an older Share Extension build send immediately.
+            NotificationCenter.default.post(
+                name: .openChat,
+                object: nil,
+                userInfo: ["contactAddress": share.contactAddress]
+            )
             do {
                 if !cleanedText.isEmpty {
                     try await chatService.sendMessage(to: contact, content: cleanedText)
@@ -322,9 +333,22 @@ struct KaChatApp: App {
                 }
             }
         } else {
+            // Pre-fill path: land the user in the chat with the shared content staged in the
+            // composer. Draft + image must be staged BEFORE posting .openChat - the notification
+            // is delivered synchronously and ChatDetailView reads both while handling it.
             if !cleanedText.isEmpty {
                 chatService.setDraft(cleanedText, for: share.contactAddress)
             }
+            if let image = share.image,
+               let fileURL = SharedDataManager.outboundShareImageFileURL(for: image),
+               let imageData = try? Data(contentsOf: fileURL) {
+                chatService.stagePendingShareImage(imageData, for: share.contactAddress)
+            }
+            NotificationCenter.default.post(
+                name: .openChat,
+                object: nil,
+                userInfo: ["contactAddress": share.contactAddress]
+            )
         }
 
         SharedDataManager.removeOutboundShare(id: share.id)
