@@ -107,7 +107,12 @@ private enum ShareStore {
             }
     }
 
-    static func enqueueOutboundShare(contactAddress: String, text: String, image: ShareImageAttachment?) -> String? {
+    static func enqueueOutboundShare(
+        contactAddress: String,
+        text: String,
+        image: ShareImageAttachment?,
+        autoSend: Bool
+    ) -> String? {
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty || image != nil else { return nil }
 
@@ -122,15 +127,21 @@ private enum ShareStore {
         if image != nil, storedImage == nil {
             return nil
         }
+        // autoSend: true  - the user confirmed the message in this extension's compose popup;
+        //                   the main app sends it IMMEDIATELY on its next activation with no
+        //                   further interaction. (In-extension on-chain sending is impossible:
+        //                   the Kaspa REST API's POST /transactions schema has no payload field,
+        //                   so a Kasia message transaction cannot be submitted outside the main
+        //                   app's gRPC node pool.)
         // autoSend: false - the main app lands the user in the chat with the shared content
-        // pre-filled in the composer instead of sending immediately.
+        //                   pre-filled in the composer instead of sending immediately.
         let share = SharedOutboundShare(
             id: shareId,
             contactAddress: contactAddress,
             text: cleaned,
             image: storedImage,
             createdAtMs: nowMs,
-            autoSend: false
+            autoSend: autoSend
         )
 
         shares.append(share)
@@ -475,6 +486,16 @@ private enum SharePayloadExtractor {
 
 @MainActor
 private final class ShareViewModel: ObservableObject {
+    /// The flow's three screens: pick a contact, compose the message in a quick-reply style
+    /// popup, then a terminal "queued" confirmation. The popup IS the completion - there is no
+    /// silent dead-end anymore (the old flow completed while an app-open hack usually failed,
+    /// leaving the user with nothing).
+    enum Stage {
+        case picking
+        case composing
+        case queued
+    }
+
     @Published var contacts: [ShareContact] = []
     @Published var recentContacts: [ShareContact] = []
     @Published var selectedContactAddress: String?
@@ -484,8 +505,18 @@ private final class ShareViewModel: ObservableObject {
     @Published var isLoading = true
     @Published var isSending = false
     @Published var errorMessage: String?
+    @Published var stage: Stage = .picking
+    @Published var composeText = ""
+    /// Copy shown on the terminal confirmation screen (differs for send vs. edit-in-app).
+    @Published var queuedConfirmationText = ""
 
     private let maxPayloadLength = 2_000
+
+    var selectedContact: ShareContact? {
+        guard let selectedContactAddress else { return nil }
+        return recentContacts.first { $0.address == selectedContactAddress }
+            ?? contacts.first { $0.address == selectedContactAddress }
+    }
 
     var isSearching: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -510,7 +541,7 @@ private final class ShareViewModel: ObservableObject {
         !isLoading
             && !isSending
             && selectedContactAddress != nil
-            && (!payloadText.isEmpty || imageAttachment != nil)
+            && (!composeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || imageAttachment != nil)
     }
 
     func load(inputItems: [Any], preselectedAddress: String?) async {
@@ -519,18 +550,6 @@ private final class ShareViewModel: ObservableObject {
 
         contacts = ShareStore.loadContacts()
         recentContacts = ShareStore.loadRecents()
-
-        // Pre-select in priority order: the share-sheet direct target the user tapped
-        // (INSendMessageIntent conversationIdentifier), then most recent chat, then first contact.
-        if selectedContactAddress == nil,
-           let preselectedAddress,
-           contacts.contains(where: { $0.address == preselectedAddress })
-            || recentContacts.contains(where: { $0.address == preselectedAddress }) {
-            selectedContactAddress = preselectedAddress
-        }
-        if selectedContactAddress == nil {
-            selectedContactAddress = recentContacts.first?.address ?? contacts.first?.address
-        }
 
         let extracted = await SharePayloadExtractor.extractPayload(from: inputItems)
         let extractedText = extracted.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -545,12 +564,43 @@ private final class ShareViewModel: ObservableObject {
         if !extracted.hasContent {
             errorMessage = "No text, link, or image found in this share."
         }
+
+        // The user tapped a KaChat conversation direct target in the share sheet
+        // (donated INSendMessageIntent) - skip the picker and land straight in compose
+        // for that contact, like Apple Watch quick reply.
+        if let preselectedAddress,
+           contacts.contains(where: { $0.address == preselectedAddress })
+            || recentContacts.contains(where: { $0.address == preselectedAddress }) {
+            selectContact(address: preselectedAddress)
+        }
     }
 
-    func prepareShare() -> String? {
-        let cleaned = payloadText.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Advances to the compose popup for the tapped contact. The shared text is copied into the
+    /// editable compose field once; edits survive going back and picking a different contact.
+    func selectContact(address: String) {
+        selectedContactAddress = address
+        if composeText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            composeText = payloadText
+        }
+        errorMessage = nil
+        stage = .composing
+    }
+
+    func backToPicker() {
+        guard !isSending, stage == .composing else { return }
+        errorMessage = nil
+        stage = .picking
+    }
+
+    /// Queues the composed message in the App Group. `autoSend: true` means the main app sends
+    /// it the moment it next activates, with no further user interaction.
+    func queueComposedShare(autoSend: Bool) -> String? {
+        var cleaned = composeText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if cleaned.count > maxPayloadLength {
+            cleaned = String(cleaned.prefix(maxPayloadLength))
+        }
         guard !cleaned.isEmpty || imageAttachment != nil else {
-            errorMessage = "No text, link, or image to send."
+            errorMessage = "Nothing to send - type a message first."
             return nil
         }
 
@@ -563,9 +613,10 @@ private final class ShareViewModel: ObservableObject {
         guard let shareId = ShareStore.enqueueOutboundShare(
             contactAddress: selectedContactAddress,
             text: cleaned,
-            image: imageAttachment
+            image: imageAttachment,
+            autoSend: autoSend
         ) else {
-            errorMessage = "Could not queue this share item."
+            errorMessage = "Could not queue this share. Please try again."
             return nil
         }
         return shareId
@@ -576,85 +627,99 @@ private struct ShareRootView: View {
     @ObservedObject var viewModel: ShareViewModel
     let onCancel: () -> Void
     let onSend: () -> Void
+    let onQueueForApp: () -> Void
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Shared Content") {
-                    if viewModel.isLoading {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Preparing share...")
-                                .foregroundStyle(.secondary)
-                        }
-                    } else if viewModel.payloadText.isEmpty && viewModel.imageAttachment == nil {
-                        Text("No text, link, or image found in this share item.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        if let image = viewModel.imageAttachment,
-                           let previewImage = image.previewImage {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Image(uiImage: previewImage)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(maxHeight: 220)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                Text(image.fileName)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-
-                        if !viewModel.payloadText.isEmpty {
-                            Text(viewModel.payloadText)
-                                .font(.body)
-                                .textSelection(.enabled)
-                        }
-                    }
-                }
-
-                if !viewModel.recentContacts.isEmpty && !viewModel.isSearching {
-                    Section("Recent") {
-                        ForEach(viewModel.recentContacts) { contact in
-                            contactRow(contact)
-                        }
-                    }
-                }
-
-                Section("Choose Contact") {
-                    if viewModel.contacts.isEmpty && viewModel.recentContacts.isEmpty {
-                        Text("No contacts available. Add contacts in KaChat first.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        TextField("Search", text: $viewModel.searchText)
-                            .textInputAutocapitalization(.never)
-                            .disableAutocorrection(true)
-
-                        ForEach(viewModel.filteredContacts) { contact in
-                            contactRow(contact)
-                        }
-                    }
-                }
-
-                if let errorMessage = viewModel.errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                    }
+            Group {
+                switch viewModel.stage {
+                case .picking:
+                    pickerList
+                case .composing:
+                    composeView
+                case .queued:
+                    queuedView
                 }
             }
-            .navigationTitle("Share to KaChat")
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel", action: onCancel)
+                    switch viewModel.stage {
+                    case .picking:
+                        Button("Cancel", action: onCancel)
+                    case .composing:
+                        Button {
+                            viewModel.backToPicker()
+                        } label: {
+                            Label("Back", systemImage: "chevron.backward")
+                                .labelStyle(.titleAndIcon)
+                        }
                         .disabled(viewModel.isSending)
+                    case .queued:
+                        EmptyView()
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(viewModel.isSending ? "Opening..." : "Share", action: onSend)
-                        .disabled(!viewModel.canSend)
+                    if viewModel.stage == .composing {
+                        Button("Cancel", action: onCancel)
+                            .disabled(viewModel.isSending)
+                    }
+                }
+            }
+        }
+    }
+
+    private var navigationTitle: String {
+        switch viewModel.stage {
+        case .picking: return "Share to KaChat"
+        case .composing: return viewModel.selectedContact?.displayName ?? "New Message"
+        case .queued: return ""
+        }
+    }
+
+    // MARK: - Stage 1: Contact picker
+
+    private var pickerList: some View {
+        List {
+            if viewModel.isLoading {
+                Section {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Preparing share...")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if !viewModel.recentContacts.isEmpty && !viewModel.isSearching {
+                Section("Recent") {
+                    ForEach(viewModel.recentContacts) { contact in
+                        contactRow(contact)
+                    }
+                }
+            }
+
+            Section("Choose Contact") {
+                if viewModel.contacts.isEmpty && viewModel.recentContacts.isEmpty {
+                    Text("No contacts available. Add contacts in KaChat first.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    TextField("Search", text: $viewModel.searchText)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+
+                    ForEach(viewModel.filteredContacts) { contact in
+                        contactRow(contact)
+                    }
+                }
+            }
+
+            if let errorMessage = viewModel.errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
                 }
             }
         }
@@ -663,7 +728,7 @@ private struct ShareRootView: View {
     @ViewBuilder
     private func contactRow(_ contact: ShareContact) -> some View {
         Button {
-            viewModel.selectedContactAddress = contact.address
+            viewModel.selectContact(address: contact.address)
         } label: {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -675,10 +740,9 @@ private struct ShareRootView: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                if viewModel.selectedContactAddress == contact.address {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.tint)
-                }
+                Image(systemName: "chevron.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
             // .plain buttons only hit-test the label's opaque content - without an explicit
             // content shape, taps on the row's blank space (most of it, thanks to the Spacer)
@@ -687,6 +751,101 @@ private struct ShareRootView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Stage 2: Quick-reply compose popup
+
+    private var composeView: some View {
+        List {
+            if let contact = viewModel.selectedContact {
+                Section("To") {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(contact.displayName)
+                            .foregroundStyle(.primary)
+                        Text(contact.shortAddress)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+            Section("Message") {
+                if let image = viewModel.imageAttachment,
+                   let previewImage = image.previewImage {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Image(uiImage: previewImage)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 180)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        Text(image.fileName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                TextField("Message", text: $viewModel.composeText, axis: .vertical)
+                    .lineLimit(3...8)
+                    .disabled(viewModel.isSending)
+            }
+
+            Section {
+                Button(action: onSend) {
+                    HStack {
+                        Spacer()
+                        if viewModel.isSending {
+                            ProgressView()
+                                .padding(.trailing, 6)
+                        } else {
+                            Image(systemName: "paperplane.fill")
+                                .padding(.trailing, 2)
+                        }
+                        Text(viewModel.isSending ? "Queuing..." : "Send")
+                            .fontWeight(.semibold)
+                        Spacer()
+                    }
+                }
+                .disabled(!viewModel.canSend)
+
+                Button(action: onQueueForApp) {
+                    HStack {
+                        Spacer()
+                        Text("Edit in KaChat instead")
+                            .font(.subheadline)
+                        Spacer()
+                    }
+                }
+                .disabled(!viewModel.canSend)
+            } footer: {
+                Text("Send queues the message; KaChat delivers it on-chain the moment it next opens.")
+            }
+
+            if let errorMessage = viewModel.errorMessage {
+                Section {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+    }
+
+    // MARK: - Stage 3: Queued confirmation (terminal - the sheet auto-dismisses)
+
+    private var queuedView: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 52))
+                .foregroundStyle(.green)
+            Text(viewModel.queuedConfirmationText)
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 32)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -704,7 +863,10 @@ final class ShareViewController: UIViewController {
                 self?.cancelShare()
             },
             onSend: { [weak self] in
-                self?.sendShare()
+                self?.queueShare(autoSend: true)
+            },
+            onQueueForApp: { [weak self] in
+                self?.queueShare(autoSend: false)
             }
         )
 
@@ -737,48 +899,55 @@ final class ShareViewController: UIViewController {
         extensionContext?.cancelRequest(withError: error)
     }
 
-    private func sendShare() {
+    /// Queues the composed message in the App Group and shows the terminal confirmation.
+    /// `autoSend: true` (the Send button) has the main app deliver the message on-chain the
+    /// moment it next activates - no user interaction needed. `autoSend: false` ("Edit in
+    /// KaChat instead") preserves the old prefill behavior: the app opens the chat with the
+    /// message staged in the composer.
+    ///
+    /// Unlike the previous flow, the confirmation screen IS the completion: the share succeeds
+    /// whether or not the best-effort app-open below manages to launch KaChat (it usually
+    /// doesn't - see openViaResponderChain), because the main app also drains the queue on its
+    /// next normal activation.
+    private func queueShare(autoSend: Bool) {
         guard !viewModel.isSending else { return }
 
         viewModel.isSending = true
-        guard let shareId = viewModel.prepareShare() else {
+        guard let shareId = viewModel.queueComposedShare(autoSend: autoSend) else {
             viewModel.isSending = false
             return
         }
+
+        viewModel.queuedConfirmationText = autoSend
+            ? "Queued - sends the moment KaChat opens."
+            : "Queued - KaChat opens this chat with your message ready to edit."
+        viewModel.stage = .queued
 
         var components = URLComponents()
         components.scheme = "kachat"
         components.host = "share"
         components.queryItems = [URLQueryItem(name: "id", value: shareId)]
 
-        guard let url = components.url else {
-            viewModel.errorMessage = "Could not prepare share handoff URL."
-            viewModel.isSending = false
-            return
-        }
-
-        // Try the responder-chain openURL: workaround FIRST. NSExtensionContext.open is
-        // documented to work only from Today widgets; in share extensions it usually fails and
-        // on several iOS versions never even calls its completion handler - putting the
-        // fallback and completeRequest inside that completion left this sheet permanently
-        // stuck on "Opening..." with the app never launching.
-        let attemptOpen: () -> Void = { [weak self] in
-            guard let self else { return }
-            if !self.openViaResponderChain(url) {
-                // Best-effort backup; deliberately fire-and-forget (see above - the completion
-                // handler cannot be relied on to run).
-                self.extensionContext?.open(url, completionHandler: nil)
+        if let url = components.url {
+            // Best-effort app open. NSExtensionContext.open is documented to work only from
+            // Today widgets; in share extensions it usually fails and on several iOS versions
+            // never even calls its completion handler, so this is fire-and-forget - the queued
+            // share is the source of truth either way.
+            let attemptOpen: () -> Void = { [weak self] in
+                guard let self else { return }
+                if !self.openViaResponderChain(url) {
+                    self.extensionContext?.open(url, completionHandler: nil)
+                }
             }
+            attemptOpen()
+            // One retry: the first perform can land while the host app is mid-transition (share
+            // sheet still animating) and get silently dropped by the system.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: attemptOpen)
         }
-        attemptOpen()
-        // One retry: the first perform can land while the host app is mid-transition (share
-        // sheet still animating) and get silently dropped by the system.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: attemptOpen)
 
-        // Always complete, but on a delay: completing too close to the openURL: perform tears
-        // the extension down before the system processes the open (0.6s proved too tight on
-        // device - the app never launched). The queued share is already persisted in the App
-        // Group, so even if the open fails the main app picks it up on its next activation.
+        // Complete on a delay: long enough for the user to read the confirmation and for the
+        // system to process the openURL: perform (completing too close to it tears the
+        // extension down before the open lands - 0.6s proved too tight on device).
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
             self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
         }

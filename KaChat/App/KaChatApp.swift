@@ -301,82 +301,86 @@ struct KaChatApp: App {
         NotificationCenter.default.post(name: .openKaPost, object: nil, userInfo: ["txId": txId])
     }
 
+    /// Drains the Share Extension's outbound queue. Auto-send shares (composed and confirmed in
+    /// the extension's quick-reply popup) are delivered on-chain IMMEDIATELY, with no user
+    /// interaction - the extension's confirmation screen already promised "sends the moment
+    /// KaChat opens". Pre-fill shares ("Edit in KaChat instead") stage the content in the chat
+    /// composer. Runs on every activation and on the kachat://share deep link, so the queue is
+    /// processed whether or not the extension's best-effort app-open worked.
     @MainActor
     private func processPendingOutboundShareIfNeeded() async {
         guard !isProcessingOutboundShare else { return }
         guard walletManager.currentWallet != nil else { return }
 
-        if pendingOutboundShareId == nil {
-            // Fallback path when Share Extension couldn't open URL directly.
-            pendingOutboundShareId = SharedDataManager.getOutboundShares().last?.id
-        }
-
-        guard let shareId = pendingOutboundShareId else { return }
-
         isProcessingOutboundShare = true
         defer { isProcessingOutboundShare = false }
 
         SharedDataManager.pruneOutboundShares()
-        guard let share = SharedDataManager.getOutboundShare(id: shareId) else {
-            pendingOutboundShareId = nil
-            return
-        }
+        // Oldest first so multiple queued messages to the same contact arrive in the order the
+        // user shared them. The deep-linked share id (if any) is just one of these; processing
+        // the whole queue also covers shares from earlier failed app-open attempts.
+        let shares = SharedDataManager.getOutboundShares().sorted { $0.createdAtMs < $1.createdAtMs }
+        pendingOutboundShareId = nil
+        guard !shares.isEmpty else { return }
 
-        let cleanedText = share.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard share.hasSendableContent else {
-            SharedDataManager.removeOutboundShare(id: share.id)
-            pendingOutboundShareId = nil
-            return
-        }
+        for share in shares {
+            let cleanedText = share.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard share.hasSendableContent else {
+                SharedDataManager.removeOutboundShare(id: share.id)
+                continue
+            }
 
-        let contact = contactsManager.getContact(byAddress: share.contactAddress)
-            ?? contactsManager.getOrCreateContact(address: share.contactAddress)
+            let contact = contactsManager.getContact(byAddress: share.contactAddress)
+                ?? contactsManager.getOrCreateContact(address: share.contactAddress)
 
-        chatService.pendingChatNavigation = share.contactAddress
+            chatService.pendingChatNavigation = share.contactAddress
 
-        if share.autoSend {
-            // Legacy path: shares queued by an older Share Extension build send immediately.
-            NotificationCenter.default.post(
-                name: .openChat,
-                object: nil,
-                userInfo: ["contactAddress": share.contactAddress]
-            )
-            do {
-                if !cleanedText.isEmpty {
-                    try await chatService.sendMessage(to: contact, content: cleanedText)
+            if share.autoSend {
+                // Land in the chat so the user watches the queued message send for real -
+                // pending bubble, delivery state, the works.
+                NotificationCenter.default.post(
+                    name: .openChat,
+                    object: nil,
+                    userInfo: ["contactAddress": share.contactAddress]
+                )
+                do {
+                    if !cleanedText.isEmpty {
+                        try await chatService.sendMessage(to: contact, content: cleanedText)
+                    }
+                    if let image = share.image {
+                        try await sendSharedImage(image, to: contact)
+                    }
+                } catch {
+                    AppLog.log("[Share] Auto-send failed for %@: %@",
+                          String(share.contactAddress.suffix(10)),
+                          error.localizedDescription)
+                    // Don't lose the message: fall back to staging it as the chat's draft so
+                    // the user can retry with one tap.
+                    if !cleanedText.isEmpty {
+                        chatService.setDraft(cleanedText, for: share.contactAddress)
+                    }
                 }
-                if let image = share.image {
-                    try await sendSharedImage(image, to: contact)
-                }
-            } catch {
-                AppLog.log("[Share] Auto-send failed for %@: %@",
-                      String(share.contactAddress.suffix(10)),
-                      error.localizedDescription)
+            } else {
+                // Pre-fill path: land the user in the chat with the shared content staged in the
+                // composer. Draft + image must be staged BEFORE posting .openChat - the notification
+                // is delivered synchronously and ChatDetailView reads both while handling it.
                 if !cleanedText.isEmpty {
                     chatService.setDraft(cleanedText, for: share.contactAddress)
                 }
+                if let image = share.image,
+                   let fileURL = SharedDataManager.outboundShareImageFileURL(for: image),
+                   let imageData = try? Data(contentsOf: fileURL) {
+                    chatService.stagePendingShareImage(imageData, for: share.contactAddress)
+                }
+                NotificationCenter.default.post(
+                    name: .openChat,
+                    object: nil,
+                    userInfo: ["contactAddress": share.contactAddress]
+                )
             }
-        } else {
-            // Pre-fill path: land the user in the chat with the shared content staged in the
-            // composer. Draft + image must be staged BEFORE posting .openChat - the notification
-            // is delivered synchronously and ChatDetailView reads both while handling it.
-            if !cleanedText.isEmpty {
-                chatService.setDraft(cleanedText, for: share.contactAddress)
-            }
-            if let image = share.image,
-               let fileURL = SharedDataManager.outboundShareImageFileURL(for: image),
-               let imageData = try? Data(contentsOf: fileURL) {
-                chatService.stagePendingShareImage(imageData, for: share.contactAddress)
-            }
-            NotificationCenter.default.post(
-                name: .openChat,
-                object: nil,
-                userInfo: ["contactAddress": share.contactAddress]
-            )
-        }
 
-        SharedDataManager.removeOutboundShare(id: share.id)
-        pendingOutboundShareId = nil
+            SharedDataManager.removeOutboundShare(id: share.id)
+        }
     }
 
     private func sendSharedImage(_ image: SharedOutboundShare.ImageAttachment, to contact: Contact) async throws {
