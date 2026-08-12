@@ -210,9 +210,30 @@ is baked in so uploaded **videos** generate thumbnails too.
 > Use a machine that stays on — a spare PC, a mini-PC, or a home server works great. You need
 > ~4 GB RAM free and a few GB of disk.
 
-### Step 1 — Install everything (one copy-paste)
+### Step 1 — Install everything
 
-**macOS & Linux** — open Terminal and paste this whole block:
+The one-command install below is the most reliable option — a long copy-paste can get
+mangled by the terminal. Each command checks for Docker and installs it if missing (with a
+distro-package fallback on Linux), makes sure **Docker Compose v2** is present, starts the
+engine, then brings up Nextcloud (with photo/video previews enabled), Portainer, and Nginx
+Proxy Manager. Re-running is safe — it reuses the passwords already saved in `.env`.
+
+**macOS & Linux** — open a terminal and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vsmirn0v/KaChat/main/scripts/kachat-cloud-setup.sh | bash
+```
+
+**Windows** — open **PowerShell as Administrator** and run:
+
+```powershell
+irm https://raw.githubusercontent.com/vsmirn0v/KaChat/main/scripts/kachat-cloud-setup.ps1 | iex
+```
+
+<details>
+<summary><b>Prefer to review and paste the full script yourself? Expand for the complete macOS/Linux and Windows blocks.</b></summary>
+
+**macOS & Linux:**
 
 ```bash
 # === KaChat self-hosted cloud: Nextcloud + Portainer + Nginx Proxy Manager ===
@@ -272,6 +293,26 @@ kachat_install() {
   done
   if docker info >/dev/null 2>&1; then DK="docker"; else DK="sudo docker"; fi
   echo "Docker engine is ready."
+
+  # 2b) Ensure Docker Compose v2 — the distro 'docker.io' package ships without it
+  if [ "$OS" != "Darwin" ] && ! $DK compose version >/dev/null 2>&1; then
+    echo "Installing Docker Compose v2..."
+    sudo apt-get install -y docker-compose-v2 2>/dev/null \
+      || sudo apt-get install -y docker-compose-plugin 2>/dev/null \
+      || sudo dnf install -y docker-compose-plugin 2>/dev/null \
+      || sudo pacman -Sy --noconfirm docker-compose 2>/dev/null || true
+    # last resort: drop the official compose plugin binary in place
+    if ! $DK compose version >/dev/null 2>&1; then
+      sudo mkdir -p /usr/local/lib/docker/cli-plugins
+      sudo curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)" \
+        -o /usr/local/lib/docker/cli-plugins/docker-compose && sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+    fi
+  fi
+  if ! $DK compose version >/dev/null 2>&1; then
+    echo "!! Docker Compose v2 is unavailable and could not be installed."
+    echo "   See https://docs.docker.com/compose/install/ then run this block again."
+    return 1
+  fi
 
   # 3) Generate secrets and detect this machine's LAN IP
   gen() { openssl rand -hex 16; }
@@ -417,7 +458,7 @@ EOF
 kachat_install
 ```
 
-**Windows** — open **PowerShell as Administrator** and paste this whole block:
+**Windows (PowerShell as Administrator):**
 
 ```powershell
 # === KaChat self-hosted cloud (Windows / PowerShell as Administrator) ===
@@ -573,8 +614,11 @@ Write-Host "======================================================"
 }
 ```
 
-> **Copy tips:** copy only the command text — no leading `$`, `%`, or `>` prompt symbols. The
-> script is safe to paste again; it reuses the passwords it already generated in `.env`.
+> **Copy tips:** copy only the command text — no leading `$`, `%`, or `>` prompt
+> symbols. The script is safe to run again; it reuses the passwords it already
+> generated in `.env`.
+
+</details>
 
 ### Step 2 — Log in and grab your passwords
 
