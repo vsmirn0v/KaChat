@@ -60,7 +60,9 @@ in `hidden_broadcast_senders`.
   clears delivered notifications for that thread when the user opens the room.
 - HTTP/2 header `apns-collapse-id` = message txid (retry dedupe).
 - Preview rules: reply envelope (`{"type":"reply",...}`) → its inner `content`; file/audio
-  envelope → `"Voice message"`; else text verbatim, ~150 chars.
+  envelope → `"Voice message"`; else text verbatim, ~150 chars. Reaction envelopes
+  (`{"type":"reaction",...}`) → do NOT push at all (clients render them as pills on the
+  target message, never as messages).
 
 ## 3. KaPosts pushes (NEW)
 

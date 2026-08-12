@@ -89,6 +89,16 @@ struct KaPostsView: View {
     @State private var isLoadingFeed = false
     @State private var feedError: String?
     @State private var showComposer = false
+    /// Zero-balance interception for the new-post entry point: with a CONFIRMED 0 KAS chatting
+    /// balance (never on unknown/still-loading - see
+    /// `WalletManager.hasConfirmedZeroChattingBalance`) the pencil button presents the shared
+    /// funding card instead of the composer.
+    @State private var showComposeFundingSheet = false
+    /// Same interception for the thread view's reply bar - separate flag because that bar
+    /// lives inside the `detailTarget` sheet, so its funding card must present as a nested
+    /// sheet from in there (a single shared flag bound to two `.sheet` modifiers at different
+    /// presentation levels would fight over who presents).
+    @State private var showReplyFundingSheet = false
     @State private var profileTarget: PosterProfileTarget?
     /// Post whose comment thread is open - the sheet looks the post up live by id, so new
     /// comments/likes appear immediately.
@@ -231,6 +241,11 @@ struct KaPostsView: View {
                 schedulePost(text: text)
             }
             .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showComposeFundingSheet) {
+            // Zero-balance gate: presented INSTEAD of the post composer (see
+            // `createPostButton`) - auto-dismisses once the chatting balance turns positive.
+            ZeroBalanceFundingSheetView()
         }
         .sheet(item: $profileTarget) { target in
             posterProfileSheet(for: target)
@@ -578,7 +593,14 @@ struct KaPostsView: View {
     private var createPostButton: some View {
         Button {
             Haptics.impact(.light)
-            showComposer = true
+            // Zero-balance gate: a confirmed 0 KAS chatting balance can't fund a post
+            // transaction, so offer the funding card instead of a composer that would
+            // dead-end at submit. Unknown/still-loading balances open the composer normally.
+            if walletManager.hasConfirmedZeroChattingBalance {
+                showComposeFundingSheet = true
+            } else {
+                showComposer = true
+            }
         } label: {
             Image(systemName: "square.and.pencil")
                 .font(.system(size: 22, weight: .semibold))
@@ -613,6 +635,15 @@ struct KaPostsView: View {
                 result = try await KaPostsAPIClient.shared.fetchGlobalFeed().posts
             }
             remotePosts = result.compactMap { Self.mapRemotePost($0) }
+            // Batch-refresh poster identities through KNSService's debounced/backed-off path
+            // (bounded concurrency, per-address debounce). Besides warming names/avatars ahead
+            // of row mounts, this refreshes stale cached entries - including old permanently
+            // cached failed lookups - which per-row tasks never retouch because they only fetch
+            // when the cache has no entry at all.
+            let posterAddresses = Array(Set(remotePosts.map(\.posterAddress).filter { !$0.isEmpty }))
+            if !posterAddresses.isEmpty {
+                Task { await knsService.refreshProfilesIfNeeded(for: posterAddresses) }
+            }
         } catch {
             feedError = error.localizedDescription
             AppLog.log("[KaPosts] Feed fetch failed: %@", error.localizedDescription)
@@ -1943,9 +1974,32 @@ struct KaPostsView: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
+                    // Zero-balance gate: with a confirmed 0 KAS chatting balance the reply
+                    // bar dims and any tap on it presents the shared funding card instead of
+                    // focusing the composer (reading the thread stays fully usable). The
+                    // overlay swallows the tap before the TextField/send button can react.
+                    .grayscale(walletManager.hasConfirmedZeroChattingBalance ? 1 : 0)
+                    .opacity(walletManager.hasConfirmedZeroChattingBalance ? 0.45 : 1)
+                    .overlay {
+                        if walletManager.hasConfirmedZeroChattingBalance {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    Haptics.impact(.light)
+                                    showReplyFundingSheet = true
+                                }
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: walletManager.hasConfirmedZeroChattingBalance)
                 }
                 .navigationTitle("Post")
                 .navigationBarTitleDisplayMode(.inline)
+                .sheet(isPresented: $showReplyFundingSheet) {
+                    // Nested sheet on the thread sheet's own content - MainTabView's gift
+                    // listener can't present while this detail sheet is up, so the funding
+                    // card (and its Claim Gift flow) presents from in here instead.
+                    ZeroBalanceFundingSheetView()
+                }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Done") { detailTarget = nil }

@@ -201,7 +201,7 @@ struct SettingsView: View {
                     NavigationLink {
                         MenuVisibilityView()
                     } label: {
-                        Label("Menu", systemImage: "list.bullet")
+                        Label("Customize Dock", systemImage: "list.bullet")
                     }
 
                     Toggle("Show Setup Guides", isOn: Binding(

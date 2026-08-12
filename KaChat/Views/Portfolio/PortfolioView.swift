@@ -69,6 +69,8 @@ struct PortfolioView: View {
         switch days {
         case 1: return "1d"
         case 7: return "7d"
+        case 90: return "3m"
+        case 365: return "1y"
         default: return "30d"
         }
     }

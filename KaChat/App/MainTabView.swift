@@ -10,9 +10,6 @@ struct MainTabView: View {
     /// 4.0 "what's new" wizard: shown on every entry into the app until the user taps
     /// Don't Show Again (persisted per device).
     @State private var showDockWizard = false
-    /// "+ More" dock item tapped - opens Customize Menu directly (selection never moves there).
-    @State private var showCustomizeMenuSheet = false
-    @State private var isSnappingBackFromMore = false
     /// What the Chats slot currently shows: .chats, or a masked-out tab (.kaposts/.broadcasts)
     /// the user cycled to by re-tapping the Chats tab (see handleChatsTabReselection).
     @State private var chatsSlotTab: AppTab = .chats
@@ -88,11 +85,6 @@ struct MainTabView: View {
         .sheet(isPresented: $showDockWizard) {
             DockWizardView()
                 .presentationDetents([.large])
-        }
-        .sheet(isPresented: $showCustomizeMenuSheet) {
-            NavigationStack {
-                MenuVisibilityView()
-            }
         }
         .fullScreenCover(isPresented: $showWelcomeGuide) {
             WelcomeGuideView(onFinished: {
@@ -229,22 +221,10 @@ struct MainTabView: View {
                     }
             }
         case .more:
-            // Tapping More presents the Customize Menu sheet and the selection snaps back to the
-            // previous tab (see handleTabSelectionChange). UIKit can still land here for a frame
-            // before the snap-back, so this page must be opaque and harmless - a pure Color.clear
-            // here rendered as a stuck BLACK screen whenever the snap-back/reselect raced a menu
-            // change.
-            ZStack {
-                Color(uiColor: .systemBackground).ignoresSafeArea()
-                VStack(spacing: 10) {
-                    Image(systemName: AppTab.more.icon)
-                        .font(.system(size: 40, weight: .medium))
-                        .foregroundColor(.secondary)
-                    Text("Customize Menu")
-                        .font(.headline)
-                        .foregroundColor(.secondary)
-                }
-            }
+            // Retired: "+ More" can never be in the dock anymore (AppTab.isEnabled hard-hides
+            // it), so this page is unreachable - kept only so the switch stays exhaustive,
+            // and opaque just in case.
+            Color(uiColor: .systemBackground).ignoresSafeArea()
         }
     }
 
@@ -427,27 +407,6 @@ struct MainTabView: View {
     }
 
     private func handleTabSelectionChange(_ newValue: Int) {
-        // "+ More" is not a destination: open Customize Menu, then snap the selection back to the
-        // tab the user was on. UIKit moves the page BEFORE this setter runs, so refusing the new
-        // value outright (the previous shape) left the TabView visually stuck on the More page
-        // (rendered black) while the selection state disagreed - the "black screen" bug. Accept
-        // the move, then revert on the next runloop tick so the TabView actually re-renders the
-        // previous page, and present the sheet after that.
-        if newValue == AppTab.more.tag {
-            // Coalesced + latch-proof: a rapid double-tap (or SwiftUI writing the selection back)
-            // could capture previous == More and "revert" onto the More placeholder forever,
-            // re-presenting the sheet in a self-sustaining cycle.
-            guard !isSnappingBackFromMore else { return }
-            let previous = selectedTab == AppTab.more.tag ? 1 : selectedTab
-            isSnappingBackFromMore = true
-            selectedTab = newValue
-            DispatchQueue.main.async {
-                selectedTab = previous
-                showCustomizeMenuSheet = true
-                isSnappingBackFromMore = false
-            }
-            return
-        }
         let previousValue = selectedTab
         selectedTab = newValue
 
@@ -588,8 +547,8 @@ struct DockWizardView: View {
                 wizardPage(
                     icon: "slider.horizontal.3",
                     title: "Make It Yours",
-                    text: "Want them as their own dock buttons instead? Turn tabs on and off in Settings > Customize Menu (or tap the + More dock item). If the dock is full, they stay reachable through the Chats tab.",
-                    demo: { dockMock(highlightIcon: AppTab.more.icon, label: AppTab.more.label) }
+                    text: "Everything is on by default. Turn tabs on and off (and reorder them) in Settings > Customization > Customize Dock. If the dock is full, KaPosts and Broadcasts stay reachable through the Chats tab.",
+                    demo: { dockMock(highlightIcon: "slider.horizontal.3", label: "Customize") }
                 )
                 .tag(3)
             }

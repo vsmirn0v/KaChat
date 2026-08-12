@@ -729,6 +729,17 @@ final class WalletManager: ObservableObject {
         }
     }
 
+    /// True only when the chatting-address balance is a CONFIRMED zero. `balanceSompi` is `nil`
+    /// until the first UTXO fetch (or cached-balance load) completes, so an unknown/still-loading
+    /// balance never counts as zero - only an actual fetched/cached 0. Reactive: `balanceSompi`
+    /// lives on the published `currentWallet`, so observers re-evaluate the moment any
+    /// refresh/UTXO push reports funds. Drives the zero-balance compose gates in 1:1 chats,
+    /// group chats, broadcast channels, and KaPosts.
+    var hasConfirmedZeroChattingBalance: Bool {
+        guard let balance = currentWallet?.balanceSompi else { return false }
+        return balance == 0
+    }
+
     /// Refresh balance by summing UTXOs for the current wallet
     func refreshBalance() async throws -> UInt64 {
         guard let wallet = currentWallet else {

@@ -100,17 +100,16 @@ extension AppSettings {
             settings.kaPostIndexerURL = defaultKaPostIndexerURL
             save(settings)
         }
-        // One-time 4.0 dock rules: EVERY existing user gets KaPosts/Broadcasts/"+More" enabled.
+        // One-time 4.0 dock rules: EVERY existing user gets KaPosts/Broadcasts enabled.
         // The decode fallbacks cover production 3.0 users (their blobs lack these keys), but
-        // 4.0 TestFlight builds already wrote hideKaPostsTab/hideMoreItem = true into saved
-        // blobs via the old defaults - this sentinel-guarded pass flips them once. The dock cap
-        // then does the right thing: full dock -> KaPosts/Broadcasts cycle behind Chats; free
-        // slot -> "+More" fills it.
+        // 4.0 TestFlight builds already wrote hideKaPostsTab = true into saved blobs via the
+        // old defaults - this sentinel-guarded pass flips them once. The dock cap then does
+        // the right thing: full dock -> KaPosts/Broadcasts cycle behind Chats. ("+More" no
+        // longer exists as a dock item, so hideMoreItem isn't touched anymore.)
         let dockRulesKey = "kachat_dock_40_rules_applied"
         if !userDefaults.bool(forKey: dockRulesKey) {
             settings.hideKaPostsTab = false
             settings.hideBroadcasts = false
-            settings.hideMoreItem = false
             userDefaults.set(true, forKey: dockRulesKey)
             save(settings)
         }

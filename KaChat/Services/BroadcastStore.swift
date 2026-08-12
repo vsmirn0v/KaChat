@@ -325,6 +325,129 @@ final class BroadcastStore {
         return result
     }
 
+    // MARK: - Reactions (CDBroadcastReaction)
+    //
+    // One row per (targetTxId, reactorAddress), mirroring `GroupStore`'s reaction persistence -
+    // with one broadcast-specific twist: a REMOVE is kept as a tombstone row (`emoji == nil`,
+    // real `blockTime`) instead of deleting the row outright. The broadcast indexer re-serves
+    // the channel's FULL history on every poll, so without a tombstone an already-processed
+    // "add" arriving again (after its later "remove" was applied) would silently resurrect the
+    // reaction. Newest-blockTime-wins per (target, reactor) makes replaying history idempotent.
+
+    /// Unconditional write for the local user's OWN reaction changes (optimistic apply at send
+    /// time + status flips on success/failure) - user intent always wins over whatever's stored.
+    /// `emoji == nil` writes a remove-tombstone. Mirrors `GroupStore.upsertGroupReaction`.
+    func upsertOwnReaction(
+        targetTxId: String,
+        channel: String,
+        reactorAddress: String,
+        emoji: String?,
+        reactionTxId: String?,
+        blockTime: Int64,
+        deliveryStatus: String? = nil,
+        failedAction: String? = nil
+    ) {
+        guard isLoaded else { return }
+        let normalized = BroadcastChannelName.normalize(channel)
+        let context = viewContext
+        context.performAndWait {
+            let reaction = fetchReactionRow(targetTxId: targetTxId, reactorAddress: reactorAddress, in: context)
+                ?? CDBroadcastReaction(context: context)
+            reaction.targetTxId = targetTxId
+            reaction.channelName = normalized
+            reaction.reactorAddress = reactorAddress
+            reaction.emoji = emoji
+            reaction.reactionTxId = reactionTxId
+            reaction.blockTime = blockTime
+            reaction.deliveryStatus = deliveryStatus
+            reaction.failedAction = failedAction
+            save(context)
+        }
+    }
+
+    /// Applies a reaction seen on-chain (live block scan or indexer history) with
+    /// newest-blockTime-wins semantics - a stale/duplicate replay of already-applied history is
+    /// a no-op. `emoji == nil` = the sender removed their reaction (stored as a tombstone).
+    /// Returns whether anything actually changed, so callers can skip UI refreshes for no-ops.
+    @discardableResult
+    func applyIncomingReaction(
+        targetTxId: String,
+        channel: String,
+        reactorAddress: String,
+        emoji: String?,
+        reactionTxId: String,
+        blockTime: Int64
+    ) -> Bool {
+        guard isLoaded else { return false }
+        let normalized = BroadcastChannelName.normalize(channel)
+        let context = viewContext
+        var changed = false
+        context.performAndWait {
+            let existing = fetchReactionRow(targetTxId: targetTxId, reactorAddress: reactorAddress, in: context)
+            if let existing {
+                // Already applied this exact reaction tx, or a newer change supersedes it.
+                guard existing.reactionTxId != reactionTxId, existing.blockTime <= blockTime else { return }
+            }
+            let reaction = existing ?? CDBroadcastReaction(context: context)
+            reaction.targetTxId = targetTxId
+            reaction.channelName = normalized
+            reaction.reactorAddress = reactorAddress
+            reaction.emoji = emoji
+            reaction.reactionTxId = reactionTxId
+            reaction.blockTime = blockTime
+            reaction.deliveryStatus = nil
+            reaction.failedAction = nil
+            save(context)
+            changed = true
+        }
+        return changed
+    }
+
+    private func fetchReactionRow(targetTxId: String, reactorAddress: String, in context: NSManagedObjectContext) -> CDBroadcastReaction? {
+        let request = NSFetchRequest<CDBroadcastReaction>(entityName: CDBroadcastReaction.entityName)
+        request.predicate = NSPredicate(format: "targetTxId == %@ AND reactorAddress == %@", targetTxId, reactorAddress)
+        let rows = (try? context.fetch(request)) ?? []
+        // One reaction per (message, reactor) - fold any stray duplicates.
+        for duplicate in rows.dropFirst() {
+            context.delete(duplicate)
+        }
+        return rows.first
+    }
+
+    /// All active (non-tombstone) reactions for `channel`, grouped by the message they target.
+    /// Reuses `GroupStore.ReactionSnapshot` - the value shape is identical, and the shared
+    /// reaction UI (`ReactionPillView` + retry affordances) already speaks it.
+    func fetchReactions(forChannel channel: String) -> [String: [GroupStore.ReactionSnapshot]] {
+        guard isLoaded else { return [:] }
+        let normalized = BroadcastChannelName.normalize(channel)
+        var grouped: [String: [GroupStore.ReactionSnapshot]] = [:]
+        let context = viewContext
+        context.performAndWait {
+            let request = NSFetchRequest<CDBroadcastReaction>(entityName: CDBroadcastReaction.entityName)
+            request.predicate = NSPredicate(format: "channelName == %@", normalized)
+            guard let results = try? context.fetch(request) else { return }
+            for record in results {
+                guard let emoji = record.emoji else { continue } // remove-tombstone
+                let status: ChatMessage.DeliveryStatus
+                switch record.deliveryStatus {
+                case "failed": status = .failed
+                case "pending": status = .pending
+                default: status = .sent
+                }
+                let snapshot = GroupStore.ReactionSnapshot(
+                    targetTxId: record.targetTxId,
+                    reactorAddress: record.reactorAddress,
+                    emoji: emoji,
+                    deliveryStatus: status,
+                    failedAction: record.failedAction,
+                    blockTime: record.blockTime
+                )
+                grouped[record.targetTxId, default: []].append(snapshot)
+            }
+        }
+        return grouped
+    }
+
     // MARK: - Hidden senders (PER ROOM)
 
     func hideSender(_ address: String, inChannel channel: String) {
@@ -420,6 +543,13 @@ final class BroadcastStore {
                     ? Self.maxRetentionMillis
                     : min(channel.retentionMillis, Self.maxRetentionMillis)
                 let cutoff = nowMillis - retention
+                // Reactions age out on the same clock as their channel's messages - once the
+                // message a reaction targets is pruned there's nothing to render it on, and the
+                // tombstones' replay-idempotency job (see the Reactions section) only matters
+                // while the indexer still serves the corresponding history window.
+                let reactionRequest = NSFetchRequest<NSFetchRequestResult>(entityName: CDBroadcastReaction.entityName)
+                reactionRequest.predicate = NSPredicate(format: "channelName == %@ AND blockTime < %lld", channel.channelName, cutoff)
+                _ = try? context.execute(NSBatchDeleteRequest(fetchRequest: reactionRequest))
                 let request = NSFetchRequest<NSFetchRequestResult>(entityName: CDBroadcastMessage.entityName)
                 request.predicate = NSPredicate(format: "channelName == %@ AND blockTime < %lld", channel.channelName, cutoff)
                 let deleteRequest = NSBatchDeleteRequest(fetchRequest: request)
@@ -446,7 +576,7 @@ final class BroadcastStore {
         guard isLoaded else { return }
         let context = viewContext
         context.performAndWait {
-            for entityName in [CDBroadcastMessage.entityName, CDBroadcastChannel.entityName, CDHiddenBroadcastSender.entityName] {
+            for entityName in [CDBroadcastMessage.entityName, CDBroadcastChannel.entityName, CDHiddenBroadcastSender.entityName, CDBroadcastReaction.entityName] {
                 let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
                 let deleteRequest = NSBatchDeleteRequest(fetchRequest: request)
                 _ = try? context.execute(deleteRequest)
@@ -501,7 +631,25 @@ final class BroadcastStore {
             makeAttribute(name: "hiddenAt", type: .dateAttributeType, optional: true)
         ]
 
-        model.entities = [channelEntity, messageEntity, hiddenSenderEntity]
+        let reactionEntity = NSEntityDescription()
+        reactionEntity.name = CDBroadcastReaction.entityName
+        reactionEntity.managedObjectClassName = NSStringFromClass(CDBroadcastReaction.self)
+        reactionEntity.properties = [
+            makeAttribute(name: "targetTxId", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "channelName", type: .stringAttributeType, optional: false, defaultValue: ""),
+            makeAttribute(name: "reactorAddress", type: .stringAttributeType, optional: false, defaultValue: ""),
+            // nil = remove-tombstone (see the Reactions section's doc comment).
+            makeAttribute(name: "emoji", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "reactionTxId", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "blockTime", type: .integer64AttributeType, optional: false, defaultValue: 0),
+            // Send status for the local user's own reaction, mirroring CDGroupReaction:
+            // nil/"sent" = delivered, "failed" = the reaction tx never sent; `failedAction`
+            // records "add"/"remove" so Retry knows what to re-attempt.
+            makeAttribute(name: "deliveryStatus", type: .stringAttributeType, optional: true),
+            makeAttribute(name: "failedAction", type: .stringAttributeType, optional: true)
+        ]
+
+        model.entities = [channelEntity, messageEntity, hiddenSenderEntity, reactionEntity]
         return model
     }
 
@@ -551,4 +699,21 @@ final class CDHiddenBroadcastSender: NSManagedObject {
     @NSManaged var senderAddress: String
     @NSManaged var channelName: String
     @NSManaged var hiddenAt: Date?
+}
+
+/// A reaction (tapback) sent or received on a broadcast message - see `MessageReactionContent`.
+/// `emoji == nil` is a remove-tombstone (kept, not deleted, so replaying indexer history stays
+/// idempotent - see the Reactions section's doc comment above).
+@objc(CDBroadcastReaction)
+final class CDBroadcastReaction: NSManagedObject {
+    static let entityName = "CDBroadcastReaction"
+
+    @NSManaged var targetTxId: String
+    @NSManaged var channelName: String
+    @NSManaged var reactorAddress: String
+    @NSManaged var emoji: String?
+    @NSManaged var reactionTxId: String?
+    @NSManaged var blockTime: Int64
+    @NSManaged var deliveryStatus: String?
+    @NSManaged var failedAction: String?
 }

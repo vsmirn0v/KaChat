@@ -166,6 +166,11 @@ in-app bell toggle. The plumbing on the app side is DONE:
   - Body preview: if content is a reply envelope (`{"type":"reply",...}`) use its inner
     `content`; if a file/audio envelope, send "Voice message"; else the text verbatim
     (truncate ~150 chars).
+  - Reactions: content that is a reaction envelope
+    (`{"type":"reaction","targetTxId":...,"emoji":...,"action":"add"|"remove"}`) must NOT
+    generate a push at all — clients render reactions as pills on the target message, never
+    as messages, and never show the raw JSON. (Store/serve them in `/get-broadcasts` history
+    normally; only the push is suppressed.)
 
 ## 6. How the app consumes it (context)
 

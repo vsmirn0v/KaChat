@@ -54,6 +54,7 @@ struct KaChatApp: App {
                 .environmentObject(groupChatService)
                 .onAppear {
                     ChatService.shared.settingsViewModel = settingsViewModel
+                    applyWindowAppearanceOverride()
                     if #available(iOS 16.0, macCatalyst 16.0, *) {
                         KaChatShortcutsProvider.updateAppShortcutParameters()
                     }
@@ -80,10 +81,33 @@ struct KaChatApp: App {
                     }
                 }
                 .preferredColorScheme(settingsViewModel.settings.appearance.colorScheme)
+                .onChange(of: settingsViewModel.settings.appearance) { _ in
+                    applyWindowAppearanceOverride()
+                }
                 .environment(\.locale, settingsViewModel.settings.language.locale ?? .autoupdatingCurrent)
         }
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(to: newPhase)
+        }
+    }
+
+    /// `.preferredColorScheme` only themes SwiftUI content — the UIKit layer underneath (the
+    /// window background visible around sheet-presentation edges, the keyboard, share sheets,
+    /// UIKit pickers) still follows the DEVICE appearance. With the app forced dark on a
+    /// light-mode device, that mismatch showed as white edges peeking out around presented
+    /// sheets. Overriding the windows' interface style makes the whole window chrome match.
+    private func applyWindowAppearanceOverride() {
+        let style: UIUserInterfaceStyle
+        switch settingsViewModel.settings.appearance {
+        case .system: style = .unspecified
+        case .light: style = .light
+        case .dark: style = .dark
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows {
+                window.overrideUserInterfaceStyle = style
+            }
         }
     }
 

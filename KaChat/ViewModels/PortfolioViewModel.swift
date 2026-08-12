@@ -189,18 +189,30 @@ final class PortfolioViewModel: ObservableObject {
             self.publishWidgetSnapshot()
         }
         priceHistoryCache.removeAll()
-        fetchPriceHistory(days: priceRangeDays)
+        fetchPriceHistory(days: priceRangeDays, force: true)
         fetchSevenDayPriceHistoryForCards()
     }
 
     /// Fetches (or refetches, on a currency change) the fixed 7-day window `sevenDayPriceHistory`
     /// relies on — independent of whatever range the visible chart is currently toggled to.
+    /// Served from the persisted 10-minute cache when fresh enough (the cards tolerate slight
+    /// staleness), and otherwise staggered behind the main chart's fetch — this call landing in
+    /// the same instant as the price + chart fetches was part of the launch burst that tripped
+    /// CoinGecko's keyless-tier throttle.
     private func fetchSevenDayPriceHistoryForCards() {
         let currency = currentCurrency
+        if let persisted = readPersistedHistory(days: 7, currency: currency),
+           Date().timeIntervalSince(persisted.fetchedAt) < Self.historyCacheTTL {
+            sevenDayPriceHistory = persisted.points
+            publishWidgetSnapshot()
+            return
+        }
         Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
             guard let self else { return }
             let result = await self.coinGecko.getPriceHistory(days: 7, currency: currency)
             guard !result.isEmpty else { return }
+            self.persistHistory(result, days: 7, currency: currency)
             self.sevenDayPriceHistory = result
             self.publishWidgetSnapshot()
         }
@@ -222,6 +234,7 @@ final class PortfolioViewModel: ObservableObject {
         }
         let result = await history
         if !result.isEmpty {
+            persistHistory(result, days: priceRangeDays, currency: currency)
             priceHistoryCache[priceRangeDays] = result
             priceHistory = result
         }
@@ -323,29 +336,79 @@ final class PortfolioViewModel: ObservableObject {
         switch priceRangeDays {
         case 1: next = 7
         case 7: next = 30
+        case 30: next = 90
+        case 90: next = 365
         default: next = 1
         }
         setPriceRangeDays(next)
     }
 
-    /// Serves `days` from cache if already fetched this session; otherwise fetches it,
-    /// cancelling any still-in-flight fetch first (rapid range-cycle taps would otherwise fire
-    /// overlapping requests). On failure, `priceHistory` is deliberately left alone rather than
-    /// overwritten with the empty array CoinGeckoService returns on any error — a failed fetch
-    /// is simply retried the next time this range is selected, since it's still uncached. This
-    /// preserves whatever chart is currently on screen instead of blanking it (the chart card
-    /// only renders when priceHistory.count >= 2).
-    private func fetchPriceHistory(days: Int) {
-        if let cached = priceHistoryCache[days] {
+    // MARK: - Persistent price-history cache (10-minute TTL)
+
+    /// CoinGecko's keyless tier throttles bursts aggressively — a cold launch already costs a
+    /// few calls, so cycling chart ranges could exhaust the limit and leave every new range's
+    /// fetch returning empty, with the chart stuck showing the first range's ~1-day curve no
+    /// matter which range was selected. Persisting each (currency, days) history for 10 minutes
+    /// makes range cycling free after the first fetch (and across relaunches), and on a failed
+    /// fetch the stale copy for the *requested* range still beats showing the wrong range.
+    private struct CachedPriceHistory: Codable {
+        let fetchedAt: Date
+        let points: [PricePoint]
+    }
+
+    private static let historyCacheTTL: TimeInterval = 10 * 60
+
+    private func historyCacheKey(days: Int, currency: AppCurrency) -> String {
+        "kachat_price_history_\(currency.rawValue)_\(days)"
+    }
+
+    private func readPersistedHistory(days: Int, currency: AppCurrency) -> CachedPriceHistory? {
+        guard let data = UserDefaults.standard.data(forKey: historyCacheKey(days: days, currency: currency)),
+              let cached = try? JSONDecoder().decode(CachedPriceHistory.self, from: data),
+              !cached.points.isEmpty else { return nil }
+        return cached
+    }
+
+    private func persistHistory(_ points: [PricePoint], days: Int, currency: AppCurrency) {
+        guard let data = try? JSONEncoder().encode(CachedPriceHistory(fetchedAt: Date(), points: points)) else { return }
+        UserDefaults.standard.set(data, forKey: historyCacheKey(days: days, currency: currency))
+    }
+
+    /// Serves `days` from the session cache, then the persisted 10-minute cache, before hitting
+    /// the network (rapid range-cycle taps would otherwise fire overlapping requests — any
+    /// still-in-flight fetch is cancelled first). `force` (explicit refresh) skips both caches.
+    /// An empty network result gets one paced retry, then falls back to the persisted copy for
+    /// this range even if stale; only if there's nothing at all is `priceHistory` left alone,
+    /// preserving whatever chart is on screen instead of blanking it (the chart card only
+    /// renders when priceHistory.count >= 2).
+    private func fetchPriceHistory(days: Int, force: Bool = false) {
+        if !force, let cached = priceHistoryCache[days] {
             priceHistory = cached
             return
         }
-        priceHistoryTask?.cancel()
         let currency = currentCurrency
+        if !force, let persisted = readPersistedHistory(days: days, currency: currency),
+           Date().timeIntervalSince(persisted.fetchedAt) < Self.historyCacheTTL {
+            priceHistoryCache[days] = persisted.points
+            priceHistory = persisted.points
+            return
+        }
+        priceHistoryTask?.cancel()
         priceHistoryTask = Task { [weak self] in
             guard let self else { return }
-            let result = await self.coinGecko.getPriceHistory(days: days, currency: currency)
+            var result = await self.coinGecko.getPriceHistory(days: days, currency: currency)
+            if result.isEmpty {
+                // One paced retry — the keyless tier's throttle window usually clears quickly.
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled else { return }
+                result = await self.coinGecko.getPriceHistory(days: days, currency: currency)
+            }
             guard !Task.isCancelled else { return }
+            if !result.isEmpty {
+                self.persistHistory(result, days: days, currency: currency)
+            } else if let persisted = self.readPersistedHistory(days: days, currency: currency) {
+                result = persisted.points
+            }
             if !result.isEmpty {
                 self.priceHistoryCache[days] = result
                 self.priceHistory = result

@@ -828,6 +828,11 @@ enum MessageReplyCodec {
     /// and notification bodies.
     static func previewText(for content: String) -> String {
         let unwrapped = unwrappedText(content)
+        if let reaction = MessageReactionCodec.parse(unwrapped) {
+            // Never surface raw reaction JSON in a preview/notification body - humanized the
+            // same way the NSE's `reactionPreviewText` does for push bodies.
+            return "Reacted \(reaction.emoji)"
+        }
         if VoiceMessageSniff.isVoiceMessage(unwrapped) {
             return "🎤 Audio message"
         }
@@ -1231,8 +1236,10 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case kaposts
     case broadcasts
     case apps
-    /// Not a real page: tapping it opens the Customize Menu settings directly (see MainTabView's
-    /// selection interception). Exists as a real case so it participates in ordering/visibility.
+    /// RETIRED (4.0): the "+ More" dock item was removed - Customize Dock is reached via
+    /// Settings > Customization instead. The case survives only so saved `tabOrder` /
+    /// per-account `DockOverlay` blobs that contain "more" still decode; `isEnabled` hard-codes
+    /// it hidden so it can never render in the dock again.
     case more
 
     var id: String { rawValue }
@@ -1288,11 +1295,13 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         }
     }
 
-    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .swap, .profile, .kaposts, .broadcasts, .apps, .more]
+    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .swap, .profile, .kaposts, .broadcasts, .apps]
 
-    /// The dock renders at most this many items; anything past it falls off rather than letting
-    /// the system TabView spawn its own "More" list. KaPosts is dropped first when over the cap -
-    /// it stays reachable by re-tapping the Chats tab (see MainTabView.handleChatsTabReselection).
+    /// The dock renders at most this many items (the iPhone tab bar's hard limit); anything past
+    /// it falls off rather than letting the system TabView spawn its own "More" list. KaPosts and
+    /// Broadcasts drop out first (in that order) when over the cap - they stay reachable by
+    /// re-tapping the Chats tab (see MainTabView.handleChatsTabReselection). Any other enabled
+    /// tab that still doesn't fit (e.g. Apps) tail-drops until the user frees a slot.
     static let maxDockItems = 5
 
     /// `settings.tabOrder`, resolved into real cases with any missing/unknown entries (a fresh
@@ -1315,7 +1324,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .kaposts: return !settings.hideKaPostsTab
         case .broadcasts: return !settings.hideBroadcasts
         case .apps: return !settings.hideAppsTab
-        case .more: return !settings.hideMoreItem
+        // "+ More" is retired from the dock entirely (Customize Dock lives in Settings now) -
+        // hard-hidden regardless of what an old saved blob says.
+        case .more: return false
         case .chats, .profile: return true
         }
     }
@@ -1327,7 +1338,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     static func visible(from settings: AppSettings) -> [AppTab] {
         var tabs = resolvedOrder(from: settings).filter { $0.isEnabled(in: settings) }
         // Over capacity: KaPosts drops out first, then Broadcasts - both stay reachable by
-        // cycling the Chats tab (see MainTabView.handleChatsTabReselection) - then the tail.
+        // cycling the Chats tab (see MainTabView.handleChatsTabReselection). After that the
+        // tail of the order silently falls off: a non-cyclable tab (e.g. Apps) that's toggled
+        // on but doesn't fit just doesn't appear until the user frees a slot.
         for cyclable in [AppTab.kaposts, .broadcasts] where tabs.count > maxDockItems {
             if let index = tabs.firstIndex(of: cyclable) {
                 tabs.remove(at: index)
@@ -1350,7 +1363,8 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     }
 
     /// What re-tapping the Chats tab cycles through: always Chats itself, then whichever of
-    /// KaPosts/Broadcasts are enabled but masked out of the full dock.
+    /// KaPosts/Broadcasts are enabled but masked out of the full dock. Apps is deliberately NOT
+    /// part of the cycle - it's a regular dock tab that must claim a free slot to appear.
     static func chatsSlotCycle(from settings: AppSettings) -> [AppTab] {
         var cycle: [AppTab] = [.chats]
         if kaPostsAccessibleViaChatsTab(from: settings) { cycle.append(.kaposts) }
@@ -1490,8 +1504,8 @@ struct AppSettings: Codable {
     var hideSwapTab: Bool
     var hideColdStorageTab: Bool
     var hideKaPostsTab: Bool
-    /// Hides the "+ More" dock item (which opens Customize Menu directly) - for users who want
-    /// KaChat to be chatting-only. Customize Menu stays reachable via Settings > Customization.
+    /// RETIRED (4.0): the "+ More" dock item is gone (`AppTab.isEnabled` hard-hides `.more`).
+    /// Kept only so existing saved blobs that contain the key keep decoding/encoding cleanly.
     var hideMoreItem: Bool
     /// Broadcasts isn't a tab (it's an entry row inside the Chats list, see `ChatListView`'s
     /// `chatsTabContent`) but is still user-hideable from Settings > Customization > Menu, so it
@@ -1615,18 +1629,21 @@ struct AppSettings: Codable {
             appearance: .system,
             language: .system,
             currency: .usDollar,
-            // Fresh-install dock is minimal by design (4.0): just Chats, Profile and "+ More"
-            // (which opens Customize Menu, where everything else can be toggled on). Existing
-            // users are unaffected - their saved settings decode with the ?? fallbacks in
-            // init(from:), which keep every pre-4.0 tab visible and More/KaPosts hidden.
-            hidePortfolioTab: true,
-            hideSwapTab: true,
-            hideColdStorageTab: true,
-            hideKaPostsTab: true,
-            hideMoreItem: false,
-            hideBroadcasts: true,
-            hideAppsTab: true,
-            tabOrder: [AppTab.chats, AppTab.profile, AppTab.more].map { $0.rawValue },
+            // Fresh-install dock: EVERYTHING on (4.0). The dock renders as many as fit
+            // (maxDockItems): KaPosts/Broadcasts ride the Chats slot when it's full (re-tap the
+            // Chats tab to cycle); any other enabled tab that doesn't fit (Apps, by default)
+            // tail-drops until the user frees a slot in Customize Dock. Existing users are
+            // unaffected: their saved settings decode with their own explicit values (or the ??
+            // fallbacks in init(from:) for keys that predate them). "+ More" no longer exists
+            // as a dock item.
+            hidePortfolioTab: false,
+            hideSwapTab: false,
+            hideColdStorageTab: false,
+            hideKaPostsTab: false,
+            hideMoreItem: true,
+            hideBroadcasts: false,
+            hideAppsTab: false,
+            tabOrder: AppTab.defaultOrder.map { $0.rawValue },
             biometricSeedPhraseEnabled: true,
             biometricAccountLoginEnabled: true,
             biometricSpendingKeyEnabled: true,
@@ -1724,10 +1741,10 @@ struct AppSettings: Codable {
         hidePortfolioTab: Bool = false,
         hideSwapTab: Bool = false,
         hideColdStorageTab: Bool = false,
-        hideKaPostsTab: Bool = true,
+        hideKaPostsTab: Bool = false,
         hideMoreItem: Bool = true,
         hideBroadcasts: Bool = false,
-        hideAppsTab: Bool = true,
+        hideAppsTab: Bool = false,
         tabOrder: [String] = AppTab.defaultOrder.map { $0.rawValue },
         biometricSeedPhraseEnabled: Bool = true,
         biometricAccountLoginEnabled: Bool = true,

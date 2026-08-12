@@ -6,8 +6,8 @@ import PDFKit
 /// Rich link-preview card shown below a chat bubble's text when the message contains a link -
 /// mirrors iMessage. Renders nothing while the fetch is in flight and nothing if no preview data
 /// was found and no [fallbackText] was given, rather than a placeholder that could flash or look
-/// broken. Used by 1:1 (`MessageBubbleView`) and group (`GroupChatDetailView`) chats only -
-/// broadcast rooms never construct this view.
+/// broken. Used by 1:1 (`MessageBubbleView`), group (`GroupChatDetailView`), and broadcast
+/// (`BroadcastChannelView`) bubbles.
 struct LinkPreviewCardView: View {
     let url: URL
     /// The owning message's transaction id, for the "View in Explorer" long-press action -

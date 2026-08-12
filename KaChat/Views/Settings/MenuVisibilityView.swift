@@ -2,9 +2,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 import Foundation
 
-/// Settings > Customization > Menu — which bottom tabs show up, and in what order. Chats/Profile
-/// are permanently on (Settings itself is reached from Profile now, not its own tab);
-/// Portfolio/Cold Storage/Swap can each be hidden, all defaulting to shown for a new install. A
+/// Settings > Customization > Customize Dock — which bottom tabs show up, and in what order. Chats/Profile
+/// are permanently on (Settings itself is reached from Profile now, not its own tab); everything
+/// else can each be hidden, all defaulting to shown for a new install (4.0). A
 /// live preview of the real tab bar is pinned to the bottom of this screen specifically (it isn't
 /// visible otherwise, since Settings now opens as a sheet over the real TabView) - press-and-drag
 /// a pill in the preview to reorder it, matching Android's own "reorder by dragging the bar
@@ -15,21 +15,6 @@ struct MenuVisibilityView: View {
 
     private var visibleTabs: [AppTab] {
         AppTab.visible(from: settingsViewModel.settings)
-    }
-
-    /// Dock menus currently toggled ON among Portfolio, Storage, Swap and More. Chats/Profile
-    /// are always-on and don't count; KaPosts and Broadcasts are EXEMPT - when the dock is full
-    /// they ride the Chats slot (re-tapping the Chats tab cycles through them) instead of taking
-    /// a dock place, so they never need to push anything out.
-    private var enabledDockToggleCount: Int {
-        let settings = settingsViewModel.settings
-        return [
-            !settings.hidePortfolioTab,
-            !settings.hideColdStorageTab,
-            !settings.hideSwapTab,
-            !settings.hideAppsTab,
-            !settings.hideMoreItem
-        ].filter { $0 }.count
     }
 
     /// KaPosts is on but the dock is full, so it opens via re-tapping the Chats tab - surfaced as
@@ -49,8 +34,16 @@ struct MenuVisibilityView: View {
             ? "Dock is full - open it by tapping the Chats tab again" : nil
     }
 
-    /// At most 3 optional dock menus may be ON at once (2 locked + 3 optional = the 5-item dock).
-    private var atMenuLimit: Bool { enabledDockToggleCount >= 3 }
+    /// Apps doesn't ride the Chats-tab cycle - it's a regular dock tab that needs a free slot.
+    /// Enabled but not visible means the dock is full: tell the user to free a slot. While it
+    /// actually sits in the dock, note that it moved off the Profile screen instead.
+    private var appsHint: String? {
+        let settings = settingsViewModel.settings
+        guard !settings.hideAppsTab else { return nil }
+        return AppTab.visible(from: settings).contains(.apps)
+            ? "Moved out of Profile while on the dock"
+            : "Dock is full - turn another tab off to show Apps"
+    }
 
     var body: some View {
         List {
@@ -66,8 +59,7 @@ struct MenuVisibilityView: View {
                         get: { !settingsViewModel.settings.hidePortfolioTab },
                         set: { settingsViewModel.settings.hidePortfolioTab = !$0; settingsViewModel.saveSettings() }
                     ),
-                    locked: false,
-                    limitLocked: atMenuLimit && settingsViewModel.settings.hidePortfolioTab
+                    locked: false
                 )
                 menuRow(
                     icon: AppTab.coldStorage.icon,
@@ -76,8 +68,7 @@ struct MenuVisibilityView: View {
                         get: { !settingsViewModel.settings.hideColdStorageTab },
                         set: { settingsViewModel.settings.hideColdStorageTab = !$0; settingsViewModel.saveSettings() }
                     ),
-                    locked: false,
-                    limitLocked: atMenuLimit && settingsViewModel.settings.hideColdStorageTab
+                    locked: false
                 )
                 menuRow(
                     icon: AppTab.swap.icon,
@@ -86,8 +77,7 @@ struct MenuVisibilityView: View {
                         get: { !settingsViewModel.settings.hideSwapTab },
                         set: { settingsViewModel.settings.hideSwapTab = !$0; settingsViewModel.saveSettings() }
                     ),
-                    locked: false,
-                    limitLocked: atMenuLimit && settingsViewModel.settings.hideSwapTab
+                    locked: false
                 )
                 menuRow(
                     icon: AppTab.kaposts.icon,
@@ -107,18 +97,7 @@ struct MenuVisibilityView: View {
                         set: { settingsViewModel.settings.hideAppsTab = !$0; settingsViewModel.saveSettings() }
                     ),
                     locked: false,
-                    limitLocked: atMenuLimit && settingsViewModel.settings.hideAppsTab,
-                    hint: settingsViewModel.settings.hideAppsTab ? nil : "Moved out of Profile while on the dock"
-                )
-                menuRow(
-                    icon: AppTab.more.icon,
-                    label: "\(AppTab.more.label) (+)",
-                    isOn: Binding(
-                        get: { !settingsViewModel.settings.hideMoreItem },
-                        set: { settingsViewModel.settings.hideMoreItem = !$0; settingsViewModel.saveSettings() }
-                    ),
-                    locked: false,
-                    limitLocked: atMenuLimit && settingsViewModel.settings.hideMoreItem
+                    hint: appsHint
                 )
                 menuRow(
                     icon: AppTab.broadcasts.icon,
@@ -131,28 +110,24 @@ struct MenuVisibilityView: View {
                     hint: broadcastsReTapHint
                 )
             } header: {
-                Text("Choose which tabs appear in your bottom menu.")
+                Text("Choose which tabs appear in your dock.")
             } footer: {
-                Text("Press and drag a tab in the preview below to reorder it. The dock shows up to \(AppTab.maxDockItems) items - if it's full, KaPosts and Broadcasts stay available by tapping the Chats tab to cycle through them. \"More (+)\" opens this screen straight from the dock.")
+                Text("Press and drag a tab in the preview below to reorder it. The dock shows up to \(AppTab.maxDockItems) items - if it's full, KaPosts and Broadcasts stay available by tapping the Chats tab to cycle through them; other tabs need a free slot to appear.")
             }
         }
-        .navigationTitle("Menu")
+        .navigationTitle("Customize Dock")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
             tabOrderPreview
         }
     }
 
-    private func menuRow(icon: String, label: String, isOn: Binding<Bool>, locked: Bool, limitLocked: Bool = false, hint: String? = nil) -> some View {
+    private func menuRow(icon: String, label: String, isOn: Binding<Bool>, locked: Bool, hint: String? = nil) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Label(label, systemImage: icon)
                     .foregroundColor(.primary)
-                if limitLocked {
-                    Text("Turn another menu off to enable")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                } else if let hint {
+                if let hint {
                     Text(hint)
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -167,10 +142,8 @@ struct MenuVisibilityView: View {
                 Toggle("", isOn: isOn)
                     .labelsHidden()
                     .tint(.accentColor)
-                    .disabled(limitLocked)
             }
         }
-        .opacity(limitLocked ? 0.45 : 1)
     }
 
     // MARK: - Live reorderable preview

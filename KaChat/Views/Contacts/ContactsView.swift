@@ -63,9 +63,11 @@ struct ProfileView: View {
                         editKNSProfileRow
                         qrButtonsSection(wallet)
                         addressDropdownsSection(wallet)
-                        if settingsViewModel.settings.hideAppsTab {
-                            // Apps lives here only while it's NOT a dock tab (Menu settings
-                            // toggle) - on the dock, this row disappears.
+                        if !AppTab.visible(from: settingsViewModel.settings).contains(.apps) {
+                            // Apps lives here only while it's NOT actually on the dock - either
+                            // toggled off in Customize Dock, or toggled on but tail-dropped
+                            // because the dock is full (Apps doesn't ride the Chats-tab cycle).
+                            // On the dock, this row disappears.
                             appsSection
                         }
                         helpSection
@@ -4875,7 +4877,10 @@ struct ProfileAppsView: View {
         EcosystemApp(name: "Kaspa News", icon: "newspaper", usesKaspaLogo: false, url: URL(string: "https://kaspa.news")!),
         EcosystemApp(name: "KasPlay", icon: "gamecontroller", usesKaspaLogo: false, url: URL(string: "https://kasplay.fun")!),
         EcosystemApp(name: "KasMart", icon: "cart", usesKaspaLogo: false, url: URL(string: "https://kasmart.org")!),
-        EcosystemApp(name: "KasMedia", icon: "doc.text.image", usesKaspaLogo: false, url: URL(string: "https://kasmedia.com")!)
+        EcosystemApp(name: "KasMedia", icon: "doc.text.image", usesKaspaLogo: false, url: URL(string: "https://kasmedia.com")!),
+        EcosystemApp(name: "Kaspalytics", icon: "chart.bar", usesKaspaLogo: false, url: URL(string: "https://www.kaspalytics.com")!),
+        EcosystemApp(name: "Kas-Smiths", icon: "hammer", usesKaspaLogo: false, url: URL(string: "https://kas-smiths.org")!),
+        EcosystemApp(name: "Kaspa Core R&D", icon: "atom", usesKaspaLogo: false, url: URL(string: "https://t.me/kasparnd")!)
     ]
 
     @State private var browserURL: URL?

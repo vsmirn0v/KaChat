@@ -17,6 +17,12 @@ final class BroadcastService: ObservableObject {
 
     @Published private(set) var channels: [BroadcastChannel] = []
     @Published private(set) var messagesByChannel: [String: [BroadcastMessage]] = [:]
+    /// This wallet's broadcast reactions, keyed by channel then by targetTxId - mirrors
+    /// `GroupChatService.reactionsByGroupId`'s shape (and reuses `GroupStore.ReactionSnapshot`,
+    /// see `BroadcastStore.fetchReactions`). Loaded per channel on open (`acquire`) and kept
+    /// live afterward by `sendBroadcastReaction` / the incoming-reaction interception in
+    /// `processBroadcastHits` and `fetchFromIndexerAndMerge`.
+    @Published private(set) var reactionsByChannel: [String: [String: [GroupStore.ReactionSnapshot]]] = [:]
     @Published var lastSendError: KasiaError?
     @Published var replyingTo: BroadcastMessage?
     /// Set when a broadcast-room notification is tapped, so the chat list can navigate to that
@@ -66,6 +72,7 @@ final class BroadcastService: ObservableObject {
     func setCurrentWallet(_ walletAddress: String?) {
         store.setCurrentWallet(walletAddress)
         messagesByChannel = [:]
+        reactionsByChannel = [:]
         liveViewRefCounts = [:]
         refreshChannels()
         updateScanningStateIfNeeded()
@@ -104,6 +111,7 @@ final class BroadcastService: ObservableObject {
         let normalized = BroadcastChannelName.normalize(name)
         store.leaveChannel(normalized)
         messagesByChannel.removeValue(forKey: normalized)
+        reactionsByChannel.removeValue(forKey: normalized)
         liveViewRefCounts.removeValue(forKey: normalized)
         refreshChannels()
         updateScanningStateIfNeeded()
@@ -175,6 +183,7 @@ final class BroadcastService: ObservableObject {
         liveViewRefCounts[normalized, default: 0] += 1
         store.pruneExpiredMessages()
         loadMessages(for: normalized)
+        loadReactions(for: normalized)
         updateScanningStateIfNeeded()
         startIndexerPollingIfConfigured(channel: normalized)
     }
@@ -209,8 +218,31 @@ final class BroadcastService: ObservableObject {
         do {
             let messages = try await BroadcastIndexerClient.fetchHistory(baseURL: baseURL, channel: channel)
             let hidden = store.hiddenSenderAddresses(forChannel: channel)
-            let rows = messages
-                .filter { !hidden.contains($0.senderAddress) }
+            let visible = messages.filter { !hidden.contains($0.senderAddress) }
+
+            // Reactions never become visible message rows - route them to the per-channel
+            // reactions index instead (newest-blockTime-wins per (target, reactor), so
+            // re-serving the same history every poll is idempotent - see
+            // `BroadcastStore.applyIncomingReaction`).
+            var reactionsChanged = false
+            for row in visible {
+                guard let reaction = MessageReactionCodec.parse(row.content) else { continue }
+                let changed = store.applyIncomingReaction(
+                    targetTxId: reaction.targetTxId,
+                    channel: channel,
+                    reactorAddress: row.senderAddress,
+                    emoji: reaction.action == "remove" ? nil : reaction.emoji,
+                    reactionTxId: row.txId,
+                    blockTime: row.blockTime
+                )
+                reactionsChanged = reactionsChanged || changed
+            }
+            if reactionsChanged {
+                loadReactions(for: channel)
+            }
+
+            let rows = visible
+                .filter { MessageReactionCodec.parse($0.content) == nil }
                 .map { (id: $0.txId, channel: channel, senderAddress: $0.senderAddress, content: $0.content, blockTime: $0.blockTime) }
             let insertedCount = await store.insertMessages(rows)
             if insertedCount > 0 {
@@ -253,8 +285,22 @@ final class BroadcastService: ObservableObject {
         messagesByChannel[BroadcastChannelName.normalize(name)] ?? []
     }
 
+    /// Aggregated reactions for a channel, keyed by the reacted-to message's txId.
+    func reactions(forChannel name: String) -> [String: [GroupStore.ReactionSnapshot]] {
+        reactionsByChannel[BroadcastChannelName.normalize(name)] ?? [:]
+    }
+
+    private func loadReactions(for channel: String) {
+        let fresh = store.fetchReactions(forChannel: channel)
+        guard reactionsByChannel[channel] != fresh else { return }
+        reactionsByChannel[channel] = fresh
+    }
+
     private func loadMessages(for channel: String) {
+        // Reaction envelopes are never rendered as message rows - drop any that made it into
+        // the message table (rows scanned by an app version that predates reactions).
         let fresh = store.messages(forChannel: channel)
+            .filter { MessageReactionCodec.parse($0.content) == nil }
         // Only actually publish when the content changed - this is polled once a second while a
         // channel is open (for live retention pruning), and `@Published` fires on every
         // assignment regardless of equality, so an unconditional assignment here was re-rendering
@@ -303,7 +349,7 @@ final class BroadcastService: ObservableObject {
 
         Task {
             do {
-                try await ChatService.shared.enqueueOutgoingTxOperation {
+                _ = try await ChatService.shared.enqueueOutgoingTxOperation {
                     try await self.sendBroadcastInternal(
                         channel: channel,
                         content: content,
@@ -323,6 +369,88 @@ final class BroadcastService: ObservableObject {
                 )
             }
         }
+    }
+
+    // MARK: - Reactions
+
+    /// Reacts to `targetTxId` with `emoji` ("add"), or removes this wallet's existing reaction
+    /// on it ("remove") - mirroring `GroupChatService.sendGroupReaction`'s optimistic-apply/
+    /// status-flip flow. The wire format is a NORMAL broadcast whose content is the shared
+    /// `MessageReactionCodec` JSON ({"type":"reaction","targetTxId":...,"emoji":...,"action":
+    /// "add"|"remove"}), sent through the exact same tx pipeline as a text broadcast (no reply
+    /// wrapping) - Android and desktop speak the identical shape. Never creates a visible
+    /// message row; receivers intercept it into their reactions index instead.
+    func sendBroadcastReaction(channel rawChannel: String, targetTxId: String, emoji: String, action: String) async throws {
+        let channel = BroadcastChannelName.normalize(rawChannel)
+        guard let wallet = WalletManager.shared.currentWallet else {
+            throw KasiaError.walletNotFound
+        }
+        guard let privateKey = WalletManager.shared.getPrivateKey() else {
+            throw KasiaError.keychainError("Could not get private key")
+        }
+
+        let payload = MessageReactionCodec.encode(targetTxId: targetTxId, emoji: emoji, action: action)
+        let nowMillis = Int64(Date().timeIntervalSince1970 * 1000)
+
+        // Optimistic local apply: pending "add" shows the pill immediately; "remove" clears it.
+        // A remove is stored as a tombstone (emoji nil) rather than a row delete - see
+        // `BroadcastStore`'s Reactions doc comment for why.
+        store.upsertOwnReaction(
+            targetTxId: targetTxId,
+            channel: channel,
+            reactorAddress: wallet.publicAddress,
+            emoji: action == "remove" ? nil : emoji,
+            reactionTxId: nil,
+            blockTime: nowMillis,
+            deliveryStatus: action == "remove" ? nil : "pending"
+        )
+        loadReactions(for: channel)
+
+        do {
+            let realTxId = try await ChatService.shared.enqueueOutgoingTxOperation {
+                try await self.sendBroadcastInternal(
+                    channel: channel,
+                    content: payload,
+                    walletAddress: wallet.publicAddress,
+                    privateKey: privateKey,
+                    pendingId: "reaction_\(UUID().uuidString)"
+                )
+            }
+            store.upsertOwnReaction(
+                targetTxId: targetTxId,
+                channel: channel,
+                reactorAddress: wallet.publicAddress,
+                emoji: action == "remove" ? nil : emoji,
+                reactionTxId: realTxId,
+                blockTime: Int64(Date().timeIntervalSince1970 * 1000),
+                deliveryStatus: action == "remove" ? nil : "sent"
+            )
+            loadReactions(for: channel)
+        } catch {
+            // The reaction tx failed to send. Flag it failed so the pill shows the red error
+            // icon and a Retry appears under the message. A failed "remove" restores the
+            // optimistically-cleared emoji (marked failed) so it isn't silently lost - Retry
+            // re-attempts the correct action, matching group chat exactly.
+            store.upsertOwnReaction(
+                targetTxId: targetTxId,
+                channel: channel,
+                reactorAddress: wallet.publicAddress,
+                emoji: emoji,
+                reactionTxId: nil,
+                blockTime: Int64(Date().timeIntervalSince1970 * 1000),
+                deliveryStatus: "failed",
+                failedAction: action
+            )
+            loadReactions(for: channel)
+            throw error
+        }
+    }
+
+    /// Re-attempts a broadcast reaction whose send previously failed. `action` is the failed
+    /// reaction's stored `failedAction` ("add"/"remove"). Delegates to `sendBroadcastReaction`,
+    /// which clears the failed flag optimistically and re-flags it only if this attempt fails too.
+    func retryBroadcastReaction(channel: String, targetTxId: String, emoji: String, action: String) async throws {
+        try await sendBroadcastReaction(channel: channel, targetTxId: targetTxId, emoji: emoji, action: action)
     }
 
     // MARK: - Fee estimation
@@ -455,7 +583,7 @@ final class BroadcastService: ObservableObject {
         loadMessages(for: channel)
 
         do {
-            try await ChatService.shared.enqueueOutgoingTxOperation {
+            _ = try await ChatService.shared.enqueueOutgoingTxOperation {
                 try await self.sendBroadcastInternal(
                     channel: channel,
                     content: payload,
@@ -531,7 +659,7 @@ final class BroadcastService: ObservableObject {
                 return
             }
             do {
-                try await ChatService.shared.enqueueOutgoingTxOperation {
+                _ = try await ChatService.shared.enqueueOutgoingTxOperation {
                     try await self.sendBroadcastInternal(
                         channel: channel,
                         content: content,
@@ -553,6 +681,10 @@ final class BroadcastService: ObservableObject {
         }
     }
 
+    /// Returns the submitted transaction's id. For a normal message send the pending row is
+    /// resolved to it in-store; reaction sends (which have no message row - their `pendingId` is
+    /// synthetic) use the returned id to stamp the reaction's `reactionTxId`.
+    @discardableResult
     private func sendBroadcastInternal(
         channel: String,
         content: String,
@@ -560,7 +692,7 @@ final class BroadcastService: ObservableObject {
         privateKey: Data,
         pendingId: String,
         feeOverride: UInt64? = nil
-    ) async throws {
+    ) async throws -> String {
         let chatService = ChatService.shared
 
         // Fetch UTXOs fresh (not the 20s-stale `fetchCachedUtxos`) and merge in any pending
@@ -595,6 +727,7 @@ final class BroadcastService: ObservableObject {
             let blockTime = Int64(Date().timeIntervalSince1970 * 1000)
             store.resolvePendingMessage(pendingId: pendingId, realId: txId, blockTime: blockTime)
             loadMessages(for: channel)
+            return txId
         } catch {
             chatService.releaseMessageOutpoints()
             throw error
@@ -688,11 +821,28 @@ final class BroadcastService: ObservableObject {
         guard !wanted.isEmpty else { return }
         let hidden = store.hiddenSendersByChannel()
         var touchedChannels = Set<String>()
+        var reactionChannels = Set<String>()
 
         for hit in hits {
             guard wanted.contains(hit.channel) else { continue }
             guard !hidden.global.contains(hit.senderAddress),
                   hidden.perChannel[hit.channel]?.contains(hit.senderAddress) != true else { continue }
+            // Reactions are never shown as their own bubble (or notified) - just attached to the
+            // message they target - so intercept and route to the reactions index before this
+            // ever becomes a message row. Our own outgoing reactions already applied their local
+            // update at send time (sendBroadcastReaction); newest-blockTime-wins dedupes the echo.
+            if let reaction = MessageReactionCodec.parse(hit.content) {
+                let changed = store.applyIncomingReaction(
+                    targetTxId: reaction.targetTxId,
+                    channel: hit.channel,
+                    reactorAddress: hit.senderAddress,
+                    emoji: reaction.action == "remove" ? nil : reaction.emoji,
+                    reactionTxId: hit.txId,
+                    blockTime: hit.blockTime
+                )
+                if changed { reactionChannels.insert(hit.channel) }
+                continue
+            }
             let inserted = store.insertMessage(
                 id: hit.txId,
                 channel: hit.channel,
@@ -705,6 +855,10 @@ final class BroadcastService: ObservableObject {
                 touchedChannels.insert(hit.channel)
                 notifyIfEnabled(channel: hit.channel, senderAddress: hit.senderAddress, content: hit.content)
             }
+        }
+
+        for channel in reactionChannels {
+            loadReactions(for: channel)
         }
 
         guard !touchedChannels.isEmpty else { return }

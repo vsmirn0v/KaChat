@@ -188,6 +188,12 @@ struct GroupChatDetailView: View {
 
     private var myAddress: String? { walletManager.currentWallet?.publicAddress }
 
+    /// Zero-balance compose gate - same trigger as 1:1 chat (confirmed 0 KAS only, never on an
+    /// unknown/still-loading balance). See `WalletManager.hasConfirmedZeroChattingBalance`.
+    private var isChattingBalanceZero: Bool {
+        walletManager.hasConfirmedZeroChattingBalance
+    }
+
     private var messages: [GroupMessage] {
         let hidden = groupChatService.hiddenMemberAddresses(for: group.id)
         return (groupChatService.groupMessages[group.id] ?? [])
@@ -420,7 +426,26 @@ struct GroupChatDetailView: View {
                 // the whole container's safe-area inset, producing the keyboard/screen shake - this
                 // matches 1:1 chat's ChatDetailView fix exactly.
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    bottomComposeArea
+                    VStack(spacing: 0) {
+                        if isChattingBalanceZero {
+                            // Zero-balance gate: reading stays fully usable (the card is part
+                            // of the bottom inset, never an overlay on the message list) -
+                            // only composing is blocked. Mirrors 1:1 chat's gate exactly.
+                            ZeroBalanceFundingCardView(
+                                address: myAddress,
+                                onCopied: { _ in showToast("Address copied to clipboard.", style: .success) }
+                            )
+                            .padding(.horizontal)
+                            .padding(.bottom, 4)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                        bottomComposeArea
+                            .disabled(isChattingBalanceZero)
+                            .allowsHitTesting(!isChattingBalanceZero)
+                            .grayscale(isChattingBalanceZero ? 1 : 0)
+                            .opacity(isChattingBalanceZero ? 0.45 : 1)
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: isChattingBalanceZero)
                 }
 
                 if !isBottomAnchorVisible {
@@ -701,20 +726,13 @@ struct GroupChatDetailView: View {
         }
     }
 
-    /// Sends a just-created Nextcloud share link as a normal group text message - the members'
-    /// link-preview feature renders it as tappable media. Mirrors `ChatDetailView.sendNextcloudLink`.
-    private func sendNextcloudLink(_ url: URL) {
+    /// Stages a picked file's share link in the composer instead of auto-sending — the user
+    /// reviews it in the input bubble and taps send themselves. Mirrors
+    /// `ChatDetailView.stageNextcloudLink`.
+    private func stageNextcloudLink(_ url: URL) {
         errorMessage = nil
-        Task {
-            do {
-                try await groupChatService.sendGroupMessage(url.absoluteString, to: group.id)
-            } catch {
-                AppLog.log("[GroupChatDetailView] Nextcloud link send failed: %@", error.localizedDescription)
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                }
-            }
-        }
+        draft = draft.isEmpty ? url.absoluteString : draft + " " + url.absoluteString
+        isComposerFocused = true
     }
 
     private func takePhoto() {
@@ -1094,7 +1112,7 @@ struct GroupChatDetailView: View {
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
         .sheet(isPresented: $showNextcloudPicker) {
             NextcloudPickerView { url, _ in
-                sendNextcloudLink(url)
+                stageNextcloudLink(url)
             }
         }
         .onChange(of: photoPickerItem) { newItem in

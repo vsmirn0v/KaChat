@@ -2,6 +2,7 @@ import SwiftUI
 import AVFoundation
 import AVFAudio
 import PhotosUI
+import CoreImage.CIFilterBuiltins
 #if canImport(YbridOpus)
 import YbridOpus
 #endif
@@ -42,6 +43,14 @@ struct ChatDetailView: View {
 
     private var myAddress: String? {
         walletManager.currentWallet?.publicAddress
+    }
+
+    /// True only when the chatting-address balance is a CONFIRMED zero - see
+    /// `WalletManager.hasConfirmedZeroChattingBalance` (shared with group chats, broadcast
+    /// channels, and KaPosts). An unknown/still-loading balance never triggers the gate; it
+    /// tears down reactively the moment any refresh/UTXO push reports funds.
+    private var isChattingBalanceZero: Bool {
+        walletManager.hasConfirmedZeroChattingBalance
     }
 
     init(contact: Contact, startInPaymentMode: Bool = false) {
@@ -147,6 +156,8 @@ struct ChatDetailView: View {
     /// drops Send Photo / Send Audio in favor of "Send from Nextcloud", and the message bar
     /// grows camera + mic buttons whose captures ride the Nextcloud auto-upload send path.
     @ObservedObject private var nextcloudService = NextcloudService.shared
+    /// Zero-balance gate: the Claim Gift button reflects live claim state (hidden once claimed).
+    @ObservedObject private var giftService = GiftService.shared
     @State private var showCamera = false
     @State private var pendingPhotoImage: UIImage?
     /// The exact bytes the pending photo was attached from (picker/camera/paste/drop), kept so
@@ -449,8 +460,22 @@ struct ChatDetailView: View {
                         // what guarantees it always sits flush above the keyboard on every
                         // device - this is the mechanism SwiftUI itself uses for keyboard
                         // avoidance, so there's no custom math to get wrong.
-                        inputBar
-                            .padding(.bottom, 2)
+                        VStack(spacing: 0) {
+                            if isChattingBalanceZero {
+                                // Zero-balance gate: reading messages above stays fully
+                                // usable (the card is part of the bottom inset, never an
+                                // overlay on the list) - only composing is blocked.
+                                zeroBalanceGateCard
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
+                            inputBar
+                                .disabled(isChattingBalanceZero)
+                                .allowsHitTesting(!isChattingBalanceZero)
+                                .grayscale(isChattingBalanceZero ? 1 : 0)
+                                .opacity(isChattingBalanceZero ? 0.45 : 1)
+                        }
+                        .animation(.easeInOut(duration: 0.25), value: isChattingBalanceZero)
+                        .padding(.bottom, 2)
                     }
                     .overlay(alignment: .top) {
                         if shouldShowTopPaginationSpinner {
@@ -1475,8 +1500,8 @@ struct ChatDetailView: View {
         .accessibilityLabel(Text("More options"))
         .photosPicker(isPresented: $showPhotoPickerFromMenu, selection: $photoPickerItem, matching: .images)
         .sheet(isPresented: $showNextcloudPicker) {
-            NextcloudPickerView { url, _ in
-                sendNextcloudLink(url)
+            NextcloudPickerView { url, file in
+                stageNextcloudLink(url, file: file)
             }
         }
         .onChange(of: photoPickerItem) { newItem in
@@ -1784,22 +1809,29 @@ struct ChatDetailView: View {
     /// Sends a just-created Nextcloud share link as a normal text message — the recipient's
     /// link-preview feature renders it as tappable media. Same send path and error handling as
     /// a typed message; the link is tiny, so no fee override machinery is needed.
-    private func sendNextcloudLink(_ url: URL) {
-        Task {
-            do {
-                try await chatService.sendMessage(to: contact, content: url.absoluteString, feeOverride: nil)
-            } catch {
-                if shouldPromptGiftClaim(for: error) {
-                    await MainActor.run {
-                        NotificationCenter.default.post(name: .showGiftClaim, object: nil)
-                    }
-                }
-                AppLog.log("[ChatDetailView] Nextcloud link send failed: %@", error.localizedDescription)
-                await MainActor.run {
-                    self.error = displayErrorMessage(error)
-                }
+    /// Stages a picked file's share link in the composer instead of auto-sending — the user
+    /// reviews it in the input bubble and taps send themselves. The link-preview cache is
+    /// seeded from the picker's own metadata so the bubble renders its media card instantly
+    /// once sent.
+    private func stageNextcloudLink(_ url: URL, file: NextcloudFile) {
+        let kind: NextcloudMediaKind
+        if file.isImage {
+            kind = .image
+        } else if file.isVideo {
+            kind = .video
+        } else {
+            switch (file.name as NSString).pathExtension.lowercased() {
+            case "mp3", "m4a", "aac", "wav", "flac", "ogg", "opus": kind = .audio
+            case "pdf": kind = .pdf
+            default: kind = .file
             }
         }
+        if let size = file.size {
+            Task { await seedNextcloudPreview(for: url, kind: kind, title: file.name, byteSize: Int(size)) }
+        }
+        switchMode(.message)
+        messageText = messageText.isEmpty ? url.absoluteString : messageText + " " + url.absoluteString
+        isMessageFocused = true
     }
 
     private var paymentField: some View {
@@ -2068,6 +2100,23 @@ struct ChatDetailView: View {
                     .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
             )
             .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+    }
+
+    // MARK: - Zero-Balance Chat Gate
+
+    /// Shown above the (disabled) composer when the chatting address holds a confirmed 0 KAS -
+    /// offers the gift-claim flow, plus the address itself (QR + copy) so the user can fund it
+    /// from anywhere. Disappears automatically once `balanceSompi` goes positive (reactive via
+    /// `walletManager.currentWallet`). The card body lives in the shared
+    /// `ZeroBalanceFundingCardView` (bottom of this file), reused by group chats, broadcast
+    /// channels, and KaPosts.
+    private var zeroBalanceGateCard: some View {
+        ZeroBalanceFundingCardView(
+            address: myAddress,
+            onCopied: { _ in showToast(String(localized: "Address copied to clipboard.")) }
+        )
+        .padding(.horizontal)
+        .padding(.bottom, 4)
     }
 
     private func updateFeeShimmer() {
@@ -3435,6 +3484,9 @@ struct ChatDetailView: View {
                         feeEstimateSompi = nil
                         stopPreview()
                         previewLabel = "--:--"
+                        // Back to the normal text composer — staying in audio mode after a
+                        // successful send left the "tap send to record" bar up.
+                        switchMode(.message)
                     } catch {
                         // The chain send itself failed — an on-chain audio envelope would fail
                         // the same way, so surface the error instead of falling back.
@@ -3473,6 +3525,9 @@ struct ChatDetailView: View {
                         feeEstimateSompi = nil
                         stopPreview()
                         previewLabel = "--:--"
+                        // Back to the normal text composer — staying in audio mode after a
+                        // successful send left the "tap send to record" bar up.
+                        switchMode(.message)
                     }
                 } catch {
                     if shouldPromptGiftClaim(for: error) {
@@ -4087,5 +4142,174 @@ private final class AudioRecorderDelegate: NSObject, AVAudioRecorderDelegate {
         .environmentObject(WalletManager.shared)
         .environmentObject(ContactsManager.shared)
         .environmentObject(SettingsViewModel())
+    }
+}
+
+// MARK: - Shared Zero-Balance Funding Card
+
+/// The zero-balance funding card - "fund your chatting address" title, gift-state-aware Claim
+/// Gift, QR of the chatting address, and the address itself with a copy affordance. Shared by
+/// the 1:1 chat gate (this file), `GroupChatDetailView`, `BroadcastChannelView`, and KaPosts'
+/// compose/reply interception (`ZeroBalanceFundingSheetView` below). Lives in this file rather
+/// than its own to avoid pbxproj churn - see the repo's dangling-reference history.
+struct ZeroBalanceFundingCardView: View {
+    let address: String?
+    /// Called after the address hits the pasteboard so the host can show its own toast; when
+    /// nil (sheet contexts without a toast helper) the copy icon flips to a checkmark instead.
+    var onCopied: ((String) -> Void)? = nil
+    /// Overrides the Claim Gift action. Default (nil) posts `.showGiftClaim`, which
+    /// `MainTabView` turns into the existing `GiftClaimView` sheet - the right mechanism when
+    /// the card is inline. Sheet hosts pass their own handler since MainTabView can't present
+    /// while another sheet is already up.
+    var onClaimGift: (() -> Void)? = nil
+
+    @ObservedObject private var giftService = GiftService.shared
+    @State private var qrImage: UIImage?
+    @State private var showCopiedCheckmark = false
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("Fund your chatting address to start chatting")
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Claim Gift only while it's actually claimable — GiftService remembers a past
+            // claim (persisted flag + live claimState), so a claimed/ineligible gift shows
+            // an inert note instead of a button that would dead-end.
+            switch giftService.claimState {
+            case .claimed, .alreadyClaimed:
+                Label("Gift already claimed", systemImage: "gift")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            default:
+                Button {
+                    Haptics.impact(.light)
+                    if let onClaimGift {
+                        onClaimGift()
+                    } else {
+                        // Re-triggers the existing gift-claim flow - MainTabView listens for
+                        // this (same mechanism as `shouldPromptGiftClaim`-driven posts in
+                        // ChatDetailView).
+                        NotificationCenter.default.post(name: .showGiftClaim, object: nil)
+                    }
+                } label: {
+                    Label("Claim Gift", systemImage: "gift.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(Color.accentColor))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let qrImage {
+                Image(uiImage: qrImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 140, height: 140)
+                    .padding(8)
+                    // Solid white behind the QR keeps it scannable in dark mode, where the
+                    // glass material alone would leave the light modules too dim.
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white))
+            }
+
+            if let address {
+                HStack(spacing: 8) {
+                    Text(address)
+                        .font(.caption2.monospaced())
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button {
+                        UIPasteboard.general.string = address
+                        Haptics.success()
+                        if let onCopied {
+                            onCopied(address)
+                        } else {
+                            showCopiedCheckmark = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                showCopiedCheckmark = false
+                            }
+                        }
+                    } label: {
+                        Image(systemName: showCopiedCheckmark ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.accentColor)
+                            .padding(6)
+                            .background(cardGlassBackground(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Copy chatting address"))
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(cardGlassBackground(cornerRadius: 20))
+        .task(id: address) {
+            guard let address else {
+                qrImage = nil
+                return
+            }
+            qrImage = Self.makeChattingAddressQRCode(from: address)
+        }
+    }
+
+    /// Same glass treatment as the chat views' private `glassBackground` helpers.
+    private func cardGlassBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.regularMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+    }
+
+    /// Same CIFilter QR pattern as `ChatInfoView.makeQRCodeImage` - plain string payload, so
+    /// any wallet/scanner reads the address directly.
+    static func makeChattingAddressQRCode(from string: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.setValue(Data(string.utf8), forKey: "inputMessage")
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+}
+
+/// Sheet host for the funding card - used where the zero-balance gate intercepts an action
+/// (KaPosts' new-post and reply entry points) instead of locking an always-visible composer.
+/// Presents `GiftClaimView` in a nested sheet (MainTabView's `.showGiftClaim` listener can't
+/// present its sheet while this one is up), and auto-dismisses the moment the chatting
+/// balance turns positive.
+struct ZeroBalanceFundingSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var walletManager = WalletManager.shared
+    @State private var showGiftClaimSheet = false
+
+    var body: some View {
+        ScrollView {
+            ZeroBalanceFundingCardView(
+                address: walletManager.currentWallet?.publicAddress,
+                onClaimGift: { showGiftClaimSheet = true }
+            )
+            .padding(.horizontal)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .sheet(isPresented: $showGiftClaimSheet) {
+            GiftClaimView()
+        }
+        .onChange(of: walletManager.currentWallet?.balanceSompi) { balance in
+            if let balance, balance > 0 { dismiss() }
+        }
     }
 }

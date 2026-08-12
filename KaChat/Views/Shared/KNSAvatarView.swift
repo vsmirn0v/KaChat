@@ -446,6 +446,19 @@ private actor KNSProfileImageCache {
     private var manifestLoaded = false
     private var manifest: [String: ManifestEntry] = [:]
 
+    /// In-flight downloads keyed by cache identity: many rows showing the same avatar await one
+    /// download instead of each firing their own (mirrors `LinkPreviewService.inFlight`). The
+    /// tasks are unstructured so a row scrolling away (its `.task` gets cancelled) can't kill a
+    /// download other rows are waiting on - the bytes always land in the cache.
+    private var inFlightDownloads: [String: Task<UIImage?, Never>] = [:]
+
+    /// Failed downloads retry after a cooldown instead of on every row remount - a dead avatar
+    /// URL would otherwise be re-requested on every scroll (negative-cache-with-cooldown, same
+    /// pattern as LinkPreviewService's Nextcloud probe failures). Bounded by periodic pruning.
+    private var downloadFailureAt: [String: Date] = [:]
+    private let downloadFailureCooldown: TimeInterval = 60
+    private let maxFailureEntries = 512
+
     private init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 12
@@ -489,7 +502,54 @@ private actor KNSProfileImageCache {
             return diskImage
         }
 
-        return await downloadAndStore(descriptor: descriptor, existingEntry: manifest[descriptor.cacheIdentity])
+        return await coalescedDownload(descriptor: descriptor)
+    }
+
+    /// Cold download path: joins an in-flight download for the same identity when one exists,
+    /// respects the failure cooldown, and runs the download detached from the caller's task so
+    /// view cancellation (row scrolled offscreen) can't abort it mid-flight.
+    private func coalescedDownload(descriptor: KNSProfileImageDescriptor) async -> UIImage? {
+        let identity = descriptor.cacheIdentity
+
+        if let existing = inFlightDownloads[identity] {
+            return await existing.value
+        }
+        if let failedAt = downloadFailureAt[identity],
+           Date().timeIntervalSince(failedAt) < downloadFailureCooldown {
+            return nil
+        }
+
+        let existingEntry = manifest[identity]
+        let task = Task<UIImage?, Never> {
+            await self.downloadAndStore(descriptor: descriptor, existingEntry: existingEntry)
+        }
+        inFlightDownloads[identity] = task
+        let image = await task.value
+        inFlightDownloads.removeValue(forKey: identity)
+
+        if image == nil {
+            downloadFailureAt[identity] = Date()
+            pruneFailureEntriesIfNeeded()
+        } else {
+            downloadFailureAt.removeValue(forKey: identity)
+        }
+        return image
+    }
+
+    private func pruneFailureEntriesIfNeeded() {
+        guard downloadFailureAt.count > maxFailureEntries else { return }
+        // Expired cooldowns are dead weight; drop them first, then oldest overflow if needed.
+        let now = Date()
+        downloadFailureAt = downloadFailureAt.filter {
+            now.timeIntervalSince($0.value) < downloadFailureCooldown
+        }
+        if downloadFailureAt.count > maxFailureEntries {
+            let overflow = downloadFailureAt.count - maxFailureEntries
+            let oldestKeys = downloadFailureAt.sorted { $0.value < $1.value }.prefix(overflow).map(\.key)
+            for key in oldestKeys {
+                downloadFailureAt.removeValue(forKey: key)
+            }
+        }
     }
 
     private func shouldRevalidate(entry: ManifestEntry, descriptor: KNSProfileImageDescriptor) -> Bool {
