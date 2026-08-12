@@ -762,24 +762,33 @@ final class ShareViewController: UIViewController {
         // on several iOS versions never even calls its completion handler - putting the
         // fallback and completeRequest inside that completion left this sheet permanently
         // stuck on "Opening..." with the app never launching.
-        if !openViaResponderChain(url) {
-            // Best-effort backup; deliberately fire-and-forget (see above - the completion
-            // handler cannot be relied on to run).
-            extensionContext?.open(url, completionHandler: nil)
+        let attemptOpen: () -> Void = { [weak self] in
+            guard let self else { return }
+            if !self.openViaResponderChain(url) {
+                // Best-effort backup; deliberately fire-and-forget (see above - the completion
+                // handler cannot be relied on to run).
+                self.extensionContext?.open(url, completionHandler: nil)
+            }
         }
+        attemptOpen()
+        // One retry: the first perform can land while the host app is mid-transition (share
+        // sheet still animating) and get silently dropped by the system.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: attemptOpen)
 
-        // Always complete, but on a short delay: completing in the same runloop turn as the
-        // openURL: perform can tear the extension down before the system processes the open.
-        // The queued share is already persisted in the App Group, so even if the open fails
-        // the main app picks it up on its next activation.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+        // Always complete, but on a delay: completing too close to the openURL: perform tears
+        // the extension down before the system processes the open (0.6s proved too tight on
+        // device - the app never launched). The queued share is already persisted in the App
+        // Group, so even if the open fails the main app picks it up on its next activation.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
             self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
         }
     }
 
     private func openViaResponderChain(_ url: URL) -> Bool {
         let selector = NSSelectorFromString("openURL:")
-        var responder: UIResponder? = self
+        // Start from the window when attached: some hosts' view-controller responder chains
+        // stop before reaching UIApplication, while window.next reaches it directly.
+        var responder: UIResponder? = view.window ?? self
 
         while let current = responder {
             if current.responds(to: selector) {
