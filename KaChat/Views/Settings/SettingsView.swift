@@ -231,6 +231,24 @@ struct SettingsView: View {
                         .onChange(of: settingsViewModel.settings.biometricSpendingKeyEnabled) { _ in
                             settingsViewModel.saveSettings()
                         }
+
+                    NavigationLink {
+                        ChildModeSettingsView()
+                    } label: {
+                        HStack {
+                            Label {
+                                Text("Child Mode")
+                                    .foregroundColor(.primary)
+                            } icon: {
+                                Image(systemName: "figure.and.child.holdinghands")
+                                    .foregroundColor(.accentColor)
+                            }
+                            Spacer()
+                            Text(settingsViewModel.settings.childModeEnabled ? "On" : "Off")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
         }
         .navigationTitle("Security")

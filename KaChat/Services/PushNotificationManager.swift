@@ -1262,7 +1262,11 @@ final class PushNotificationManager: ObservableObject {
     /// service sends broadcast-room pushes for these while the app is closed. Bell off =
     /// channel excluded = no push.
     private func collectWatchedBroadcastChannels() -> [String] {
-        BroadcastService.shared.channels
+        // Child Mode: no broadcast channels registered with the push service at all. Toggling
+        // the mode posts .settingsDidChange -> refreshRegistrationIfNeeded -> updateWatchedAddresses,
+        // whose fingerprint includes this list, so the re-registration happens automatically.
+        guard !AppSettings.load().childModeEnabled else { return [] }
+        return BroadcastService.shared.channels
             .filter { BroadcastService.featuredChannels.contains($0.channelName) && $0.notifyEnabled }
             .map(\.channelName)
             .sorted()
@@ -1286,7 +1290,10 @@ final class PushNotificationManager: ObservableObject {
     /// The wallet's K (KaPosts) identity - the push service sends "actions on your content"
     /// pushes for it while the app is closed. Nil when no wallet is loaded.
     private func collectKaPostsPubkey() -> String? {
-        try? KaPostsAPIClient.shared.requesterPubkey()
+        // Child Mode: no KaPosts identity registered with the push service - same auto
+        // re-registration path as collectWatchedBroadcastChannels above.
+        guard !AppSettings.load().childModeEnabled else { return nil }
+        return try? KaPostsAPIClient.shared.requesterPubkey()
     }
 
     private func collectWatchedAddresses() -> [String] {

@@ -947,6 +947,8 @@ final class BroadcastService: ObservableObject {
         guard !store.hiddenSenderAddresses(forChannel: channel).contains(senderAddress) else { return }
         let settings = AppSettings.load()
         guard settings.notificationsEnabled else { return }
+        // Child Mode removes Broadcasts entirely - no local banners for them either.
+        guard !settings.childModeEnabled else { return }
         // Indexed channels are covered by remote push (registered via
         // watched_broadcast_channels) - skip the scan-driven local banner in remote-push mode
         // so one message can't notify twice, mirroring sendLocalNotification's chat guard.

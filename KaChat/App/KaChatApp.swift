@@ -295,6 +295,12 @@ struct KaChatApp: App {
     }
 
     private func openKaPostDeepLink(txId rawTxId: String) {
+        // Child Mode: KaPosts links (universal https://.../post/<txid> and kachat://kapost/...)
+        // no-op to the main screen instead of opening the hidden feature.
+        guard !AppSettings.load().childModeEnabled else {
+            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
+            return
+        }
         let txId = rawTxId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !txId.isEmpty, txId != "/" else { return }
         KaPostsDeepLink.pendingPostTxId = txId
@@ -577,6 +583,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             let activeAddress = ChatService.shared.activeConversationAddress
             let threadId = notification.request.content.threadIdentifier
             let settings = AppSettings.load()
+            // Child Mode: never display KaPosts/broadcast notifications. Registration already
+            // drops the broadcast channels + KaPosts pubkey (see PushNotificationManager), but a
+            // push can still race the re-registration - suppress it client-side too.
+            if settings.childModeEnabled, threadId == "kaposts" || threadId.hasPrefix("broadcast:") {
+                completionHandler([])
+                return
+            }
             let contactAddress = sender ?? (!threadId.isEmpty ? threadId : nil)
             let contact = contactAddress.flatMap { ContactsManager.shared.getContact(byAddress: $0) }
             let isActiveConversation = activeAddress != nil &&
@@ -717,6 +730,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // broadcast room notification (see `BroadcastService.notifyIfEnabled`), or
         // "group:<groupId>" for a group chat notification.
         let threadIdentifier = response.notification.request.content.threadIdentifier
+
+        // Child Mode: a stray KaPosts/broadcast notification tap (e.g. one delivered before the
+        // mode was switched on, or a remote push that raced the re-registration) must not route
+        // into the hidden features - land on the main Chats screen instead.
+        if AppSettings.load().childModeEnabled,
+           threadIdentifier == "kaposts" || threadIdentifier.hasPrefix("broadcast:") {
+            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
+            completionHandler()
+            return
+        }
 
         // KaPosts push (server thread-id "kaposts"): straight to the post's thread when the
         // payload names one, else into KaPosts with the Notifications screen opened.

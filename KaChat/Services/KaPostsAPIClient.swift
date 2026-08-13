@@ -602,6 +602,8 @@ final class KaPostsNotificationService {
         guard settings.notificationsEnabled,
               WalletManager.shared.currentWallet != nil,
               let key = lastSeenKey else { return }
+        // Child Mode removes KaPosts entirely - no notification pings for it either.
+        guard !settings.childModeEnabled else { return }
         // Remote-push mode: the push service delivers KaPosts pings (registered via
         // kaposts_pubkey) - polling here would double-notify, mirroring the broadcast guard.
         guard settings.notificationMode != .remotePush else { return }

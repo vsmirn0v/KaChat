@@ -13,6 +13,14 @@ enum Haptics {
         #endif
     }
 
+    static func error() {
+        #if os(iOS)
+        #if !targetEnvironment(macCatalyst)
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+        #endif
+        #endif
+    }
+
     static func impact(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
         #if os(iOS)
         #if !targetEnvironment(macCatalyst)

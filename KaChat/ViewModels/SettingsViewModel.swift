@@ -47,8 +47,6 @@ extension AppSettings {
             .flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    private static let dockHideableTabs: [AppTab] = [.portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .apps, .more]
-
     mutating func applyDockOverlay(_ overlay: DockOverlay) {
         tabOrder = overlay.tabOrder
         hidePortfolioTab = overlay.hiddenTabs.contains(AppTab.portfolio.rawValue)
@@ -61,10 +59,19 @@ extension AppSettings {
     }
 
     func dockOverlay() -> DockOverlay {
-        DockOverlay(
-            tabOrder: tabOrder,
-            hiddenTabs: Self.dockHideableTabs.filter { !$0.isEnabled(in: self) }.map { $0.rawValue }
-        )
+        // Raw hide flags, NOT AppTab.isEnabled: isEnabled also applies the Child Mode mask
+        // (Swap/KaPosts/Broadcasts forced off), and baking that mask into the persisted
+        // per-account overlay would leave those tabs hidden even after Child Mode is turned
+        // back off. The overlay must only ever record the user's own dock choices.
+        var hidden: [String] = []
+        if hidePortfolioTab { hidden.append(AppTab.portfolio.rawValue) }
+        if hideColdStorageTab { hidden.append(AppTab.coldStorage.rawValue) }
+        if hideSwapTab { hidden.append(AppTab.swap.rawValue) }
+        if hideKaPostsTab { hidden.append(AppTab.kaposts.rawValue) }
+        if hideBroadcasts { hidden.append(AppTab.broadcasts.rawValue) }
+        if hideAppsTab { hidden.append(AppTab.apps.rawValue) }
+        if hideMoreItem { hidden.append(AppTab.more.rawValue) }
+        return DockOverlay(tabOrder: tabOrder, hiddenTabs: hidden)
     }
 
     /// Writes the dock fields of `settings` to the active account's overlay blob. Called from
@@ -179,7 +186,12 @@ final class SettingsViewModel: ObservableObject {
     }
 
     func resetToDefaults() {
+        // Child Mode survives a settings reset (Danger Zone account wipe) - its password record
+        // lives in the Keychain and outlives UserDefaults, so the flag must not silently drop
+        // back to off without the password ever being entered.
+        let childModeEnabled = settings.childModeEnabled
         settings = .default
+        settings.childModeEnabled = childModeEnabled
         saveSettings()
     }
 

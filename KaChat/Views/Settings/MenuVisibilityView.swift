@@ -17,6 +17,12 @@ struct MenuVisibilityView: View {
         AppTab.visible(from: settingsViewModel.settings)
     }
 
+    /// Child Mode removes Swaps, KaPosts and Broadcasts from the whole app - their toggles
+    /// disappear from this screen too so they can't even be flipped "for later" while it's on.
+    private var childModeOn: Bool {
+        settingsViewModel.settings.childModeEnabled
+    }
+
     /// KaPosts is on but the dock is full, so it opens via re-tapping the Chats tab - surfaced as
     /// a hint on its row so the behavior is discoverable right where it was toggled on.
     private var kaPostsReTapHint: String? {
@@ -70,25 +76,27 @@ struct MenuVisibilityView: View {
                     ),
                     locked: false
                 )
-                menuRow(
-                    icon: AppTab.swap.icon,
-                    label: AppTab.swap.label,
-                    isOn: Binding(
-                        get: { !settingsViewModel.settings.hideSwapTab },
-                        set: { settingsViewModel.settings.hideSwapTab = !$0; settingsViewModel.saveSettings() }
-                    ),
-                    locked: false
-                )
-                menuRow(
-                    icon: AppTab.kaposts.icon,
-                    label: AppTab.kaposts.label,
-                    isOn: Binding(
-                        get: { !settingsViewModel.settings.hideKaPostsTab },
-                        set: { settingsViewModel.settings.hideKaPostsTab = !$0; settingsViewModel.saveSettings() }
-                    ),
-                    locked: false,
-                    hint: kaPostsReTapHint
-                )
+                if !childModeOn {
+                    menuRow(
+                        icon: AppTab.swap.icon,
+                        label: AppTab.swap.label,
+                        isOn: Binding(
+                            get: { !settingsViewModel.settings.hideSwapTab },
+                            set: { settingsViewModel.settings.hideSwapTab = !$0; settingsViewModel.saveSettings() }
+                        ),
+                        locked: false
+                    )
+                    menuRow(
+                        icon: AppTab.kaposts.icon,
+                        label: AppTab.kaposts.label,
+                        isOn: Binding(
+                            get: { !settingsViewModel.settings.hideKaPostsTab },
+                            set: { settingsViewModel.settings.hideKaPostsTab = !$0; settingsViewModel.saveSettings() }
+                        ),
+                        locked: false,
+                        hint: kaPostsReTapHint
+                    )
+                }
                 menuRow(
                     icon: AppTab.apps.icon,
                     label: AppTab.apps.label,
@@ -99,20 +107,26 @@ struct MenuVisibilityView: View {
                     locked: false,
                     hint: appsHint
                 )
-                menuRow(
-                    icon: AppTab.broadcasts.icon,
-                    label: AppTab.broadcasts.label,
-                    isOn: Binding(
-                        get: { !settingsViewModel.settings.hideBroadcasts },
-                        set: { settingsViewModel.settings.hideBroadcasts = !$0; settingsViewModel.saveSettings() }
-                    ),
-                    locked: false,
-                    hint: broadcastsReTapHint
-                )
+                if !childModeOn {
+                    menuRow(
+                        icon: AppTab.broadcasts.icon,
+                        label: AppTab.broadcasts.label,
+                        isOn: Binding(
+                            get: { !settingsViewModel.settings.hideBroadcasts },
+                            set: { settingsViewModel.settings.hideBroadcasts = !$0; settingsViewModel.saveSettings() }
+                        ),
+                        locked: false,
+                        hint: broadcastsReTapHint
+                    )
+                }
             } header: {
                 Text("Choose which tabs appear in your dock.")
             } footer: {
-                Text("Press and drag a tab in the preview below to reorder it. The dock shows up to \(AppTab.maxDockItems) items - if it's full, KaPosts and Broadcasts stay available by tapping the Chats tab to cycle through them; other tabs need a free slot to appear.")
+                if childModeOn {
+                    Text("Press and drag a tab in the preview below to reorder it. The dock shows up to \(AppTab.maxDockItems) items. Swap, KaPosts and Broadcasts are unavailable while Child Mode is on (Settings > Security > Child Mode).")
+                } else {
+                    Text("Press and drag a tab in the preview below to reorder it. The dock shows up to \(AppTab.maxDockItems) items - if it's full, KaPosts and Broadcasts stay available by tapping the Chats tab to cycle through them; other tabs need a free slot to appear.")
+                }
             }
         }
         .navigationTitle("Customize Dock")

@@ -38,6 +38,8 @@
 		CFMT00010001000000000002 /* CurrencyFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFMT00010001000000000001 /* CurrencyFormat.swift */; };
 		CH0001B0000000000000001 /* ChessEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0001A0000000000000001 /* ChessEngine.swift */; };
 		CH0002B0000000000000001 /* ChessGameService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0002A0000000000000001 /* ChessGameService.swift */; };
+		CM0001B0000000000000001 /* ChildModeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CM0001A0000000000000001 /* ChildModeService.swift */; };
+		CM0002B0000000000000001 /* ChildModeSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CM0002A0000000000000001 /* ChildModeSettingsView.swift */; };
 		CH0003B0000000000000001 /* ChessGameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CH0003A0000000000000001 /* ChessGameView.swift */; };
 		CPQS00010001000100000001 /* ChatPhotoQualitySlider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPQS00010001000000000001 /* ChatPhotoQualitySlider.swift */; };
 		CPTV00010001000100000001 /* ComposerTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPTV00010001000000000001 /* ComposerTextView.swift */; };
@@ -237,6 +239,8 @@
 		CFMT00010001000000000001 /* CurrencyFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrencyFormat.swift; sourceTree = "<group>"; };
 		CH0001A0000000000000001 /* ChessEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessEngine.swift; sourceTree = "<group>"; };
 		CH0002A0000000000000001 /* ChessGameService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessGameService.swift; sourceTree = "<group>"; };
+		CM0001A0000000000000001 /* ChildModeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildModeService.swift; sourceTree = "<group>"; };
+		CM0002A0000000000000001 /* ChildModeSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChildModeSettingsView.swift; sourceTree = "<group>"; };
 		CH0003A0000000000000001 /* ChessGameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChessGameView.swift; sourceTree = "<group>"; };
 		CPQS00010001000000000001 /* ChatPhotoQualitySlider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatPhotoQualitySlider.swift; sourceTree = "<group>"; };
 		CPTV00010001000000000001 /* ComposerTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerTextView.swift; sourceTree = "<group>"; };
@@ -578,6 +582,7 @@
 				CS0009A0000000000000001 /* ColdStorageSendEngine.swift */,
 				KPAPI001A000000000000001 /* KaPostsAPIClient.swift */,
 				CH0002A0000000000000001 /* ChessGameService.swift */,
+				CM0001A0000000000000001 /* ChildModeService.swift */,
 				SWAP002A0000000000000001 /* ChangeNowAPIClient.swift */,
 				SWAP003A0000000000000001 /* SwapService.swift */,
 				LPRVA0000000000000001 /* LinkPreviewService.swift */,
@@ -709,6 +714,7 @@
 			children = (
 				E810001C2D4C00010000000F /* SettingsView.swift */,
 				MV0001A0000000000000001 /* MenuVisibilityView.swift */,
+				CM0002A0000000000000001 /* ChildModeSettingsView.swift */,
 			);
 			path = Settings;
 			sourceTree = "<group>";
@@ -1063,6 +1069,8 @@
 				CS0003B0000000000000001 /* ColdStorageManager.swift in Sources */,
 				NC0001B0000000000000001 /* NextcloudService.swift in Sources */,
 				CH0002B0000000000000001 /* ChessGameService.swift in Sources */,
+				CM0001B0000000000000001 /* ChildModeService.swift in Sources */,
+				CM0002B0000000000000001 /* ChildModeSettingsView.swift in Sources */,
 				CS0004B0000000000000001 /* ColdStorageView.swift in Sources */,
 				CS0006B0000000000000001 /* KsptCodec.swift in Sources */,
 				CS0007B0000000000000001 /* QrFrameChunker.swift in Sources */,

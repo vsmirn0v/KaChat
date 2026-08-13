@@ -14,6 +14,9 @@ struct WelcomeGuideView: View {
 
     private enum Step: Int, CaseIterable {
         case welcome
+        /// "Who will use KaChat?" - Adult continues as normal, Child sets a password and turns
+        /// Child Mode on from first launch. Deliberately placed BEFORE the language step.
+        case userType
         case language
         case currency
         case fees
@@ -29,7 +32,16 @@ struct WelcomeGuideView: View {
         case autoDiscover
     }
 
+    private enum UserTypeChoice: Equatable {
+        case adult
+        case child
+    }
+
     @State private var step: Step = .welcome
+    @State private var userTypeChoice: UserTypeChoice = .adult
+    @State private var childPasswordInput = ""
+    @State private var childPasswordConfirm = ""
+    @State private var childSetupError: String?
     @State private var nodeChoice: NodeChoice = .defaultNode
     @State private var ownNodeInput = ""
     @State private var nodeValidationError: String?
@@ -68,7 +80,10 @@ struct WelcomeGuideView: View {
                 body: "Let's walk through the basics so you're ready to send your first message.",
                 buttonTitle: "Next",
                 extra: { EmptyView() }
-            ) { step = .language }
+            ) { step = .userType }
+
+        case .userType:
+            userTypeStep
 
         case .language:
             languageStep
@@ -143,6 +158,172 @@ struct WelcomeGuideView: View {
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
+        }
+    }
+
+    // MARK: - Who-will-use step (Child Mode)
+
+    /// Adult continues untouched; Child sets a free-form password (stored salted-hashed in the
+    /// Keychain, see ChildModeService) and Child Mode turns ON immediately - persisted via
+    /// saveSettings() right here at the step, not deferred to the end of the guide, so the
+    /// choice survives no matter what the rest of the wizard writes (or whether it finishes).
+    /// When the guide is REPLAYED (Profile > Help) with Child Mode already on, the step is
+    /// informational only - offering "Adult" there would be a password-free way out.
+    private var userTypeStep: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "figure.and.child.holdinghands")
+                .font(.system(size: 56))
+                .foregroundColor(.accentColor)
+            Text("Who will use KaChat?")
+                .font(.title2.weight(.bold))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            if settingsViewModel.settings.childModeEnabled {
+                Text("Child Mode is on. Chats, Group Chats, Portfolio and Cold Storage are available; Swaps, KaPosts and Broadcasts are hidden. Manage this in Settings > Security > Child Mode.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            } else {
+                Text("A child gets a simpler, safer KaChat: just Chats, Group Chats, Portfolio and Cold Storage. Swaps, KaPosts and Broadcasts stay hidden until an adult unlocks them.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+
+                ScrollView {
+                    VStack(spacing: 10) {
+                        userTypeRow(
+                            choice: .adult,
+                            icon: "person.fill",
+                            title: "Adult",
+                            subtitle: "The full app, everything available."
+                        )
+                        userTypeRow(
+                            choice: .child,
+                            icon: "figure.child",
+                            title: "Child",
+                            subtitle: "Chats, Portfolio and Cold Storage only. An adult sets a password to unlock the rest later."
+                        )
+
+                        if userTypeChoice == .child {
+                            VStack(alignment: .leading, spacing: 8) {
+                                SecureField("Password", text: $childPasswordInput)
+                                    .textContentType(.oneTimeCode)
+                                    .autocapitalization(.none)
+                                    .autocorrectionDisabled()
+                                    .padding(10)
+                                    .background(Color(.systemGray6))
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                SecureField("Confirm password", text: $childPasswordConfirm)
+                                    .textContentType(.oneTimeCode)
+                                    .autocapitalization(.none)
+                                    .autocorrectionDisabled()
+                                    .padding(10)
+                                    .background(Color(.systemGray6))
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                Text("4 digits, 8 digits, or anything you like - just don't forget it. It's needed to turn Child Mode off.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.horizontal, 4)
+                            .onChange(of: childPasswordInput) { _ in childSetupError = nil }
+                            .onChange(of: childPasswordConfirm) { _ in childSetupError = nil }
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 4)
+                }
+
+                if let childSetupError {
+                    Text(childSetupError)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                }
+            }
+
+            Spacer()
+            Button {
+                applyUserTypeChoice()
+            } label: {
+                Text("Next")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private func userTypeRow(choice: UserTypeChoice, icon: String, title: String, subtitle: String) -> some View {
+        Button {
+            userTypeChoice = choice
+            childSetupError = nil
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: userTypeChoice == choice ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(userTypeChoice == choice ? .accentColor : .secondary)
+                Image(systemName: icon)
+                    .foregroundColor(.accentColor)
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(LocalizedStringKey(title))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Text(LocalizedStringKey(subtitle))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer()
+            }
+            .padding(12)
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func applyUserTypeChoice() {
+        // Replay with Child Mode already on: purely informational, just continue.
+        if settingsViewModel.settings.childModeEnabled {
+            step = .language
+            return
+        }
+        switch userTypeChoice {
+        case .adult:
+            step = .language
+        case .child:
+            let password = childPasswordInput
+            guard !password.isEmpty else {
+                childSetupError = "Enter a password first."
+                return
+            }
+            guard password == childPasswordConfirm else {
+                childSetupError = "Passwords don't match."
+                return
+            }
+            do {
+                try ChildModeService.shared.setPassword(password)
+            } catch {
+                childSetupError = "Couldn't save the password. Please try again."
+                return
+            }
+            settingsViewModel.settings.childModeEnabled = true
+            settingsViewModel.saveSettings()
+            childPasswordInput = ""
+            childPasswordConfirm = ""
+            childSetupError = nil
+            Haptics.success()
+            step = .language
         }
     }
 

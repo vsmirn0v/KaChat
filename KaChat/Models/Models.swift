@@ -1316,7 +1316,18 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     }
 
     /// True when this tab is enabled (not hidden) in settings, independent of dock capacity.
+    ///
+    /// Child Mode (Settings > Security) hard-hides Swaps, KaPosts and Broadcasts here - this is
+    /// the single choke point every dock consumer flows through (`visible`, `chatsSlotCycle`,
+    /// `kaPostsAccessibleViaChatsTab`, `broadcastsAccessibleViaChatsTab`), so while it's on those
+    /// tabs can't render in the dock NOR ride the Chats-slot cycle, regardless of dock settings.
     func isEnabled(in settings: AppSettings) -> Bool {
+        if settings.childModeEnabled {
+            switch self {
+            case .swap, .kaposts, .broadcasts: return false
+            default: break
+            }
+        }
         switch self {
         case .portfolio: return !settings.hidePortfolioTab
         case .coldStorage: return !settings.hideColdStorageTab
@@ -1519,6 +1530,12 @@ struct AppSettings: Codable {
     var tabOrder: [String]
 
     // Security
+    /// Child Mode (Settings > Security): while on, the app is strictly Chats, Group Chats,
+    /// Portfolio and Cold Storage - Swaps, KaPosts and Broadcasts are removed from every access
+    /// point (dock, Chats-slot cycle, deep links, notifications, push registration). Turning it
+    /// OFF is validated against the salted password hash in the Keychain (see ChildModeService) -
+    /// this flag alone is just the fast-path gate the UI reads.
+    var childModeEnabled: Bool
     var biometricSeedPhraseEnabled: Bool
     var biometricAccountLoginEnabled: Bool
     /// Gates the "Export" button on a spending address's own screen (Manage Addresses > tap an
@@ -1644,6 +1661,7 @@ struct AppSettings: Codable {
             hideBroadcasts: false,
             hideAppsTab: false,
             tabOrder: AppTab.defaultOrder.map { $0.rawValue },
+            childModeEnabled: false,
             biometricSeedPhraseEnabled: true,
             biometricAccountLoginEnabled: true,
             biometricSpendingKeyEnabled: true,
@@ -1691,6 +1709,7 @@ struct AppSettings: Codable {
         case hideBroadcasts
         case hideAppsTab
         case tabOrder
+        case childModeEnabled
         case biometricSeedPhraseEnabled
         case biometricAccountLoginEnabled
         case biometricSpendingKeyEnabled
@@ -1746,6 +1765,7 @@ struct AppSettings: Codable {
         hideBroadcasts: Bool = false,
         hideAppsTab: Bool = false,
         tabOrder: [String] = AppTab.defaultOrder.map { $0.rawValue },
+        childModeEnabled: Bool = false,
         biometricSeedPhraseEnabled: Bool = true,
         biometricAccountLoginEnabled: Bool = true,
         biometricSpendingKeyEnabled: Bool = true,
@@ -1791,6 +1811,7 @@ struct AppSettings: Codable {
         self.hideBroadcasts = hideBroadcasts
         self.hideAppsTab = hideAppsTab
         self.tabOrder = tabOrder
+        self.childModeEnabled = childModeEnabled
         self.biometricSeedPhraseEnabled = biometricSeedPhraseEnabled
         self.biometricAccountLoginEnabled = biometricAccountLoginEnabled
         self.biometricSpendingKeyEnabled = biometricSpendingKeyEnabled
@@ -1871,6 +1892,7 @@ struct AppSettings: Codable {
         hideBroadcasts = try container.decodeIfPresent(Bool.self, forKey: .hideBroadcasts) ?? false
         hideAppsTab = try container.decodeIfPresent(Bool.self, forKey: .hideAppsTab) ?? true
         tabOrder = try container.decodeIfPresent([String].self, forKey: .tabOrder) ?? AppTab.defaultOrder.map { $0.rawValue }
+        childModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .childModeEnabled) ?? false
         biometricSeedPhraseEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSeedPhraseEnabled) ?? true
         biometricAccountLoginEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricAccountLoginEnabled) ?? true
         biometricSpendingKeyEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSpendingKeyEnabled) ?? true
@@ -1961,6 +1983,7 @@ struct AppSettings: Codable {
         try container.encode(hideBroadcasts, forKey: .hideBroadcasts)
         try container.encode(hideAppsTab, forKey: .hideAppsTab)
         try container.encode(tabOrder, forKey: .tabOrder)
+        try container.encode(childModeEnabled, forKey: .childModeEnabled)
         try container.encode(biometricSeedPhraseEnabled, forKey: .biometricSeedPhraseEnabled)
         try container.encode(biometricAccountLoginEnabled, forKey: .biometricAccountLoginEnabled)
         try container.encode(biometricSpendingKeyEnabled, forKey: .biometricSpendingKeyEnabled)
