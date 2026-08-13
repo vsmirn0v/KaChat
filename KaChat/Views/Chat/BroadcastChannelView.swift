@@ -717,7 +717,9 @@ struct BroadcastChannelView: View {
                 isEstimatingFee = false
             } catch {
                 guard !Task.isCancelled else { return }
-                feeEstimateSompi = nil
+                // Transient estimation failures (UTXO fetch hiccup, node race with an in-flight
+                // send) must never alarm the user mid-typing: keep showing the last good fee
+                // (or the "--" placeholder if there never was one) and just stop the shimmer.
                 isEstimatingFee = false
             }
         }

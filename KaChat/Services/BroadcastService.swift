@@ -635,8 +635,12 @@ final class BroadcastService: ObservableObject {
         ChatService.shared.clearNoInputRetryState(for: pendingId)
         store.markMessageFailed(pendingId: pendingId)
         loadMessages(for: channel)
-        lastSendError = error as? KasiaError ?? .networkError(error.localizedDescription)
-        throw error
+        // Surface a humanized message (never kaspad's raw "orphan is disallowed" text) - this is
+        // what the composer's "Failed to send" toast renders, possibly while the user is already
+        // typing their next message.
+        let surfaced = KasiaError.networkError(Self.friendlySendErrorMessage(for: error))
+        lastSendError = surfaced
+        throw surfaced
     }
 
     private func scheduleBroadcastRetry(
@@ -705,6 +709,57 @@ final class BroadcastService: ObservableObject {
             throw KasiaError.networkError(chatService.noSpendableFundsYetMessage())
         }
 
+        do {
+            return try await buildSignSubmitBroadcast(
+                channel: channel,
+                content: content,
+                walletAddress: walletAddress,
+                privateKey: privateKey,
+                pendingId: pendingId,
+                utxos: candidateUtxos,
+                feeOverride: feeOverride
+            )
+        } catch {
+            // The node pool hedges submits across nodes, so the node this landed on can be a few
+            // seconds behind the node that served the UTXO snapshot (or behind a just-accepted
+            // broadcast whose change we chained). It then rejects with kaspad's raw
+            // "... is an orphan, where orphan is disallowed" / "already spent" text. That's a
+            // transient state mismatch, not a user error - retry ONCE with a freshly fetched,
+            // confirmed-only input set (mirrors the 1:1 path's confirmed-only fallback) before
+            // giving up, instead of surfacing raw node text (see friendlySendErrorMessage).
+            guard chatService.shouldRetrySendError(error) else { throw error }
+            let refetched = try await NodePoolService.shared.getUtxosByAddresses([walletAddress])
+            let confirmedOnly = chatService.prepareMessageUtxos(confirmed: refetched)
+                .filter { $0.blockDaaScore > 0 }
+            guard !confirmedOnly.isEmpty else { throw error }
+            AppLog.log("[BroadcastService] Submit rejected (%@) for %@ - retrying with confirmed-only inputs",
+                       error.localizedDescription, String(pendingId.prefix(12)))
+            return try await buildSignSubmitBroadcast(
+                channel: channel,
+                content: content,
+                walletAddress: walletAddress,
+                privateKey: privateKey,
+                pendingId: pendingId,
+                utxos: confirmedOnly,
+                feeOverride: feeOverride
+            )
+        }
+    }
+
+    /// One build -> sign -> submit -> bookkeeping attempt against a fixed candidate UTXO set.
+    /// Split out of `sendBroadcastInternal` so the orphan/already-spent fallback there can rerun
+    /// the whole attempt against a refreshed input set.
+    private func buildSignSubmitBroadcast(
+        channel: String,
+        content: String,
+        walletAddress: String,
+        privateKey: Data,
+        pendingId: String,
+        utxos candidateUtxos: [UTXO],
+        feeOverride: UInt64?
+    ) async throws -> String {
+        let chatService = ChatService.shared
+
         let tx = try KasiaTransactionBuilder.buildBroadcastTx(
             from: walletAddress,
             channel: channel,
@@ -732,6 +787,19 @@ final class BroadcastService: ObservableObject {
             chatService.releaseMessageOutpoints()
             throw error
         }
+    }
+
+    /// Node-level rejection text ("transaction ... is an orphan, where orphan is disallowed",
+    /// "already spent", ...) means "the network hasn't caught up with your previous send yet" -
+    /// meaningless and alarming to a user mid-typing. Map it (after retries are exhausted) to a
+    /// plain-language message; anything unrecognized passes through unchanged.
+    static func friendlySendErrorMessage(for error: Error) -> String {
+        let raw = error.localizedDescription
+        let lower = raw.lowercased()
+        if lower.contains("orphan") || lower.contains("already spent") || lower.contains("double spend") {
+            return AppLocalization.string("The network is still confirming your previous send. Please try again in a few seconds.")
+        }
+        return raw
     }
 
     // MARK: - Block scanning lifecycle
