@@ -7,6 +7,9 @@ struct MainTabView: View {
     @State private var tabWorkTask: Task<Void, Never>?
     @State private var showGiftSheet = false
     @State private var showWelcomeGuide = false
+    /// The guide is being re-presented because a first run was interrupted (app killed) before
+    /// the Adult/Child step was answered - jump straight back to that step.
+    @State private var resumeGuideAtUserType = false
     /// 4.0 "what's new" wizard: shown on every entry into the app until the user taps
     /// Don't Show Again (persisted per device).
     @State private var showDockWizard = false
@@ -68,6 +71,15 @@ struct MainTabView: View {
             _ = PortfolioViewModel.shared
             if walletManager.justCreatedNewWallet {
                 walletManager.justCreatedNewWallet = false
+                // Persisted BEFORE presenting: justCreatedNewWallet is in-memory only, so an
+                // app kill mid-wizard would otherwise be a permanent way past the mandatory
+                // Adult/Child step - the pending marker makes the next launch re-present it.
+                WelcomeGuideView.markUserTypePending()
+                showWelcomeGuide = true
+            } else if WelcomeGuideView.isUserTypePending {
+                // First-run guide was interrupted before the Adult/Child choice: bring the
+                // wizard back at that step, on every launch, until it's answered.
+                resumeGuideAtUserType = true
                 showWelcomeGuide = true
             } else if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey) {
                 // What's-new wizard for everyone else, every entry until dismissed for good.
@@ -87,16 +99,20 @@ struct MainTabView: View {
                 .presentationDetents([.large])
         }
         .fullScreenCover(isPresented: $showWelcomeGuide) {
-            WelcomeGuideView(onFinished: {
-                showWelcomeGuide = false
-                // Fresh installs chain straight into the 4.0 what's-new wizard once the full
-                // setup guide is done (returning users get it from onAppear instead).
-                if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey) {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-                        showDockWizard = true
+            WelcomeGuideView(
+                onFinished: {
+                    showWelcomeGuide = false
+                    resumeGuideAtUserType = false
+                    // Fresh installs chain straight into the 4.0 what's-new wizard once the full
+                    // setup guide is done (returning users get it from onAppear instead).
+                    if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                            showDockWizard = true
+                        }
                     }
-                }
-            })
+                },
+                startAtUserType: resumeGuideAtUserType
+            )
         }
         .onChange(of: walletManager.currentWallet?.publicAddress) { _ in
             preloadProfileResources()

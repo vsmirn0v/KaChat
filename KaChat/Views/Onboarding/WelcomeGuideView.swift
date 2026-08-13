@@ -7,6 +7,38 @@ import SwiftUI
 /// simple static content plus at most one piece of live state (no per-step async work to gate on).
 struct WelcomeGuideView: View {
     let onFinished: () -> Void
+    /// Re-presentation after an interrupted first run (app killed before the Adult/Child step
+    /// was answered): jump straight back to the choice instead of replaying from Welcome.
+    var startAtUserType: Bool = false
+
+    // MARK: - Adult/Child choice persistence
+    //
+    // The "Who will use KaChat?" step must be unskippable on first run: no Skip until it's
+    // answered, and an app kill/relaunch mid-wizard must bring the wizard back (the
+    // auto-present trigger, WalletManager.justCreatedNewWallet, is in-memory only and lost on
+    // relaunch). Tri-state marker in UserDefaults:
+    //   nil       - legacy install that predates the step (never forced through it)
+    //   "pending" - first-run guide was presented but the choice not yet answered
+    //   "chosen"  - answered (Adult, or Child with password set) - never downgraded
+    static let userTypeChoiceStateKey = "kachat_user_type_choice_state"
+
+    /// First-run guide was shown but the Adult/Child step never answered - MainTabView
+    /// re-presents the guide (at that step) on every launch until it is.
+    static var isUserTypePending: Bool {
+        UserDefaults.standard.string(forKey: userTypeChoiceStateKey) == "pending"
+    }
+
+    /// Called right before the first-run auto-present. Never downgrades an already-made choice
+    /// (a second account created later on the same device re-shows the guide, but the
+    /// device-level Adult/Child answer stands and Skip stays available).
+    static func markUserTypePending() {
+        guard UserDefaults.standard.string(forKey: userTypeChoiceStateKey) != "chosen" else { return }
+        UserDefaults.standard.set("pending", forKey: userTypeChoiceStateKey)
+    }
+
+    static func markUserTypeChosen() {
+        UserDefaults.standard.set("chosen", forKey: userTypeChoiceStateKey)
+    }
 
     @EnvironmentObject private var walletManager: WalletManager
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
@@ -38,6 +70,10 @@ struct WelcomeGuideView: View {
     }
 
     @State private var step: Step = .welcome
+    /// Gates every skip affordance: false while the Adult/Child choice is still owed (marker
+    /// "pending"), true otherwise (answered this session, or a replay/legacy run). While false
+    /// the Skip button is hidden and interactive dismissal is disabled.
+    @State private var userTypeAnswered = true
     @State private var userTypeChoice: UserTypeChoice = .adult
     @State private var childPasswordInput = ""
     @State private var childPasswordConfirm = ""
@@ -57,13 +93,25 @@ struct WelcomeGuideView: View {
             content
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("Skip") { onFinished() }
+                    // Skip exists ONLY once the Adult/Child step is answered - until then the
+                    // wizard has no way out. After the choice, skipping the remainder of the
+                    // guide behaves exactly as before.
+                    if userTypeAnswered {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button("Skip") { onFinished() }
+                        }
                     }
                 }
         }
         .toast(message: toastMessage)
+        // Both presenters use fullScreenCover today (no swipe-down exists), but if the guide is
+        // ever hosted in a sheet this keeps drag-to-dismiss off until the choice is made.
+        .interactiveDismissDisabled(!userTypeAnswered)
         .onAppear {
+            userTypeAnswered = !Self.isUserTypePending
+            if startAtUserType, !userTypeAnswered {
+                step = .userType
+            }
             nodeChoice = currentNodeChoiceFromSettings()
             ownNodeInput = settingsViewModel.settings.trustedNodeAddress == AppSettings.defaultTrustedNodeAddress
                 ? "" : settingsViewModel.settings.trustedNodeAddress
@@ -293,13 +341,16 @@ struct WelcomeGuideView: View {
     }
 
     private func applyUserTypeChoice() {
-        // Replay with Child Mode already on: purely informational, just continue.
+        // Replay with Child Mode already on: purely informational, just continue. Still counts
+        // as answered - Child Mode being on IS the standing choice.
         if settingsViewModel.settings.childModeEnabled {
+            markUserTypeAnswered()
             step = .language
             return
         }
         switch userTypeChoice {
         case .adult:
+            markUserTypeAnswered()
             step = .language
         case .child:
             let password = childPasswordInput
@@ -322,9 +373,17 @@ struct WelcomeGuideView: View {
             childPasswordInput = ""
             childPasswordConfirm = ""
             childSetupError = nil
+            markUserTypeAnswered()
             Haptics.success()
             step = .language
         }
+    }
+
+    /// The Adult/Child step is answered: persist the marker (so relaunches stop re-presenting
+    /// the wizard) and restore the Skip affordance for the rest of the guide.
+    private func markUserTypeAnswered() {
+        Self.markUserTypeChosen()
+        userTypeAnswered = true
     }
 
     // MARK: - Language step
