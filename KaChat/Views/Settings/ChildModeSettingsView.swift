@@ -34,11 +34,17 @@ struct ChildModeSettingsView: View {
     @State private var changeError: String?
     @State private var changeSucceeded = false
 
+    // Clear password (full reset)
+    @State private var showClearPrompt = false
+    @State private var clearPassword = ""
+    @State private var clearError: String?
+
     var body: some View {
         Form {
             if hasPassword {
                 toggleSection
                 changePasswordSection
+                clearPasswordSection
             } else {
                 setupSection
             }
@@ -51,6 +57,10 @@ struct ChildModeSettingsView: View {
         }
         .sheet(isPresented: $showTurnOffPrompt) {
             turnOffSheet
+                .presentationDetents([.height(280)])
+        }
+        .sheet(isPresented: $showClearPrompt) {
+            clearSheet
                 .presentationDetents([.height(280)])
         }
     }
@@ -271,6 +281,102 @@ struct ChildModeSettingsView: View {
         newPasswordConfirm = ""
         changeError = nil
         changeSucceeded = true
+        Haptics.success()
+    }
+
+    // MARK: - Clear password (full reset to never-configured)
+
+    private var clearPasswordSection: some View {
+        Section {
+            Button(role: .destructive) {
+                clearPassword = ""
+                clearError = nil
+                showClearPrompt = true
+            } label: {
+                Text("Clear Password")
+                    .frame(maxWidth: .infinity)
+                    .fontWeight(.semibold)
+            }
+        } footer: {
+            Text("Deletes the Child Mode password and turns Child Mode off, returning it to a never-set-up state. Requires the current password.")
+        }
+    }
+
+    /// Same manual-password-entry pattern as the toggle-off sheet: one entry, wrong password =
+    /// error and nothing happens, never biometrics.
+    private var clearSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    SecureField("Password", text: $clearPassword)
+                        .textContentType(.oneTimeCode)
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .onChange(of: clearPassword) { _ in clearError = nil }
+                } header: {
+                    Text("Clear Password")
+                } footer: {
+                    if let clearError {
+                        Text(clearError)
+                            .foregroundColor(.red)
+                    } else {
+                        Text("Enter the Child Mode password to delete it and turn Child Mode off.")
+                    }
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        attemptClear()
+                    } label: {
+                        Text("Clear Password")
+                            .frame(maxWidth: .infinity)
+                            .fontWeight(.semibold)
+                    }
+                    .disabled(clearPassword.isEmpty)
+                }
+            }
+            .navigationTitle("Child Mode")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Cancel") {
+                        showClearPrompt = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func attemptClear() {
+        let cleared: Bool
+        do {
+            cleared = try ChildModeService.shared.clearConfiguration(current: clearPassword)
+        } catch {
+            clearError = "Couldn't clear the password. Please try again."
+            Haptics.error()
+            return
+        }
+        guard cleared else {
+            clearError = "Wrong password. Nothing changed."
+            Haptics.error()
+            clearPassword = ""
+            return
+        }
+        // The service already flipped the persisted flag off through AppSettings.save (so push
+        // re-registration and the dock gating have reacted); mirror it into this view model,
+        // whose settingsDidChange observer deliberately ignores save notifications.
+        settingsViewModel.settings.childModeEnabled = false
+        settingsViewModel.saveSettings()
+        // Reset every flow's scratch state - the screen drops back to first-time setup.
+        currentPassword = ""
+        newPassword = ""
+        newPasswordConfirm = ""
+        changeError = nil
+        changeSucceeded = false
+        clearPassword = ""
+        clearError = nil
+        hasPassword = false
+        showClearPrompt = false
         Haptics.success()
     }
 

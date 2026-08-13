@@ -85,6 +85,26 @@ final class ChildModeService {
         return true
     }
 
+    /// Full reset to the never-configured state: the current password must verify, then the
+    /// Keychain record is deleted AND the `childModeEnabled` flag is switched off through the
+    /// standard settings save path (`AppSettings.save` posts `.settingsDidChange`, so push
+    /// re-registration and the dock gating react exactly as they do for the normal OFF toggle).
+    /// Returns false (and changes nothing) on a wrong password.
+    ///
+    /// NOTE for UI callers holding a `SettingsViewModel`: its `.settingsDidChange` observer
+    /// deliberately ignores save notifications (object != nil), so refresh its in-memory
+    /// `settings.childModeEnabled` yourself after this returns true (see ChildModeSettingsView).
+    func clearConfiguration(current password: String) throws -> Bool {
+        guard verifyPassword(password) else { return false }
+        try KeychainService.shared.deleteChildModePasswordRecord()
+        var settings = AppSettings.load()
+        if settings.childModeEnabled {
+            settings.childModeEnabled = false
+            AppSettings.save(settings)
+        }
+        return true
+    }
+
     private static func hash(password: String, salt: Data) -> Data {
         var input = salt
         input.append(Data(password.utf8))
