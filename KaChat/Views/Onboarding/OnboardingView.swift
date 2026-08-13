@@ -11,6 +11,7 @@ struct OnboardingView: View {
     @State private var signInErrorMessage: String?
     @State private var pendingRenameAccount: SavedAccountSummary?
     @State private var renameText = ""
+    @State private var showAppSettings = false
 
     var body: some View {
         NavigationStack {
@@ -19,6 +20,23 @@ struct OnboardingView: View {
                 titleSection
                 Spacer()
                 actionButtonsSection
+            }
+            // App-wide settings (Security incl. Child Mode, Appearance/Language/Currency,
+            // Connection, Diagnostics) - reachable with NO account active, so a parent can
+            // manage Child Mode without unlocking anything. Account-tier settings stay in
+            // the in-account Settings sheet.
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showAppSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("App Settings")
+                }
+            }
+            .sheet(isPresented: $showAppSettings) {
+                AppSettingsView()
             }
             .navigationDestination(isPresented: $showCreateWallet) {
                 CreateWalletView()

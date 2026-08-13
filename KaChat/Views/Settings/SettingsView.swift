@@ -24,12 +24,9 @@ struct SettingsView: View {
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
     @State private var messageStoreSize = "Unknown"
-    @State private var diagnosticsArchiveURL: URL?
-    @State private var showDiagnosticsShareSheet = false
     @State private var chatHistoryArchiveURL: URL?
     @State private var showChatHistoryShareSheet = false
     @State private var showChatHistoryImporter = false
-    @State private var isPreparingDiagnostics = false
     @State private var isPreparingChatHistoryExport = false
     @State private var isImportingChatHistory = false
     @State private var showPhotoQualitySheet = false
@@ -104,11 +101,6 @@ struct SettingsView: View {
             .sheet(isPresented: $showSeedPhrase) {
                 SeedPhraseView()
             }
-            .sheet(isPresented: $showDiagnosticsShareSheet) {
-                if let diagnosticsArchiveURL {
-                    DiagnosticsShareSheet(fileURL: diagnosticsArchiveURL)
-                }
-            }
             .sheet(isPresented: $showPhotoQualitySheet) {
                 PhotoQualitySettingsSheet(currentPreset: settingsViewModel.settings.chatPhotoQualityPreset)
             }
@@ -148,55 +140,14 @@ struct SettingsView: View {
 
     // MARK: - Settings categories (each section is its own page)
 
-    private func settingsCategoryRow<Destination: View>(
-        _ title: String,
-        icon: String,
-        tint: Color,
-        @ViewBuilder destination: () -> Destination
-    ) -> some View {
-        NavigationLink {
-            destination()
-        } label: {
-            Label {
-                Text(title)
-                    .foregroundColor(tint == .red ? .red : .primary)
-            } icon: {
-                Image(systemName: icon)
-                    .foregroundColor(tint)
-            }
-        }
-    }
-
     private var customizationPage: some View {
         Form {
             Section("Customization") {
-                    Picker("Appearance", selection: $settingsViewModel.settings.appearance) {
-                        ForEach(AppAppearance.allCases, id: \.self) { option in
-                            Text(option.displayName).tag(option)
-                        }
-                    }
-                    .onChange(of: settingsViewModel.settings.appearance) { _ in
-                        settingsViewModel.saveSettings()
-                    }
-
-                    Picker("Language", selection: $settingsViewModel.settings.language) {
-                        ForEach(AppLanguage.allCases, id: \.self) { option in
-                            Text(option.displayName).tag(option)
-                        }
-                    }
-                    .onChange(of: settingsViewModel.settings.language) { newValue in
-                        settingsViewModel.saveSettings()
-                        settingsViewModel.applyLanguagePreference(newValue)
-                    }
-
-                    Picker("Currency", selection: $settingsViewModel.settings.currency) {
-                        ForEach(AppCurrency.allCases, id: \.self) { option in
-                            Text(option.displayName).tag(option)
-                        }
-                    }
-                    .onChange(of: settingsViewModel.settings.currency) { _ in
-                        settingsViewModel.saveSettings()
-                    }
+                    // Appearance/Language/Currency are extracted so the accounts-screen
+                    // App Settings can reuse the exact same rows (one source of truth) -
+                    // Customize Dock + Show Setup Guides below stay here only: the dock is
+                    // per-account and the guides need an active wallet.
+                    AppWideCustomizationPickers()
 
                     NavigationLink {
                         MenuVisibilityView()
@@ -215,70 +166,11 @@ struct SettingsView: View {
     }
 
     private var securityPage: some View {
-        Form {
-            Section("Security") {
-                    Toggle("Biometrics for Seed Phrase", isOn: $settingsViewModel.settings.biometricSeedPhraseEnabled)
-                        .onChange(of: settingsViewModel.settings.biometricSeedPhraseEnabled) { _ in
-                            settingsViewModel.saveSettings()
-                        }
-
-                    Toggle("Biometrics for Account Login", isOn: $settingsViewModel.settings.biometricAccountLoginEnabled)
-                        .onChange(of: settingsViewModel.settings.biometricAccountLoginEnabled) { _ in
-                            settingsViewModel.saveSettings()
-                        }
-
-                    Toggle("Biometrics for Address Private Keys", isOn: $settingsViewModel.settings.biometricSpendingKeyEnabled)
-                        .onChange(of: settingsViewModel.settings.biometricSpendingKeyEnabled) { _ in
-                            settingsViewModel.saveSettings()
-                        }
-
-                    NavigationLink {
-                        ChildModeSettingsView()
-                    } label: {
-                        HStack {
-                            Label {
-                                Text("Child Mode")
-                                    .foregroundColor(.primary)
-                            } icon: {
-                                Image(systemName: "figure.and.child.holdinghands")
-                                    .foregroundColor(.accentColor)
-                            }
-                            Spacer()
-                            Text(settingsViewModel.settings.childModeEnabled ? "On" : "Off")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-        }
-        .navigationTitle("Security")
-        .navigationBarTitleDisplayMode(.inline)
+        SecuritySettingsPage()
     }
 
     private var connectionPage: some View {
-        Form {
-            Section("Connection") {
-                    NavigationLink {
-                        ConnectionSettingsView()
-                    } label: {
-                        Label("Connection Settings", systemImage: "network")
-                    }
-
-                    NavigationLink {
-                        KaspaExplorerSettingsView()
-                    } label: {
-                        HStack {
-                            Label("Kaspa Explorer", systemImage: "safari")
-                            Spacer()
-                            Text(settingsViewModel.settings.kaspaExplorer.displayName)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-        }
-        .navigationTitle("Connection")
-        .navigationBarTitleDisplayMode(.inline)
+        ConnectionHubPage()
     }
 
     private var chatsPage: some View {
@@ -446,37 +338,7 @@ struct SettingsView: View {
     }
 
     private var diagnosticsPage: some View {
-        Form {
-            Section("Diagnostics") {
-                    Button {
-                        Task {
-                            await exportDiagnosticsArchive()
-                        }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "ladybug.fill")
-                                    .font(.title3)
-                                    .foregroundColor(.accentColor)
-                                Text("Export Diagnostics Archive")
-                                    .font(.body.weight(.medium))
-                                    .foregroundColor(.accentColor)
-                                Spacer()
-                                if isPreparingDiagnostics {
-                                    ProgressView()
-                                }
-                            }
-                            Text("Exports app/device info, connection settings, local message counts, and recent app logs as a zip — for troubleshooting with support. No private keys, seed phrases, or decrypted message content are included.")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .disabled(isPreparingDiagnostics)
-                }
-        }
-        .navigationTitle("Diagnostics")
-        .navigationBarTitleDisplayMode(.inline)
+        DiagnosticsSettingsPage()
     }
 
     private var dangerZonePage: some View {
@@ -707,6 +569,250 @@ struct SettingsView: View {
         }
     }
 
+
+    private func handleSystemContactsSyncToggle(_ enabled: Bool) {
+        settingsViewModel.settings.syncSystemContacts = enabled
+        settingsViewModel.saveSettings()
+
+        guard enabled else { return }
+
+        Task {
+            let granted = await contactsManager.requestSystemContactsAccess()
+            if !granted {
+                await MainActor.run {
+                    settingsViewModel.settings.syncSystemContacts = false
+                    settingsViewModel.saveSettings()
+                    showToast("Contacts permission denied. Sync disabled.", style: .error)
+                }
+            }
+        }
+    }
+
+    private func showToast(_ message: String, style: ToastStyle = .success) {
+        let token = UUID()
+        toastToken = token
+        toastStyle = style
+        withAnimation(.easeOut(duration: 0.2)) {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    toastMessage = nil
+                }
+            }
+        }
+    }
+
+    private func formatKaspaExact(_ sompi: UInt64) -> String {
+        let kas = Double(sompi) / 100_000_000.0
+        return String(format: "%.8f", kas)
+    }
+
+}
+
+// MARK: - Shared category row (SettingsView + AppSettingsView)
+
+/// The standard Settings category row: icon + title behind a NavigationLink. File-scope so the
+/// in-account SettingsView and the accounts-screen AppSettingsView render identical rows.
+fileprivate func settingsCategoryRow<Destination: View>(
+    _ title: String,
+    icon: String,
+    tint: Color,
+    @ViewBuilder destination: @escaping () -> Destination
+) -> some View {
+    NavigationLink {
+        destination()
+    } label: {
+        Label {
+            Text(title)
+                .foregroundColor(tint == .red ? .red : .primary)
+        } icon: {
+            Image(systemName: icon)
+                .foregroundColor(tint)
+        }
+    }
+}
+
+// MARK: - App-wide settings pages (shared by SettingsView and AppSettingsView)
+//
+// These pages carry the app-wide settings tier - everything here applies to the whole install
+// regardless of which account is active, which is why the accounts-list screen's App Settings
+// (see AppSettingsView) can host the SAME views without a wallet loaded. The in-account
+// SettingsView embeds them unchanged, so there's exactly one source of truth per page.
+
+/// Security page: biometric toggles + Child Mode. All fields live in the global AppSettings
+/// blob / device Keychain - nothing here needs an active account, which is exactly why Child
+/// Mode is reachable from the accounts list (a parent can manage it without unlocking anything).
+struct SecuritySettingsPage: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+
+    var body: some View {
+        Form {
+            Section("Security") {
+                Toggle("Biometrics for Seed Phrase", isOn: $settingsViewModel.settings.biometricSeedPhraseEnabled)
+                    .onChange(of: settingsViewModel.settings.biometricSeedPhraseEnabled) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+
+                Toggle("Biometrics for Account Login", isOn: $settingsViewModel.settings.biometricAccountLoginEnabled)
+                    .onChange(of: settingsViewModel.settings.biometricAccountLoginEnabled) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+
+                Toggle("Biometrics for Address Private Keys", isOn: $settingsViewModel.settings.biometricSpendingKeyEnabled)
+                    .onChange(of: settingsViewModel.settings.biometricSpendingKeyEnabled) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+
+                NavigationLink {
+                    ChildModeSettingsView()
+                } label: {
+                    HStack {
+                        Label {
+                            Text("Child Mode")
+                                .foregroundColor(.primary)
+                        } icon: {
+                            Image(systemName: "figure.and.child.holdinghands")
+                                .foregroundColor(.accentColor)
+                        }
+                        Spacer()
+                        Text(settingsViewModel.settings.childModeEnabled ? "On" : "Off")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Security")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// The three app-wide customization pickers (Appearance / Language / Currency) as loose rows,
+/// so each host wraps them in its own Section: SettingsView's Customization page adds the
+/// per-account extras (Customize Dock, Show Setup Guides) after them; AppSettingsView shows
+/// them alone.
+struct AppWideCustomizationPickers: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+
+    var body: some View {
+        Group {
+            Picker("Appearance", selection: $settingsViewModel.settings.appearance) {
+                ForEach(AppAppearance.allCases, id: \.self) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+            .onChange(of: settingsViewModel.settings.appearance) { _ in
+                settingsViewModel.saveSettings()
+            }
+
+            Picker("Language", selection: $settingsViewModel.settings.language) {
+                ForEach(AppLanguage.allCases, id: \.self) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+            .onChange(of: settingsViewModel.settings.language) { newValue in
+                settingsViewModel.saveSettings()
+                settingsViewModel.applyLanguagePreference(newValue)
+            }
+
+            Picker("Currency", selection: $settingsViewModel.settings.currency) {
+                ForEach(AppCurrency.allCases, id: \.self) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+            .onChange(of: settingsViewModel.settings.currency) { _ in
+                settingsViewModel.saveSettings()
+            }
+        }
+    }
+}
+
+/// Connection hub: endpoints (indexers/KNS/REST/node) and explorer choice - all global
+/// AppSettings fields, safe with no active account.
+struct ConnectionHubPage: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+
+    var body: some View {
+        Form {
+            Section("Connection") {
+                NavigationLink {
+                    ConnectionSettingsView()
+                } label: {
+                    Label("Connection Settings", systemImage: "network")
+                }
+
+                NavigationLink {
+                    KaspaExplorerSettingsView()
+                } label: {
+                    HStack {
+                        Label("Kaspa Explorer", systemImage: "safari")
+                        Spacer()
+                        Text(settingsViewModel.settings.kaspaExplorer.displayName)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Connection")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Diagnostics export, self-contained (own progress/share-sheet/toast state) so it can be
+/// hosted from both the in-account Settings and the accounts-screen App Settings. Works with
+/// no active account: everything it collects comes from singletons that degrade gracefully
+/// (empty conversation list, MessageStore reports zeros when no store is loaded).
+struct DiagnosticsSettingsPage: View {
+    @State private var isPreparingDiagnostics = false
+    @State private var diagnosticsArchiveURL: URL?
+    @State private var showDiagnosticsShareSheet = false
+    @State private var toastMessage: String?
+    @State private var toastToken = UUID()
+    @State private var toastStyle: ToastStyle = .success
+
+    var body: some View {
+        Form {
+            Section("Diagnostics") {
+                Button {
+                    Task {
+                        await exportDiagnosticsArchive()
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "ladybug.fill")
+                                .font(.title3)
+                                .foregroundColor(.accentColor)
+                            Text("Export Diagnostics Archive")
+                                .font(.body.weight(.medium))
+                                .foregroundColor(.accentColor)
+                            Spacer()
+                            if isPreparingDiagnostics {
+                                ProgressView()
+                            }
+                        }
+                        Text("Exports app/device info, connection settings, local message counts, and recent app logs as a zip — for troubleshooting with support. No private keys, seed phrases, or decrypted message content are included.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+                .disabled(isPreparingDiagnostics)
+            }
+        }
+        .navigationTitle("Diagnostics")
+        .navigationBarTitleDisplayMode(.inline)
+        .toast(message: toastMessage, style: toastStyle)
+        .sheet(isPresented: $showDiagnosticsShareSheet) {
+            if let diagnosticsArchiveURL {
+                DiagnosticsShareSheet(fileURL: diagnosticsArchiveURL)
+            }
+        }
+    }
+
     private func exportDiagnosticsArchive() async {
         if isPreparingDiagnostics { return }
         isPreparingDiagnostics = true
@@ -851,24 +957,6 @@ struct SettingsView: View {
         return "Log export not supported on this OS version."
     }
 
-    private func handleSystemContactsSyncToggle(_ enabled: Bool) {
-        settingsViewModel.settings.syncSystemContacts = enabled
-        settingsViewModel.saveSettings()
-
-        guard enabled else { return }
-
-        Task {
-            let granted = await contactsManager.requestSystemContactsAccess()
-            if !granted {
-                await MainActor.run {
-                    settingsViewModel.settings.syncSystemContacts = false
-                    settingsViewModel.saveSettings()
-                    showToast("Contacts permission denied. Sync disabled.", style: .error)
-                }
-            }
-        }
-    }
-
     private func showToast(_ message: String, style: ToastStyle = .success) {
         let token = UUID()
         toastToken = token
@@ -884,12 +972,57 @@ struct SettingsView: View {
             }
         }
     }
+}
 
-    private func formatKaspaExact(_ sompi: UInt64) -> String {
-        let kas = Double(sompi) / 100_000_000.0
-        return String(format: "%.8f", kas)
+// MARK: - App Settings (accounts-list cog)
+
+/// The app-wide settings tier, reachable from the accounts list's gear button when no account
+/// is active. Contains ONLY settings that apply to the entire install: Customization
+/// (Appearance/Language/Currency - not the per-account dock), Security (including Child Mode -
+/// deliberately manageable without unlocking any account), Connection endpoints, and
+/// Diagnostics. Everything account-specific (dock, chats, contacts, storage, chat history,
+/// notifications, danger zone) intentionally lives only in the in-account SettingsView.
+struct AppSettingsView: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                settingsCategoryRow("Customization", icon: "paintbrush.pointed", tint: .accentColor) {
+                    appCustomizationPage
+                }
+                settingsCategoryRow("Security", icon: "lock.shield", tint: .accentColor) {
+                    SecuritySettingsPage()
+                }
+                settingsCategoryRow("Connection", icon: "antenna.radiowaves.left.and.right", tint: .accentColor) {
+                    ConnectionHubPage()
+                }
+                settingsCategoryRow("Diagnostics", icon: "stethoscope", tint: .accentColor) {
+                    DiagnosticsSettingsPage()
+                }
+            }
+            .navigationTitle("App Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
     }
 
+    private var appCustomizationPage: some View {
+        Form {
+            Section("Customization") {
+                AppWideCustomizationPickers()
+            }
+        }
+        .navigationTitle("Customization")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 }
 
 /// Lets the user customize the 6 emojis shown in the double-tap quick-reaction bar
