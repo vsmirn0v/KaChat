@@ -258,17 +258,11 @@ struct WelcomeGuideView: View {
 
                         if userTypeChoice == .child {
                             VStack(alignment: .leading, spacing: 8) {
-                                SecureField("Password", text: $childPasswordInput)
-                                    .textContentType(.oneTimeCode)
-                                    .autocapitalization(.none)
-                                    .autocorrectionDisabled()
+                                RevealableSecureField("Password", text: $childPasswordInput)
                                     .padding(10)
                                     .background(Color(.systemGray6))
                                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                                SecureField("Confirm password", text: $childPasswordConfirm)
-                                    .textContentType(.oneTimeCode)
-                                    .autocapitalization(.none)
-                                    .autocorrectionDisabled()
+                                RevealableSecureField("Confirm password", text: $childPasswordConfirm)
                                     .padding(10)
                                     .background(Color(.systemGray6))
                                     .clipShape(RoundedRectangle(cornerRadius: 10))

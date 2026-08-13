@@ -103,10 +103,7 @@ struct ChildModeSettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    SecureField("Password", text: $turnOffPassword)
-                        .textContentType(.oneTimeCode)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
+                    RevealableSecureField("Password", text: $turnOffPassword)
                         .onChange(of: turnOffPassword) { _ in turnOffError = nil }
                 } header: {
                     Text("Turn Off Child Mode")
@@ -160,15 +157,9 @@ struct ChildModeSettingsView: View {
 
     private var setupSection: some View {
         Section {
-            SecureField("Password", text: $setupPassword)
-                .textContentType(.oneTimeCode)
-                .autocapitalization(.none)
-                .autocorrectionDisabled()
+            RevealableSecureField("Password", text: $setupPassword)
                 .onChange(of: setupPassword) { _ in setupError = nil }
-            SecureField("Confirm password", text: $setupConfirm)
-                .textContentType(.oneTimeCode)
-                .autocapitalization(.none)
-                .autocorrectionDisabled()
+            RevealableSecureField("Confirm password", text: $setupConfirm)
                 .onChange(of: setupConfirm) { _ in setupError = nil }
             Button {
                 attemptSetup()
@@ -220,20 +211,11 @@ struct ChildModeSettingsView: View {
 
     private var changePasswordSection: some View {
         Section {
-            SecureField("Current password", text: $currentPassword)
-                .textContentType(.oneTimeCode)
-                .autocapitalization(.none)
-                .autocorrectionDisabled()
+            RevealableSecureField("Current password", text: $currentPassword)
                 .onChange(of: currentPassword) { _ in changeError = nil; changeSucceeded = false }
-            SecureField("New password", text: $newPassword)
-                .textContentType(.oneTimeCode)
-                .autocapitalization(.none)
-                .autocorrectionDisabled()
+            RevealableSecureField("New password", text: $newPassword)
                 .onChange(of: newPassword) { _ in changeError = nil; changeSucceeded = false }
-            SecureField("Confirm new password", text: $newPasswordConfirm)
-                .textContentType(.oneTimeCode)
-                .autocapitalization(.none)
-                .autocorrectionDisabled()
+            RevealableSecureField("Confirm new password", text: $newPasswordConfirm)
                 .onChange(of: newPasswordConfirm) { _ in changeError = nil; changeSucceeded = false }
             Button {
                 attemptChangePassword()
@@ -308,10 +290,7 @@ struct ChildModeSettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    SecureField("Password", text: $clearPassword)
-                        .textContentType(.oneTimeCode)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
+                    RevealableSecureField("Password", text: $clearPassword)
                         .onChange(of: clearPassword) { _ in clearError = nil }
                 } header: {
                     Text("Clear Password")

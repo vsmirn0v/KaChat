@@ -3080,7 +3080,7 @@ struct NextcloudSettingsView: View {
                     TextField("Username", text: $usernameInput)
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
-                    SecureField("App password", text: $appPasswordInput)
+                    RevealableSecureField("App password", text: $appPasswordInput)
                 } header: {
                     Text("Server")
                 } footer: {

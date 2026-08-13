@@ -90,6 +90,7 @@
 		E810FB122D4C00010000000B /* SeedPhraseKeyboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810FB112D4C00010000000B /* SeedPhraseKeyboardView.swift */; };
 		E83000012D4C000200000006 /* OpusBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = E83000032D4C000200000008 /* OpusBridge.m */; };
 		E8F100122D4C0001000000FF /* Toast.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F100112D4C0001000000FF /* Toast.swift */; };
+		RS0001B0000000000000001 /* RevealableSecureField.swift in Sources */ = {isa = PBXBuildFile; fileRef = RS0001A0000000000000001 /* RevealableSecureField.swift */; };
 		E8F100152D4C0001000001FF /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F100142D4C0001000001FF /* QRScannerView.swift */; };
 		E8F1A0032F4B000100000003 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F1A0042F4B000100000004 /* Haptics.swift */; };
 		E8F1A0062F4B000100000006 /* external/opus/Opus.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */; };
@@ -294,6 +295,7 @@
 		E83000032D4C000200000008 /* OpusBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = OpusBridge.m; sourceTree = "<group>"; };
 		E83000042D4C000200000009 /* KaChat-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "KaChat-Bridging-Header.h"; sourceTree = "<group>"; };
 		E8F100112D4C0001000000FF /* Toast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Toast.swift; sourceTree = "<group>"; };
+		RS0001A0000000000000001 /* RevealableSecureField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RevealableSecureField.swift; sourceTree = "<group>"; };
 		E8F100142D4C0001000001FF /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		E8F1A0042F4B000100000004 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = external/opus/Opus.xcframework; sourceTree = "<group>"; };
@@ -732,6 +734,7 @@
 				E8F100142D4C0001000001FF /* QRScannerView.swift */,
 				CPQS00010001000000000001 /* ChatPhotoQualitySlider.swift */,
 				E8F100112D4C0001000000FF /* Toast.swift */,
+				RS0001A0000000000000001 /* RevealableSecureField.swift */,
 				KNAV000100010000000001 /* KNSAvatarView.swift */,
 				FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */,
 				CS0010A0000000000000001 /* MultiFrameQRViews.swift */,
@@ -1097,6 +1100,7 @@
 				E810001D2D4C00010000000F /* SettingsView.swift in Sources */,
 				MV0001B0000000000000001 /* MenuVisibilityView.swift in Sources */,
 				E8F100122D4C0001000000FF /* Toast.swift in Sources */,
+				RS0001B0000000000000001 /* RevealableSecureField.swift in Sources */,
 				E8F100152D4C0001000001FF /* QRScannerView.swift in Sources */,
 				CPQS00010001000100000001 /* ChatPhotoQualitySlider.swift in Sources */,
 				KNAV00010001000100000001 /* KNSAvatarView.swift in Sources */,
