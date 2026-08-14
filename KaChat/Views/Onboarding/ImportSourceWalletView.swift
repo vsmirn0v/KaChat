@@ -23,11 +23,9 @@ struct ImportSourceWalletView: View {
         SourceWalletOption(name: "KaChat", icon: "bubble.left.and.bubble.right.fill", family: .kaspaStandard, isDefault: true),
         SourceWalletOption(name: "KasWare Wallet", icon: "puzzlepiece.extension.fill", family: .kaspaStandard),
         SourceWalletOption(name: "Kaspium Wallet", icon: "iphone", family: .kaspaStandard),
-        SourceWalletOption(name: "Kaspanet Web Wallet", icon: "globe", family: .kaspaLegacy972),
         SourceWalletOption(name: "KDX Wallet", icon: "desktopcomputer", family: .kaspaLegacy972),
         SourceWalletOption(name: "Core Golang Cli Wallet", icon: "terminal.fill", family: .kaspaStandard),
         SourceWalletOption(name: "OKX Wallet", icon: "square.grid.2x2.fill", family: .kaspaStandard),
-        SourceWalletOption(name: "Chainge Wallet", icon: "link.circle.fill", family: .chainge),
         SourceWalletOption(name: "OneKey Wallet", icon: "key.fill", family: .oneKey),
         SourceWalletOption(name: "Ledger Wallet", icon: "externaldrive.fill", family: .kaspaStandard)
     ]
