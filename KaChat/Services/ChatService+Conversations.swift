@@ -13,6 +13,12 @@ extension ChatService {
         activeConversationAddress = address
         AppLog.log("[ChatService] Entered conversation for %@", String(address.suffix(12)))
         loadReactions(for: address)
+        // Fresh-address payment pools: lazily offer our pool once per contact, and top up theirs
+        // if a previous addr_pool_request got lost (both no-ops when nothing to do).
+        offerAddressPoolIfNeeded(to: address)
+        if let contact = contactsManager.getContact(byAddress: address) {
+            maybeRequestMorePoolAddresses(from: contact)
+        }
         // Keep the Share Extension's "Recent" list fresh: opening a chat counts as touching it.
         let alias = ContactsManager.shared.getContact(byAddress: address)?.alias ?? ""
         SharedDataManager.recordRecentConversation(address: address, alias: alias)
@@ -1912,6 +1918,13 @@ extension ChatService {
         )
         markOutgoingAttemptSubmitting(messageId: pendingMessageId)
 
+        // Fresh-address payment pools: pay a fresh address from the contact's stored pool when
+        // one is available (chain observers can't link the payment to their chat identity),
+        // falling back to the chatting address when no pool exists. Consumed at selection and
+        // remembered per pending id so retries reuse the same destination. See
+        // `ChatService+PaymentPools.swift` / MESSAGING.md.
+        let destinationAddress = poolPaymentDestination(for: contact, pendingTxId: activePendingTxId)
+
         do {
             let rpcManager = NodePoolService.shared
             let settings = currentSettings
@@ -1926,13 +1939,13 @@ extension ChatService {
                 throw KasiaError.networkError("No spendable UTXOs available")
             }
 
-            guard let recipientPublicKey = KaspaAddress.publicKey(from: contact.address) else {
+            guard let recipientPublicKey = KaspaAddress.publicKey(from: destinationAddress) else {
                 throw KasiaError.invalidAddress
             }
 
             let tx = try KasiaTransactionBuilder.buildPaymentTx(
                 from: spendingAddress,
-                to: contact.address,
+                to: destinationAddress,
                 amount: amountSompi,
                 note: note,
                 senderPrivateKey: spendingPrivateKey,
@@ -1956,6 +1969,13 @@ extension ChatService {
             clearNoInputRetryState(for: activePendingTxId)
             saveMessages(triggerExport: true)
             await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
+            handlePoolPaymentSubmitted(
+                contact: contact,
+                txId: txId,
+                amountSompi: amountSompi,
+                destinationAddress: destinationAddress,
+                pendingTxId: activePendingTxId
+            )
         } catch {
             if let acceptedTxId = acceptedTransactionId(from: error) {
                 AppLog.log("[ChatService] Payment already accepted by consensus for %@ -> promoting pending to %@",
@@ -1972,6 +1992,13 @@ extension ChatService {
                 clearNoInputRetryState(for: activePendingTxId)
                 saveMessages(triggerExport: true)
                 await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
+                handlePoolPaymentSubmitted(
+                    contact: contact,
+                    txId: acceptedTxId,
+                    amountSompi: amountSompi,
+                    destinationAddress: destinationAddress,
+                    pendingTxId: activePendingTxId
+                )
                 return
             }
 

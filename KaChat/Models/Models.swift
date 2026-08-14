@@ -885,6 +885,88 @@ enum MessageReactionCodec {
     }
 }
 
+// MARK: - Fresh-address payment pools
+
+/// A batch of the SENDER's own fresh receive addresses, shared so the recipient can pay them
+/// there instead of at their chatting address - chain observers then can't link payments to the
+/// chat identity. Embedded as JSON in the normal encrypted contextual content, exactly like
+/// `MessageReactionContent` (no wire-protocol change), and never rendered as a bubble - see the
+/// interception in `ChatService.addMessageToConversation`. `replace == true` means "discard my
+/// previous pool, this list is authoritative"; false/absent means append (deduped). Wire format
+/// documented in MESSAGING.md ("Fresh-Address Payment Pools") - Android/desktop must match
+/// field-for-field.
+struct AddressPoolContent: Codable, Equatable {
+    var type: String = "addr_pool"
+    let addresses: [String]
+    let replace: Bool?
+}
+
+/// "Please send me a fresh pool" - sent when the stored pool for a contact runs low.
+struct AddressPoolRequestContent: Codable, Equatable {
+    var type: String = "addr_pool_request"
+}
+
+/// Sent by the PAYER alongside a pool-address payment: payment detection only watches the
+/// chatting address, so a payment to a pool address would otherwise never surface in the
+/// recipient's chat. The recipient renders a normal payment bubble from this notice (deduped by
+/// `txId`). `amountSompi` is an integer amount in sompi; `address` is the pool address the
+/// payment was sent to.
+struct PaymentNoticeContent: Codable, Equatable {
+    var type: String = "payment_notice"
+    let txId: String
+    let amountSompi: UInt64
+    let address: String
+}
+
+/// Any one of the three payment-pool envelope shapes, parsed generically - mirrors
+/// `ChessEnvelope`'s type-dispatch approach.
+enum PaymentPoolEnvelope {
+    case pool(AddressPoolContent)
+    case request(AddressPoolRequestContent)
+    case notice(PaymentNoticeContent)
+}
+
+/// Same conventions as `MessageReactionCodec`: plain JSON embedded directly as encrypted message
+/// content, with the `{`-prefix + byte-size guard before attempting a full decode since `parse`
+/// runs on every intercepted message's content.
+enum PaymentPoolCodec {
+    static func encode(_ content: AddressPoolContent) -> String { encodeAny(content) }
+    static func encode(_ content: AddressPoolRequestContent) -> String { encodeAny(content) }
+    static func encode(_ content: PaymentNoticeContent) -> String { encodeAny(content) }
+
+    private static func encodeAny<T: Encodable>(_ content: T) -> String {
+        guard let data = try? JSONEncoder().encode(content),
+              let json = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return json
+    }
+
+    static func parse(_ text: String?) -> PaymentPoolEnvelope? {
+        guard let text, text.utf8.count < 100_000 else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
+        guard let typeOnly = try? JSONDecoder().decode(PoolTypeOnly.self, from: data) else { return nil }
+        switch typeOnly.type {
+        case "addr_pool":
+            guard let content = try? JSONDecoder().decode(AddressPoolContent.self, from: data) else { return nil }
+            return .pool(content)
+        case "addr_pool_request":
+            guard let content = try? JSONDecoder().decode(AddressPoolRequestContent.self, from: data) else { return nil }
+            return .request(content)
+        case "payment_notice":
+            guard let content = try? JSONDecoder().decode(PaymentNoticeContent.self, from: data) else { return nil }
+            return .notice(content)
+        default:
+            return nil
+        }
+    }
+
+    private struct PoolTypeOnly: Decodable {
+        let type: String
+    }
+}
+
 // MARK: - Chess
 
 /// Which color the inviter chose to play - picked once (a coin flip) when the invite is sent and

@@ -1281,6 +1281,9 @@ struct ChatDetailView: View {
                             // be re-enabled from inside the bubble itself.
                             availableBalanceBubble
                         }
+                        if shouldShowAvailableBalanceBubble && paysToFreshPoolAddress {
+                            freshPoolAddressPill
+                        }
                     }
                     .offset(x: 32, y: -26)
                     .transition(.opacity)
@@ -2077,6 +2080,28 @@ struct ChatDetailView: View {
     /// Drives the Manage Addresses sheet opened from the available-balance bubble below.
     @State private var showManageAddresses = false
 
+    /// True while the next payment to this contact will go to a fresh pool address (see
+    /// ChatService+PaymentPools) - refreshed on entering payment mode and after each send.
+    @State private var paysToFreshPoolAddress = false
+
+    /// Subtle indicator shown beside the Available pill in payment mode when the payment will go
+    /// to a fresh, unlinkable address the contact shared - styled to match the other helper-row
+    /// glass pills, deliberately understated.
+    private var freshPoolAddressPill: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "arrow.right")
+                .font(.system(size: 8, weight: .semibold))
+            Text("fresh address")
+        }
+        .font(.caption2)
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(glassBackground(cornerRadius: 14))
+        .allowsHitTesting(false)
+        .accessibilityLabel(Text("Payment goes to a fresh address this contact shared, so it cannot be linked to their chat address on-chain"))
+    }
+
     /// Tappable: opens Manage Spending Addresses as a sheet (ManageAddressesView is normally
     /// pushed from Profile, but a push would navigate away from the chat - a sheet keeps the
     /// conversation and its active payment mode untouched underneath). Styled exactly like the
@@ -2199,6 +2224,9 @@ struct ChatDetailView: View {
         }
 
         inputMode = mode
+        if mode == .payment {
+            paysToFreshPoolAddress = chatService.willPayViaFreshPoolAddress(contactAddress: contact.address)
+        }
     }
 
     private func sanitizedAmount(_ value: String) -> String {
@@ -2273,6 +2301,8 @@ struct ChatDetailView: View {
                     fiatAmountState.reset()
                     feeEstimateSompi = nil
                     isEstimatingFee = false
+                    // The send may have consumed the contact's last unused pool address.
+                    paysToFreshPoolAddress = chatService.willPayViaFreshPoolAddress(contactAddress: contact.address)
                 }
                 // The active spending address rotates to a fresh one after a successful send -
                 // refresh so "Available" reflects that new address, not the one just spent from.

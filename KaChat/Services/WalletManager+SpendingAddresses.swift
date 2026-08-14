@@ -246,6 +246,43 @@ extension WalletManager {
         await updateSpendingBounds(maxIndex: maxSpendingAddressIndex + 1)
     }
 
+    /// Reveals and returns `count` brand-new spending-chain slots in one step - used by the
+    /// fresh-address payment pool feature (`ChatService+PaymentPools`) to reserve addresses to
+    /// offer a contact. Indices start strictly past `maxSpendingAddressIndex`, and the max is
+    /// bumped to cover them before returning, so: (a) they have never been revealed, funded, or
+    /// offered before, and (b) no later payment-change address or reservation can ever land on
+    /// the same index (`sendPaymentInternal`'s fresh change index and this both always start at
+    /// max+1). The addresses stay listed in Manage Addresses like any other revealed slot - the
+    /// per-contact reservation itself lives in `PaymentPoolStore`, not here.
+    ///
+    /// Returns an empty array (reserving nothing, bumping nothing) if derivation fails.
+    func reserveFreshSpendingAddresses(count: Int) async -> [(index: Int, address: String)] {
+        guard count > 0, let changeKey = spendingChangeKey() else { return [] }
+        let base = maxSpendingAddressIndex + 1
+        var result: [(index: Int, address: String)] = []
+        for offset in 0..<count {
+            let index = base + offset
+            guard let address = spendingAddress(at: index, changeKey: changeKey) else { return [] }
+            result.append((index: index, address: address))
+        }
+        await updateSpendingBounds(maxIndex: base + count - 1)
+        return result
+    }
+
+    /// True if `address` is one of this wallet's own revealed spending-chain addresses
+    /// (0...maxSpendingAddressIndex) - used to reject a received pool that tries to feed our own
+    /// addresses back to us. One seed decrypt + one derivation per revealed index; call off the
+    /// hot path.
+    func isOwnSpendingAddress(_ address: String) -> Bool {
+        guard let changeKey = spendingChangeKey() else { return false }
+        for index in 0...maxSpendingAddressIndex {
+            if spendingAddress(at: index, changeKey: changeKey) == address {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Hides a spending address from the main Manage Addresses list. Refused (returns false)
     /// for the current primary address or one with a nonzero balance - re-enforced here
     /// server-side regardless of what the UI already checked.

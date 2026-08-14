@@ -1,0 +1,417 @@
+import Foundation
+import CryptoKit
+
+// MARK: - Fresh-address payment pools
+//
+// Protocol logic for the privacy feature documented in MESSAGING.md ("Fresh-Address Payment
+// Pools"): contacts exchange batches of fresh, never-used spending-chain receive addresses
+// through the normal encrypted contextual channel (`addr_pool`), Send Kaspa pays one of those
+// instead of the contact's chatting address, and a `payment_notice` envelope keeps the
+// recipient's chat showing a payment bubble (their payment detection only watches the chatting
+// address). All three envelope types are invisible - intercepted in
+// `addMessageToConversation` before they could ever render, exactly like reactions.
+// Persistent state lives in `PaymentPoolStore` (device-local, per wallet).
+
+extension ChatService {
+
+    // MARK: - Offering our pool
+
+    /// Lazily offers this wallet's fresh receive addresses to `contactAddress`, once per contact
+    /// (persisted marker) - called from `enterConversation`. Only fires for an established
+    /// two-way conversation (at least one incoming and one outgoing message), since sending the
+    /// envelope needs handshake routing anyway and a pool offered to a stranger is wasted.
+    func offerAddressPoolIfNeeded(to contactAddress: String) {
+        guard let wallet = WalletManager.shared.currentWallet else { return }
+        guard !PaymentPoolStore.shared.hasOfferedPool(to: contactAddress, wallet: wallet.publicAddress) else { return }
+        guard isPoolEstablishedConversation(contactAddress) else { return }
+        guard let contact = contactsManager.getContact(byAddress: contactAddress) else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Serialized with payments/messages: reservation reads-and-bumps the spending-chain
+            // max index, and `sendPaymentInternal` computes its fresh change index from that same
+            // max - interleaving the two could land payment change on a reserved address.
+            try? await self.enqueueOutgoingTxOperation {
+                try await self.reserveAndSendAddressPool(to: contact, replace: true)
+            }
+        }
+    }
+
+    /// Reserves fresh spending-chain addresses for `contact` and sends them as an `addr_pool`
+    /// envelope. Re-uses any reservation recorded for this contact whose send previously failed
+    /// (offered == false) before revealing new indices, so a retried offer doesn't burn five more
+    /// slots. On success the reservations flip to offered, the once-per-contact marker is set,
+    /// and the UTXO subscription is rebuilt so incoming pool payments are noticed promptly.
+    ///
+    /// `replace: true` for the initial/lazy offer (safe re-offer semantics after a device
+    /// restore - the fresh device's list is authoritative); `replace: false` for request-driven
+    /// top-ups (recipient appends, deduped).
+    func reserveAndSendAddressPool(to contact: Contact, replace: Bool) async throws {
+        guard let wallet = WalletManager.shared.currentWallet else { return }
+        let walletAddress = wallet.publicAddress
+        let store = PaymentPoolStore.shared
+
+        var pending = store.unofferedReservations(for: contact.address, wallet: walletAddress)
+        let missing = PaymentPoolStore.offerBatchSize - pending.count
+        if missing > 0 {
+            let fresh = await WalletManager.shared.reserveFreshSpendingAddresses(count: missing)
+            guard !fresh.isEmpty else {
+                AppLog.log("[ChatService] Pool offer aborted - could not reserve fresh spending addresses")
+                return
+            }
+            let entries = fresh.map {
+                PaymentPoolStore.ReservedAddress(address: $0.address, index: $0.index, offered: false)
+            }
+            store.recordMyReservations(entries, for: contact.address, wallet: walletAddress)
+            pending.append(contentsOf: entries)
+        }
+        guard !pending.isEmpty else { return }
+
+        let payload = PaymentPoolCodec.encode(
+            AddressPoolContent(addresses: pending.map(\.address), replace: replace)
+        )
+        guard !payload.isEmpty else { return }
+
+        try await sendInvisiblePoolEnvelope(to: contact, payload: payload)
+
+        store.markReservationsOffered(pending.map(\.address), for: contact.address, wallet: walletAddress)
+        store.markPoolOffered(to: contact.address, wallet: walletAddress)
+        AppLog.log("[ChatService] Offered %d fresh pool addresses to %@ (replace=%@)",
+                   pending.count, String(contact.address.suffix(10)), replace ? "true" : "false")
+
+        // Rebuilds the full subscription set, which now includes the just-offered addresses.
+        await addContactToUtxoSubscription(contact.address)
+    }
+
+    /// Sends `addr_pool_request` when the stored pool for `contact` has run low (<=
+    /// `PaymentPoolStore.lowWaterMark` unused) - throttled per contact so a burst of payments or
+    /// conversation opens doesn't spam requests. Called after pool-address consumption and on
+    /// conversation open.
+    func maybeRequestMorePoolAddresses(from contact: Contact) {
+        guard let wallet = WalletManager.shared.currentWallet else { return }
+        let walletAddress = wallet.publicAddress
+        guard PaymentPoolStore.shared.shouldRequestMoreAddresses(from: contact.address, wallet: walletAddress) else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let payload = PaymentPoolCodec.encode(AddressPoolRequestContent())
+            guard !payload.isEmpty else { return }
+            do {
+                try await self.enqueueOutgoingTxOperation {
+                    try await self.sendInvisiblePoolEnvelope(to: contact, payload: payload)
+                }
+                PaymentPoolStore.shared.recordPoolRequestSent(to: contact.address, wallet: walletAddress)
+                AppLog.log("[ChatService] Requested fresh pool addresses from %@", String(contact.address.suffix(10)))
+            } catch {
+                AppLog.log("[ChatService] addr_pool_request send failed: %@", error.localizedDescription)
+            }
+        }
+    }
+
+    // MARK: - Paying into a contact's pool
+
+    /// The destination address for a payment to `contact`: an unused address from their stored
+    /// pool if one exists (consumed immediately - persisted, never offered to another payment
+    /// even if this one fails), else the chatting address (exact pre-pool behavior). A retry of
+    /// the same payment (same `pendingTxId`) reuses the address already consumed for it instead
+    /// of burning another.
+    func poolPaymentDestination(for contact: Contact, pendingTxId: String) -> String {
+        let store = PaymentPoolStore.shared
+        if let remembered = store.paymentDestination(forPendingTxId: pendingTxId) {
+            return remembered
+        }
+        guard let wallet = WalletManager.shared.currentWallet else { return contact.address }
+        guard let poolAddress = store.nextUnusedPoolAddress(for: contact.address, wallet: wallet.publicAddress),
+              KaspaAddress.publicKey(from: poolAddress) != nil else {
+            return contact.address
+        }
+        store.markPoolAddressUsed(poolAddress, for: contact.address, wallet: wallet.publicAddress)
+        store.rememberPaymentDestination(poolAddress, pendingTxId: pendingTxId)
+        AppLog.log("[ChatService] Payment to %@ will use fresh pool address %@",
+                   String(contact.address.suffix(10)), String(poolAddress.suffix(10)))
+        return poolAddress
+    }
+
+    /// True when the NEXT payment to this contact would go to a fresh pool address - drives the
+    /// subtle "fresh address" indicator in the payment composer.
+    func willPayViaFreshPoolAddress(contactAddress: String) -> Bool {
+        guard let wallet = WalletManager.shared.currentWallet else { return false }
+        return PaymentPoolStore.shared.nextUnusedPoolAddress(for: contactAddress, wallet: wallet.publicAddress) != nil
+    }
+
+    /// Called by `sendPaymentInternal` after a pool-address payment tx is accepted: sends the
+    /// `payment_notice` envelope (fire-and-forget, chained behind the current tx operation) so
+    /// the recipient's chat shows the payment bubble their chain-side detection would miss, then
+    /// checks the low-water mark. No-op for chatting-address payments - existing detection
+    /// already covers those.
+    func handlePoolPaymentSubmitted(
+        contact: Contact,
+        txId: String,
+        amountSompi: UInt64,
+        destinationAddress: String,
+        pendingTxId: String
+    ) {
+        PaymentPoolStore.shared.forgetPaymentDestination(pendingTxId: pendingTxId)
+        guard destinationAddress != contact.address else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let payload = PaymentPoolCodec.encode(
+                PaymentNoticeContent(txId: txId, amountSompi: amountSompi, address: destinationAddress)
+            )
+            guard !payload.isEmpty else { return }
+            do {
+                try await self.enqueueOutgoingTxOperation {
+                    try await self.sendInvisiblePoolEnvelope(to: contact, payload: payload)
+                }
+                AppLog.log("[ChatService] Sent payment_notice for %@", String(txId.prefix(12)))
+            } catch {
+                // The payment itself succeeded; a lost notice only means the recipient's bubble
+                // waits for their own address discovery / manual sync. Not retried automatically.
+                AppLog.log("[ChatService] payment_notice send failed for %@: %@",
+                           String(txId.prefix(12)), error.localizedDescription)
+            }
+            self.maybeRequestMorePoolAddresses(from: contact)
+        }
+    }
+
+    // MARK: - Receiving envelopes
+
+    /// Front door for all three pool envelope types, called from `addMessageToConversation`'s
+    /// interception - these never become bubbles (except the payment bubble a `payment_notice`
+    /// deliberately creates). Replay-guarded by envelope txId: history re-fetch replays the same
+    /// envelopes and must not re-trigger reservation sends or pool merges.
+    func handlePaymentPoolEnvelope(_ envelope: PaymentPoolEnvelope, message: ChatMessage, contactAddress: String) {
+        guard let wallet = WalletManager.shared.currentWallet else { return }
+        let walletAddress = wallet.publicAddress
+        let store = PaymentPoolStore.shared
+
+        // Pending (not-yet-submitted) local sends have synthetic ids; only real txIds are
+        // meaningful for the replay guard.
+        let hasRealTxId = !message.txId.hasPrefix("pending_")
+        if hasRealTxId {
+            guard !store.isEnvelopeHandled(txId: message.txId, wallet: walletAddress) else { return }
+            store.markEnvelopeHandled(txId: message.txId, wallet: walletAddress)
+        }
+
+        switch envelope {
+        case .pool(let content):
+            // Our own outgoing addr_pool re-fetched from the indexer: nothing to do (send-time
+            // bookkeeping already happened; after a device restore the offered marker is empty
+            // again and the lazy offer re-runs with replace:true, which is the designed recovery).
+            guard !message.isOutgoing else { return }
+            guard isPoolEstablishedConversation(contactAddress) else {
+                AppLog.log("[ChatService] Ignoring addr_pool from non-established conversation %@",
+                           String(contactAddress.suffix(10)))
+                return
+            }
+            acceptIncomingAddressPool(content, from: contactAddress, wallet: walletAddress)
+
+        case .request:
+            guard !message.isOutgoing else { return }
+            guard isPoolEstablishedConversation(contactAddress) else { return }
+            guard let contact = contactsManager.getContact(byAddress: contactAddress) else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                try? await self.enqueueOutgoingTxOperation {
+                    // Top-up batch: append semantics, the recipient dedupes.
+                    try await self.reserveAndSendAddressPool(to: contact, replace: false)
+                }
+            }
+
+        case .notice(let content):
+            // The payer's own notice re-fetched: swallow - the payer's bubble was created by
+            // `sendPaymentInternal` at send time.
+            guard !message.isOutgoing else { return }
+            createPaymentBubbleFromNotice(content, from: contactAddress, noticeBlockTime: message.blockTime)
+        }
+    }
+
+    /// Validates and stores a received `addr_pool` as "addresses I can pay this contact at".
+    /// Per-address validation: bech32-valid, correct network prefix, not our chatting address,
+    /// not an address we ourselves reserved, not one of our own spending-chain addresses. The
+    /// accepted list is capped at `PaymentPoolStore.maxStoredPoolSize`.
+    private func acceptIncomingAddressPool(_ content: AddressPoolContent, from contactAddress: String, wallet walletAddress: String) {
+        let store = PaymentPoolStore.shared
+        let expectedPrefix = currentSettings.networkType == .mainnet ? "kaspa:" : "kaspatest:"
+
+        var accepted: [String] = []
+        for raw in content.addresses.prefix(PaymentPoolStore.maxStoredPoolSize) {
+            let address = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard address.hasPrefix(expectedPrefix),
+                  KaspaAddress.isValid(address),
+                  address != walletAddress,
+                  !store.isReservedAddress(address, wallet: walletAddress),
+                  !WalletManager.shared.isOwnSpendingAddress(address) else {
+                AppLog.log("[ChatService] Rejected pool address from %@: %@",
+                           String(contactAddress.suffix(10)), String(address.suffix(14)))
+                continue
+            }
+            accepted.append(address)
+        }
+        guard !accepted.isEmpty else { return }
+
+        store.mergeTheirPool(
+            addresses: accepted,
+            replace: content.replace == true,
+            for: contactAddress,
+            wallet: walletAddress
+        )
+        AppLog.log("[ChatService] Stored %d pool addresses for %@ (replace=%@)",
+                   accepted.count, String(contactAddress.suffix(10)),
+                   content.replace == true ? "true" : "false")
+
+        // Reciprocity: they shared theirs - if they've never gotten ours, offer now.
+        if !store.hasOfferedPool(to: contactAddress, wallet: walletAddress) {
+            offerAddressPoolIfNeeded(to: contactAddress)
+        }
+    }
+
+    /// Renders a received `payment_notice` as a normal incoming payment bubble, deduped by the
+    /// payment's txId. Rendering is NOT blocked on chain verification - the notice arrived over
+    /// the sender-authenticated encrypted channel - but a background check against the REST API
+    /// corrects the amount from chain data and flags the bubble `.warning` if the referenced tx
+    /// has no output to the claimed address.
+    private func createPaymentBubbleFromNotice(_ content: PaymentNoticeContent, from contactAddress: String, noticeBlockTime: UInt64) {
+        let txId = content.txId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !txId.isEmpty, content.amountSompi > 0 else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard await self.findLocalMessage(txId: txId) == nil else { return }
+
+            let template = AppLocalization.string("Received %@ KAS")
+            let bubble = ChatMessage(
+                txId: txId,
+                senderAddress: contactAddress,
+                receiverAddress: content.address,
+                content: String(format: template, self.formatKasAmount(content.amountSompi)),
+                timestamp: Date(timeIntervalSince1970: TimeInterval(noticeBlockTime / 1000)),
+                blockTime: noticeBlockTime,
+                acceptingBlock: nil,
+                isOutgoing: false,
+                messageType: .payment,
+                deliveryStatus: .sent
+            )
+            self.addMessageToConversation(bubble, contactAddress: contactAddress)
+            self.saveMessages()
+            AppLog.log("[ChatService] Created payment bubble from payment_notice %@", String(txId.prefix(12)))
+
+            await self.verifyPaymentNoticeAgainstChain(
+                txId: txId,
+                claimedAddress: content.address,
+                claimedAmount: content.amountSompi
+            )
+        }
+    }
+
+    /// Best-effort background verification of a `payment_notice` against the on-chain tx. Silent
+    /// on network failure (verification is opportunistic by design); corrects the bubble's amount
+    /// if the chain disagrees; marks the bubble `.warning` if the tx exists but pays nothing to
+    /// the claimed address.
+    private func verifyPaymentNoticeAgainstChain(
+        txId: String,
+        claimedAddress: String,
+        claimedAmount: UInt64
+    ) async {
+        guard let url = kaspaRestURL(path: "/transactions/\(txId)") else { return }
+        guard let (data, response) = try? await URLSession.shared.data(from: url),
+              let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode),
+              let fullTx = try? JSONDecoder().decode(KaspaFullTransactionResponse.self, from: data) else {
+            return
+        }
+        let paidToClaimed = fullTx.outputs
+            .filter { $0.scriptPublicKeyAddress == claimedAddress }
+            .reduce(UInt64(0)) { $0 + $1.amount }
+
+        if paidToClaimed == 0 {
+            AppLog.log("[ChatService] payment_notice %@ FAILED verification - no output to claimed address", String(txId.prefix(12)))
+            let template = AppLocalization.string("Received %@ KAS")
+            _ = updateIncomingPaymentStatus(
+                txId: txId,
+                deliveryStatus: .warning,
+                content: String(format: template, formatKasAmount(claimedAmount))
+            )
+            saveMessages()
+        } else if paidToClaimed != claimedAmount {
+            // Chain is authoritative for the amount.
+            let template = AppLocalization.string("Received %@ KAS")
+            _ = updateIncomingPaymentStatus(
+                txId: txId,
+                deliveryStatus: .sent,
+                content: String(format: template, formatKasAmount(paidToClaimed))
+            )
+            saveMessages()
+        }
+    }
+
+    // MARK: - Shared plumbing
+
+    /// A conversation counts as established for pool purposes once both directions have spoken
+    /// (at least one incoming AND one outgoing message) - the same bar for offering our pool and
+    /// for accepting a contact's.
+    func isPoolEstablishedConversation(_ contactAddress: String) -> Bool {
+        guard let conversation = conversations.first(where: { $0.contact.address == contactAddress }) else {
+            return false
+        }
+        let hasIncoming = conversation.messages.contains { !$0.isOutgoing }
+        let hasOutgoing = conversation.messages.contains { $0.isOutgoing }
+        return hasIncoming && hasOutgoing
+    }
+
+    /// Sends an invisible pool envelope through the normal encrypted contextual-message pipeline.
+    /// Mirrors `sendReactionInternal`'s tx construction exactly (self-stash contextual message to
+    /// the contact's chatting address), minus any bubble/pending bookkeeping - these envelopes
+    /// must never surface in the conversation. Callers wrap this in `enqueueOutgoingTxOperation`.
+    func sendInvisiblePoolEnvelope(to contact: Contact, payload: String) async throws {
+        guard let wallet = WalletManager.shared.currentWallet else {
+            throw KasiaError.walletNotFound
+        }
+        guard let privateKey = WalletManager.shared.getPrivateKey() else {
+            throw KasiaError.keychainError("Could not get private key")
+        }
+        guard let recipientPublicKey = KaspaAddress.publicKey(from: contact.address) else {
+            throw KasiaError.invalidAddress
+        }
+        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) else {
+            throw KasiaError.invalidAddress
+        }
+
+        ensureRoutingState(for: contact.address, privateKey: privateKey)
+        let alias = outgoingAlias(for: contact.address)
+
+        let rpcManager = NodePoolService.shared
+        if !rpcManager.isConnected {
+            try await rpcManager.connect(network: currentSettings.networkType)
+        }
+
+        let utxos = try await rpcManager.getUtxosByAddresses([wallet.publicAddress])
+        let candidateUtxos = prepareMessageUtxos(confirmed: utxos)
+        guard !candidateUtxos.isEmpty else {
+            throw KasiaError.networkError(noSpendableFundsYetMessage())
+        }
+
+        let transaction = try KasiaTransactionBuilder.buildContextualMessageTx(
+            from: wallet.publicAddress,
+            to: contact.address,
+            alias: alias,
+            message: payload,
+            senderPrivateKey: privateKey,
+            recipientPublicKey: recipientPublicKey,
+            utxos: candidateUtxos,
+            feeOverride: nil
+        )
+        let spentUtxos = spentMessageUtxos(from: transaction, candidates: candidateUtxos)
+        let usesUnconfirmedInputs = spentUtxos.contains { $0.blockDaaScore == 0 }
+        let submitted = try await rpcManager.submitTransaction(transaction, allowOrphan: usesUnconfirmedInputs)
+
+        reserveMessageOutpoints(spentUtxos)
+        consumePendingUtxos(spentUtxos)
+        addPendingOutputs(from: transaction, txId: submitted.txId, senderScriptPubKey: senderScriptPubKey)
+
+        // Remember our own envelope's txId so the eventual indexer re-fetch of this outgoing
+        // message is dropped by the replay guard without re-entering the handler logic.
+        PaymentPoolStore.shared.markEnvelopeHandled(txId: submitted.txId, wallet: wallet.publicAddress)
+    }
+}

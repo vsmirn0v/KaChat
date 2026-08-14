@@ -448,7 +448,12 @@ extension ChatService {
             let nodePool = NodePoolService.shared
             AppLog.log("[ChatService] setupUtxoSubscription: RPC connected=%@", nodePool.isConnected ? "true" : "false")
 
-            // Collect all addresses to subscribe: our wallet + active contacts
+            // Collect all addresses to subscribe: our wallet + active contacts + spending-chain
+            // addresses reserved-and-offered as fresh payment-pool receive addresses (payments to
+            // those arrive on otherwise-unwatched addresses and would go unnoticed until a manual
+            // balance refresh - see ChatService+PaymentPools.swift). Pool addresses fall through
+            // the UTXO classifier's "unknown address" case, so watching them never creates
+            // bubbles; the payment_notice envelope does that.
             var addressesToSubscribe = Set<String>()
             addressesToSubscribe.insert(wallet.publicAddress)
 
@@ -456,6 +461,9 @@ extension ChatService {
             let contactCount = contacts.count
             for contact in contacts {
                 addressesToSubscribe.insert(contact.address)
+            }
+            for poolAddress in PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress) {
+                addressesToSubscribe.insert(poolAddress)
             }
 
             AppLog.log("[ChatService] Subscription setup: %d active contacts", contactCount)
@@ -603,7 +611,8 @@ extension ChatService {
         guard isUtxoSubscribed else { return }
         guard let wallet = WalletManager.shared.currentWallet else { return }
 
-        // Rebuild subscription with all active addresses including the new one
+        // Rebuild subscription with all active addresses including the new one (and, as in
+        // setupUtxoSubscription, the offered payment-pool reservation addresses).
         var addressesToSubscribe = Set<String>()
         addressesToSubscribe.insert(wallet.publicAddress)
 
@@ -612,6 +621,9 @@ extension ChatService {
             addressesToSubscribe.insert(address)
         }
         addressesToSubscribe.insert(contactAddress)
+        for poolAddress in PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress) {
+            addressesToSubscribe.insert(poolAddress)
+        }
 
         let addressList = Array(addressesToSubscribe)
         lastSubscribedAddressCount = addressList.count

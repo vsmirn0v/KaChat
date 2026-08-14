@@ -140,13 +140,29 @@ class NotificationService: UNNotificationServiceExtension {
         case "contextual":
             if let payloadHex,
                let decrypted = decryptContextualMessage(payloadHex: payloadHex) {
-                content.body = reactionPreviewText(for: decrypted) ?? chessPreviewText(for: decrypted) ?? unwrapReplyText(decrypted)
                 storeDecryptedMessage(
                     txId: txId,
                     sender: senderAddress,
                     content: decrypted,
                     timestamp: extractTimestamp(userInfo: userInfo)
                 )
+                // Fresh-address payment pool control envelopes (addr_pool / addr_pool_request)
+                // are invisible protocol messages - suppress the banner entirely (still stored
+                // above so the main app processes them on open). A payment_notice however IS a
+                // payment the user should see, worded like a real payment push.
+                if isSilentPoolEnvelope(decrypted) {
+                    content.title = ""
+                    content.body = ""
+                    content.sound = nil
+                    content.badge = nil
+                    content.interruptionLevel = .passive
+                    contentHandler(content)
+                    return
+                }
+                content.body = paymentNoticePreviewText(for: decrypted)
+                    ?? reactionPreviewText(for: decrypted)
+                    ?? chessPreviewText(for: decrypted)
+                    ?? unwrapReplyText(decrypted)
             } else {
                 content.body = NSLocalizedString("New message", comment: "Fallback body for contextual push notification")
             }
@@ -653,6 +669,43 @@ class NotificationService: UNNotificationServiceExtension {
         return parsed.action == "remove"
             ? "Removed their \(parsed.emoji) reaction"
             : (inGroup ? "Reacted \(parsed.emoji) to a message" : "Reacted \(parsed.emoji) to your message")
+    }
+
+    /// Local mirror of the main app's fresh-address payment pool envelopes (`PaymentPoolCodec`
+    /// in Models.swift, which this extension target doesn't compile) - see MESSAGING.md
+    /// ("Fresh-Address Payment Pools"). addr_pool / addr_pool_request are invisible protocol
+    /// control messages whose push banner is suppressed outright; payment_notice maps to the
+    /// same wording a real incoming-payment push uses.
+    private struct PushPoolEnvelope: Decodable {
+        let type: String
+        let amountSompi: UInt64?
+    }
+
+    private func parsePoolEnvelope(_ content: String) -> PushPoolEnvelope? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(PushPoolEnvelope.self, from: data) else { return nil }
+        switch parsed.type {
+        case "addr_pool", "addr_pool_request", "payment_notice":
+            return parsed
+        default:
+            return nil
+        }
+    }
+
+    private func isSilentPoolEnvelope(_ content: String) -> Bool {
+        guard let parsed = parsePoolEnvelope(content) else { return false }
+        return parsed.type == "addr_pool" || parsed.type == "addr_pool_request"
+    }
+
+    private func paymentNoticePreviewText(for content: String) -> String? {
+        guard let parsed = parsePoolEnvelope(content), parsed.type == "payment_notice" else { return nil }
+        guard let amountSompi = parsed.amountSompi else {
+            return NSLocalizedString("Received payment", comment: "Push body for incoming payment")
+        }
+        let kas = Double(amountSompi) / 100_000_000.0
+        let format = NSLocalizedString("Received %.8f KAS", comment: "Push body for incoming payment with amount")
+        return String(format: format, kas)
     }
 
     private func inlineAttachmentPreview(for text: String) -> String {
