@@ -234,7 +234,7 @@ struct SettingsView: View {
                         AppSettings.setChatsPrivacyEnabledForActiveAccount(newValue)
                     }
             } footer: {
-                Text("Payments in 1:1 chats are sent to fresh addresses your contacts privately share, instead of their public chatting address.")
+                Text("Payments in 1:1 chats are sent to fresh addresses your contacts privately share, instead of their public chatting address. When off, Kaspa you send and receive is routed to public chatting addresses instead.")
             }
         }
         .navigationTitle("Chats")
