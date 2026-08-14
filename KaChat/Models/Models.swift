@@ -1577,6 +1577,13 @@ struct AppSettings: Codable {
     var notificationPermissionRequested: Bool
     var incomingNotificationSoundEnabled: Bool
     var incomingNotificationVibrationEnabled: Bool
+    /// Settings > Notifications > "Address Activity" (default ON): local notifications when
+    /// any of the wallet's own NON-chatting addresses - spending-chain (Manage Addresses) or
+    /// watch-only cold storage - receives Kaspa from an external source. Gates both the live
+    /// UTXO-subscription path and the foreground catch-up diff (see AddressActivityNotifier).
+    /// Deliberately not gated by Child Mode - these are wallet notifications, and Portfolio /
+    /// Cold Storage remain available there.
+    var addressActivityNotificationsEnabled: Bool
     var messagePollInterval: TimeInterval
     var liveUpdatesEnabled: Bool
     var chatPhotoQualityPreset: ChatPhotoQualityPreset
@@ -1719,6 +1726,7 @@ struct AppSettings: Codable {
             notificationPermissionRequested: false,
             incomingNotificationSoundEnabled: true,
             incomingNotificationVibrationEnabled: true,
+            addressActivityNotificationsEnabled: true,
             messagePollInterval: 10.0,
             liveUpdatesEnabled: false,
             chatPhotoQualityPreset: .default,
@@ -1774,6 +1782,7 @@ struct AppSettings: Codable {
         case notificationPermissionRequested
         case incomingNotificationSoundEnabled
         case incomingNotificationVibrationEnabled
+        case addressActivityNotificationsEnabled
         case messagePollInterval
         case liveUpdatesEnabled
         case chatPhotoQualityPreset
@@ -1830,6 +1839,7 @@ struct AppSettings: Codable {
         notificationPermissionRequested: Bool = false,
         incomingNotificationSoundEnabled: Bool = true,
         incomingNotificationVibrationEnabled: Bool = true,
+        addressActivityNotificationsEnabled: Bool = true,
         messagePollInterval: TimeInterval,
         liveUpdatesEnabled: Bool,
         chatPhotoQualityPreset: ChatPhotoQualityPreset = .default,
@@ -1876,6 +1886,7 @@ struct AppSettings: Codable {
         self.notificationPermissionRequested = notificationPermissionRequested
         self.incomingNotificationSoundEnabled = incomingNotificationSoundEnabled
         self.incomingNotificationVibrationEnabled = incomingNotificationVibrationEnabled
+        self.addressActivityNotificationsEnabled = addressActivityNotificationsEnabled
         self.messagePollInterval = messagePollInterval
         self.liveUpdatesEnabled = liveUpdatesEnabled
         self.chatPhotoQualityPreset = chatPhotoQualityPreset
@@ -1950,6 +1961,7 @@ struct AppSettings: Codable {
         notificationPermissionRequested = try container.decodeIfPresent(Bool.self, forKey: .notificationPermissionRequested) ?? false
         incomingNotificationSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .incomingNotificationSoundEnabled) ?? true
         incomingNotificationVibrationEnabled = try container.decodeIfPresent(Bool.self, forKey: .incomingNotificationVibrationEnabled) ?? true
+        addressActivityNotificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .addressActivityNotificationsEnabled) ?? true
         messagePollInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .messagePollInterval) ?? 10.0
         liveUpdatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .liveUpdatesEnabled) ?? false
         chatPhotoQualityPreset = try container.decodeIfPresent(
@@ -2048,6 +2060,7 @@ struct AppSettings: Codable {
         try container.encode(notificationPermissionRequested, forKey: .notificationPermissionRequested)
         try container.encode(incomingNotificationSoundEnabled, forKey: .incomingNotificationSoundEnabled)
         try container.encode(incomingNotificationVibrationEnabled, forKey: .incomingNotificationVibrationEnabled)
+        try container.encode(addressActivityNotificationsEnabled, forKey: .addressActivityNotificationsEnabled)
         try container.encode(messagePollInterval, forKey: .messagePollInterval)
         try container.encode(liveUpdatesEnabled, forKey: .liveUpdatesEnabled)
         try container.encode(chatPhotoQualityPreset, forKey: .chatPhotoQualityPreset)

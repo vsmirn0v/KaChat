@@ -465,6 +465,14 @@ extension ChatService {
             for poolAddress in PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress) {
                 addressesToSubscribe.insert(poolAddress)
             }
+            // Own-address receive notifications: also watch every revealed spending-chain
+            // address and all cold-storage (watch-only) addresses. Like pool addresses these
+            // fall through the classifier's chat cases - AddressActivityNotifier turns their
+            // receives into wallet notifications, never chat bubbles (and their appearance
+            // among `removed` entries is the self-send fast path).
+            for ownAddress in AddressActivityNotifier.shared.watchedOwnAddresses() {
+                addressesToSubscribe.insert(ownAddress)
+            }
 
             AppLog.log("[ChatService] Subscription setup: %d active contacts", contactCount)
 
@@ -624,6 +632,9 @@ extension ChatService {
         for poolAddress in PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress) {
             addressesToSubscribe.insert(poolAddress)
         }
+        for ownAddress in AddressActivityNotifier.shared.watchedOwnAddresses() {
+            addressesToSubscribe.insert(ownAddress)
+        }
 
         let addressList = Array(addressesToSubscribe)
         lastSubscribedAddressCount = addressList.count
@@ -660,11 +671,20 @@ extension ChatService {
         guard isUtxoSubscribed else { return }
         guard let wallet = WalletManager.shared.currentWallet else { return }
 
-        // Calculate current active address set
+        // Calculate current active address set. Must mirror setupUtxoSubscription's full set
+        // (contacts + offered pool addresses + own spending/cold addresses) - comparing a
+        // partial set against lastSubscribedAddresses would read as "changed" on every call
+        // and thrash resubscription.
         var addressesToSubscribe = Set<String>()
         addressesToSubscribe.insert(wallet.publicAddress)
         for contact in activeContacts {
             addressesToSubscribe.insert(contact.address)
+        }
+        for poolAddress in PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress) {
+            addressesToSubscribe.insert(poolAddress)
+        }
+        for ownAddress in AddressActivityNotifier.shared.watchedOwnAddresses() {
+            addressesToSubscribe.insert(ownAddress)
         }
 
         let currentAddressCount = addressesToSubscribe.count

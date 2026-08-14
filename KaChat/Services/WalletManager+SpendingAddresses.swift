@@ -283,6 +283,15 @@ extension WalletManager {
         return false
     }
 
+    /// Every revealed spending-chain address (0...maxSpendingAddressIndex), derived with a
+    /// single seed decrypt via the shared change-node key - for callers that need the whole
+    /// set WITHOUT balances (e.g. AddressActivityNotifier's own-address watch set), unlike
+    /// `getSpendingAddressList()` which also fires a UTXO fetch.
+    func allSpendingAddresses() -> [String] {
+        guard let changeKey = spendingChangeKey() else { return [] }
+        return (0...maxSpendingAddressIndex).compactMap { spendingAddress(at: $0, changeKey: changeKey) }
+    }
+
     /// Hides a spending address from the main Manage Addresses list. Refused (returns false)
     /// for the current primary address or one with a nonzero balance - re-enforced here
     /// server-side regardless of what the UI already checked.

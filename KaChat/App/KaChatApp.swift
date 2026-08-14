@@ -239,6 +239,15 @@ struct KaChatApp: App {
                 Task {
                     await GroupChatService.shared.performCatchUpSync()
                 }
+                // Own-address receive catch-up: diff spending/cold-storage balances against the
+                // persisted baseline and notify for external receipts that landed while away
+                // (internally debounced; first run only seeds the baseline).
+                Task {
+                    if coldStartGraceNanos > 0 {
+                        try? await Task.sleep(nanoseconds: coldStartGraceNanos)
+                    }
+                    await AddressActivityNotifier.shared.runCatchUpIfNeeded()
+                }
             }
             if settingsViewModel.settings.notificationMode == .remotePush {
                 Task {
@@ -755,6 +764,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             return
         }
 
+        // Own-address activity (spending / cold-storage receive) notification tapped: these
+        // are wallet events, not chats - the thread id must never fall through to the
+        // contact-address branch below (it would stage a bogus pendingChatNavigation). Cold
+        // storage has its own dock tab, so land there; spending-address taps just open the
+        // app (Manage Addresses is a sheet several screens deep - no cheap deep link).
+        if threadIdentifier == AddressActivityNotifier.notificationThreadIdentifier {
+            let kind = response.notification.request.content.userInfo["kind"] as? String
+            if kind == "cold" {
+                NotificationCenter.default.post(name: .openColdStorage, object: nil)
+            }
+            completionHandler()
+            return
+        }
+
         // Quick reply: send straight from the notification (long-press on iPhone, Reply on
         // Apple Watch) without opening the app UI.
         if response.actionIdentifier == Self.replyActionId,
@@ -837,6 +860,7 @@ extension Notification.Name {
     static let openChat = Notification.Name("openChat")
     static let openKaPost = Notification.Name("openKaPost")
     static let openPortfolio = Notification.Name("openPortfolio")
+    static let openColdStorage = Notification.Name("openColdStorage")
     static let openBroadcast = Notification.Name("openBroadcast")
     static let openGroup = Notification.Name("openGroup")
     static let showGiftClaim = Notification.Name("showGiftClaim")

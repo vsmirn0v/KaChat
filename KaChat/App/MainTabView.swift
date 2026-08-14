@@ -153,6 +153,13 @@ struct MainTabView: View {
                 handleTabSelectionChange(AppTab.portfolio.tag)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openColdStorage)) { _ in
+            // Cold-storage address-activity notification tapped: land on the Storage tab
+            // when it's in the dock; otherwise the default landing screen is fine.
+            if AppTab.visible(from: settingsViewModel.settings).contains(.coldStorage) {
+                handleTabSelectionChange(AppTab.coldStorage.tag)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openGroup)) { _ in
             if chatsSlotTab != .chats { chatsSlotTab = .chats }
             selectedTab = 1

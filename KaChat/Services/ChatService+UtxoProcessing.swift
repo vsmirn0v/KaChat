@@ -466,6 +466,12 @@ extension ChatService {
             // Case 3: UTXO to unknown address (e.g., change) - skip silently
         }
 
+        // Own-address (spending / cold-storage) receives: wallet notifications, never chats.
+        // Handed the WHOLE batch so one tx paying several of our addresses notifies once,
+        // plus the per-tx removed sets for the self-send fast path (a tx spending FROM any
+        // watched own address is our own change/consolidation/withdrawal - no notification).
+        AddressActivityNotifier.shared.handleLiveUtxoAdditions(parsed: parsed, removedByTxId: removedByTxId)
+
         if !parsed.added.isEmpty {
             saveMessages()
         }

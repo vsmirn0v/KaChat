@@ -1221,6 +1221,17 @@ struct NotificationsSettingsView: View {
                 Text("Used when a contact has no custom notification mode set.")
             }
 
+            Section {
+                Toggle("Address Activity", isOn: $settingsViewModel.settings.addressActivityNotificationsEnabled)
+                    .onChange(of: settingsViewModel.settings.addressActivityNotificationsEnabled) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+            } header: {
+                Text("Wallet")
+            } footer: {
+                Text("Notify when any of your spending or cold storage addresses receives Kaspa from an external source. Transfers between your own addresses are ignored.")
+            }
+
             Section("Per Contact") {
                 Text("Set per-contact notification mode in each chat's info screen: Off, No Sound, or Sound.")
                     .font(.footnote)

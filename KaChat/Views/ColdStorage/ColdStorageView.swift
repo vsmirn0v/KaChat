@@ -451,6 +451,11 @@ struct ColdStorageDetailView: View {
         .task {
             await loadEntries()
         }
+        // Live own-address receive detected (AddressActivityNotifier) - refresh balances so
+        // the screen reflects the funds without a manual pull.
+        .onReceive(NotificationCenter.default.publisher(for: .ownAddressActivity)) { _ in
+            Task { await loadEntries() }
+        }
         .sheet(item: $qrTarget) { entry in
             ColdStorageAddressQRView(entry: entry)
         }
