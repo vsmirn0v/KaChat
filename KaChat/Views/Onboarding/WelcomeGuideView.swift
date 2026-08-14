@@ -430,7 +430,7 @@ struct WelcomeGuideView: View {
                     enabled: false,
                     title: "Off",
                     badge: nil,
-                    subtitle: "Payments you send and receive in chats go straight to public chatting addresses, where anyone can see the full payment history."
+                    subtitle: "Payments you send and receive are tied to your chatting address only, where anyone can see the full payment history."
                 )
             }
             .padding(.horizontal, 24)

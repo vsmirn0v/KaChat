@@ -361,9 +361,10 @@ enforce the same limits:
 
 | Limit | Value | Applies to |
 |-------|-------|------------|
-| Pool-serve throttle | max **1 `addr_pool` send per contact per 10 minutes** | every send: initial offer, reciprocity, and request-driven top-ups |
-| Lifetime reservation cap | max **50 addresses ever reserved per contact** | reservation itself — batches are clamped so the total never exceeds it |
-| Outstanding-unfunded cap | stop serving once **≥ 15 offered addresses have never received funds** | top-ups/offers |
+| Pool-serve throttle | max **1 `addr_pool` send per contact per 10 minutes** | same-state sends: organic offers, reciprocity, and request-driven top-ups |
+| Toggle-transition gap | min **60 seconds between consecutive broadcasts to the same contact** | toggle-driven broadcasts only (revoke on OFF, re-offer on ON) — a genuine state change bypasses the 10-minute throttle so deliberate toggles propagate promptly; rapid flapping stays bounded to one broadcast per contact per gap |
+| Lifetime reservation cap | max **50 addresses ever reserved per contact** | reservation itself — batches are clamped so the total never exceeds it; applies to toggle re-offers too |
+| Outstanding-unfunded cap | stop serving once **≥ 15 offered addresses have never received funds** | top-ups/offers, including toggle re-offers (revokes bypass the caps — a revoke must always be allowed out, subject only to the transition gap) |
 
 - Requests/offers suppressed by these limits are **silently ignored** (log locally, send
   nothing) — no error envelope exists.
@@ -413,18 +414,22 @@ gates the **send side only**:
   estimators must use the same source the send will use.
 - **Revoke on toggle-off**: flipping OFF actively propagates — the client sends the empty
   `replace:true` revocation (see the `addr_pool` section) to **every contact currently holding
-  a live pool of its addresses** (offered-marker set, not yet revoked), one revoke per contact,
-  serialized through the normal outgoing queue. Each success sets a persisted per-contact
-  revoked-marker and clears that contact's offered-marker. Failures are logged and non-fatal:
-  that contact simply drains the residual pool (the backstop semantics), staying eligible for a
-  retry on a later toggle-off. Each successful revoke also stamps the pool-serve throttle, so
-  off/on flapping is bounded to one revoke+offer pair per contact per throttle window.
-- **Re-offer on toggle-on**: flipping ON clears the revoked-markers; because the offered-markers
-  were cleared at revoke time, the normal lazy once-per-contact offer re-fires on each next
-  conversation open (`replace:true`), under the usual serve throttle and caps. The re-offer MAY
-  reuse previously offered but never-funded reservations (the recipient discarded them on
-  revoke; never-funded means no address reuse is created) rather than burning fresh indices
-  against the lifetime cap each cycle — iOS does.
+  a live pool of its addresses** (derived from PERSISTED reservation state: the offered-marker
+  set unioned with contacts holding offered-flagged reservations, minus already-revoked), one
+  revoke per contact, serialized through the normal outgoing queue. Each success sets a
+  persisted per-contact revoked-marker and clears that contact's offered-marker. Failures are
+  logged and non-fatal: that contact simply drains the residual pool (the backstop semantics),
+  staying eligible for a retry on a later toggle-off. Toggle broadcasts honor the 60-second
+  per-contact transition gap (see the limits table), not the 10-minute throttle.
+- **Re-offer on toggle-on**: flipping ON clears the revoked-markers and **immediately
+  broadcasts** a fresh `replace:true` offer to every established contact not currently holding
+  a live pool — previously revoked contacts AND established contacts never offered before (the
+  toggle is the switch; propagation must not wait for a conversation to be opened). Serialized,
+  bounded by the established-conversation count, the per-contact transition gap, and the
+  reservation caps; contacts skipped by the gap are picked up by the lazy per-contact offer on
+  next conversation open. The re-offer MAY reuse previously offered but never-funded
+  reservations (the recipient discarded them on revoke; never-funded means no address reuse is
+  created) rather than burning fresh indices against the lifetime cap each cycle — iOS does.
 - Reserved addresses are never un-reserved by any of this: they stay reserved for their one
   contact forever and stay in the UTXO watched set, so a payment that raced the revoke still
   lands and still renders (its `payment_notice` is honored regardless of the toggle).

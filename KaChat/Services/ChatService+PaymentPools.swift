@@ -50,8 +50,11 @@ extension ChatService {
     ///
     /// `replace: true` for the initial/lazy offer (safe re-offer semantics after a device
     /// restore - the fresh device's list is authoritative); `replace: false` for request-driven
-    /// top-ups (recipient appends, deduped).
-    func reserveAndSendAddressPool(to contact: Contact, replace: Bool) async throws {
+    /// top-ups (recipient appends, deduped). `toggleTransition: true` marks a Chats Payment
+    /// Privacy toggle-ON broadcast: the 60s transition gap applies instead of the full
+    /// 10-minute serve throttle (reservation caps unchanged), so flipping the switch always
+    /// propagates promptly.
+    func reserveAndSendAddressPool(to contact: Contact, replace: Bool, toggleTransition: Bool = false) async throws {
         guard let wallet = WalletManager.shared.currentWallet else { return }
         let walletAddress = wallet.publicAddress
         let store = PaymentPoolStore.shared
@@ -66,7 +69,7 @@ extension ChatService {
         if replace {
             guard !store.hasOfferedPool(to: contact.address, wallet: walletAddress) else { return }
         }
-        guard store.canServePoolOffer(to: contact.address, wallet: walletAddress) else {
+        guard store.canServePoolOffer(to: contact.address, wallet: walletAddress, toggleTransition: toggleTransition) else {
             AppLog.log("[ChatService] Pool offer to %@ suppressed by serve throttle/caps",
                        String(contact.address.suffix(10)))
             return
@@ -121,27 +124,75 @@ extension ChatService {
 
     // MARK: - Chats Privacy toggle propagation
 
-    /// Called from the Settings toggle after the per-account flag is persisted. OFF actively
-    /// revokes our pool at every contact holding one (empty replace:true - the wire revocation
-    /// primitive) so their very next payment falls back to our chatting address instead of
-    /// draining the residual pool. ON clears revocation markers; the offered markers were
-    /// already cleared per contact at revoke time, so the normal lazy offer re-fires on each
-    /// next conversation open, under the usual serve throttle and caps.
+    /// Called from the Settings toggle after the per-account flag is persisted. Both directions
+    /// propagate PROACTIVELY - the toggle is the switch, not conversation-opening:
+    ///
+    /// - OFF revokes our pool at every contact holding one (empty replace:true - the wire
+    ///   revocation primitive) so their very next payment falls back to our chatting address
+    ///   instead of draining the residual pool.
+    /// - ON clears revocation markers and immediately broadcasts fresh offers to every
+    ///   established contact not currently holding a live pool - contacts we revoked, contacts
+    ///   whose revoke landed while their app was closed, and established contacts never offered
+    ///   before. (The lazy enterConversation offer remains as backstop for conversations that
+    ///   become established later.)
+    ///
+    /// Toggle broadcasts clear the short transition gap (60s per contact) rather than the full
+    /// 10-minute serve throttle, so deliberate flips always propagate promptly while rapid
+    /// flapping stays bounded to one broadcast per contact per gap.
     func handleChatsPrivacyToggleChanged(enabled: Bool) {
         guard let wallet = WalletManager.shared.currentWallet else { return }
         if enabled {
             PaymentPoolStore.shared.clearAllPoolRevocations(wallet: wallet.publicAddress)
+            reofferPoolsForChatsPrivacyOn()
         } else {
             revokeOfferedPoolsForChatsPrivacyOff()
         }
     }
 
-    /// One revoke per contact currently holding our pool (offered marker set, not yet revoked),
-    /// serialized through the outgoing queue. Failures are logged and non-fatal - the contact
-    /// then simply drains the residual pool (the pre-revocation backstop semantics), and the
-    /// contact stays eligible for a retry on a later toggle-off. Each successful revoke also
-    /// stamps the serve throttle, so rapid off/on flapping can't spam a contact with more than
-    /// one revoke+offer pair per 10 minutes.
+    /// Toggle-ON proactive broadcast: one `replace:true` offer per established contact that
+    /// doesn't currently hold a live pool of ours (offered marker unset - covers revoked
+    /// contacts AND never-offered ones), serialized through the outgoing queue, bounded by the
+    /// established-conversation count and the per-contact transition gap + reservation caps.
+    /// Contacts skipped by the gap are picked up by the lazy enterConversation offer later.
+    func reofferPoolsForChatsPrivacyOn() {
+        guard let wallet = WalletManager.shared.currentWallet else { return }
+        let walletAddress = wallet.publicAddress
+        let store = PaymentPoolStore.shared
+
+        let targets = conversations
+            .map { $0.contact.address }
+            .filter { address in
+                isPoolEstablishedConversation(address)
+                    && !store.hasOfferedPool(to: address, wallet: walletAddress)
+            }
+        guard !targets.isEmpty else { return }
+        AppLog.log("[ChatService] Chats Privacy on - re-offering pools to %d contacts", targets.count)
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for contactAddress in targets {
+                // The toggle may flip back OFF mid-broadcast - stop offering.
+                guard AppSettings.chatsPrivacyEnabled(for: walletAddress) else { return }
+                guard let contact = self.contactsManager.getContact(byAddress: contactAddress) else { continue }
+                do {
+                    try await self.enqueueOutgoingTxOperation {
+                        try await self.reserveAndSendAddressPool(to: contact, replace: true, toggleTransition: true)
+                    }
+                } catch {
+                    AppLog.log("[ChatService] Toggle-on pool offer to %@ failed (lazy offer remains): %@",
+                               String(contactAddress.suffix(10)), error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    /// One revoke per contact currently holding our pool (per PERSISTED state - offered marker
+    /// unioned with offered-flagged reservations, minus already-revoked), serialized through
+    /// the outgoing queue. Failures are logged and non-fatal - the contact then simply drains
+    /// the residual pool (the pre-revocation backstop semantics), and the contact stays
+    /// eligible for a retry on a later toggle-off. Each successful revoke stamps the serve
+    /// timestamp; toggle broadcasts in either direction then honor the 60s per-contact
+    /// transition gap, bounding rapid flapping while keeping deliberate flips prompt.
     func revokeOfferedPoolsForChatsPrivacyOff() {
         guard let wallet = WalletManager.shared.currentWallet else { return }
         let walletAddress = wallet.publicAddress
@@ -155,6 +206,14 @@ extension ChatService {
                 // The toggle may flip back ON mid-broadcast - stop revoking, the remaining
                 // contacts keep their (again welcome) pools.
                 guard !AppSettings.chatsPrivacyEnabled(for: walletAddress) else { return }
+                // Flap bound: revokes bypass the reservation caps (a revoke must always be
+                // allowed out) but honor the 60s transition gap per contact. A gap-skipped
+                // contact keeps its markers, so a later toggle-off retries it; meanwhile the
+                // residual-drain backstop applies.
+                guard !PaymentPoolStore.shared.isWithinPoolServeGap(for: contactAddress, wallet: walletAddress, toggleTransition: true) else {
+                    AppLog.log("[ChatService] Revoke to %@ deferred by transition gap", String(contactAddress.suffix(10)))
+                    continue
+                }
                 guard let contact = self.contactsManager.getContact(byAddress: contactAddress) else { continue }
                 let payload = PaymentPoolCodec.encode(AddressPoolContent(addresses: [], replace: true))
                 guard !payload.isEmpty else { return }

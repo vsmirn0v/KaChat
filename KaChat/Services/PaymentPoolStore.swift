@@ -38,6 +38,13 @@ final class PaymentPoolStore {
     /// contact per this interval - a malicious contact spamming addr_pool_request must not be
     /// able to make us pay a tx fee per request.
     static let poolServeThrottleSeconds: TimeInterval = 10 * 60
+    /// Transition-aware minimum gap for TOGGLE-driven broadcasts (revoke on OFF, re-offer on
+    /// ON): a deliberate state change always propagates promptly, so it only has to clear this
+    /// much smaller spacing since the previous broadcast to the same contact - the full
+    /// 10-minute throttle above would silently swallow a quick off->on for up to 10 minutes.
+    /// Rapid flapping stays bounded to one broadcast per contact per this gap; repeated
+    /// same-state sends (organic offers, top-ups, reciprocity) keep the 10-minute throttle.
+    static let toggleTransitionGapSeconds: TimeInterval = 60
     /// Hard lifetime cap on addresses ever reserved for a single contact - bounds how much of
     /// our future address space one contact can enumerate.
     static let maxLifetimeReservationsPerContact = 50
@@ -182,12 +189,31 @@ final class PaymentPoolStore {
 
     // MARK: - Revocation lifecycle (Chats Privacy toggle)
 
-    /// Contacts currently holding a live pool of OUR addresses (offered marker set, not yet
-    /// revoked) - the target list for the toggle-off revoke broadcast.
+    /// Contacts currently holding a live pool of OUR addresses - the target list for the
+    /// toggle-off revoke broadcast. Derived from PERSISTED state two ways and unioned, so a
+    /// contact can never dodge a revoke through marker drift: the offered-marker set AND every
+    /// contact with at least one reservation actually flagged offered (both are persisted in
+    /// the same per-wallet blob and normally agree; the union is belt-and-suspenders). Minus
+    /// already-revoked contacts.
     func contactsHoldingOurPool(wallet walletAddress: String) -> [String] {
         let current = state(for: walletAddress)
         let revoked = current.revokedContacts ?? []
-        return current.offeredContacts.filter { !revoked.contains($0) }.sorted()
+        var holders = current.offeredContacts
+        for (contactAddress, entries) in current.myReservations where entries.contains(where: { $0.offered }) {
+            holders.insert(contactAddress)
+        }
+        return holders.filter { !revoked.contains($0) }.sorted()
+    }
+
+    /// Contacts with ANY prior pool history (reservations recorded, offered marker, or a
+    /// standing revocation) - used by the toggle-ON proactive re-offer to find everyone who may
+    /// believe our pool is gone. Established-conversation filtering happens at the caller.
+    func contactsWithPoolHistory(wallet walletAddress: String) -> Set<String> {
+        let current = state(for: walletAddress)
+        var contacts = current.offeredContacts
+        contacts.formUnion(current.myReservations.keys)
+        contacts.formUnion(current.revokedContacts ?? [])
+        return contacts
     }
 
     func isPoolRevoked(for contactAddress: String, wallet walletAddress: String) -> Bool {
@@ -230,17 +256,29 @@ final class PaymentPoolStore {
     /// These limits are part of the protocol contract (MESSAGING.md) - they bound how much
     /// address enumeration and how many fee-costing on-chain replies a malicious contact
     /// spamming addr_pool_request (or replaying varied addr_pool envelopes) can extract.
-    func canServePoolOffer(to contactAddress: String, wallet walletAddress: String) -> Bool {
-        let current = state(for: walletAddress)
-        if let last = current.lastPoolServeAt?[contactAddress],
-           Date().timeIntervalSince(last) < Self.poolServeThrottleSeconds {
+    ///
+    /// `toggleTransition: true` (a genuine Chats Payment Privacy state change) swaps the
+    /// 10-minute throttle for the much smaller `toggleTransitionGapSeconds` so deliberate
+    /// toggles always propagate promptly; the reservation caps still apply in full.
+    func canServePoolOffer(to contactAddress: String, wallet walletAddress: String, toggleTransition: Bool = false) -> Bool {
+        guard !isWithinPoolServeGap(for: contactAddress, wallet: walletAddress, toggleTransition: toggleTransition) else {
             return false
         }
-        let reservations = current.myReservations[contactAddress] ?? []
+        let reservations = state(for: walletAddress).myReservations[contactAddress] ?? []
         guard reservations.count < Self.maxLifetimeReservationsPerContact else { return false }
         let outstandingUnfunded = reservations.filter { $0.offered && $0.funded != true }.count
         guard outstandingUnfunded < Self.maxOutstandingUnfundedOffers else { return false }
         return true
+    }
+
+    /// Pure spacing check against the last addr_pool broadcast (offer OR revoke - both stamp
+    /// `lastPoolServeAt`) to this contact: the 60s transition gap for toggle-driven sends, the
+    /// full 10-minute throttle otherwise. Split out because revokes bypass the reservation caps
+    /// (a revoke must always be allowed to go out) but still honor the flap-bounding gap.
+    func isWithinPoolServeGap(for contactAddress: String, wallet walletAddress: String, toggleTransition: Bool) -> Bool {
+        guard let last = state(for: walletAddress).lastPoolServeAt?[contactAddress] else { return false }
+        let gap = toggleTransition ? Self.toggleTransitionGapSeconds : Self.poolServeThrottleSeconds
+        return Date().timeIntervalSince(last) < gap
     }
 
     func recordPoolOfferServed(to contactAddress: String, wallet walletAddress: String) {
