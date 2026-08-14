@@ -105,10 +105,15 @@ struct ImportWalletView: View {
         // `currentWallet` and suspends at an await, which can mount MainTabView - whose onAppear
         // consumes this one-shot flag - before control returns here.
         walletManager.justCreatedNewWallet = true
+        // Import-only marker (create never sets it): lets the Welcome Guide's funding step offer
+        // "Change Chatting Address" - only an imported seed can have its identity at a nonzero
+        // derivation index. Cleared by the guide on Finish, or here on failure.
+        walletManager.justImportedWallet = true
         do {
             _ = try await walletManager.importWallet(from: seedPhraseText, alias: alias, passphrase: passphrase)
         } catch {
             walletManager.justCreatedNewWallet = false
+            walletManager.justImportedWallet = false
             throw error
         }
     }

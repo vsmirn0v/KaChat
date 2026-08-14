@@ -438,6 +438,9 @@ struct WelcomeGuideView: View {
             Spacer()
             Button {
                 applyPaymentPrivacyChoice()
+                // The guide is done: the one-shot import marker (funding step's "Change
+                // Chatting Address" option) has served its purpose.
+                walletManager.justImportedWallet = false
                 onFinished()
             } label: {
                 Text("Finish")
@@ -673,6 +676,21 @@ struct WelcomeGuideView: View {
                     } label: {
                         Label("Show QR Code", systemImage: "qrcode")
                             .font(.subheadline.weight(.semibold))
+                    }
+
+                    // Import runs only (justImportedWallet is never set by the create flow): an
+                    // imported seed may hold its real identity - KNS domains, a funded chatting
+                    // balance - at a nonzero derivation index. Pushes the scanner INSIDE the
+                    // wizard's NavigationStack; after a switch it pops back here and this step
+                    // re-renders with the new address automatically (chattingAddress reads the
+                    // live currentWallet, and the gift claim resolves the address at tap time).
+                    if walletManager.justImportedWallet {
+                        NavigationLink {
+                            ChattingAddressPickerView()
+                        } label: {
+                            Label("Change Chatting Address", systemImage: "person.text.rectangle")
+                                .font(.subheadline.weight(.semibold))
+                        }
                     }
 
                     giftClaimSection

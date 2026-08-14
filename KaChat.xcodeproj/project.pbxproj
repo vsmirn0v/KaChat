@@ -166,6 +166,7 @@
 		SWAP003B0000000000000001 /* SwapService.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWAP003A0000000000000001 /* SwapService.swift */; };
 		SWAP004B0000000000000001 /* SwapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SWAP004A0000000000000001 /* SwapView.swift */; };
 		WLCM0000000000000001 /* WelcomeGuideView.swift in Sources */ = {isa = PBXBuildFile; fileRef = WLCM0000000000000002 /* WelcomeGuideView.swift */; };
+		CHAD00010001000100000001 /* ChattingAddressPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CHAD00010001000000000001 /* ChattingAddressPickerView.swift */; };
 		WMSA00010001000100000001 /* WalletManager+SpendingAddresses.swift in Sources */ = {isa = PBXBuildFile; fileRef = WMSA00010001000000000001 /* WalletManager+SpendingAddresses.swift */; };
 /* End PBXBuildFile section */
 
@@ -386,6 +387,7 @@
 		SWAP003A0000000000000001 /* SwapService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwapService.swift; sourceTree = "<group>"; };
 		SWAP004A0000000000000001 /* SwapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwapView.swift; sourceTree = "<group>"; };
 		WLCM0000000000000002 /* WelcomeGuideView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeGuideView.swift; sourceTree = "<group>"; };
+		CHAD00010001000000000001 /* ChattingAddressPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChattingAddressPickerView.swift; sourceTree = "<group>"; };
 		WMSA00010001000000000001 /* WalletManager+SpendingAddresses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WalletManager+SpendingAddresses.swift"; sourceTree = "<group>"; };
 		XCFW00010001 /* GRPCAll.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GRPCAll.xcframework; path = Frameworks/GRPCAll.xcframework; sourceTree = "<group>"; };
 		XCFW00010002 /* SwiftProtobuf.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = SwiftProtobuf.xcframework; path = Frameworks/SwiftProtobuf.xcframework; sourceTree = "<group>"; };
@@ -676,6 +678,7 @@
 				E810FB112D4C00010000000B /* SeedPhraseKeyboardView.swift */,
 				GIFT00010001000000000002 /* GiftClaimView.swift */,
 				WLCM0000000000000002 /* WelcomeGuideView.swift */,
+				CHAD00010001000000000001 /* ChattingAddressPickerView.swift */,
 			);
 			path = Onboarding;
 			sourceTree = "<group>";
@@ -1069,6 +1072,7 @@
 				E810FA122D4C00010000000B /* PassphraseOptionView.swift in Sources */,
 				E810FB122D4C00010000000B /* SeedPhraseKeyboardView.swift in Sources */,
 				WLCM0000000000000001 /* WelcomeGuideView.swift in Sources */,
+				CHAD00010001000100000001 /* ChattingAddressPickerView.swift in Sources */,
 				E81000172D4C00010000000C /* ChatListView.swift in Sources */,
 				E81000192D4C00010000000D /* ChatDetailView.swift in Sources */,
 				4D3D20022F72000200000002 /* ChatTimelineLayout.swift in Sources */,
