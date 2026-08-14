@@ -184,6 +184,11 @@ struct ManageAddressesView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ownAddressActivity)) { _ in
             Task { await loadEntries() }
         }
+        // Always-post variant: also fires for self-send change (payment rotation,
+        // consolidation) that the notification-gated event above suppresses.
+        .onReceive(NotificationCenter.default.publisher(for: .ownAddressUtxoActivity)) { _ in
+            Task { await loadEntries() }
+        }
         .toast(message: toastMessage)
         .alert(
             "Something Went Wrong",

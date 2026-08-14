@@ -470,6 +470,10 @@ extension ChatService {
         // Handed the WHOLE batch so one tx paying several of our addresses notifies once,
         // plus the per-tx removed sets for the self-send fast path (a tx spending FROM any
         // watched own address is our own change/consolidation/withdrawal - no notification).
+        // The always-post internal event goes out first, independent of the notification
+        // decision/setting - it's what keeps the payment composer's Available pill and the
+        // address list screens live for self-send change too.
+        AddressActivityNotifier.shared.postUtxoActivityEvent(parsed: parsed, removedByTxId: removedByTxId)
         AddressActivityNotifier.shared.handleLiveUtxoAdditions(parsed: parsed, removedByTxId: removedByTxId)
 
         if !parsed.added.isEmpty {

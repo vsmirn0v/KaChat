@@ -130,6 +130,8 @@ struct ChatDetailView: View {
     @State private var inputMode: InputMode = .message
     @State private var amountText = ""
     @State private var spendingBalanceSompi: UInt64?
+    /// Post-send retry schedule for the Available pill (see scheduleSpendingBalanceRetries).
+    @State private var spendingBalanceRetryTask: Task<Void, Never>?
     @State private var recordedAudioURL: URL?
     @State private var recordedAudioPreviewURL: URL?
     @State private var isRecording = false
@@ -857,6 +859,17 @@ struct ChatDetailView: View {
             // the old primary's balance until payment mode was re-entered or a send completed.
             guard inputMode == .payment else { return }
             await loadSpendingBalance()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ownAddressUtxoActivity)) { notification in
+            // Change landing on the (possibly just-rotated) primary spending address. This is
+            // the always-post event - the user-notification path deliberately suppresses
+            // self-send change, which is exactly what a private-mode payment's rotation
+            // produces, so without this the pill sat at 0 until payment mode was re-entered.
+            guard inputMode == .payment else { return }
+            guard let involved = notification.userInfo?[AddressActivityNotifier.utxoActivityAddressesKey] as? [String],
+                  let primary = walletManager.currentSpendingAddress(),
+                  involved.contains(primary) else { return }
+            Task { await loadSpendingBalance() }
         }
         .task(id: contact.address) {
             guard knsService.profileCache[contact.address] == nil else { return }
@@ -2339,7 +2352,11 @@ struct ChatDetailView: View {
                 }
                 // The active spending address rotates to a fresh one after a successful send -
                 // refresh so "Available" reflects that new address, not the one just spent from.
+                // The immediate fetch usually races the change UTXO landing (it reads 0), so a
+                // couple of short retries follow as a backstop in case the push event is missed -
+                // Kaspa confirms in about a second, so these converge quickly.
                 await loadSpendingBalance()
+                scheduleSpendingBalanceRetries()
             } catch {
                 await MainActor.run {
                     self.error = displayErrorMessage(error)
@@ -2361,6 +2378,22 @@ struct ChatDetailView: View {
         }
         let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
         spendingBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+    }
+
+    /// Post-send backstop for the Available pill: a private-mode payment rotates the primary to
+    /// a fresh address whose change UTXO takes about a second to land, so the immediate
+    /// post-send fetch reads 0. The `.ownAddressUtxoActivity` event normally fixes that
+    /// push-style; these two short refetches (~1.5s and ~4s after send) cover a missed event.
+    /// Cancellable so a newer send's schedule replaces an older one.
+    private func scheduleSpendingBalanceRetries() {
+        spendingBalanceRetryTask?.cancel()
+        spendingBalanceRetryTask = Task {
+            for delayNs: UInt64 in [1_500_000_000, 2_500_000_000] {
+                try? await Task.sleep(nanoseconds: delayNs)
+                guard !Task.isCancelled else { return }
+                await loadSpendingBalance()
+            }
+        }
     }
 
     private func pinToBottomThroughKeyboardTransition() {

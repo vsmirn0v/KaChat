@@ -456,6 +456,11 @@ struct ColdStorageDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ownAddressActivity)) { _ in
             Task { await loadEntries() }
         }
+        // Always-post variant: also fires for self-send change (withdrawal/compound change)
+        // that the notification-gated event above suppresses.
+        .onReceive(NotificationCenter.default.publisher(for: .ownAddressUtxoActivity)) { _ in
+            Task { await loadEntries() }
+        }
         .sheet(item: $qrTarget) { entry in
             ColdStorageAddressQRView(entry: entry)
         }

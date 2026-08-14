@@ -78,6 +78,40 @@ final class AddressActivityNotifier: ObservableObject {
         return spendingAddressSet.union(coldLabelByAddress.keys)
     }
 
+    /// UserInfo key carrying the involved own addresses on a `.ownAddressUtxoActivity` post.
+    static let utxoActivityAddressesKey = "addresses"
+
+    /// Always-post internal event, deliberately separate from the user-notification decision:
+    /// posts `.ownAddressUtxoActivity` (with the involved own addresses) whenever a UTXO batch
+    /// touches any watched spending/cold address - including SELF-SEND change, which the
+    /// notification paths suppress. `handleLiveUtxoAdditions`' fast path handles self-sends
+    /// with no `.ownAddressActivity` post at all, and the whole notifier is gated by the
+    /// Address Activity notification setting - so UI that must track its own change landing
+    /// (the payment composer's Available pill, the address list screens) listens to THIS
+    /// event instead. Not gated by `featureEnabled`.
+    func postUtxoActivityEvent(
+        parsed: ParsedUtxosChangedNotification,
+        removedByTxId: [String: Set<String>]
+    ) {
+        let watched = watchedOwnAddresses()
+        guard !watched.isEmpty else { return }
+        var involved: Set<String> = []
+        for entry in parsed.added {
+            if let address = entry.address, watched.contains(address) {
+                involved.insert(address)
+            }
+        }
+        for removed in removedByTxId.values {
+            involved.formUnion(removed.intersection(watched))
+        }
+        guard !involved.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: .ownAddressUtxoActivity,
+            object: nil,
+            userInfo: [Self.utxoActivityAddressesKey: Array(involved)]
+        )
+    }
+
     /// Live path, called from the UTXO classifier with the whole parsed batch. Collects
     /// outputs landing on own non-chatting addresses, dedupes per txId, applies the
     /// removed-set fast path, and schedules REST input resolution for the rest.
@@ -500,4 +534,9 @@ extension Notification.Name {
     /// Posted after own-address (spending / cold-storage) balances changed due to detected
     /// receive activity - open Manage Addresses / Cold Storage screens reload on it.
     static let ownAddressActivity = Notification.Name("ownAddressActivity")
+    /// Always-posted internal event for ANY UTXO activity on watched own addresses - including
+    /// self-send change that never produces an `.ownAddressActivity` post (fast-path suppression)
+    /// and regardless of the Address Activity notification setting. UserInfo carries the
+    /// involved addresses under `AddressActivityNotifier.utxoActivityAddressesKey`.
+    static let ownAddressUtxoActivity = Notification.Name("ownAddressUtxoActivity")
 }
