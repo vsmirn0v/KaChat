@@ -22,6 +22,10 @@ extension ChatService {
     /// envelope needs handshake routing anyway and a pool offered to a stranger is wasted.
     func offerAddressPoolIfNeeded(to contactAddress: String) {
         guard let wallet = WalletManager.shared.currentWallet else { return }
+        // Per-account Chats Privacy toggle (Settings > Chats): while OFF this account stops
+        // sharing fresh addresses (contacts fall back to our chatting address once their stored
+        // pool of ours runs out). Also covers the reciprocity path, which routes through here.
+        guard AppSettings.chatsPrivacyEnabled(for: wallet.publicAddress) else { return }
         guard !PaymentPoolStore.shared.hasOfferedPool(to: contactAddress, wallet: wallet.publicAddress) else { return }
         guard PaymentPoolStore.shared.canServePoolOffer(to: contactAddress, wallet: wallet.publicAddress) else { return }
         guard isPoolEstablishedConversation(contactAddress) else { return }
@@ -57,6 +61,8 @@ extension ChatService {
         // (e.g. an attacker replaying varied addr_pool envelopes to trigger reciprocity, each
         // with a distinct txId that passes the replay guard) - the marker/throttle only flip
         // once a send actually happens, so the check must happen after the queue serializes us.
+        // Chats Privacy may have been toggled OFF between enqueue and execution.
+        guard AppSettings.chatsPrivacyEnabled(for: walletAddress) else { return }
         if replace {
             guard !store.hasOfferedPool(to: contact.address, wallet: walletAddress) else { return }
         }
@@ -109,6 +115,8 @@ extension ChatService {
     func maybeRequestMorePoolAddresses(from contact: Contact) {
         guard let wallet = WalletManager.shared.currentWallet else { return }
         let walletAddress = wallet.publicAddress
+        // Chats Privacy OFF: we aren't consuming pool addresses, so never ask for more.
+        guard AppSettings.chatsPrivacyEnabled(for: walletAddress) else { return }
         guard PaymentPoolStore.shared.shouldRequestMoreAddresses(from: contact.address, wallet: walletAddress) else { return }
 
         Task { @MainActor [weak self] in
@@ -135,6 +143,14 @@ extension ChatService {
     /// the same payment (same `pendingTxId`) reuses the address already consumed for it instead
     /// of burning another.
     func poolPaymentDestination(for contact: Contact, pendingTxId: String) -> String {
+        // Chats Privacy OFF (per account): always the chatting address - stored pools are kept,
+        // just not consumed. Checked before the retry memory on purpose: a payment consumed
+        // while the toggle was ON but retried after it went OFF pays the chatting address (the
+        // already-consumed pool address stays burned, which is always safe).
+        if let wallet = WalletManager.shared.currentWallet,
+           !AppSettings.chatsPrivacyEnabled(for: wallet.publicAddress) {
+            return contact.address
+        }
         let store = PaymentPoolStore.shared
         if let remembered = store.paymentDestination(forPendingTxId: pendingTxId) {
             return remembered
@@ -155,6 +171,7 @@ extension ChatService {
     /// subtle "fresh address" indicator in the payment composer.
     func willPayViaFreshPoolAddress(contactAddress: String) -> Bool {
         guard let wallet = WalletManager.shared.currentWallet else { return false }
+        guard AppSettings.chatsPrivacyEnabled(for: wallet.publicAddress) else { return false }
         return PaymentPoolStore.shared.nextUnusedPoolAddress(for: contactAddress, wallet: wallet.publicAddress) != nil
     }
 
@@ -215,6 +232,10 @@ extension ChatService {
 
         switch envelope {
         case .pool(let content):
+            // Deliberately NOT gated by Chats Privacy: an incoming pool is harmless to store
+            // and ready the moment the user re-enables the toggle. (The reciprocity offer it
+            // may trigger IS gated, inside offerAddressPoolIfNeeded.)
+            //
             // Our own outgoing addr_pool re-fetched from the indexer: nothing to do (send-time
             // bookkeeping already happened; after a device restore the offered marker is empty
             // again and the lazy offer re-runs with replace:true, which is the designed recovery).
@@ -228,6 +249,14 @@ extension ChatService {
 
         case .request:
             guard !message.isOutgoing else { return }
+            // Chats Privacy OFF: silently ignore (same no-error semantics as the rate limits) -
+            // the requester's payments fall back to our chatting address once their stored pool
+            // of our addresses runs out.
+            guard AppSettings.chatsPrivacyEnabled(for: walletAddress) else {
+                AppLog.log("[ChatService] Ignoring addr_pool_request from %@ - Chats Privacy off",
+                           String(contactAddress.suffix(10)))
+                return
+            }
             guard isPoolEstablishedConversation(contactAddress) else { return }
             // Inbound abuse gate: every reply costs us a reservation batch AND an on-chain tx
             // fee, so a contact spamming addr_pool_request gets at most one top-up per
@@ -248,6 +277,10 @@ extension ChatService {
             }
 
         case .notice(let content):
+            // Deliberately NOT gated by Chats Privacy: previously offered addresses remain
+            // valid (and watched) whatever the toggle says now, so payments to them must keep
+            // rendering.
+            //
             // The payer's own notice re-fetched: swallow - the payer's bubble was created by
             // `sendPaymentInternal` at send time.
             guard !message.isOutgoing else { return }

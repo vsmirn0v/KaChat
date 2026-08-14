@@ -382,6 +382,24 @@ loses it; the apps simply re-exchange: the restored device's lazy offer re-runs 
 chatting address until a fresh pool arrives. Funds received earlier on reserved spending-chain
 addresses remain recoverable through normal BIP44 gap-limit discovery of the spending chain.
 
+### User Toggle (optional)
+
+Clients MAY expose a user-facing switch for this feature (iOS: Settings > Chats > "Chats
+Privacy", default ON, stored **per account/wallet** — each wallet on the same install decides
+independently, and switching accounts applies that account's value immediately). The toggle
+gates the **send side only**:
+
+- OFF → payments always go to the chatting address (stored pools are kept, just not consumed);
+  no `addr_pool` is offered (initial, reciprocal, or top-up) and no `addr_pool_request` is
+  sent; inbound `addr_pool_request` is silently ignored (same no-error semantics as the rate
+  limits).
+- Regardless of the toggle (mandatory): inbound `payment_notice` handling stays active,
+  previously offered reserved addresses stay valid and stay in the UTXO watched set (payments
+  to them must keep rendering and being noticed), and inbound `addr_pool` may still be accepted
+  and stored (harmless, ready if re-enabled).
+- Toggling back ON resumes normal behavior under the existing offered-markers, throttles, and
+  caps.
+
 ### Push Notifications
 
 The notification service extension humanizes `payment_notice` pushes ("Received X KAS") and

@@ -30,6 +30,12 @@ struct SettingsView: View {
     @State private var isPreparingChatHistoryExport = false
     @State private var isImportingChatHistory = false
     @State private var showPhotoQualitySheet = false
+
+    /// Mirrors the ACTIVE ACCOUNT's per-wallet Chats Privacy flag (fresh-address payment
+    /// pools) - seeded from storage when the Chats page appears, written through on change.
+    /// Per-account, not part of the global AppSettings blob: see
+    /// `AppSettings.chatsPrivacyEnabled(for:)`.
+    @State private var chatsPrivacyEnabled = true
     @AppStorage(MessageStore.dpiCorruptionWarningKey) private var dpiWarningActive = false
     @AppStorage(MessageStore.dpiCorruptionWarningEndpointKey) private var dpiWarningEndpoint = ""
     @AppStorage(MessageStore.dpiCorruptionWarningDateKey) private var dpiWarningDate: Double = 0
@@ -221,9 +227,21 @@ struct SettingsView: View {
                         }
                     }
                 }
+
+            Section {
+                Toggle("Chats Privacy", isOn: $chatsPrivacyEnabled)
+                    .onChange(of: chatsPrivacyEnabled) { newValue in
+                        AppSettings.setChatsPrivacyEnabledForActiveAccount(newValue)
+                    }
+            } footer: {
+                Text("Payments in 1:1 chats are sent to fresh addresses your contacts privately share, instead of their public chatting address.")
+            }
         }
         .navigationTitle("Chats")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            chatsPrivacyEnabled = AppSettings.chatsPrivacyEnabledForActiveAccount()
+        }
     }
 
     private var contactsPage: some View {

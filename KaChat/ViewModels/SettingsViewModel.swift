@@ -82,6 +82,43 @@ extension AppSettings {
             UserDefaults.standard.set(data, forKey: dockOverlayKey(for: address))
         }
     }
+    // MARK: - Chats Privacy (fresh-address payment pools) - PER ACCOUNT
+
+    /// Chats Privacy is PER ACCOUNT, like the dock: each wallet on this install decides
+    /// independently whether its 1:1 payments consume fresh pool addresses and whether it keeps
+    /// offering/requesting pools (see ChatService+PaymentPools). A single boolean doesn't need
+    /// the dock's overlay-blob machinery - it's stored as one per-wallet-address UserDefaults
+    /// key (same scoping pattern as the spending-address and payment-pool stores), default ON
+    /// (missing key == enabled). Not part of the AppSettings Codable blob at all, so there is
+    /// no decode/migration concern and an account switch takes effect immediately: every gate
+    /// reads the CURRENT wallet's value live at decision time.
+    ///
+    /// The toggle only gates the send side (pool consumption, addr_pool/addr_pool_request
+    /// emission, serving inbound requests). Inbound payment_notice handling and watching
+    /// already-offered reserved addresses stay active regardless - payments to previously
+    /// shared addresses must keep rendering and being noticed.
+    static func chatsPrivacyKey(for address: String) -> String { "kachat_chats_privacy_\(address)" }
+
+    static func chatsPrivacyEnabled(for address: String) -> Bool {
+        (UserDefaults.standard.object(forKey: chatsPrivacyKey(for: address)) as? Bool) ?? true
+    }
+
+    static func setChatsPrivacyEnabled(_ enabled: Bool, for address: String) {
+        UserDefaults.standard.set(enabled, forKey: chatsPrivacyKey(for: address))
+    }
+
+    /// Convenience for the active account (readable from any context via the same app-group
+    /// address `activeDockAddress()` uses). No wallet loaded -> default ON.
+    static func chatsPrivacyEnabledForActiveAccount() -> Bool {
+        guard let address = activeDockAddress() else { return true }
+        return chatsPrivacyEnabled(for: address)
+    }
+
+    static func setChatsPrivacyEnabledForActiveAccount(_ enabled: Bool) {
+        guard let address = activeDockAddress() else { return }
+        setChatsPrivacyEnabled(enabled, for: address)
+    }
+
     /// Load settings from UserDefaults (can be called from any context). Cached - see
     /// `AppSettingsCache`.
     static func load() -> AppSettings {
