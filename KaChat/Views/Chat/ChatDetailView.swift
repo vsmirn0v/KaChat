@@ -1276,8 +1276,10 @@ struct ChatDetailView: View {
                             feeBubble
                         }
                         if shouldShowAvailableBalanceBubble {
+                            // No allowsHitTesting(false) here: the bubble is tappable (opens
+                            // Manage Addresses), and hit-testing disabled on an ancestor can't
+                            // be re-enabled from inside the bubble itself.
                             availableBalanceBubble
-                                .allowsHitTesting(false)
                         }
                     }
                     .offset(x: 32, y: -26)
@@ -2077,34 +2079,29 @@ struct ChatDetailView: View {
 
     /// Tappable: opens Manage Spending Addresses as a sheet (ManageAddressesView is normally
     /// pushed from Profile, but a push would navigate away from the chat - a sheet keeps the
-    /// conversation and its active payment mode untouched underneath). The balance text stays
-    /// as-is; the accent "Manage" hint + chevron mark it as a button, same tappable-row
-    /// treatment as the app's other chevroned rows.
+    /// conversation and its active payment mode untouched underneath). Styled exactly like the
+    /// feeBubble's tappable fee display: the value text itself is underlined (same caption2/
+    /// secondary treatment), the whole glass pill is the tap target via onTapGesture.
     private var availableBalanceBubble: some View {
-        Button {
-            showManageAddresses = true
-        } label: {
-            HStack(spacing: 6) {
-                if let balanceSompi = spendingBalanceSompi {
-                    Text(localizedAvailableBalanceText(balanceSompi))
-                } else {
-                    Text(localizedAvailableBalanceText(nil))
-                }
-                Text("Manage")
-                    .fontWeight(.semibold)
-                    .foregroundColor(.accentColor)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(.accentColor)
+        HStack(spacing: 6) {
+            if let balanceSompi = spendingBalanceSompi {
+                Text(localizedAvailableBalanceText(balanceSompi))
+                    .underline()
+            } else {
+                Text(localizedAvailableBalanceText(nil))
+                    .underline()
             }
-            .font(.caption2)
-            .foregroundColor(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(glassBackground(cornerRadius: 14))
-            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .font(.caption2)
+        .foregroundColor(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(glassBackground(cornerRadius: 14))
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .allowsHitTesting(true)
+        .onTapGesture {
+            showManageAddresses = true
+        }
         .sheet(isPresented: $showManageAddresses) {
             // Own NavigationStack: ManageAddressesView relies on navigationTitle and pushes
             // its per-address detail screens via NavigationLink.
