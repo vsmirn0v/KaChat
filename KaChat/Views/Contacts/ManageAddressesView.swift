@@ -1505,6 +1505,7 @@ private struct SpendingAddressTransactionHistoryView: View {
     private enum Tab: String, CaseIterable {
         case transactions = "Transaction History"
         case utxos = "UTXOs"
+        case knsDomains = "KNS Domains"
     }
 
     @State private var selectedTab: Tab = .transactions
@@ -1512,6 +1513,10 @@ private struct SpendingAddressTransactionHistoryView: View {
     @State private var isLoading = false
     @State private var utxos: [UTXO] = []
     @State private var isLoadingUtxos = false
+    @State private var knsDomains: [KNSDomain] = []
+    @State private var isLoadingDomains = false
+    @State private var domainsLoadFailed = false
+    @State private var sendingDomain: KNSDomain?
     @State private var showReceiveSheet = false
     @State private var showSendSheet = false
     @State private var showCompoundSheet = false
@@ -1528,6 +1533,7 @@ private struct SpendingAddressTransactionHistoryView: View {
         switch tab {
         case .transactions: return tab.rawValue
         case .utxos: return "\(tab.rawValue) (\(utxos.count))"
+        case .knsDomains: return tab.rawValue
         }
     }
 
@@ -1557,6 +1563,8 @@ private struct SpendingAddressTransactionHistoryView: View {
                 transactionsList
             case .utxos:
                 utxosList
+            case .knsDomains:
+                knsDomainsList
             }
         }
         .navigationTitle(entry.displayLabel)
@@ -1642,6 +1650,14 @@ private struct SpendingAddressTransactionHistoryView: View {
         .sheet(isPresented: $showPrivateKeySheet) {
             SpendingAddressPrivateKeyView(entry: entry)
         }
+        .sheet(item: $sendingDomain) { domain in
+            // Same sheet as the Edit KNS Profile section's per-domain Send - parameterized so
+            // the transfer is owned/funded/signed by THIS spending address's derived key.
+            KNSDomainSendView(domain: domain, spendingAddressIndex: entry.index) { _ in
+                sendingDomain = nil
+                Task { await loadDomains() }
+            }
+        }
         .alert(
             "Rename UTXO",
             isPresented: Binding(
@@ -1665,6 +1681,7 @@ private struct SpendingAddressTransactionHistoryView: View {
             utxoLabels = WalletManager.shared.loadSpendingUtxoLabels(address: entry.address)
             await loadTransactions()
             await loadUtxos()
+            await loadDomains()
         }
     }
 
@@ -1733,6 +1750,76 @@ private struct SpendingAddressTransactionHistoryView: View {
         .refreshable {
             await loadUtxos()
         }
+    }
+
+    /// KNS domains owned by this specific spending address (assets-by-owner lookup). Rows reuse
+    /// the same teal KNSDomainCard as the Edit KNS Profile domains list; tapping one opens the
+    /// same KNSDomainSendView transfer sheet, scoped to this address's derivation.
+    private var knsDomainsList: some View {
+        List {
+            if isLoadingDomains && knsDomains.isEmpty {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+            } else if domainsLoadFailed && knsDomains.isEmpty {
+                Text("Could not load KNS domains. Pull to retry.")
+                    .foregroundColor(.secondary)
+            } else if knsDomains.isEmpty {
+                Text("No KNS domains on this address.")
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(knsDomains, id: \.inscriptionId) { domain in
+                    let transferable = isDomainTransferAllowed(domain)
+                    Button {
+                        sendingDomain = domain
+                    } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            KNSDomainCard(domain: domain)
+                            if !transferable {
+                                Text("This domain is listed and can't be sent right now.")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!transferable)
+                    .opacity(transferable ? 1 : 0.5)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .refreshable {
+            await loadDomains()
+        }
+    }
+
+    /// Same gate as the Edit KNS Profile domains list (KNSDomainsListView.isDomainTransferAllowed):
+    /// needs an asset id and must not be listed on a marketplace.
+    private func isDomainTransferAllowed(_ domain: KNSDomain) -> Bool {
+        let status = domain.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasAssetId = !domain.inscriptionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return hasAssetId && status != "listed"
+    }
+
+    private func loadDomains() async {
+        isLoadingDomains = true
+        // fetchInfo works for any address (assets-by-owner endpoint), shares in-flight requests,
+        // and returns the cached value while a failure cooldown is active - nil means we have
+        // nothing at all for this address, which we surface as the error state.
+        if let info = await KNSService.shared.fetchInfo(for: entry.address) {
+            knsDomains = info.allDomains
+            domainsLoadFailed = false
+        } else {
+            knsDomains = []
+            domainsLoadFailed = true
+        }
+        isLoadingDomains = false
     }
 
     private func utxoRow(_ utxo: UTXO) -> some View {

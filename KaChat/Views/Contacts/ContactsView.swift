@@ -2925,9 +2925,15 @@ struct KNSDomainDetailView: View {
 /// Sends (transfers) a single KNS domain inscription to a recipient address or KNS domain -
 /// same UX conventions as the app's KAS send flows (KNS-domain-aware recipient, editable
 /// network fee) but with no amount field or coin control, since a domain transfer moves the
-/// whole inscription rather than a chosen KAS amount.
-private struct KNSDomainSendView: View {
+/// whole inscription rather than a chosen KAS amount. Not `private`: ManageAddressesView's
+/// per-spending-address "KNS Domains" tab reuses this exact sheet, passing
+/// `spendingAddressIndex` so the transfer is owned/funded/signed by that spending address's
+/// derived key instead of the identity/chatting address.
+struct KNSDomainSendView: View {
     let domain: KNSDomain
+    /// When non-nil, the domain lives on this spending-chain address index and the transfer
+    /// spends/signs from that address's own derivation (see KNSDomainTransferService).
+    var spendingAddressIndex: Int? = nil
     let onComplete: (KNSDomainTransferResult) -> Void
 
     @EnvironmentObject var settingsViewModel: SettingsViewModel
@@ -3244,7 +3250,8 @@ private struct KNSDomainSendView: View {
                     domain: domain.fullName,
                     assetId: domain.inscriptionId,
                     to: recipient,
-                    priorityFeeSompi: fee
+                    priorityFeeSompi: fee,
+                    fromSpendingAddressIndex: spendingAddressIndex
                 )
                 await MainActor.run {
                     isSubmitting = false

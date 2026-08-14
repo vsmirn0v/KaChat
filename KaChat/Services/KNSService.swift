@@ -1690,26 +1690,50 @@ final class KNSDomainTransferService: ObservableObject {
         AppLog.log("[KNS_TRANSFER] %@", message)
     }
 
+    /// Transfers a domain owned by the wallet's identity/chatting address by default. Pass
+    /// `fromSpendingAddressIndex` to instead transfer a domain owned by one of the wallet's
+    /// spending-chain addresses: that address then acts as owner, funder, signer, and change
+    /// target for the whole commit/reveal pair - mirroring how spending-address sends derive
+    /// their own key (WalletManager.spendingPrivateKey(at:)) rather than the identity key.
     @discardableResult
     func transferDomain(
         domain fullDomain: String,
         assetId rawAssetId: String,
         to rawRecipient: String,
-        priorityFeeSompi: UInt64 = 2_000_000
+        priorityFeeSompi: UInt64 = 2_000_000,
+        fromSpendingAddressIndex: Int? = nil
     ) async throws -> KNSDomainTransferResult {
         guard !isSubmitting else {
             throw KasiaError.apiError("Another KNS domain transfer is already running")
         }
-        guard let wallet = walletManager.currentWallet else {
+        guard walletManager.currentWallet != nil else {
             throw KasiaError.walletNotFound
         }
-        guard let privateKey = walletManager.getPrivateKey() else {
-            throw KasiaError.keychainError("Could not get private key")
+        // The source address is the domain's owner: it funds the commit, its pubkey goes into
+        // the redeem script, its key signs both transactions, and it receives all change.
+        let sourceAddress: String
+        let sourcePrivateKey: Data
+        if let index = fromSpendingAddressIndex {
+            guard let address = walletManager.spendingAddress(at: index),
+                  let key = walletManager.spendingPrivateKey(at: index) else {
+                throw KasiaError.keychainError("Could not derive spending address key")
+            }
+            sourceAddress = address
+            sourcePrivateKey = key
+        } else {
+            // KNS activity is funded and settled entirely on the identity/chatting address
+            // chain by default - same as submitAddProfile/inscribeDomain.
+            guard let wallet = walletManager.currentWallet else {
+                throw KasiaError.walletNotFound
+            }
+            guard let key = walletManager.getPrivateKey() else {
+                throw KasiaError.keychainError("Could not get private key")
+            }
+            sourceAddress = wallet.publicAddress
+            sourcePrivateKey = key
         }
-        // KNS activity is funded and settled entirely on the identity/chatting address chain -
-        // no spending-address split, same as submitAddProfile/inscribeDomain.
-        let fundingAddress = wallet.publicAddress
-        let fundingPrivateKey = privateKey
+        let fundingAddress = sourceAddress
+        let fundingPrivateKey = sourcePrivateKey
 
         let assetId = rawAssetId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !assetId.isEmpty else {
@@ -1723,16 +1747,20 @@ final class KNSDomainTransferService: ObservableObject {
 
         let recipientAddress = try await resolveRecipientAddress(
             rawRecipient,
-            walletAddress: wallet.publicAddress
+            walletAddress: sourceAddress
         )
 
-        log("START domain=\(domain) asset=\(assetId) from=\(wallet.publicAddress) to=\(recipientAddress)")
+        log("START domain=\(domain) asset=\(assetId) from=\(sourceAddress) to=\(recipientAddress)")
         isSubmitting = true
         defer { isSubmitting = false }
 
         if let resolution = await knsService.resolveDomain(domain),
-           resolution.ownerAddress.lowercased() != wallet.publicAddress.lowercased() {
-            throw KasiaError.apiError("Domain is not owned by current wallet")
+           resolution.ownerAddress.lowercased() != sourceAddress.lowercased() {
+            throw KasiaError.apiError(
+                fromSpendingAddressIndex == nil
+                ? "Domain is not owned by current wallet"
+                : "Domain is not owned by this spending address"
+            )
         }
 
         let payload = knsService.buildTransferDomainPayload(
@@ -1745,7 +1773,11 @@ final class KNSDomainTransferService: ObservableObject {
         let fetchedUtxos = try await nodePool.getUtxosByAddresses([fundingAddress])
         let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
         guard !utxos.isEmpty else {
-            throw KasiaError.networkError("No spendable UTXOs available in your chatting address for KNS transfer")
+            throw KasiaError.networkError(
+                fromSpendingAddressIndex == nil
+                ? "No spendable UTXOs available in your chatting address for KNS transfer"
+                : "No spendable UTXOs available in this spending address for KNS transfer"
+            )
         }
         log("UTXO domain=\(domain) total=\(fetchedUtxos.count) spendable=\(utxos.count)")
 
@@ -1755,7 +1787,7 @@ final class KNSDomainTransferService: ObservableObject {
         log("AMOUNTS domain=\(domain) revealSompi=\(revealSompi) commitSompi=\(commitSompi)")
 
         let (commitTx, commitContext) = try KasiaTransactionBuilder.buildKNSAddProfileCommitTx(
-            ownerAddress: wallet.publicAddress,
+            ownerAddress: sourceAddress,
             fundingAddress: fundingAddress,
             fundingPrivateKey: fundingPrivateKey,
             payloadJSON: payloadJSON,
@@ -1772,12 +1804,12 @@ final class KNSDomainTransferService: ObservableObject {
         )
 
         let revealTx = try KasiaTransactionBuilder.buildKNSAddProfileRevealTx(
-            ownerAddress: wallet.publicAddress,
-            ownerPrivateKey: privateKey,
+            ownerAddress: sourceAddress,
+            ownerPrivateKey: sourcePrivateKey,
             changeAddress: fundingAddress,
             commitTxId: commitTxId,
             commitContext: commitContext,
-            revealTargetAddress: wallet.publicAddress,
+            revealTargetAddress: sourceAddress,
             revealPriorityFeeSompi: priorityFeeSompi
         )
         let (revealTxId, _) = try await submitRevealWithFallback(revealTx)
@@ -1800,8 +1832,8 @@ final class KNSDomainTransferService: ObservableObject {
         )
         log("VERIFY domain=\(domain) verified=\(verified)")
 
-        _ = await knsService.fetchInfo(for: wallet.publicAddress)
-        _ = await knsService.fetchProfile(for: wallet.publicAddress)
+        _ = await knsService.fetchInfo(for: sourceAddress)
+        _ = await knsService.fetchProfile(for: sourceAddress)
         _ = await knsService.fetchInfo(for: recipientAddress)
 
         return KNSDomainTransferResult(
@@ -1931,6 +1963,12 @@ struct KNSDomain: Equatable, Codable {
         }
         return fullName
     }
+}
+
+/// Identity for sheet(item:)/ForEach use - the inscription id is the on-chain unique id of the
+/// domain asset (same key KNSDomainsListView already uses for ForEach).
+extension KNSDomain: Identifiable {
+    var id: String { inscriptionId }
 }
 
 struct KNSAddressProfileInfo: Equatable, Codable {
