@@ -1136,6 +1136,30 @@ struct ProfileView: View {
         }
     }
 
+    /// Revealed value of the About section's "Alias" row (nil while hidden).
+    @State private var revealedAliasValue: String?
+
+    /// Derives and reveals the wallet's own protocol alias. The Kasia alias system is strictly
+    /// pairwise (deriveMyAlias/deriveTheirAlias per conversation, ECDH + HKDF -> 12 hex chars;
+    /// self-stash is keyed by address, not alias), so there is no separate global self alias in
+    /// the protocol. The one stable alias tied to the chatting identity alone is the
+    /// SELF-conversation alias: the identity key paired with its own address. For that pair the
+    /// incoming and outgoing derivations coincide (the context pubkey is the same key on both
+    /// sides), which makes this THE unique deterministic alias of this wallet's chatting
+    /// identity - any KaChat/Kasia client deriving an alias for this address with this key gets
+    /// the same 12 characters.
+    private func revealSelfAlias(for wallet: Wallet) {
+        guard let privateKey = walletManager.getPrivateKey(),
+              let alias = try? DeterministicAlias.deriveMyAlias(
+                privateKey: privateKey,
+                theirAddress: wallet.publicAddress
+              ) else {
+            showToast(localized("Alias unavailable."), style: .error)
+            return
+        }
+        revealedAliasValue = alias
+    }
+
     /// Bottom-most section on Profile - merges what used to be a separate "Info" section
     /// (just "Created") with Settings' old "About" section (Version/Website/Support Email/
     /// Donate), now reached without needing to open Settings at all.
@@ -1159,6 +1183,41 @@ struct ProfileView: View {
                         .foregroundColor(.secondary)
                 }
                 .padding(16)
+
+                Divider().padding(.leading, 16)
+                // Hidden by default (semi-sensitive protocol metadata): first tap reveals the
+                // 12-char alias in monospace, tapping the revealed value copies it.
+                Button {
+                    if let value = revealedAliasValue {
+                        UIPasteboard.general.string = value
+                        Haptics.success()
+                        showToast("Alias copied to clipboard.")
+                    } else {
+                        revealSelfAlias(for: wallet)
+                    }
+                } label: {
+                    HStack {
+                        Text("Alias")
+                            .foregroundColor(.primary)
+                        Spacer()
+                        if let value = revealedAliasValue {
+                            Text(value)
+                                .font(.system(.subheadline, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        } else {
+                            HStack(spacing: 6) {
+                                Text(String(repeating: "\u{2022}", count: 12))
+                                    .foregroundColor(.secondary)
+                                Image(systemName: "eye")
+                                    .font(.caption)
+                                    .foregroundColor(.accentColor)
+                            }
+                        }
+                    }
+                    .padding(16)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
 
                 Divider().padding(.leading, 16)
                 Link(destination: websiteURL) {
