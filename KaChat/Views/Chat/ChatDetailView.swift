@@ -1577,6 +1577,8 @@ struct ChatDetailView: View {
 
     /// Only ever reached for `.payment` now — the `.message` entry point moved to
     /// composerPlusMenu, and `.audio` has nothing to show here (see shouldShowComposerQuickActions).
+    /// Deliberately no mic here: the message button is the only mode exit from payment mode —
+    /// audio stays reachable through message mode's in-bubble mic and "+" menu as usual.
     private var composerQuickActions: some View {
         HStack(spacing: 8) {
             switch inputMode {
@@ -1588,13 +1590,6 @@ struct ChatDetailView: View {
                     icon: "text.bubble.fill"
                 ) {
                     switchMode(.message)
-                }
-
-                composerQuickActionButton(
-                    title: "Send audio",
-                    icon: "mic.circle.fill"
-                ) {
-                    switchMode(.audio)
                 }
             }
         }
@@ -2077,19 +2072,51 @@ struct ChatDetailView: View {
         }
     }
 
+    /// Drives the Manage Addresses sheet opened from the available-balance bubble below.
+    @State private var showManageAddresses = false
+
+    /// Tappable: opens Manage Spending Addresses as a sheet (ManageAddressesView is normally
+    /// pushed from Profile, but a push would navigate away from the chat - a sheet keeps the
+    /// conversation and its active payment mode untouched underneath). The balance text stays
+    /// as-is; the accent "Manage" hint + chevron mark it as a button, same tappable-row
+    /// treatment as the app's other chevroned rows.
     private var availableBalanceBubble: some View {
-        HStack(spacing: 6) {
-            if let balanceSompi = spendingBalanceSompi {
-                Text(localizedAvailableBalanceText(balanceSompi))
-            } else {
-                Text(localizedAvailableBalanceText(nil))
+        Button {
+            showManageAddresses = true
+        } label: {
+            HStack(spacing: 6) {
+                if let balanceSompi = spendingBalanceSompi {
+                    Text(localizedAvailableBalanceText(balanceSompi))
+                } else {
+                    Text(localizedAvailableBalanceText(nil))
+                }
+                Text("Manage")
+                    .fontWeight(.semibold)
+                    .foregroundColor(.accentColor)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.accentColor)
+            }
+            .font(.caption2)
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(glassBackground(cornerRadius: 14))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showManageAddresses) {
+            // Own NavigationStack: ManageAddressesView relies on navigationTitle and pushes
+            // its per-address detail screens via NavigationLink.
+            NavigationStack {
+                ManageAddressesView()
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button("Done") { showManageAddresses = false }
+                        }
+                    }
             }
         }
-        .font(.caption2)
-        .foregroundColor(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(glassBackground(cornerRadius: 14))
     }
 
     private func glassBackground(cornerRadius: CGFloat) -> some View {
