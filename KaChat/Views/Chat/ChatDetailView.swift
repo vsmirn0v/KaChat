@@ -2111,19 +2111,34 @@ struct ChatDetailView: View {
         .accessibilityLabel(Text("Payment goes to a fresh address this contact shared, so it cannot be linked to their chat address on-chain"))
     }
 
-    /// Tappable: opens Manage Spending Addresses as a sheet (ManageAddressesView is normally
-    /// pushed from Profile, but a push would navigate away from the chat - a sheet keeps the
-    /// conversation and its active payment mode untouched underneath). Styled exactly like the
-    /// feeBubble's tappable fee display: the value text itself is underlined (same caption2/
-    /// secondary treatment), the whole glass pill is the tap target via onTapGesture.
+    /// True while this account's Chats Payment Privacy toggle is ON - payments fund from the
+    /// primary spending address; OFF funds them from the chatting address (see
+    /// `ChatService.paymentFundingSourceAddress`). Read live so a Settings change applies on
+    /// the next render.
+    private var isChatsPaymentPrivacyOn: Bool {
+        guard let myAddress else { return true }
+        return AppSettings.chatsPrivacyEnabled(for: myAddress)
+    }
+
+    /// Privacy ON - tappable: opens Manage Spending Addresses as a sheet (ManageAddressesView
+    /// is normally pushed from Profile, but a push would navigate away from the chat - a sheet
+    /// keeps the conversation and its active payment mode untouched underneath). Styled exactly
+    /// like the feeBubble's tappable fee display: the value text itself is underlined (same
+    /// caption2/secondary treatment), the whole glass pill is the tap target via onTapGesture.
+    ///
+    /// Privacy OFF - payments fund from the CHATTING address, so the pill shows the wallet's
+    /// main published chatting balance (already kept fresh by the normal refresh/UTXO-push
+    /// cycle), drops the underline, and is not tappable: Manage Spending Addresses is
+    /// irrelevant to chatting-address sends.
     private var availableBalanceBubble: some View {
-        HStack(spacing: 6) {
-            if let balanceSompi = spendingBalanceSompi {
+        let privacyOn = isChatsPaymentPrivacyOn
+        let balanceSompi = privacyOn ? spendingBalanceSompi : walletManager.currentWallet?.balanceSompi
+        return HStack(spacing: 6) {
+            if privacyOn {
                 Text(localizedAvailableBalanceText(balanceSompi))
                     .underline()
             } else {
-                Text(localizedAvailableBalanceText(nil))
-                    .underline()
+                Text(localizedAvailableBalanceText(balanceSompi))
             }
         }
         .font(.caption2)
@@ -2132,8 +2147,9 @@ struct ChatDetailView: View {
         .padding(.vertical, 6)
         .background(glassBackground(cornerRadius: 14))
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .allowsHitTesting(true)
+        .allowsHitTesting(privacyOn)
         .onTapGesture {
+            guard isChatsPaymentPrivacyOn else { return }
             showManageAddresses = true
         }
         .sheet(
@@ -2336,6 +2352,9 @@ struct ChatDetailView: View {
     }
 
     private func loadSpendingBalance() async {
+        // Chats Payment Privacy OFF: payments fund from the chatting address, whose balance is
+        // the wallet's main published one - this spending-index-keyed fetch is inert.
+        guard isChatsPaymentPrivacyOn else { return }
         guard let address = walletManager.currentSpendingAddress() else {
             spendingBalanceSompi = nil
             return

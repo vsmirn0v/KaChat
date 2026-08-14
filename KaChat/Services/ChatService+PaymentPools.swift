@@ -205,6 +205,24 @@ extension ChatService {
 
     // MARK: - Paying into a contact's pool
 
+    /// Where a 1:1 chat payment is funded FROM under the current Chats Payment Privacy setting:
+    /// the primary spending-chain address when ON (the existing behavior), the CHATTING address
+    /// when OFF - the toggle's OFF promise is chatting-to-chatting end to end, source included.
+    /// Must be used by every estimator that predicts what `sendPaymentInternal` will spend, or
+    /// the estimate silently computes against the wrong balance/UTXO set.
+    func paymentFundingSourceAddress() throws -> String {
+        guard let wallet = WalletManager.shared.currentWallet else {
+            throw KasiaError.walletNotFound
+        }
+        if !AppSettings.chatsPrivacyEnabled(for: wallet.publicAddress) {
+            return wallet.publicAddress
+        }
+        guard let spendingAddress = WalletManager.shared.currentSpendingAddress() else {
+            throw KasiaError.walletNotFound
+        }
+        return spendingAddress
+    }
+
     /// The destination address for a payment to `contact`: an unused address from their stored
     /// pool if one exists (consumed immediately - persisted, never offered to another payment
     /// even if this one fails), else the chatting address (exact pre-pool behavior). A retry of

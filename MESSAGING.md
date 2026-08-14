@@ -407,6 +407,10 @@ gates the **send side only**:
   no `addr_pool` is offered (initial, reciprocal, or top-up) and no `addr_pool_request` is
   sent; inbound `addr_pool_request` is silently ignored (same no-error semantics as the rate
   limits).
+- OFF also switches the client's own **funding source** to the chatting address (client
+  behavior, not wire protocol): 1:1 payments are funded from and change back to the chatting
+  address instead of the spending chain, so sends are chatting-to-chatting end to end. Fee/max
+  estimators must use the same source the send will use.
 - **Revoke on toggle-off**: flipping OFF actively propagates — the client sends the empty
   `replace:true` revocation (see the `addr_pool` section) to **every contact currently holding
   a live pool of its addresses** (offered-marker set, not yet revoked), one revoke per contact,
