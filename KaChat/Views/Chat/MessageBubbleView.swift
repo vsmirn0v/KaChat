@@ -854,8 +854,12 @@ struct MessageBubbleView: View {
                 .frame(width: 34, height: 34)
                 .padding(6)
                 .background(
-                    Circle().fill(outgoing ? Color.white.opacity(0.18) : Color.accentColor.opacity(0.12))
+                    // Outgoing rides a teal gradient — a translucent white circle left the teal
+                    // logo nearly invisible (teal on teal). Solid white gives the brand mark its
+                    // natural contrast; incoming keeps the subtle accent tint on neutral glass.
+                    Circle().fill(outgoing ? Color.white : Color.accentColor.opacity(0.12))
                 )
+                .shadow(color: outgoing ? Color.black.opacity(0.12) : .clear, radius: 3, y: 1)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(outgoing ? "Sent" : "Received")
