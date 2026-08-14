@@ -1263,17 +1263,25 @@ struct ChatDetailView: View {
 
     // MARK: - New-chat handshake notice
 
-    /// Copy is byte-identical to desktop's banner - keep the two in sync if either changes.
+    /// Copy is byte-identical to desktop's banner - keep the two in sync if either changes. The
+    /// last sentence is the privacy caveat: a handshake is a direct on-chain transaction between
+    /// the two chatting addresses, publicly linking them, unlike ordinary aliased traffic.
     private var handshakeNoticeBanner: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "hand.wave")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.top, 1)
-            Text("The recipient won't see your messages until they message you or you ping them with a handshake. Handshakes cost 0.2 KAS and are returned to you if they accept.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "hand.wave")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 1)
+                Text("The recipient won't see your messages until they message you or you ping them with a handshake. Handshakes cost 0.2 KAS and are returned to you if they accept. You lose privacy if you ping them.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                handshakeNoticeSendButton
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -1283,6 +1291,36 @@ struct ChatDetailView: View {
         // The fee/available pills float ~26pt above the composer's own top edge; this clearance
         // keeps them off the banner instead of letting them sit on its text.
         .padding(.bottom, shouldShowComposerHelperRow ? 22 : 4)
+    }
+
+    /// Shortcut to the exact same action as the "+" menu's "Send Handshake" row - `sendHandshake()`
+    /// -> `ChatService.sendHandshake(to:isResponse:)`, which owns the whole send/fee flow and
+    /// surfaces failures through this view's `error` alert. No extra confirmation here: that path
+    /// doesn't show one, and adding a second prompt would diverge from the menu entry.
+    private var handshakeNoticeSendButton: some View {
+        Button {
+            sendHandshake()
+        } label: {
+            HStack(spacing: 6) {
+                if isRespondingHandshake {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "hand.wave.fill")
+                        .font(.caption2)
+                }
+                Text("Send Handshake")
+                    .font(.caption.weight(.semibold))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 0.8))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.accentColor)
+        .disabled(!canSendRequestToCommunicate)
+        .opacity(canSendRequestToCommunicate ? 1 : 0.55)
     }
 
     // MARK: - Unified Input Bar (handles all handshake states)
