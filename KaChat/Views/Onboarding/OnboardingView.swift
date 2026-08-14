@@ -42,7 +42,9 @@ struct OnboardingView: View {
                 CreateWalletView()
             }
             .navigationDestination(isPresented: $showImportWallet) {
-                ImportWalletView()
+                // Source-wallet chooser first (KasWare-style): the picked wallet decides the
+                // identity derivation path family, then seed entry continues as before.
+                ImportSourceWalletView()
             }
             .confirmationDialog(
                 "Remove Saved Account",

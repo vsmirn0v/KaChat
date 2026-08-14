@@ -2,7 +2,9 @@ import SwiftUI
 
 /// "Change Chatting Address" scanner, pushed inside the Welcome Guide's NavigationStack from the
 /// funding step - import runs only (see `WalletManager.justImportedWallet`). Scans the identity
-/// derivation chain (m/44'/111111'/0'/0/<index>) in batches of 50, checking every derived address
+/// derivation chain of the wallet's source family (standard m/44'/111111'/0'/0/<index>, or the
+/// family chosen at import - legacy 972, OneKey; single-address families like Chainge have only
+/// index 0 and no further scanning) in batches of 50, checking every derived address
 /// in batch for KAS balance (one pooled `getUtxosByAddresses` call) and KNS domains (the
 /// `KNSService.refreshIfNeeded` capped batch lookup), then lists only the interesting slots:
 /// nonzero balance or at least one domain, plus always index 0. Tapping a row opens a detail
@@ -30,6 +32,12 @@ struct ChattingAddressPickerView: View {
 
     private var currentIndex: Int {
         walletManager.currentChattingAddressIndex
+    }
+
+    /// Single-address source families (Chainge) have exactly one identity address - no batches
+    /// beyond the first, and no "Scan Further".
+    private var supportsIndexScan: Bool {
+        walletManager.currentWalletSourceFamily.supportsIndexScan
     }
 
     private var visibleCandidates: [ChattingAddressCandidate] {
@@ -82,21 +90,30 @@ struct ChattingAddressPickerView: View {
                 if isScanning {
                     HStack(spacing: 10) {
                         ProgressView()
-                        Text("Scanning addresses \(scannedCount + 1) to \(scannedCount + batchSize)...")
+                        Text(supportsIndexScan
+                             ? "Scanning addresses \(scannedCount + 1) to \(scannedCount + batchSize)..."
+                             : "Checking this wallet's address...")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
                     .padding(.vertical, 8)
                 } else if scannedCount > 0 {
                     VStack(spacing: 6) {
-                        Text("Scanned the first \(scannedCount) addresses.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Button {
-                            Task { await scanNextBatch() }
-                        } label: {
-                            Label("Scan Further", systemImage: "magnifyingglass")
-                                .font(.subheadline.weight(.semibold))
+                        if supportsIndexScan {
+                            Text("Scanned the first \(scannedCount) addresses.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Button {
+                                Task { await scanNextBatch() }
+                            } label: {
+                                Label("Scan Further", systemImage: "magnifyingglass")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                        } else {
+                            Text("This wallet type has a single address, so there is nothing further to scan.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
                         }
                     }
                     .padding(.vertical, 4)
