@@ -124,7 +124,16 @@ struct ChatListView: View {
             }
 
         let withPresentation = withToolbar
-            .searchable(text: $searchText, prompt: "Search chats")
+            // placement .always is load-bearing: the chats/groups lists live inside a paging
+            // TabView (chatListContent), so their scrolling no longer drives the navigation
+            // bar — with the default .automatic placement under a .large title, the search
+            // drawer waits for a nav-bar-linked scroll to reveal it and therefore NEVER
+            // appears. Pinning it keeps: bold "Chats" large title, search bar underneath.
+            .searchable(
+                text: $searchText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "Search chats"
+            )
             .refreshable {
                 isPullRefreshing = true
                 await chatService.fetchNewMessages()
