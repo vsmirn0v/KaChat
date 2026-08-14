@@ -1544,7 +1544,7 @@ private struct SpendingAddressTransactionHistoryView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
 
     private enum Tab: String, CaseIterable {
-        case transactions = "Transaction History"
+        case transactions = "History"
         case utxos = "UTXOs"
         case knsDomains = "KNS Domains"
     }
@@ -1574,7 +1574,7 @@ private struct SpendingAddressTransactionHistoryView: View {
         switch tab {
         case .transactions: return tab.rawValue
         case .utxos: return "\(tab.rawValue) (\(utxos.count))"
-        case .knsDomains: return tab.rawValue
+        case .knsDomains: return "\(tab.rawValue) (\(knsDomains.count))"
         }
     }
 
