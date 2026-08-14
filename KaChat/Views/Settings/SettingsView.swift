@@ -232,6 +232,11 @@ struct SettingsView: View {
                 Toggle("Chats Payment Privacy", isOn: $chatsPrivacyEnabled)
                     .onChange(of: chatsPrivacyEnabled) { newValue in
                         AppSettings.setChatsPrivacyEnabledForActiveAccount(newValue)
+                        // OFF actively revokes our shared pools at every contact holding one
+                        // (their next payment falls back to our chatting address immediately);
+                        // ON lets the lazy per-contact offers re-fire. See
+                        // ChatService+PaymentPools.handleChatsPrivacyToggleChanged.
+                        ChatService.shared.handleChatsPrivacyToggleChanged(enabled: newValue)
                     }
             } footer: {
                 Text("Payments in 1:1 chats are sent to fresh addresses your contacts privately share, instead of their public chatting address. When off, Kaspa you send and receive is routed to public chatting addresses instead.")

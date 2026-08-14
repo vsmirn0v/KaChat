@@ -72,7 +72,17 @@ extension ChatService {
             return
         }
 
-        var pending = store.unofferedReservations(for: contact.address, wallet: walletAddress)
+        // replace:true (initial offer or post-revoke re-offer) may re-send previously offered
+        // but never-funded reservations - the recipient's pool was empty/discarded, re-sending
+        // creates no reuse, and it keeps a toggle off/on cycle from burning five new indices
+        // against the lifetime cap every time. Append top-ups only ever send never-yet-offered
+        // addresses (the recipient dedupes, but resending their live pool would be waste).
+        var pending = replace
+            ? store.reofferableReservations(for: contact.address, wallet: walletAddress)
+            : store.unofferedReservations(for: contact.address, wallet: walletAddress)
+        if pending.count > PaymentPoolStore.offerBatchSize {
+            pending = Array(pending.prefix(PaymentPoolStore.offerBatchSize))
+        }
         // Never reserve past the per-contact lifetime cap, even mid-batch.
         let lifetimeHeadroom = PaymentPoolStore.maxLifetimeReservationsPerContact
             - store.lifetimeReservationCount(for: contact.address, wallet: walletAddress)
@@ -101,11 +111,69 @@ extension ChatService {
         store.markReservationsOffered(pending.map(\.address), for: contact.address, wallet: walletAddress)
         store.markPoolOffered(to: contact.address, wallet: walletAddress)
         store.recordPoolOfferServed(to: contact.address, wallet: walletAddress)
+        store.clearPoolRevocation(for: contact.address, wallet: walletAddress)
         AppLog.log("[ChatService] Offered %d fresh pool addresses to %@ (replace=%@)",
                    pending.count, String(contact.address.suffix(10)), replace ? "true" : "false")
 
         // Rebuilds the full subscription set, which now includes the just-offered addresses.
         await addContactToUtxoSubscription(contact.address)
+    }
+
+    // MARK: - Chats Privacy toggle propagation
+
+    /// Called from the Settings toggle after the per-account flag is persisted. OFF actively
+    /// revokes our pool at every contact holding one (empty replace:true - the wire revocation
+    /// primitive) so their very next payment falls back to our chatting address instead of
+    /// draining the residual pool. ON clears revocation markers; the offered markers were
+    /// already cleared per contact at revoke time, so the normal lazy offer re-fires on each
+    /// next conversation open, under the usual serve throttle and caps.
+    func handleChatsPrivacyToggleChanged(enabled: Bool) {
+        guard let wallet = WalletManager.shared.currentWallet else { return }
+        if enabled {
+            PaymentPoolStore.shared.clearAllPoolRevocations(wallet: wallet.publicAddress)
+        } else {
+            revokeOfferedPoolsForChatsPrivacyOff()
+        }
+    }
+
+    /// One revoke per contact currently holding our pool (offered marker set, not yet revoked),
+    /// serialized through the outgoing queue. Failures are logged and non-fatal - the contact
+    /// then simply drains the residual pool (the pre-revocation backstop semantics), and the
+    /// contact stays eligible for a retry on a later toggle-off. Each successful revoke also
+    /// stamps the serve throttle, so rapid off/on flapping can't spam a contact with more than
+    /// one revoke+offer pair per 10 minutes.
+    func revokeOfferedPoolsForChatsPrivacyOff() {
+        guard let wallet = WalletManager.shared.currentWallet else { return }
+        let walletAddress = wallet.publicAddress
+        let targets = PaymentPoolStore.shared.contactsHoldingOurPool(wallet: walletAddress)
+        guard !targets.isEmpty else { return }
+        AppLog.log("[ChatService] Chats Privacy off - revoking offered pools at %d contacts", targets.count)
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            for contactAddress in targets {
+                // The toggle may flip back ON mid-broadcast - stop revoking, the remaining
+                // contacts keep their (again welcome) pools.
+                guard !AppSettings.chatsPrivacyEnabled(for: walletAddress) else { return }
+                guard let contact = self.contactsManager.getContact(byAddress: contactAddress) else { continue }
+                let payload = PaymentPoolCodec.encode(AddressPoolContent(addresses: [], replace: true))
+                guard !payload.isEmpty else { return }
+                do {
+                    try await self.enqueueOutgoingTxOperation {
+                        // Re-checked once the queue serializes us, same reasoning as offers.
+                        guard !AppSettings.chatsPrivacyEnabled(for: walletAddress) else { return }
+                        guard !PaymentPoolStore.shared.isPoolRevoked(for: contactAddress, wallet: walletAddress) else { return }
+                        try await self.sendInvisiblePoolEnvelope(to: contact, payload: payload)
+                        PaymentPoolStore.shared.markPoolRevoked(for: contactAddress, wallet: walletAddress)
+                        PaymentPoolStore.shared.recordPoolOfferServed(to: contactAddress, wallet: walletAddress)
+                    }
+                    AppLog.log("[ChatService] Revoked pool at %@", String(contactAddress.suffix(10)))
+                } catch {
+                    AppLog.log("[ChatService] Pool revoke to %@ failed (non-fatal, residual drain applies): %@",
+                               String(contactAddress.suffix(10)), error.localizedDescription)
+                }
+            }
+        }
     }
 
     /// Sends `addr_pool_request` when the stored pool for `contact` has run low (<=
@@ -309,6 +377,17 @@ extension ChatService {
                 continue
             }
             accepted.append(address)
+        }
+
+        // REVOCATION PRIMITIVE (must be honored - see MESSAGING.md): a replace:true pool that
+        // is empty after validation clears this contact's stored pool entirely. The contact
+        // turned off Chats Privacy (or is retracting an offer) - our next payment to them falls
+        // back to their chatting address, and `willPayViaFreshPoolAddress` goes false the
+        // moment the empty pool is stored. No reciprocity on a revoke.
+        if content.replace == true && accepted.isEmpty {
+            store.mergeTheirPool(addresses: [], replace: true, for: contactAddress, wallet: walletAddress)
+            AppLog.log("[ChatService] Pool REVOKED by %@ - cleared stored pool", String(contactAddress.suffix(10)))
+            return
         }
         guard !accepted.isEmpty else { return }
 

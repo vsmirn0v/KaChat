@@ -77,6 +77,10 @@ final class PaymentPoolStore {
         /// contactAddress -> last time we SERVED an addr_pool send to that contact (inbound
         /// abuse throttle). Optional so states persisted before this field decode fine.
         var lastPoolServeAt: [String: Date]? = nil
+        /// Contacts whose pool of OUR addresses we revoked (empty replace:true sent) when
+        /// Chats Privacy was turned off. Cleared per contact when we next successfully offer
+        /// (and wholesale on toggle-on). Optional for decode compat.
+        var revokedContacts: Set<String>? = nil
     }
 
     /// Payment-destination memory for in-flight sends, keyed by the payment's pending txId so a
@@ -165,6 +169,59 @@ final class PaymentPoolStore {
 
     func lifetimeReservationCount(for contactAddress: String, wallet walletAddress: String) -> Int {
         (state(for: walletAddress).myReservations[contactAddress] ?? []).count
+    }
+
+    /// Reservations for `contactAddress` that can be (re-)offered in a `replace:true` batch:
+    /// everything never funded, whether or not it was offered before. Used by the re-offer path
+    /// (after a Chats Privacy revoke) so toggling the feature off and on doesn't burn five new
+    /// indices per cycle - the contact discarded these on revoke, they're still reserved for
+    /// this contact alone, and never-funded means re-offering them creates no address reuse.
+    func reofferableReservations(for contactAddress: String, wallet walletAddress: String) -> [ReservedAddress] {
+        (state(for: walletAddress).myReservations[contactAddress] ?? []).filter { $0.funded != true }
+    }
+
+    // MARK: - Revocation lifecycle (Chats Privacy toggle)
+
+    /// Contacts currently holding a live pool of OUR addresses (offered marker set, not yet
+    /// revoked) - the target list for the toggle-off revoke broadcast.
+    func contactsHoldingOurPool(wallet walletAddress: String) -> [String] {
+        let current = state(for: walletAddress)
+        let revoked = current.revokedContacts ?? []
+        return current.offeredContacts.filter { !revoked.contains($0) }.sorted()
+    }
+
+    func isPoolRevoked(for contactAddress: String, wallet walletAddress: String) -> Bool {
+        (state(for: walletAddress).revokedContacts ?? []).contains(contactAddress)
+    }
+
+    /// Records a successful revoke: the contact no longer holds our pool, so the offered marker
+    /// clears too - that's what lets the normal lazy offer re-fire after the toggle comes back
+    /// on. The reservations themselves are untouched: still reserved for this contact only,
+    /// still watched (a payment racing the revoke must land and render).
+    func markPoolRevoked(for contactAddress: String, wallet walletAddress: String) {
+        var current = state(for: walletAddress)
+        var revoked = current.revokedContacts ?? []
+        revoked.insert(contactAddress)
+        current.revokedContacts = revoked
+        current.offeredContacts.remove(contactAddress)
+        save(current, for: walletAddress)
+    }
+
+    /// Cleared when we next successfully offer to this contact.
+    func clearPoolRevocation(for contactAddress: String, wallet walletAddress: String) {
+        var current = state(for: walletAddress)
+        guard var revoked = current.revokedContacts, revoked.contains(contactAddress) else { return }
+        revoked.remove(contactAddress)
+        current.revokedContacts = revoked
+        save(current, for: walletAddress)
+    }
+
+    /// Toggle-on housekeeping: forget all revocations so the lazy offers are unencumbered.
+    func clearAllPoolRevocations(wallet walletAddress: String) {
+        var current = state(for: walletAddress)
+        guard let revoked = current.revokedContacts, !revoked.isEmpty else { return }
+        current.revokedContacts = []
+        save(current, for: walletAddress)
     }
 
     /// Gate for EVERY addr_pool send to `contactAddress` (initial offer, reciprocity, and

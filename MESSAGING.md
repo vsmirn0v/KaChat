@@ -259,6 +259,20 @@ least one incoming AND one outgoing message exchanged) is ignored.
 On a `replace`, `used` flags carry over for any address that reappears — a replayed or
 overlapping replace can never resurrect an already-spent address.
 
+**Revocation primitive** (receivers MUST honor): a `replace:true` pool whose address list is
+empty — or empty after per-address validation —
+
+```json
+{"type":"addr_pool","addresses":[],"replace":true}
+```
+
+**clears the receiver's stored pool for that contact entirely.** The receiver's next payment to
+that contact falls back to the chatting address, and any "fresh address" UI indicator goes
+false immediately. A revoke never triggers a reciprocal offer. (An *append* with no valid
+addresses remains a no-op — only `replace:true` clears.) Senders use this when the user turns
+the feature off (see User Toggle below) or otherwise wants to retract previously shared
+addresses.
+
 #### 2. `addr_pool_request` — ask for a fresh pool
 
 ```json
@@ -393,12 +407,27 @@ gates the **send side only**:
   no `addr_pool` is offered (initial, reciprocal, or top-up) and no `addr_pool_request` is
   sent; inbound `addr_pool_request` is silently ignored (same no-error semantics as the rate
   limits).
+- **Revoke on toggle-off**: flipping OFF actively propagates — the client sends the empty
+  `replace:true` revocation (see the `addr_pool` section) to **every contact currently holding
+  a live pool of its addresses** (offered-marker set, not yet revoked), one revoke per contact,
+  serialized through the normal outgoing queue. Each success sets a persisted per-contact
+  revoked-marker and clears that contact's offered-marker. Failures are logged and non-fatal:
+  that contact simply drains the residual pool (the backstop semantics), staying eligible for a
+  retry on a later toggle-off. Each successful revoke also stamps the pool-serve throttle, so
+  off/on flapping is bounded to one revoke+offer pair per contact per throttle window.
+- **Re-offer on toggle-on**: flipping ON clears the revoked-markers; because the offered-markers
+  were cleared at revoke time, the normal lazy once-per-contact offer re-fires on each next
+  conversation open (`replace:true`), under the usual serve throttle and caps. The re-offer MAY
+  reuse previously offered but never-funded reservations (the recipient discarded them on
+  revoke; never-funded means no address reuse is created) rather than burning fresh indices
+  against the lifetime cap each cycle — iOS does.
+- Reserved addresses are never un-reserved by any of this: they stay reserved for their one
+  contact forever and stay in the UTXO watched set, so a payment that raced the revoke still
+  lands and still renders (its `payment_notice` is honored regardless of the toggle).
 - Regardless of the toggle (mandatory): inbound `payment_notice` handling stays active,
   previously offered reserved addresses stay valid and stay in the UTXO watched set (payments
   to them must keep rendering and being noticed), and inbound `addr_pool` may still be accepted
   and stored (harmless, ready if re-enabled).
-- Toggling back ON resumes normal behavior under the existing offered-markers, throttles, and
-  caps.
 
 ### Push Notifications
 
