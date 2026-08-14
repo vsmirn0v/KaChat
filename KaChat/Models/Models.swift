@@ -1584,6 +1584,15 @@ struct AppSettings: Codable {
     /// Deliberately not gated by Child Mode - these are wallet notifications, and Portfolio /
     /// Cold Storage remain available there.
     var addressActivityNotificationsEnabled: Bool
+    /// Settings > Notifications > KaPosts: per-event-type gates for KaPosts notification
+    /// pings (all default ON). Mapped from the K notifications API's `contentType` /
+    /// `voteType` fields via `shouldNotifyKaPostsAction` - a disabled type is silently
+    /// skipped, never queued. Orthogonal to Child Mode (which suppresses ALL KaPosts pings).
+    var kaPostsNotifyLikes: Bool
+    var kaPostsNotifyReposts: Bool
+    var kaPostsNotifyFollows: Bool
+    var kaPostsNotifyDislikes: Bool
+    var kaPostsNotifyComments: Bool
     var messagePollInterval: TimeInterval
     var liveUpdatesEnabled: Bool
     var chatPhotoQualityPreset: ChatPhotoQualityPreset
@@ -1727,6 +1736,11 @@ struct AppSettings: Codable {
             incomingNotificationSoundEnabled: true,
             incomingNotificationVibrationEnabled: true,
             addressActivityNotificationsEnabled: true,
+            kaPostsNotifyLikes: true,
+            kaPostsNotifyReposts: true,
+            kaPostsNotifyFollows: true,
+            kaPostsNotifyDislikes: true,
+            kaPostsNotifyComments: true,
             messagePollInterval: 10.0,
             liveUpdatesEnabled: false,
             chatPhotoQualityPreset: .default,
@@ -1783,6 +1797,11 @@ struct AppSettings: Codable {
         case incomingNotificationSoundEnabled
         case incomingNotificationVibrationEnabled
         case addressActivityNotificationsEnabled
+        case kaPostsNotifyLikes
+        case kaPostsNotifyReposts
+        case kaPostsNotifyFollows
+        case kaPostsNotifyDislikes
+        case kaPostsNotifyComments
         case messagePollInterval
         case liveUpdatesEnabled
         case chatPhotoQualityPreset
@@ -1840,6 +1859,11 @@ struct AppSettings: Codable {
         incomingNotificationSoundEnabled: Bool = true,
         incomingNotificationVibrationEnabled: Bool = true,
         addressActivityNotificationsEnabled: Bool = true,
+        kaPostsNotifyLikes: Bool = true,
+        kaPostsNotifyReposts: Bool = true,
+        kaPostsNotifyFollows: Bool = true,
+        kaPostsNotifyDislikes: Bool = true,
+        kaPostsNotifyComments: Bool = true,
         messagePollInterval: TimeInterval,
         liveUpdatesEnabled: Bool,
         chatPhotoQualityPreset: ChatPhotoQualityPreset = .default,
@@ -1887,6 +1911,11 @@ struct AppSettings: Codable {
         self.incomingNotificationSoundEnabled = incomingNotificationSoundEnabled
         self.incomingNotificationVibrationEnabled = incomingNotificationVibrationEnabled
         self.addressActivityNotificationsEnabled = addressActivityNotificationsEnabled
+        self.kaPostsNotifyLikes = kaPostsNotifyLikes
+        self.kaPostsNotifyReposts = kaPostsNotifyReposts
+        self.kaPostsNotifyFollows = kaPostsNotifyFollows
+        self.kaPostsNotifyDislikes = kaPostsNotifyDislikes
+        self.kaPostsNotifyComments = kaPostsNotifyComments
         self.messagePollInterval = messagePollInterval
         self.liveUpdatesEnabled = liveUpdatesEnabled
         self.chatPhotoQualityPreset = chatPhotoQualityPreset
@@ -1962,6 +1991,11 @@ struct AppSettings: Codable {
         incomingNotificationSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .incomingNotificationSoundEnabled) ?? true
         incomingNotificationVibrationEnabled = try container.decodeIfPresent(Bool.self, forKey: .incomingNotificationVibrationEnabled) ?? true
         addressActivityNotificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .addressActivityNotificationsEnabled) ?? true
+        kaPostsNotifyLikes = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyLikes) ?? true
+        kaPostsNotifyReposts = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyReposts) ?? true
+        kaPostsNotifyFollows = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyFollows) ?? true
+        kaPostsNotifyDislikes = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyDislikes) ?? true
+        kaPostsNotifyComments = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyComments) ?? true
         messagePollInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .messagePollInterval) ?? 10.0
         liveUpdatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .liveUpdatesEnabled) ?? false
         chatPhotoQualityPreset = try container.decodeIfPresent(
@@ -2061,6 +2095,11 @@ struct AppSettings: Codable {
         try container.encode(incomingNotificationSoundEnabled, forKey: .incomingNotificationSoundEnabled)
         try container.encode(incomingNotificationVibrationEnabled, forKey: .incomingNotificationVibrationEnabled)
         try container.encode(addressActivityNotificationsEnabled, forKey: .addressActivityNotificationsEnabled)
+        try container.encode(kaPostsNotifyLikes, forKey: .kaPostsNotifyLikes)
+        try container.encode(kaPostsNotifyReposts, forKey: .kaPostsNotifyReposts)
+        try container.encode(kaPostsNotifyFollows, forKey: .kaPostsNotifyFollows)
+        try container.encode(kaPostsNotifyDislikes, forKey: .kaPostsNotifyDislikes)
+        try container.encode(kaPostsNotifyComments, forKey: .kaPostsNotifyComments)
         try container.encode(messagePollInterval, forKey: .messagePollInterval)
         try container.encode(liveUpdatesEnabled, forKey: .liveUpdatesEnabled)
         try container.encode(chatPhotoQualityPreset, forKey: .chatPhotoQualityPreset)
@@ -2118,6 +2157,21 @@ struct AppSettings: Codable {
     var notificationsEnabled: Bool {
         get { notificationMode != .disabled }
         set { notificationMode = newValue ? .remotePush : .disabled }
+    }
+
+    /// Per-event-type gate for KaPosts notification pings, keyed off the K notifications
+    /// API's fields (see KaPostsAPIClient.KNotification / KaPostsNotificationService.postLocal):
+    /// `contentType` is "vote" (with `voteType` "upvote"/"downvote"), "reply", "quote"
+    /// (K's repost mechanism - quotes-with-text included), or "follow". Unknown kinds always
+    /// notify rather than silently vanishing behind a toggle that doesn't name them.
+    func shouldNotifyKaPostsAction(contentType: String?, voteType: String?) -> Bool {
+        switch contentType {
+        case "vote": return voteType == "downvote" ? kaPostsNotifyDislikes : kaPostsNotifyLikes
+        case "reply": return kaPostsNotifyComments
+        case "quote": return kaPostsNotifyReposts
+        case "follow": return kaPostsNotifyFollows
+        default: return true
+        }
     }
 
     var backgroundFetchEnabled: Bool {

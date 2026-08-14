@@ -52,6 +52,9 @@ struct SettingsView: View {
                 settingsCategoryRow("Connection", icon: "antenna.radiowaves.left.and.right", tint: .accentColor) {
                     connectionPage
                 }
+                settingsCategoryRow("Notifications", icon: "bell.badge", tint: .accentColor) {
+                    NotificationsHubPage()
+                }
                 settingsCategoryRow("Chats", icon: "bubble.left.and.bubble.right", tint: .accentColor) {
                     chatsPage
                 }
@@ -191,18 +194,6 @@ struct SettingsView: View {
                         .onChange(of: settingsViewModel.settings.requirePhotoApprovalForNewContacts) { _ in
                             settingsViewModel.saveSettings()
                         }
-
-                    NavigationLink {
-                        NotificationsSettingsView()
-                    } label: {
-                        HStack {
-                            Label("Notifications", systemImage: "bell.badge")
-                            Spacer()
-                            Text(settingsViewModel.settings.notificationMode.displayName)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
 
                     Button {
                         showPhotoQualitySheet = true
@@ -1124,6 +1115,92 @@ private struct QuickReactionSlotSelection: Identifiable {
     var id: Int { index }
 }
 
+/// Top-level Settings > Notifications hub: a category list (same row style as the main
+/// Settings screen) splitting notification prefs by feature - Chats (the pre-existing
+/// mode/sound/vibration page, moved here intact from Settings > Chats), Wallet (own-address
+/// receive activity), and KaPosts (per-event-type ping toggles).
+struct NotificationsHubPage: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+
+    var body: some View {
+        Form {
+            Section("Notifications") {
+                settingsCategoryRow("Chats", icon: "bubble.left.and.bubble.right", tint: .accentColor) {
+                    NotificationsSettingsView()
+                }
+                settingsCategoryRow("Wallet", icon: "banknote", tint: .accentColor) {
+                    WalletNotificationSettingsView()
+                }
+                settingsCategoryRow("KaPosts", icon: "square.and.pencil", tint: .accentColor) {
+                    KaPostsNotificationSettingsView()
+                }
+            }
+        }
+        .navigationTitle("Notifications")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Settings > Notifications > Wallet: the own-address receive-activity toggle (see
+/// AddressActivityNotifier).
+struct WalletNotificationSettingsView: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Address Activity", isOn: $settingsViewModel.settings.addressActivityNotificationsEnabled)
+                    .onChange(of: settingsViewModel.settings.addressActivityNotificationsEnabled) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+            } footer: {
+                Text("Notify when any of your spending or cold storage addresses receives Kaspa from an external source. Transfers between your own addresses are ignored.")
+            }
+        }
+        .navigationTitle("Wallet")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// Settings > Notifications > KaPosts: per-event-type gates for KaPosts pings, mapped from
+/// the K notifications API's action kinds (see AppSettings.shouldNotifyKaPostsAction).
+/// Disabled types are silently skipped - never queued for later. Orthogonal to Child Mode,
+/// which suppresses all KaPosts pings regardless of these.
+struct KaPostsNotificationSettingsView: View {
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Likes", isOn: $settingsViewModel.settings.kaPostsNotifyLikes)
+                    .onChange(of: settingsViewModel.settings.kaPostsNotifyLikes) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+                Toggle("Reposts", isOn: $settingsViewModel.settings.kaPostsNotifyReposts)
+                    .onChange(of: settingsViewModel.settings.kaPostsNotifyReposts) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+                Toggle("Follows", isOn: $settingsViewModel.settings.kaPostsNotifyFollows)
+                    .onChange(of: settingsViewModel.settings.kaPostsNotifyFollows) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+                Toggle("Dislikes", isOn: $settingsViewModel.settings.kaPostsNotifyDislikes)
+                    .onChange(of: settingsViewModel.settings.kaPostsNotifyDislikes) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+                Toggle("Comments", isOn: $settingsViewModel.settings.kaPostsNotifyComments)
+                    .onChange(of: settingsViewModel.settings.kaPostsNotifyComments) { _ in
+                        settingsViewModel.saveSettings()
+                    }
+            } footer: {
+                Text("Choose which KaPosts activity sends a notification. Quotes of your posts count as reposts.")
+            }
+        }
+        .navigationTitle("KaPosts")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 struct NotificationsSettingsView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @EnvironmentObject var pushManager: PushNotificationManager
@@ -1221,17 +1298,6 @@ struct NotificationsSettingsView: View {
                 Text("Used when a contact has no custom notification mode set.")
             }
 
-            Section {
-                Toggle("Address Activity", isOn: $settingsViewModel.settings.addressActivityNotificationsEnabled)
-                    .onChange(of: settingsViewModel.settings.addressActivityNotificationsEnabled) { _ in
-                        settingsViewModel.saveSettings()
-                    }
-            } header: {
-                Text("Wallet")
-            } footer: {
-                Text("Notify when any of your spending or cold storage addresses receives Kaspa from an external source. Transfers between your own addresses are ignored.")
-            }
-
             Section("Per Contact") {
                 Text("Set per-contact notification mode in each chat's info screen: Off, No Sound, or Sound.")
                     .font(.footnote)
@@ -1239,7 +1305,7 @@ struct NotificationsSettingsView: View {
             }
         }
         .toast(message: toastMessage, style: toastStyle)
-        .navigationTitle("Notifications")
+        .navigationTitle("Chats")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Notifications Disabled", isPresented: $notificationPermissionDenied) {
             Button("Open Settings") {

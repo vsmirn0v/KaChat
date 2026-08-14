@@ -615,8 +615,18 @@ final class KaPostsNotificationService {
                 UserDefaults.standard.set(NSNumber(value: newest), forKey: key)
                 return
             }
-            let fresh = notifications.filter { $0.timestamp > lastSeen }
-            guard !fresh.isEmpty else { return }
+            // Per-type toggles (Settings > Notifications > KaPosts): disabled kinds are
+            // dropped HERE, after lastSeen already advanced past them above - silently
+            // skipped for good, never queued to ping later, and never eating a slot in the
+            // burst cap below.
+            let fresh = notifications.filter {
+                $0.timestamp > lastSeen &&
+                settings.shouldNotifyKaPostsAction(contentType: $0.contentType, voteType: $0.voteType)
+            }
+            guard !fresh.isEmpty else {
+                UserDefaults.standard.set(NSNumber(value: max(newest, lastSeen)), forKey: key)
+                return
+            }
             UserDefaults.standard.set(NSNumber(value: max(newest, lastSeen)), forKey: key)
             // Oldest first so banners arrive in order; cap a burst so a viral post doesn't
             // fire fifty banners at once.
