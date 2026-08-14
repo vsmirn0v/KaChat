@@ -27,6 +27,9 @@ struct ManageAddressesView: View {
     @State private var renameText = ""
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
+    /// Addresses that own at least one KNS domain (cached assets-by-owner lookup) - drives the
+    /// "Contains domain" row tag and promotes those rows into the funded group in the sort.
+    @State private var domainOwningAddresses: Set<String> = []
 
     private var visibleEntries: [SpendingAddressEntry] {
         entries.filter { !$0.hidden }
@@ -36,10 +39,11 @@ struct ManageAddressesView: View {
         entries.filter { $0.hidden }.count
     }
 
-    /// Primary always first regardless of its own balance/index. After that: funded addresses
-    /// (balance > 0), then unfunded ones — within each group, newest index first, so a
+    /// Primary always first regardless of its own balance/index. After that: addresses that
+    /// have a balance OR contain a KNS domain (keeping the pre-existing funded-first/newest-
+    /// index-first relative order within that group), then fresh/unused addresses last - so a
     /// freshly-generated address (highest index, unfunded) lands immediately under the last
-    /// funded address rather than at the very bottom of the list.
+    /// active address rather than mixed in with them.
     private var sortedEntries: [SpendingAddressEntry] {
         let primary = visibleEntries.filter { $0.isCurrent }
         let rest = visibleEntries
@@ -50,7 +54,11 @@ struct ManageAddressesView: View {
                 }
                 return lhs.index > rhs.index
             }
-        return primary + rest
+        // Stable partition: domain-holding rows rank with the funded group, but relative order
+        // inside each group stays exactly what the comparator above produced.
+        let active = rest.filter { $0.balanceSompi > 0 || domainOwningAddresses.contains($0.address) }
+        let fresh = rest.filter { $0.balanceSompi == 0 && !domainOwningAddresses.contains($0.address) }
+        return primary + active + fresh
     }
 
     /// Hide is only ever offered for a non-primary, zero-balance address — the same guard is
@@ -308,10 +316,15 @@ struct ManageAddressesView: View {
                     Text("\(formatKasExact(entry.balanceSompi)) KAS")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                    Text(isUsed ? "Used" : "Unused")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(isUsed ? .orange : .green)
+                    HStack(spacing: 6) {
+                        Text(isUsed ? "Used" : "Unused")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(isUsed ? .orange : .green)
+                        if domainOwningAddresses.contains(entry.address) {
+                            ContainsDomainTag()
+                        }
+                    }
                 }
 
                 Spacer()
@@ -400,6 +413,18 @@ struct ManageAddressesView: View {
         }
         entries = updatedEntries.sorted { $0.index < $1.index }
         isLoading = false
+
+        // Contains-domain tags, after the rows are already visible. refreshIfNeeded is the same
+        // batched KNS lookup ContactsManager.fetchKNSDomainsForAllContacts uses: capped
+        // concurrency, per-address debounce and failure cooldown, shared in-flight requests -
+        // so re-opening this screen reads warm cache instead of re-firing a request burst.
+        let addresses = baseEntries.map { $0.address }
+        await KNSService.shared.refreshIfNeeded(for: addresses)
+        var owners: Set<String> = []
+        for address in addresses where KNSService.shared.domainCache[address]?.allDomains.isEmpty == false {
+            owners.insert(address)
+        }
+        domainOwningAddresses = owners
     }
 
     private func generateNew() {
@@ -496,6 +521,22 @@ struct ManageAddressesView: View {
                     .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
             )
             .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+    }
+}
+
+/// Small teal-tinted capsule shown on address rows that own at least one KNS domain. Shared by
+/// ManageAddressesView's spending-address list and ColdStorageDetailView's address list. Same
+/// capsule treatment as the app's other inline badges (e.g. KNSDomainCard's "Primary"), tinted
+/// with the accent color instead of drawn on a dark card.
+struct ContainsDomainTag: View {
+    var body: some View {
+        Text("Contains domain")
+            .font(.caption2)
+            .fontWeight(.semibold)
+            .foregroundColor(.accentColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
     }
 }
 

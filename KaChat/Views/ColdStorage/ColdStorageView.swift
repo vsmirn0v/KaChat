@@ -308,19 +308,30 @@ struct ColdStorageDetailView: View {
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var loadToken = UUID()
+    /// Addresses that own at least one KNS domain (cached assets-by-owner lookup) - drives the
+    /// "Contains domain" row tag and promotes those rows into the funded group in the sort.
+    @State private var domainOwningAddresses: Set<String> = []
 
     private var currentAccount: ColdStorageAccount {
         manager.accounts.first { $0.id == account.id } ?? account
     }
 
+    /// Addresses that have a balance OR contain a KNS domain first (keeping the pre-existing
+    /// funded-first/newest-index-first relative order within that group), fresh/unused
+    /// addresses last - matching Manage Addresses' spending-chain sort.
     private var visibleEntries: [ColdStorageAddressEntry] {
-        entries.filter { !$0.hidden }
+        let sorted = entries.filter { !$0.hidden }
             .sorted { lhs, rhs in
                 if (lhs.balanceSompi > 0) != (rhs.balanceSompi > 0) {
                     return lhs.balanceSompi > 0
                 }
                 return lhs.index > rhs.index
             }
+        // Stable partition: domain-holding rows rank with the funded group, but relative order
+        // inside each group stays exactly what the comparator above produced.
+        let active = sorted.filter { $0.balanceSompi > 0 || domainOwningAddresses.contains($0.address) }
+        let fresh = sorted.filter { $0.balanceSompi == 0 && !domainOwningAddresses.contains($0.address) }
+        return active + fresh
     }
 
     private var hiddenCount: Int {
@@ -569,10 +580,15 @@ struct ColdStorageDetailView: View {
                     Text("\(formatKasExact(entry.balanceSompi)) KAS")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                    Text(isUsed ? "Used" : "Unused")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(isUsed ? .orange : .green)
+                    HStack(spacing: 6) {
+                        Text(isUsed ? "Used" : "Unused")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(isUsed ? .orange : .green)
+                        if domainOwningAddresses.contains(entry.address) {
+                            ContainsDomainTag()
+                        }
+                    }
                 }
 
                 Spacer()
@@ -642,12 +658,27 @@ struct ColdStorageDetailView: View {
             guard loadToken == token else { return }
             updates[entry.address] = used
         }
-        guard loadToken == token, !updates.isEmpty else { return }
-        for idx in entries.indices {
-            if let used = updates[entries[idx].address] {
-                entries[idx].everUsed = used
+        guard loadToken == token else { return }
+        if !updates.isEmpty {
+            for idx in entries.indices {
+                if let used = updates[entries[idx].address] {
+                    entries[idx].everUsed = used
+                }
             }
         }
+
+        // Contains-domain tags, after the rows are already visible. refreshIfNeeded is the same
+        // batched KNS lookup ContactsManager.fetchKNSDomainsForAllContacts uses: capped
+        // concurrency, per-address debounce and failure cooldown, shared in-flight requests -
+        // so re-opening this screen reads warm cache instead of re-firing a request burst.
+        let addresses = baseEntries.map { $0.address }
+        await KNSService.shared.refreshIfNeeded(for: addresses)
+        guard loadToken == token else { return }
+        var owners: Set<String> = []
+        for address in addresses where KNSService.shared.domainCache[address]?.allDomains.isEmpty == false {
+            owners.insert(address)
+        }
+        domainOwningAddresses = owners
     }
 
     private func hideAddress(_ entry: ColdStorageAddressEntry) {
@@ -1778,6 +1809,7 @@ private struct ColdStorageAddressTransactionHistoryView: View {
     private enum Tab: String, CaseIterable {
         case transactions = "Transaction History"
         case utxos = "UTXOs"
+        case knsDomains = "KNS Domains"
     }
 
     @State private var selectedTab: Tab = .transactions
@@ -1785,6 +1817,9 @@ private struct ColdStorageAddressTransactionHistoryView: View {
     @State private var isLoading = false
     @State private var utxos: [UTXO] = []
     @State private var isLoadingUtxos = false
+    @State private var knsDomains: [KNSDomain] = []
+    @State private var isLoadingDomains = false
+    @State private var domainsLoadFailed = false
     @State private var showReceiveSheet = false
     @State private var showSendSheet = false
     @State private var showCompoundSheet = false
@@ -1800,6 +1835,7 @@ private struct ColdStorageAddressTransactionHistoryView: View {
         switch tab {
         case .transactions: return tab.rawValue
         case .utxos: return "\(tab.rawValue) (\(utxos.count))"
+        case .knsDomains: return tab.rawValue
         }
     }
 
@@ -1829,6 +1865,8 @@ private struct ColdStorageAddressTransactionHistoryView: View {
                 transactionsList
             case .utxos:
                 utxosList
+            case .knsDomains:
+                knsDomainsList
             }
         }
         .navigationTitle(entry.displayLabel)
@@ -1912,7 +1950,60 @@ private struct ColdStorageAddressTransactionHistoryView: View {
             utxoLabels = ColdStorageManager.shared.loadUtxoLabels(address: entry.address)
             await loadTransactions()
             await loadUtxos()
+            await loadDomains()
         }
+    }
+
+    /// KNS domains owned by this cold storage address (same assets-by-owner lookup and teal
+    /// KNSDomainCard rows as the spending-address KNS Domains tab). Deliberately watch-only:
+    /// a KNS domain transfer is a commit/reveal inscription pair whose reveal input spends a
+    /// P2SH redeem script, and the KSPT QR format KaChat and the KasSigner exchange only
+    /// carries plain single-sig Schnorr inputs (KsptCodec rejects redeem-script payloads), so
+    /// no send flow is offered here — see the footer note shown to the user.
+    private var knsDomainsList: some View {
+        List {
+            if isLoadingDomains && knsDomains.isEmpty {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+            } else if domainsLoadFailed && knsDomains.isEmpty {
+                Text("Could not load KNS domains. Pull to retry.")
+                    .foregroundColor(.secondary)
+            } else if knsDomains.isEmpty {
+                Text("No KNS domains on this address.")
+                    .foregroundColor(.secondary)
+            } else {
+                Section {
+                    ForEach(knsDomains, id: \.inscriptionId) { domain in
+                        KNSDomainCard(domain: domain)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                    }
+                } footer: {
+                    Text("Sending domains from a cold storage address requires signing on the KasSigner, which doesn't support inscription transactions yet.")
+                        .padding(.horizontal, 4)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .refreshable {
+            await loadDomains()
+        }
+    }
+
+    private func loadDomains() async {
+        isLoadingDomains = true
+        if let info = await KNSService.shared.fetchInfo(for: entry.address) {
+            knsDomains = info.allDomains
+            domainsLoadFailed = false
+        } else {
+            knsDomains = []
+            domainsLoadFailed = true
+        }
+        isLoadingDomains = false
     }
 
     private var transactionsList: some View {
