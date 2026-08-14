@@ -23,9 +23,10 @@ struct ChattingAddressPickerView: View {
 
     private let batchSize = 50
 
-    /// Identity switching is a clean selection only - never allowed once any conversation
-    /// exists (an imported seed with live chats at index 0 must keep that identity).
-    /// `setChattingAddress` re-enforces this guard; here it drives the explanatory banner.
+    /// True when the current identity already synced conversation history (an imported seed's
+    /// index-0 chats can appear within seconds of import). Switching is still allowed - the
+    /// history stays parked on-chain and in the old address's own storage scope - but the
+    /// detail view asks for confirmation first instead of switching silently.
     private var conversationsExist: Bool {
         !ChatService.shared.conversations.isEmpty
     }
@@ -62,17 +63,6 @@ struct ChattingAddressPickerView: View {
                         .multilineTextAlignment(.center)
                 }
                 .padding(.top, 8)
-
-                if conversationsExist {
-                    Text("This account already has conversations, so its chatting address can no longer be changed.")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                        .multilineTextAlignment(.center)
-                        .padding(12)
-                        .frame(maxWidth: .infinity)
-                        .background(Color.orange.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
 
                 VStack(spacing: 10) {
                     ForEach(visibleCandidates) { candidate in
@@ -219,7 +209,10 @@ struct ChattingAddressPickerView: View {
 
 /// Detail sheet for one scanned identity slot: full address (tap to copy), balance, KNS domains
 /// rendered with the app's standard `KNSDomainCard` style, and the prominent
-/// "Set as Chatting Address" action at the bottom.
+/// "Set as Chatting Address" action at the bottom. When the current identity already has synced
+/// conversations the button stays enabled but confirms first: the user's intent is a fresh
+/// start with this seed, and switching only parks the old address's history (it lives on-chain
+/// and in that address's own storage scope), it deletes nothing.
 struct ChattingAddressDetailView: View {
     let candidate: ChattingAddressCandidate
     let isCurrent: Bool
@@ -230,6 +223,7 @@ struct ChattingAddressDetailView: View {
     @State private var isSwitching = false
     @State private var errorMessage: String?
     @State private var copied = false
+    @State private var showSwitchConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -297,7 +291,14 @@ struct ChattingAddressDetailView: View {
             }
             .safeAreaInset(edge: .bottom) {
                 Button {
-                    Task { await setAsChattingAddress() }
+                    // Existing conversations on the current identity: confirm before
+                    // switching (nothing is deleted, the old history is just parked with the
+                    // old address). No conversations: switch silently.
+                    if conversationsExist {
+                        showSwitchConfirmation = true
+                    } else {
+                        Task { await setAsChattingAddress() }
+                    }
                 } label: {
                     HStack(spacing: 8) {
                         if isSwitching {
@@ -327,11 +328,19 @@ struct ChattingAddressDetailView: View {
                 }
             }
             .interactiveDismissDisabled(isSwitching)
+            .alert("Switch Chatting Address?", isPresented: $showSwitchConfirmation) {
+                Button("Switch") {
+                    Task { await setAsChattingAddress() }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This seed already has conversations on the current chatting address. Switching starts fresh with the new address. Your existing conversations stay with the old address and are not deleted.")
+            }
         }
     }
 
     private var setButtonDisabled: Bool {
-        isCurrent || conversationsExist || isSwitching
+        isCurrent || isSwitching
     }
 
     private func isPrimaryDomain(_ domain: KNSDomain) -> Bool {

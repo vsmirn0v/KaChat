@@ -1334,9 +1334,14 @@ final class WalletManager: ObservableObject {
 
     /// Switches the wallet's identity to the chatting address at `index` on the identity chain.
     ///
-    /// This is a CLEAN identity selection, not a migration: it is only allowed while no
-    /// conversations exist (guarded here, re-checked by the UI), i.e. during the import wizard
-    /// before any handshakes or messages were ever sent or received. It funnels through
+    /// This is a CLEAN identity selection, not a migration: nothing is moved or deleted. If the
+    /// imported seed's current (index-0) identity already synced conversation history, that
+    /// history lives on-chain and in its own address-keyed storage scope (MessageStore SQLite +
+    /// CloudKit zone are keyed by wallet address) - switching simply parks it there, and the UI
+    /// confirms with the user first when any conversations exist (see
+    /// ChattingAddressDetailView). In-flight sync races are handled the same way any account
+    /// switch is: `importWallet` stops polling first, and ChatService's write-time
+    /// `isActiveWallet` guard drops anything that still slips through. It funnels through
     /// `importWallet(from:alias:chattingAddressIndex:)` with the already-stored seed, so every
     /// identity consumer switches exactly like an account import does: keychain wallet record +
     /// private key (re-derived for the chosen index), `currentWallet`/`publicAddress`,
@@ -1351,9 +1356,6 @@ final class WalletManager: ObservableObject {
             throw KasiaError.apiError("Invalid chatting address index")
         }
         guard index != currentChattingAddressIndex else { return }
-        guard ChatService.shared.conversations.isEmpty else {
-            throw KasiaError.apiError("The chatting address can only be changed before any conversations exist.")
-        }
         guard let seedPhrase = try keychainService.loadSeedPhrase() else {
             throw KasiaError.walletNotFound
         }

@@ -10,6 +10,15 @@ struct WelcomeGuideView: View {
     /// Re-presentation after an interrupted first run (app killed before the Adult/Child step
     /// was answered): jump straight back to the choice instead of replaying from Welcome.
     var startAtUserType: Bool = false
+    /// EXPLICIT presentation context, set by the presenter - never inferred from persisted
+    /// markers. True for every account-onboarding run (MainTabView's cover after a create OR
+    /// import, including kill/relaunch re-presents); false only for Profile > Help replays
+    /// (ContactsView). Drives skippability end to end: onboarding runs have no Skip button and
+    /// no interactive dismissal all the way to Finish; replays keep both. Previously this was
+    /// inferred from the Adult/Child pending marker, which broke on devices that had already
+    /// answered Adult/Child for a prior account: an import-triggered run then presented with the
+    /// marker "chosen", looked like a replay, and became skippable.
+    var isOnboardingRun: Bool = false
 
     // MARK: - Adult/Child choice persistence
     //
@@ -38,6 +47,29 @@ struct WelcomeGuideView: View {
 
     static func markUserTypeChosen() {
         UserDefaults.standard.set("chosen", forKey: userTypeChoiceStateKey)
+    }
+
+    // MARK: - Onboarding-run pending marker (kill/relaunch re-present)
+    //
+    // The Adult/Child pending marker alone cannot re-present an interrupted onboarding run on a
+    // device that already answered Adult/Child for a PRIOR account: markUserTypePending never
+    // downgrades "chosen", so a killed import/second-create wizard would simply never come back.
+    // This separate marker tracks "an onboarding run was presented but not finished" for exactly
+    // that case. Set only by MainTabView's first-run presentation (never by Help replays, so a
+    // replay can neither set nor trigger it), cleared by the guide's Finish button - the only
+    // way out of an onboarding run, since those are fully unskippable.
+    static let onboardingRunPendingKey = "kachat_onboarding_wizard_pending"
+
+    static var isOnboardingRunPending: Bool {
+        UserDefaults.standard.bool(forKey: onboardingRunPendingKey)
+    }
+
+    static func markOnboardingRunPending() {
+        UserDefaults.standard.set(true, forKey: onboardingRunPendingKey)
+    }
+
+    static func clearOnboardingRunPending() {
+        UserDefaults.standard.removeObject(forKey: onboardingRunPendingKey)
     }
 
     @EnvironmentObject private var walletManager: WalletManager
@@ -73,12 +105,6 @@ struct WelcomeGuideView: View {
     }
 
     @State private var step: Step = .welcome
-    /// True when this presentation is the mandatory first run (the pending marker is set, i.e.
-    /// MainTabView presented the guide for a fresh account or is re-presenting an interrupted
-    /// one). On a first run the guide is FULLY unskippable: no Skip button at any step and no
-    /// interactive dismissal, all the way to Finish. False on a Profile > Help replay, where
-    /// the guide stays skippable/dismissable exactly as before.
-    @State private var isFirstRunPresentation = false
     @State private var userTypeChoice: UserTypeChoice = .adult
     /// Chats Payment Privacy selection (per-account, default ON). Seeded from the active
     /// account's stored value on appear so a replay shows and edits the real setting.
@@ -101,10 +127,12 @@ struct WelcomeGuideView: View {
             content
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    // Skip exists ONLY on replays (Profile > Help). The initial
-                    // account-creation run is fully unskippable: every step must be advanced
-                    // through to Finish, at which point the guide simply completes.
-                    if !isFirstRunPresentation {
+                    // Skip exists ONLY on replays (Profile > Help). EVERY account-onboarding
+                    // run - create or import, fresh or re-presented after a kill - is fully
+                    // unskippable: every step must be advanced through to Finish, at which
+                    // point the guide simply completes. Decided by the presenter-supplied
+                    // context, not by persisted markers (see isOnboardingRun).
+                    if !isOnboardingRun {
                         ToolbarItem(placement: .navigationBarLeading) {
                             Button("Skip") { onFinished() }
                         }
@@ -113,11 +141,10 @@ struct WelcomeGuideView: View {
         }
         .toast(message: toastMessage)
         // Both presenters use fullScreenCover today (no swipe-down exists), but if the guide is
-        // ever hosted in a sheet this keeps drag-to-dismiss off for the whole first run.
-        .interactiveDismissDisabled(isFirstRunPresentation)
+        // ever hosted in a sheet this keeps drag-to-dismiss off for the whole onboarding run.
+        .interactiveDismissDisabled(isOnboardingRun)
         .onAppear {
-            isFirstRunPresentation = Self.isUserTypePending
-            if startAtUserType, isFirstRunPresentation {
+            if startAtUserType, isOnboardingRun {
                 step = .userType
             }
             if let address = walletManager.currentWallet?.publicAddress {
@@ -439,8 +466,10 @@ struct WelcomeGuideView: View {
             Button {
                 applyPaymentPrivacyChoice()
                 // The guide is done: the one-shot import marker (funding step's "Change
-                // Chatting Address" option) has served its purpose.
+                // Chatting Address" option) has served its purpose, and a completed onboarding
+                // run must not re-present on the next launch.
                 walletManager.justImportedWallet = false
+                Self.clearOnboardingRunPending()
                 onFinished()
             } label: {
                 Text("Finish")
@@ -678,13 +707,17 @@ struct WelcomeGuideView: View {
                             .font(.subheadline.weight(.semibold))
                     }
 
-                    // Import runs only (justImportedWallet is never set by the create flow): an
-                    // imported seed may hold its real identity - KNS domains, a funded chatting
-                    // balance - at a nonzero derivation index. Pushes the scanner INSIDE the
-                    // wizard's NavigationStack; after a switch it pops back here and this step
-                    // re-renders with the new address automatically (chattingAddress reads the
-                    // live currentWallet, and the gift claim resolves the address at tap time).
-                    if walletManager.justImportedWallet {
+                    // INITIAL IMPORT ONBOARDING RUNS ONLY, never Help replays: gated on the
+                    // presenter-supplied onboarding context AND the import-only marker
+                    // (justImportedWallet is never set by the create flow, is in-memory only so
+                    // it cannot survive a relaunch into a later replay, and is cleared on
+                    // Finish). An imported seed may hold its real identity - KNS domains, a
+                    // funded chatting balance - at a nonzero derivation index. Pushes the
+                    // scanner INSIDE the wizard's NavigationStack; after a switch it pops back
+                    // here and this step re-renders with the new address automatically
+                    // (chattingAddress reads the live currentWallet, and the gift claim
+                    // resolves the address at tap time).
+                    if isOnboardingRun, walletManager.justImportedWallet {
                         NavigationLink {
                             ChattingAddressPickerView()
                         } label: {

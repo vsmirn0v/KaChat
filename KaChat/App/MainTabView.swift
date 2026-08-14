@@ -73,13 +73,22 @@ struct MainTabView: View {
                 walletManager.justCreatedNewWallet = false
                 // Persisted BEFORE presenting: justCreatedNewWallet is in-memory only, so an
                 // app kill mid-wizard would otherwise be a permanent way past the mandatory
-                // Adult/Child step - the pending marker makes the next launch re-present it.
+                // Adult/Child step - the pending markers make the next launch re-present it.
+                // The onboarding-run marker covers devices where Adult/Child was already
+                // answered for a prior account ("chosen" never downgrades), so an interrupted
+                // IMPORT wizard re-presents exactly like an interrupted create does.
                 WelcomeGuideView.markUserTypePending()
+                WelcomeGuideView.markOnboardingRunPending()
                 showWelcomeGuide = true
             } else if WelcomeGuideView.isUserTypePending {
                 // First-run guide was interrupted before the Adult/Child choice: bring the
                 // wizard back at that step, on every launch, until it's answered.
                 resumeGuideAtUserType = true
+                showWelcomeGuide = true
+            } else if WelcomeGuideView.isOnboardingRunPending {
+                // Onboarding run interrupted AFTER the Adult/Child choice was already settled
+                // (e.g. an import on a device that answered it for a prior account): re-present
+                // the full guide from the top, still as an unskippable onboarding run.
                 showWelcomeGuide = true
             } else if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey) {
                 // What's-new wizard for everyone else, every entry until dismissed for good.
@@ -111,7 +120,11 @@ struct MainTabView: View {
                         }
                     }
                 },
-                startAtUserType: resumeGuideAtUserType
+                startAtUserType: resumeGuideAtUserType,
+                // MainTabView only ever presents the guide for account onboarding (fresh
+                // create/import or a kill/relaunch re-present) - Help replays live in
+                // ContactsView, which leaves this false. Onboarding runs are fully unskippable.
+                isOnboardingRun: true
             )
         }
         .onChange(of: walletManager.currentWallet?.publicAddress) { _ in
