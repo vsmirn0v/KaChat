@@ -516,6 +516,9 @@ final class ContactsManager: ObservableObject {
         }
 
         await refreshSystemContactLinks(promptIfNeeded: false, force: true)
+        // Links are settled: pull the Contacts-app photos for everyone now linked so the
+        // avatar fallback (KNS avatar -> device photo -> glyph) has them ready.
+        SystemContactAvatarStore.shared.prefetchPhotos(for: contacts)
     }
 
     func loadSystemContactCandidates(promptIfNeeded: Bool = false) async -> [SystemContactCandidate] {
@@ -1698,9 +1701,16 @@ actor SystemContactsService {
 
 // MARK: - System-contact avatar store
 
-/// Photos from the iOS Contacts app for linked contacts, cached in memory + on disk. The
-/// Contacts-app photo is the DEFAULT avatar for a linked contact (priority over KNS) unless
-/// the user flips that contact's Chat Info "Avatar" picker to KNS (`Contact.preferKNSAvatar`).
+/// Photos from the iOS Contacts app for linked contacts, cached in memory + on disk.
+///
+/// Avatar resolution order, applied identically everywhere by `KNSAvatarView` (pass it
+/// `contactAddress:` - never re-implement this per call site):
+///   1. KNS avatar, when the contact has one
+///   2. the linked Contacts-app photo
+///   3. the person-glyph fallback
+/// The per-contact Chat Info "Avatar" picker (`Contact.preferKNSAvatar`) is the explicit
+/// override: `false` promotes the Contacts-app photo above the KNS avatar, `true`/nil keep
+/// the default order above.
 @MainActor
 final class SystemContactAvatarStore: ObservableObject {
     static let shared = SystemContactAvatarStore()
@@ -1724,21 +1734,33 @@ final class SystemContactAvatarStore: ObservableObject {
         return diskDirectory.appendingPathComponent(safe + ".jpg")
     }
 
-    /// The avatar to DISPLAY for this contact - nil when unlinked, photo-less, or the user
-    /// chose KNS for it. Triggers a lazy fetch on first ask; views observing the store
-    /// re-render when it lands.
-    func displayImage(for contact: Contact?) -> UIImage? {
-        guard let contact, contact.preferKNSAvatar != true else { return nil }
-        return rawImage(for: contact)
-    }
-
     /// The Contacts-app photo regardless of the user's per-contact choice (Chat Info picker
-    /// availability check + preview).
+    /// availability check + preview). Triggers a lazy fetch on first ask; views observing the
+    /// store re-render when it lands.
     func rawImage(for contact: Contact?) -> UIImage? {
         guard let id = contact?.systemContactId else { return nil }
         if let image = images[id] { return image }
         fetchIfNeeded(id: id)
         return nil
+    }
+
+    /// Address-keyed variant used by `KNSAvatarView` so any avatar in the app can fall back to
+    /// the device-contact photo just by naming the address it represents. Returns nil when the
+    /// address isn't in the address book, isn't linked to a system contact, or has no photo.
+    func photo(forAddress address: String?) -> UIImage? {
+        guard let contact = contact(forAddress: address) else { return nil }
+        return rawImage(for: contact)
+    }
+
+    /// True only when the user explicitly picked "Contacts Photo" for this contact in Chat Info;
+    /// that's the one case where the device photo outranks a KNS avatar.
+    func prefersContactPhotoOverKNS(forAddress address: String?) -> Bool {
+        contact(forAddress: address)?.preferKNSAvatar == false
+    }
+
+    private func contact(forAddress address: String?) -> Contact? {
+        guard let address, !address.isEmpty else { return nil }
+        return ContactsManager.shared.getContact(byAddress: address)
     }
 
     /// Overwrites the cached photo (memory + disk) - used after writing a new photo into the
@@ -1747,6 +1769,15 @@ final class SystemContactAvatarStore: ObservableObject {
         images[id] = image
         attemptedIds.insert(id)
         try? data.write(to: diskURL(for: id))
+    }
+
+    /// Warms the cache for every linked contact once, right after a system-contacts bootstrap,
+    /// so chat lists render photos on first paint instead of popping them in row by row. Each id
+    /// still costs at most one CN fetch (`attemptedIds`), and each fetch is off the main thread.
+    func prefetchPhotos(for contacts: [Contact]) {
+        for id in Set(contacts.compactMap(\.systemContactId)) {
+            fetchIfNeeded(id: id)
+        }
     }
 
     private func fetchIfNeeded(id: String) {

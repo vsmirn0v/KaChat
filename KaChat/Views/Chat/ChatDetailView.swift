@@ -76,10 +76,12 @@ struct ChatDetailView: View {
     @State private var previousMessagesCount = 0
     @State private var lastMessageSnapshotDigest: Int?
     @State private var snapshotRebuildTask: Task<Void, Never>?
-    @State private var hasIncomingHandshakeMessage = false
     @State private var hasOutgoingHandshakeMessage = false
-    @State private var hasAnyPaymentMessage = false
-    @State private var hasAnyIncomingMessage = false
+    /// "Genuine" = a real message either side actually sent (contextual/audio/payment), not a
+    /// handshake and not a failed send. Both flags true == the relationship is established and
+    /// the handshake banner has nothing left to warn about.
+    @State private var hasGenuineIncomingMessage = false
+    @State private var hasGenuineOutgoingMessage = false
     @State private var isLoadingOlderMessages = false
     @State private var lastOlderPageRequestAt: Date = .distantPast
     @State private var topVisibleMessageId: UUID?
@@ -284,17 +286,14 @@ struct ChatDetailView: View {
             chessSummaryCache = [:]
         }
 
-        hasIncomingHandshakeMessage = deduped.contains {
-            $0.messageType == .handshake && !$0.isOutgoing && $0.deliveryStatus != .failed
-        }
         hasOutgoingHandshakeMessage = deduped.contains {
             $0.messageType == .handshake && $0.isOutgoing && $0.deliveryStatus != .failed
         }
-        hasAnyPaymentMessage = deduped.contains {
-            $0.messageType == .payment && $0.deliveryStatus != .failed
+        hasGenuineIncomingMessage = deduped.contains {
+            !$0.isOutgoing && $0.messageType != .handshake && $0.deliveryStatus != .failed
         }
-        hasAnyIncomingMessage = deduped.contains {
-            !$0.isOutgoing && $0.deliveryStatus != .failed
+        hasGenuineOutgoingMessage = deduped.contains {
+            $0.isOutgoing && $0.messageType != .handshake && $0.deliveryStatus != .failed
         }
     }
 
@@ -346,13 +345,21 @@ struct ChatDetailView: View {
         chatService.isConversationDeclined(contact.address)
     }
 
-    private var shouldShowUnnotifiedWarning: Bool {
-        let hasOutgoing = normalizedMessages.contains { $0.isOutgoing && $0.deliveryStatus != .failed }
-        return hasOutgoing
-            && !hasIncomingHandshakeMessage
-            && !hasOutgoingHandshakeMessage
-            && !hasAnyPaymentMessage
-            && !hasAnyIncomingMessage
+    /// Cross-platform semantics (matches desktop's `relationshipState == "established"`): both
+    /// sides have exchanged at least one genuine, non-handshake message. Until then the recipient
+    /// may never see what we send, which is exactly what `handshakeNoticeBanner` explains.
+    private var hasEstablishedRelationship: Bool {
+        hasGenuineIncomingMessage && hasGenuineOutgoingMessage
+    }
+
+    /// Shown from the moment a 1:1 chat opens - deliberately NOT gated on having typed or sent
+    /// anything - and retired only once the relationship is established. Group threads route
+    /// through `GroupChatDetailView`, so everything here is already 1:1.
+    private var shouldShowHandshakeNotice: Bool {
+        // `hasPerformedInitialSetup` only defers the decision past the first frame (the message
+        // snapshot that feeds the relationship flags is built in `onAppear`), so an established
+        // chat never flashes the banner on open.
+        hasPerformedInitialSetup && !hasEstablishedRelationship && !isDeclined
     }
 
     var body: some View {
@@ -428,9 +435,6 @@ struct ChatDetailView: View {
                                         }
                                 }
                             }
-                            if shouldShowUnnotifiedWarning {
-                                unnotifiedMessageBanner
-                            }
                             Color.clear
                                 .frame(height: 1)
                                 .id("bottom_anchor")
@@ -463,6 +467,13 @@ struct ChatDetailView: View {
                         // device - this is the mechanism SwiftUI itself uses for keyboard
                         // avoidance, so there's no custom math to get wrong.
                         VStack(spacing: 0) {
+                            if shouldShowHandshakeNotice {
+                                // Pinned above the composer (not scrolled away inside the
+                                // message list) so it's visible the instant the chat opens,
+                                // for as long as the relationship isn't established.
+                                handshakeNoticeBanner
+                                    .transition(.opacity)
+                            }
                             if isChattingBalanceZero {
                                 // Zero-balance gate: reading messages above stays fully
                                 // usable (the card is part of the bottom inset, never an
@@ -477,6 +488,7 @@ struct ChatDetailView: View {
                                 .opacity(isChattingBalanceZero ? 0.45 : 1)
                         }
                         .animation(.easeInOut(duration: 0.25), value: isChattingBalanceZero)
+                        .animation(.easeInOut(duration: 0.25), value: shouldShowHandshakeNotice)
                         .padding(.bottom, 2)
                     }
                     .overlay(alignment: .top) {
@@ -666,7 +678,7 @@ struct ChatDetailView: View {
                             avatarURLString: knsService.profileCache[contact.address]?.avatarURL,
                             fallbackText: contact.alias,
                             size: 36,
-                            overrideImage: SystemContactAvatarStore.shared.displayImage(for: contactsManager.getContact(byAddress: contact.address) ?? contact)
+                            contactAddress: contact.address
                         )
                         Text(contact.alias)
                             .font(.headline)
@@ -1249,29 +1261,28 @@ struct ChatDetailView: View {
         }
     }
 
-    // MARK: - Unnotified Message Warning
+    // MARK: - New-chat handshake notice
 
-    private var unnotifiedMessageBanner: some View {
+    /// Copy is byte-identical to desktop's banner - keep the two in sync if either changes.
+    private var handshakeNoticeBanner: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .font(.subheadline)
+            Image(systemName: "hand.wave")
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 .padding(.top, 1)
-            Text("This message will not be seen by the recipient until they also try to chat with you, or you can send a handshake to ping them. Handshakes send 0.2 KAS, which is returned if they accept your request.")
+            Text("The recipient won't see your messages until they message you or you ping them with a handshake. Handshakes cost 0.2 KAS and are returned to you if they accept.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(.orange.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(.orange.opacity(0.25), lineWidth: 0.5)
-                )
-        )
-        .padding(.top, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(glassBackground(cornerRadius: 12))
+        .padding(.horizontal)
+        // The fee/available pills float ~26pt above the composer's own top edge; this clearance
+        // keeps them off the banner instead of letting them sit on its text.
+        .padding(.bottom, shouldShowComposerHelperRow ? 22 : 4)
     }
 
     // MARK: - Unified Input Bar (handles all handshake states)

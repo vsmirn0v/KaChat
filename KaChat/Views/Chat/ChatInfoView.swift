@@ -118,7 +118,7 @@ struct ChatInfoView: View {
                                 avatarURLString: knsProfileInfo?.avatarURL,
                                 fallbackText: contact.alias,
                                 size: 60,
-                                overrideImage: contactAvatars.displayImage(for: contact)
+                                contactAddress: contact.address
                             )
                         }
                         .buttonStyle(.plain)
@@ -157,12 +157,13 @@ struct ChatInfoView: View {
                     .padding(.vertical, 8)
 
                     // Both avatar sources exist (linked Contacts-app photo AND a KNS avatar):
-                    // let the user pick which one represents this contact. Contacts photo is
-                    // the default; the choice persists per contact.
+                    // let the user pick which one represents this contact. The KNS avatar is the
+                    // default (see SystemContactAvatarStore's resolution order); the choice
+                    // persists per contact.
                     if contactAvatars.rawImage(for: contact) != nil,
                        knsProfileInfo?.avatarURL != nil {
                         Picker("Avatar", selection: Binding(
-                            get: { contact.preferKNSAvatar == true },
+                            get: { contact.preferKNSAvatar ?? true },
                             set: { preferKNS in
                                 contact.preferKNSAvatar = preferKNS
                                 contactsManager.updateContact(contact)
@@ -414,7 +415,8 @@ struct ChatInfoView: View {
                     avatarURLString: knsProfileInfo?.avatarURL,
                     fallbackText: contact.alias,
                     title: contact.alias,
-                    systemContactId: contact.systemContactId
+                    systemContactId: contact.systemContactId,
+                    contactAddress: contact.address
                 )
             }
             .sheet(isPresented: $showSystemContactLinkPicker) {

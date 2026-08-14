@@ -4,26 +4,59 @@ import SwiftUI
 import Contacts
 import UIKit
 
+/// The one avatar view in the app. Resolution order, applied here so no call site ever
+/// re-implements it: KNS avatar -> linked device-contact photo -> person glyph.
+///
+/// Pass `contactAddress` wherever the avatar stands for a person with a Kaspa address (chat
+/// rows, chat header, chat info, message bubbles, group member lists, pickers, share targets,
+/// KaPosts authors) and the device-contact photo layer comes for free - see
+/// `SystemContactAvatarStore` for the cache and for the `preferKNSAvatar` override.
 struct KNSAvatarView: View {
     let avatarURLString: String?
     let fallbackText: String
     var size: CGFloat = 44
-    /// When set (a linked system contact's Contacts-app photo), it wins over the KNS avatar
-    /// and the initials fallback alike.
+    /// Caller-resolved image that wins over everything else (rare; the device-contact photo
+    /// does NOT need this - use `contactAddress`).
     var overrideImage: UIImage? = nil
+    /// Kaspa address this avatar represents; enables the device-contact photo layer.
+    var contactAddress: String? = nil
 
     @State private var loadedImage: UIImage?
     @State private var isLoading = false
     @State private var lastLoadedIdentity: String?
+    /// Observed so an avatar re-renders when its contact's photo lands from the lazy CN fetch.
+    /// The store only publishes when a photo is decoded (once per linked contact per session,
+    /// disk-cached afterwards), so this costs nothing on scroll.
+    @ObservedObject private var contactAvatars = SystemContactAvatarStore.shared
+
+    /// The Contacts-app photo for `contactAddress`, if any. Asking for it is what kicks off the
+    /// (off-main-thread, cached) fetch, so it's read on every body pass.
+    private var deviceContactPhoto: UIImage? {
+        guard overrideImage == nil, contactAddress != nil else { return nil }
+        return contactAvatars.photo(forAddress: contactAddress)
+    }
+
+    /// Only when the user explicitly chose "Contacts Photo" for this contact does the device
+    /// photo jump ahead of the KNS avatar.
+    private var deviceContactPhotoWinsOverKNS: Bool {
+        contactAvatars.prefersContactPhotoOverKNS(forAddress: contactAddress)
+    }
 
     var body: some View {
         Group {
-            if let overrideImage {
-                Image(uiImage: overrideImage)
+            let devicePhoto = deviceContactPhoto
+            if let resolved = overrideImage ?? (deviceContactPhotoWinsOverKNS ? devicePhoto : nil) {
+                Image(uiImage: resolved)
                     .resizable()
                     .scaledToFill()
             } else if let loadedImage {
                 Image(uiImage: loadedImage)
+                    .resizable()
+                    .scaledToFill()
+            } else if let devicePhoto {
+                // No KNS avatar (or it hasn't loaded/failed): the device-contact photo is the
+                // fallback, ahead of the glyph.
+                Image(uiImage: devicePhoto)
                     .resizable()
                     .scaledToFill()
             } else {
@@ -153,6 +186,9 @@ struct KNSAvatarFullscreenView: View {
     /// Linked iOS contact id: enables "add this KNS avatar as their photo in the Contacts
     /// app" from the top bar.
     var systemContactId: String? = nil
+    /// Kaspa address behind this avatar, so the placeholder falls back to their device-contact
+    /// photo (same order as everywhere else) while/if the KNS image isn't available.
+    var contactAddress: String? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var loadedImage: UIImage?
@@ -192,7 +228,8 @@ struct KNSAvatarFullscreenView: View {
                     KNSAvatarView(
                         avatarURLString: avatarURLString,
                         fallbackText: fallbackText,
-                        size: 220
+                        size: 220,
+                        contactAddress: contactAddress
                     )
                 }
             }

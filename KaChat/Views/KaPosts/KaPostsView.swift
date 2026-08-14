@@ -1520,7 +1520,8 @@ struct KaPostsView: View {
                     KNSAvatarView(
                         avatarURLString: info?.avatarURL,
                         fallbackText: posterDisplayName(address),
-                        size: 76
+                        size: 76,
+                        contactAddress: address
                     )
                     .overlay(Circle().stroke(Color(uiColor: .systemBackground), lineWidth: 3))
                     .padding(.leading, 16)
@@ -1783,7 +1784,8 @@ struct KaPostsView: View {
                                 KNSAvatarView(
                                     avatarURLString: knsService.profileCache[address]?.avatarURL,
                                     fallbackText: posterDisplayName(address),
-                                    size: 40
+                                    size: 40,
+                                    contactAddress: address
                                 )
                                 Text(posterDisplayName(address))
                                     .font(.subheadline.weight(.semibold))
@@ -2084,7 +2086,8 @@ private struct KaPostCellView: View {
                 KNSAvatarView(
                     avatarURLString: avatarURLString,
                     fallbackText: displayName,
-                    size: 40
+                    size: 40,
+                    contactAddress: post.posterAddress
                 )
             }
             .buttonStyle(.plain)
@@ -2389,7 +2392,8 @@ private struct KaPostCellView: View {
                 KNSAvatarView(
                     avatarURLString: knsService.profileCache[quoted.posterAddress]?.avatarURL,
                     fallbackText: quotedDisplayName(quoted.posterAddress),
-                    size: 20
+                    size: 20,
+                    contactAddress: quoted.posterAddress
                 )
                 Text(quotedDisplayName(quoted.posterAddress))
                     .font(.caption.weight(.bold))
@@ -2604,7 +2608,8 @@ private struct KaPostComposerView: View {
                 KNSAvatarView(
                     avatarURLString: quotedAvatarURL,
                     fallbackText: quotedDisplayName,
-                    size: 22
+                    size: 22,
+                    contactAddress: quoted.posterAddress
                 )
                 Text(quotedDisplayName)
                     .font(.caption.weight(.bold))
@@ -2871,7 +2876,8 @@ struct KaPostEngagementView: View {
             KNSAvatarView(
                 avatarURLString: knsService.profileCache[address]?.avatarURL,
                 fallbackText: displayName(for: address),
-                size: 38
+                size: 38,
+                contactAddress: address
             )
             VStack(alignment: .leading, spacing: 2) {
                 Text(displayName(for: address))
@@ -3069,7 +3075,8 @@ struct KaPostsFollowListView: View {
             KNSAvatarView(
                 avatarURLString: knsService.profileCache[entry.address]?.avatarURL,
                 fallbackText: displayName(for: entry.address),
-                size: 38
+                size: 38,
+                contactAddress: entry.address
             )
             VStack(alignment: .leading, spacing: 2) {
                 Text(displayName(for: entry.address))
@@ -3271,7 +3278,8 @@ struct KaPostsNotificationsView: View {
             KNSAvatarView(
                 avatarURLString: knsService.profileCache[item.actorAddress]?.avatarURL,
                 fallbackText: displayName(for: item.actorAddress),
-                size: 38
+                size: 38,
+                contactAddress: item.actorAddress
             )
             .overlay(alignment: .bottomTrailing) {
                 Image(systemName: item.kind.icon)

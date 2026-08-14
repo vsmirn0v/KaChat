@@ -2202,7 +2202,8 @@ private struct GroupMessageBubbleRow: View {
             KNSAvatarView(
                 avatarURLString: message.isOutgoing ? myAvatarURLString : avatarURLString,
                 fallbackText: senderName,
-                size: 32
+                size: 32,
+                contactAddress: message.isOutgoing ? nil : message.senderAddress
             )
         }
         .tint(.accentColor)
@@ -2283,7 +2284,12 @@ struct GroupChatInfoView: View {
                                 ?? contactsManager.getOrCreateContact(address: member.address)
                         } label: {
                             HStack(spacing: 12) {
-                                KNSAvatarView(avatarURLString: knsService.profileCache[member.address]?.avatarURL, fallbackText: memberLabel, size: 32)
+                                KNSAvatarView(
+                                    avatarURLString: knsService.profileCache[member.address]?.avatarURL,
+                                    fallbackText: memberLabel,
+                                    size: 32,
+                                    contactAddress: member.address
+                                )
                                 Text(memberLabel)
                                     .foregroundColor(.primary)
                                 Spacer()
@@ -2441,7 +2447,12 @@ private struct HiddenGroupMembersView: View {
                 Section("Hidden Users") {
                     ForEach(hidden, id: \.self) { address in
                         HStack(spacing: 12) {
-                            KNSAvatarView(avatarURLString: knsService.profileCache[address]?.avatarURL, fallbackText: displayName(for: address), size: 32)
+                            KNSAvatarView(
+                                avatarURLString: knsService.profileCache[address]?.avatarURL,
+                                fallbackText: displayName(for: address),
+                                size: 32,
+                                contactAddress: address
+                            )
                             Text(displayName(for: address))
                             Spacer()
                             Button("Unhide") {

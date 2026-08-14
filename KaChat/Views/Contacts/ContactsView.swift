@@ -492,19 +492,31 @@ struct ProfileView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
+    /// Single source of truth for "does this wallet have a KNS profile at all?" - a registered
+    /// domain is what the editor needs (see `showKNSEditor`'s `assetId != nil` guard), so the same
+    /// predicate decides both the destination (editor vs. guided creation flow) and the wording of
+    /// every affordance that offers it. Reads `knsProfileInfo` (@State, refreshed by
+    /// `refreshKNSData`) so the label flips from "Create" to "Edit" as soon as a profile is
+    /// created - no app restart required.
+    private var hasKNSProfile: Bool {
+        !(knsProfileInfo?.domainName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// Straight to the KNS editor screen (same destination the old profile card's tap used);
-    /// no domain yet -> the create-profile flow instead.
+    /// no domain yet -> the create-profile flow instead, and the label says so.
     private var editKNSProfileRow: some View {
         Button {
-            let hasDomain = !(knsProfileInfo?.domainName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            if hasDomain {
+            if hasKNSProfile {
                 showKNSEditor = true
             } else {
                 showCreateKNSProfileFlow = true
             }
         } label: {
             HStack {
-                Label("Edit KNS Profile", systemImage: "person.text.rectangle")
+                Label(
+                    hasKNSProfile ? "Edit KNS Profile" : "Create KNS Profile",
+                    systemImage: hasKNSProfile ? "person.text.rectangle" : "person.crop.circle.badge.plus"
+                )
                     .foregroundColor(.primary)
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -712,6 +724,7 @@ struct ProfileView: View {
     }
 
     private func knsProfileHeaderRow(_ profileInfo: KNSAddressProfileInfo) -> some View {
+        // Same predicate as `hasKNSProfile` (this variant is passed the profile explicitly).
         let hasDomain = !(profileInfo.domainName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return Button {
             if hasDomain {

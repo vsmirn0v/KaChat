@@ -1216,7 +1216,12 @@ private struct BroadcastMessageRow: View {
                 }
             }
         } label: {
-            KNSAvatarView(avatarURLString: avatarURLString, fallbackText: displayName, size: 32)
+            KNSAvatarView(
+                avatarURLString: avatarURLString,
+                fallbackText: displayName,
+                size: 32,
+                contactAddress: isOwnMessage ? nil : message.senderAddress
+            )
         }
         .tint(.accentColor)
     }

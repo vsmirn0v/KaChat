@@ -161,7 +161,14 @@ struct MessageBubbleView: View {
     }
 
     private var avatarView: some View {
-        KNSAvatarView(avatarURLString: avatarURLString, fallbackText: avatarDisplayName, size: 32)
+        // contactAddress lets KNSAvatarView fall back to the sender's Contacts-app photo when
+        // they have no KNS avatar (shown for incoming messages only).
+        KNSAvatarView(
+            avatarURLString: avatarURLString,
+            fallbackText: avatarDisplayName,
+            size: 32,
+            contactAddress: message.isOutgoing ? nil : message.senderAddress
+        )
     }
 
     @ViewBuilder
