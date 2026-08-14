@@ -48,6 +48,33 @@ struct NextcloudFile: Identifiable, Equatable {
     private static let videoExtensions: Set<String> = ["mov", "mp4", "m4v", "webm", "mkv", "avi"]
 }
 
+extension Array where Element == NextcloudFile {
+    /// The one ordering every Nextcloud listing surface uses: phone-gallery order.
+    ///
+    /// Folders stay grouped ahead of files (so a folder never lands in the middle of the
+    /// thumbnail grid), and within each group entries run newest-first by `getlastmodified`.
+    /// Entries whose date the server omitted or that failed to parse sort last rather than
+    /// interleaving randomly, and name is the tiebreak so equal timestamps stay deterministic.
+    ///
+    /// Applied once in `NextcloudService.listFolder`; views only filter, never re-sort.
+    func sortedNewestFirst() -> [NextcloudFile] {
+        sorted { lhs, rhs in
+            if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
+            switch (lhs.modified, rhs.modified) {
+            case let (left?, right?):
+                if left != right { return left > right }
+            case (nil, _?):
+                return false
+            case (_?, nil):
+                return true
+            case (nil, nil):
+                break
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+}
+
 enum NextcloudError: LocalizedError {
     case invalidServerURL
     case badCredentials
@@ -448,7 +475,9 @@ final class NextcloudService: ObservableObject {
         if http.statusCode == 401 { throw NextcloudError.badCredentials }
         guard http.statusCode == 207 else { throw NextcloudError.httpError(http.statusCode) }
 
-        return DavMultistatusParser(davBasePath: davBasePath, listedPath: listedPath).parse(data)
+        return DavMultistatusParser(davBasePath: davBasePath, listedPath: listedPath)
+            .parse(data)
+            .sortedNewestFirst()
     }
 
     // MARK: - Public share links (OCS files_sharing API)
@@ -538,6 +567,9 @@ private final class DavMultistatusParser: NSObject, XMLParserDelegate {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        // The string carries its own zone ("GMT"), but pin the fallback so a server that omits it
+        // is read as UTC instead of drifting with the device's local zone.
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter
     }()
 

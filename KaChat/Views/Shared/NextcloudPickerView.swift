@@ -60,20 +60,19 @@ private struct NextcloudFolderListView: View {
     /// and blocks double-picks.
     @State private var sharingPath: String?
 
+    // `listFolder` already returns newest-first (folders grouped ahead of files), so these only
+    // split that one ordering into sections — filtering preserves it, never re-sort here.
     private var folders: [NextcloudFile] {
         files.filter(\.isDirectory)
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     private var media: [NextcloudFile] {
         files.filter { $0.isImage || $0.isVideo }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     /// Everything else (audio, PDFs, docs, …) — sendable too, listed as rows under the grid.
     private var otherFiles: [NextcloudFile] {
         files.filter { !$0.isDirectory && !$0.isImage && !$0.isVideo }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     private let gridColumns = [GridItem(.adaptive(minimum: 104), spacing: 3)]
@@ -374,9 +373,9 @@ private struct NextcloudFolderSelectList: View {
             isLoading = true
             errorMessage = nil
             do {
+                // Newest-first comes from listFolder; this only drops the non-folder entries.
                 folders = try await NextcloudService.shared.listFolder(path)
                     .filter(\.isDirectory)
-                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             } catch {
                 errorMessage = error.localizedDescription
             }
