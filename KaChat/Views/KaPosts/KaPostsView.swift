@@ -2,6 +2,126 @@ import CryptoKit
 import SwiftUI
 import UIKit
 
+// MARK: - Endless scroll: per-surface paging state + footer
+
+/// Paging bookkeeping for ONE list surface (a feed tab, a profile tab, a thread's replies, the
+/// notifications list, ...). Every surface owns its own instance - loads never bleed across
+/// surfaces, and exactly one request per surface is ever in flight (`isLoading`).
+struct KaPostsPageState {
+    /// Server cursor for the NEXT page (`pagination.nextCursor`); nil = start / exhausted.
+    var cursor: String?
+    /// False once the server reports no further pages - the surface stops trying.
+    var hasMore = true
+    var isLoading = false
+    /// Set when a load-more fails. The already-loaded rows stay on screen; the footer offers
+    /// a retry instead of wiping the list.
+    var errorMessage: String?
+    /// A whole request budget produced zero new visible rows (heavily filtered stretch of
+    /// history). The footer switches from auto-loading to an explicit "Load more" so one
+    /// scroll can't turn into an endless request loop.
+    var stalled = false
+    /// Bumped by refresh / tab switch / wallet change. In-flight loads capture it and drop
+    /// their results if it moved on - that's how stale responses are ignored.
+    var epoch = 0
+
+    /// Back to page one: what pull-to-refresh, a tab switch or an account change does.
+    mutating func reset() {
+        cursor = nil
+        hasMore = true
+        isLoading = false
+        errorMessage = nil
+        stalled = false
+        epoch += 1
+    }
+
+    /// Clears the two states that stop AUTOMATIC loading (a failed page, a request budget spent
+    /// on nothing visible). Call this from an explicit user tap - "Load more" / "Tap to retry" -
+    /// so the surface can move again while scroll-driven triggers stay blocked.
+    mutating func prepareManualRetry() {
+        stalled = false
+        errorMessage = nil
+    }
+
+    /// Folds a completed batch's paging result back in.
+    mutating func apply<Item>(_ batch: KaPostsPaginator.Batch<Item>) {
+        cursor = batch.cursor
+        hasMore = batch.hasMore
+        stalled = batch.stalled
+        errorMessage = nil
+        isLoading = false
+    }
+}
+
+/// Bottom-of-list affordance shared by every paginated KaPosts surface: a spinner while a page
+/// is loading, a tappable retry when one failed, an invisible sentinel that auto-loads the next
+/// page when it scrolls into view, or nothing once the end is reached.
+struct KaPostsLoadMoreFooter: View {
+    let state: KaPostsPageState
+    let onLoadMore: () -> Void
+
+    var body: some View {
+        Group {
+            if state.isLoading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading more...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+            } else if let error = state.errorMessage {
+                Button(action: onLoadMore) {
+                    VStack(spacing: 4) {
+                        Text("Couldn't load more")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.primary)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                        Text("Tap to retry")
+                            .font(.caption.weight(.bold))
+                            .foregroundColor(.accentColor)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else if state.hasMore {
+                if state.stalled {
+                    // A full request budget yielded nothing visible - hand control back to
+                    // the user rather than looping on the indexer.
+                    Button(action: onLoadMore) {
+                        Text("Load more")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundColor(.accentColor)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    // Invisible sentinel: entering the render window pulls the next page.
+                    Color.clear
+                        .frame(height: 1)
+                        .onAppear(perform: onLoadMore)
+                }
+            }
+        }
+    }
+}
+
+/// Prefetch trigger id: the row ~5 from the end, so loading starts BEFORE the user hits bottom.
+/// Returns nil for lists too short to have a distinct trigger row (their footer sentinel
+/// handles it).
+func kaPostsPrefetchTriggerId<T: Identifiable>(_ items: [T]) -> T.ID? {
+    guard items.count > 5 else { return items.last?.id }
+    return items[items.count - 5].id
+}
+
 /// KaPosts main screen - UI ONLY for now (nothing is wired to K/K-indexer yet; posts live in
 /// memory for this session purely so the composer flow is demoable). Three feeds along the top
 /// (Following | Feed | Popular - Popular will rank by likes, reposts and dislikes once wired),
@@ -86,7 +206,12 @@ struct KaPostsView: View {
     @State private var posts: [DraftPost] = []
     /// Posts fetched from the K indexer (already KaChat-marker-filtered by the client).
     @State private var remotePosts: [DraftPost] = []
-    @State private var isLoadingFeed = false
+    /// Endless-scroll state for the feed currently on screen (see `feedSource`).
+    @State private var feedPage = KaPostsPageState()
+    /// Which endpoint `remotePosts` was filled from. Feed and Popular share the global feed, so
+    /// switching between them keeps every page already loaded (Popular just re-sorts it);
+    /// switching to/from Following swaps the source and starts over.
+    @State private var loadedFeedSource: FeedSource?
     @State private var feedError: String?
     @State private var showComposer = false
     /// Zero-balance interception for the new-post entry point: with a CONFIRMED 0 KAS chatting
@@ -115,6 +240,20 @@ struct KaPostsView: View {
     @State private var myProfileFeedTab: ProfileFeedTab = .posts
     @State private var posterProfileReplies: [DraftPost] = []
     @State private var posterProfileFeedTab: ProfileFeedTab = .posts
+    /// Paging state for the four profile feeds (own Posts/Replies, poster Posts/Replies) and
+    /// for every open reply thread (keyed by the thread root's local id - the detail sheet's
+    /// comment list and each inline "View N replies" chain each get their own).
+    @State private var myPostsPage = KaPostsPageState()
+    @State private var myRepliesPage = KaPostsPageState()
+    @State private var posterPostsPage = KaPostsPageState()
+    @State private var posterRepliesPage = KaPostsPageState()
+    @State private var threadPages: [UUID: KaPostsPageState] = [:]
+
+    /// The two feed backends behind the three tabs.
+    enum FeedSource {
+        case global
+        case following
+    }
     /// Comments whose reply chains are expanded inline in the thread view (X-style).
     @State private var expandedCommentIds: Set<UUID> = []
 
@@ -126,6 +265,8 @@ struct KaPostsView: View {
     @State private var selfUnfollowScrubbed = false
     /// The tapped poster's on-chain posts + counts for the full-profile sheet.
     @State private var posterProfilePosts: [DraftPost] = []
+    /// K pubkey of the profile currently open, so its feeds can page without the sheet's target.
+    @State private var posterProfilePubkey: String?
     @State private var posterProfileFollowers: Int?
     @State private var posterProfileFollowing: Int?
     @State private var isLoadingPosterProfile = false
@@ -330,7 +471,29 @@ struct KaPostsView: View {
                 menuSheet = .notifications
             }
         }
-        .onChange(of: selectedFeed) { _ in
+        .onChange(of: selectedFeed) { tab in
+            // Feed <-> Popular share the global feed: keep every page already scrolled in
+            // (Popular is just a re-sort of the same set). Only a real source change - to or
+            // from Following - starts a new paginated feed.
+            guard feedSource(for: tab) != loadedFeedSource || remotePosts.isEmpty else { return }
+            Task { await loadFeed() }
+        }
+        .onChange(of: walletManager.currentWallet?.publicAddress) { _ in
+            // Account switch: every surface's cursor belongs to the old identity (K responses
+            // are decorated per requesterPubkey), so drop the lot and start over. The epoch
+            // bumps make any in-flight page drop its result instead of appending.
+            feedPage.reset()
+            myPostsPage.reset()
+            myRepliesPage.reset()
+            posterPostsPage.reset()
+            posterRepliesPage.reset()
+            threadPages.removeAll()
+            remotePosts = []
+            myProfileRemotePosts = []
+            myProfileRemoteReplies = []
+            posterProfilePosts = []
+            posterProfileReplies = []
+            loadedFeedSource = nil
             Task { await loadFeed() }
         }
     }
@@ -470,9 +633,31 @@ struct KaPostsView: View {
             ScrollView {
                 emptyState(for: tab)
                     .frame(maxWidth: .infinity, minHeight: 460)
+                // Everything fetched so far was filtered away (all muted, or - on Following -
+                // none of it from accounts you follow locally) while the server still has
+                // older pages. No auto-sentinel here: with nothing on screen it would walk the
+                // whole history unattended, so this stays an explicit tap.
+                if !feedPage.isLoading, feedPage.hasMore, feedPage.cursor != nil {
+                    Button {
+                        feedPage.prepareManualRetry()
+                        Task { await loadFeedPage(reset: false) }
+                    } label: {
+                        Text("Load older posts")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundColor(.accentColor)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else if feedPage.isLoading {
+                    ProgressView()
+                        .padding(.vertical, 12)
+                }
             }
             .refreshable { await loadFeed() }
         } else {
+            let triggerId = kaPostsPrefetchTriggerId(visiblePosts)
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(visiblePosts) { post in
@@ -501,8 +686,18 @@ struct KaPostsView: View {
                                   !post.posterAddress.isEmpty else { return }
                             _ = await knsService.fetchProfile(for: post.posterAddress)
                         }
+                        // Endless scroll: the row ~5 from the end pulls the next pages in,
+                        // well before the user reaches the bottom.
+                        .onAppear {
+                            guard post.id == triggerId else { return }
+                            Task { await loadFeedPage(reset: false) }
+                        }
                         Divider()
                             .padding(.leading, 68)
+                    }
+                    KaPostsLoadMoreFooter(state: feedPage) {
+                        feedPage.prepareManualRetry()
+                        Task { await loadFeedPage(reset: false) }
                     }
                 }
             }
@@ -622,32 +817,92 @@ struct KaPostsView: View {
     /// through the app's normal chain. Errors surface inline; the local session posts always
     /// remain visible regardless.
     private func loadFeed() async {
-        guard !isLoadingFeed else { return }
-        isLoadingFeed = true
-        feedError = nil
-        defer { isLoadingFeed = false }
+        await loadFeedPage(reset: true)
+    }
+
+    private func feedSource(for tab: FeedTab) -> FeedSource {
+        tab == .following ? .following : .global
+    }
+
+    /// One page-load for the visible feed. `reset: true` is a refresh (pull-to-refresh, tab
+    /// source change, account change): back to the first page with the end-reached state
+    /// cleared. `reset: false` is the endless-scroll append.
+    ///
+    /// Because the client filters hard (KaChat marker, muted/blocked, dedup), one trigger may
+    /// need several server pages - `KaPostsPaginator.collect` follows the server's cursor until
+    /// it has enough VISIBLE rows, or the feed is exhausted, or it hits its request cap.
+    private func loadFeedPage(reset: Bool) async {
+        guard !feedPage.isLoading else { return }
+        guard reset || (feedPage.hasMore && feedPage.errorMessage == nil && !feedPage.stalled) else { return }
+        let source = feedSource(for: selectedFeed)
+        if reset {
+            feedPage.reset()
+            loadedFeedSource = source
+            feedError = nil
+        }
+        let epoch = feedPage.epoch
+        let startCursor = reset ? nil : feedPage.cursor
+        feedPage.isLoading = true
+        feedPage.errorMessage = nil
         do {
-            let result: [KaPostsAPIClient.KPost]
-            switch selectedFeed {
-            case .following:
-                result = try await KaPostsAPIClient.shared.fetchFollowingFeed().posts
-            case .feed, .popular:
-                result = try await KaPostsAPIClient.shared.fetchGlobalFeed().posts
+            // Dedup set seeded with what's already on screen - the indexer can repeat items
+            // across pages, and a refresh must not double up either.
+            var seen: Set<String> = reset ? [] : Set(remotePosts.compactMap(\.remoteId))
+            let batch = try await KaPostsPaginator.collect(
+                from: startCursor,
+                fetch: { (before: String?, limit: Int) -> (items: [KaPostsAPIClient.KPost], pagination: KaPostsAPIClient.KPagination?) in
+                    switch source {
+                    case .following:
+                        let page = try await KaPostsAPIClient.shared.fetchFollowingFeed(limit: limit, before: before)
+                        return (page.posts, page.pagination)
+                    case .global:
+                        let page = try await KaPostsAPIClient.shared.fetchGlobalFeed(limit: limit, before: before)
+                        return (page.posts, page.pagination)
+                    }
+                },
+                keep: { (posts: [KaPostsAPIClient.KPost]) -> [DraftPost] in
+                    posts.compactMap { post in
+                        guard !seen.contains(post.id),
+                              let mapped = Self.mapRemotePost(post),
+                              !moderationStore.isHidden(mapped.posterAddress) else { return nil }
+                        seen.insert(post.id)
+                        return mapped
+                    }
+                }
+            )
+            // Stale response (tab switched, refreshed, or the wallet changed under us): drop it
+            // rather than appending to a list the user has moved on from.
+            guard feedPage.epoch == epoch else { return }
+            if reset {
+                remotePosts = batch.items
+            } else {
+                remotePosts.append(contentsOf: batch.items)
             }
-            remotePosts = result.compactMap { Self.mapRemotePost($0) }
-            // Batch-refresh poster identities through KNSService's debounced/backed-off path
-            // (bounded concurrency, per-address debounce). Besides warming names/avatars ahead
-            // of row mounts, this refreshes stale cached entries - including old permanently
-            // cached failed lookups - which per-row tasks never retouch because they only fetch
-            // when the cache has no entry at all.
-            let posterAddresses = Array(Set(remotePosts.map(\.posterAddress).filter { !$0.isEmpty }))
-            if !posterAddresses.isEmpty {
-                Task { await knsService.refreshProfilesIfNeeded(for: posterAddresses) }
-            }
+            feedPage.apply(batch)
+            resolveIdentities(for: batch.items)
         } catch {
-            feedError = error.localizedDescription
+            guard feedPage.epoch == epoch else { return }
+            feedPage.isLoading = false
+            feedPage.errorMessage = error.localizedDescription
+            // A failed APPEND keeps everything already loaded on screen (the footer offers a
+            // retry); only a failed refresh surfaces as the feed-level error.
+            if reset {
+                feedError = error.localizedDescription
+            }
             AppLog.log("[KaPosts] Feed fetch failed: %@", error.localizedDescription)
         }
+    }
+
+    /// Batch-refresh poster identities through KNSService's debounced/backed-off path (bounded
+    /// concurrency, per-address debounce) for a freshly appended page. Besides warming
+    /// names/avatars ahead of row mounts, this refreshes stale cached entries - including old
+    /// permanently cached failed lookups - which per-row tasks never retouch because they only
+    /// fetch when the cache has no entry at all. Every appended page goes through here, so
+    /// endless scroll never degrades into one KNS request per row.
+    private func resolveIdentities(for newPosts: [DraftPost]) {
+        let addresses = Array(Set(newPosts.map(\.posterAddress).filter { !$0.isEmpty }))
+        guard !addresses.isEmpty else { return }
+        Task { await knsService.refreshProfilesIfNeeded(for: addresses) }
     }
 
     /// K wire post -> UI model. Content arrives base64-decoded with the KaChat marker stripped;
@@ -690,6 +945,232 @@ struct KaPostsView: View {
             )
         }
         return mapped
+    }
+
+    // MARK: - Profile feed paging (own + tapped poster, Posts and Replies tabs)
+
+    /// Fetch/filter core shared by the four profile feeds. Follows the server cursor until it
+    /// has enough rows that survive filtering (see `KaPostsPaginator`); the caller owns the
+    /// @State it lands in.
+    private func fetchProfileBatch(
+        pubkey: String,
+        replies: Bool,
+        cursor: String?,
+        knownIds: Set<String>
+    ) async throws -> KaPostsPaginator.Batch<DraftPost> {
+        var seen = knownIds
+        return try await KaPostsPaginator.collect(
+            from: cursor,
+            fetch: { (before: String?, limit: Int) -> (items: [KaPostsAPIClient.KPost], pagination: KaPostsAPIClient.KPagination?) in
+                if replies {
+                    let page = try await KaPostsAPIClient.shared.fetchUserReplies(pubkey: pubkey, limit: limit, before: before)
+                    return (page.posts, page.pagination)
+                }
+                let page = try await KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey, limit: limit, before: before)
+                return (page.posts, page.pagination)
+            },
+            keep: { (posts: [KaPostsAPIClient.KPost]) -> [DraftPost] in
+                posts.compactMap { post in
+                    guard !seen.contains(post.id), let mapped = Self.mapRemotePost(post) else { return nil }
+                    // The Posts tab is top-level content only - replies have their own tab.
+                    if !replies, mapped.parentRemoteId != nil { return nil }
+                    seen.insert(post.id)
+                    return mapped
+                }
+            }
+        )
+    }
+
+    /// Your own profile > Posts.
+    private func loadMyProfilePosts(pubkey: String, reset: Bool) async {
+        guard !myPostsPage.isLoading else { return }
+        guard reset || (myPostsPage.hasMore && myPostsPage.errorMessage == nil && !myPostsPage.stalled) else { return }
+        if reset { myPostsPage.reset() }
+        let epoch = myPostsPage.epoch
+        let cursor = reset ? nil : myPostsPage.cursor
+        let known = Set(reset ? [] : myProfileRemotePosts.compactMap(\.remoteId))
+        myPostsPage.isLoading = true
+        myPostsPage.errorMessage = nil
+        do {
+            let batch = try await fetchProfileBatch(pubkey: pubkey, replies: false, cursor: cursor, knownIds: known)
+            guard myPostsPage.epoch == epoch else { return }
+            if reset {
+                myProfileRemotePosts = batch.items
+            } else {
+                myProfileRemotePosts.append(contentsOf: batch.items)
+            }
+            myPostsPage.apply(batch)
+            resolveIdentities(for: batch.items)
+        } catch {
+            guard myPostsPage.epoch == epoch else { return }
+            myPostsPage.isLoading = false
+            myPostsPage.errorMessage = error.localizedDescription
+            AppLog.log("[KaPosts] Profile posts page failed: %@", error.localizedDescription)
+        }
+    }
+
+    /// Your own profile > Replies.
+    private func loadMyProfileReplies(pubkey: String, reset: Bool) async {
+        guard !myRepliesPage.isLoading else { return }
+        guard reset || (myRepliesPage.hasMore && myRepliesPage.errorMessage == nil && !myRepliesPage.stalled) else { return }
+        if reset { myRepliesPage.reset() }
+        let epoch = myRepliesPage.epoch
+        let cursor = reset ? nil : myRepliesPage.cursor
+        let known = Set(reset ? [] : myProfileRemoteReplies.compactMap(\.remoteId))
+        myRepliesPage.isLoading = true
+        myRepliesPage.errorMessage = nil
+        do {
+            let batch = try await fetchProfileBatch(pubkey: pubkey, replies: true, cursor: cursor, knownIds: known)
+            guard myRepliesPage.epoch == epoch else { return }
+            if reset {
+                myProfileRemoteReplies = batch.items
+            } else {
+                myProfileRemoteReplies.append(contentsOf: batch.items)
+            }
+            myRepliesPage.apply(batch)
+            resolveIdentities(for: batch.items)
+        } catch {
+            guard myRepliesPage.epoch == epoch else { return }
+            myRepliesPage.isLoading = false
+            myRepliesPage.errorMessage = error.localizedDescription
+            AppLog.log("[KaPosts] Profile replies page failed: %@", error.localizedDescription)
+        }
+    }
+
+    /// A tapped poster's profile > Posts.
+    private func loadPosterProfilePosts(pubkey: String, reset: Bool) async {
+        guard !posterPostsPage.isLoading else { return }
+        guard reset || (posterPostsPage.hasMore && posterPostsPage.errorMessage == nil && !posterPostsPage.stalled) else { return }
+        if reset { posterPostsPage.reset() }
+        let epoch = posterPostsPage.epoch
+        let cursor = reset ? nil : posterPostsPage.cursor
+        let known = Set(reset ? [] : posterProfilePosts.compactMap(\.remoteId))
+        posterPostsPage.isLoading = true
+        posterPostsPage.errorMessage = nil
+        do {
+            let batch = try await fetchProfileBatch(pubkey: pubkey, replies: false, cursor: cursor, knownIds: known)
+            guard posterPostsPage.epoch == epoch else { return }
+            if reset {
+                posterProfilePosts = batch.items
+            } else {
+                posterProfilePosts.append(contentsOf: batch.items)
+            }
+            posterPostsPage.apply(batch)
+            resolveIdentities(for: batch.items)
+        } catch {
+            guard posterPostsPage.epoch == epoch else { return }
+            posterPostsPage.isLoading = false
+            posterPostsPage.errorMessage = error.localizedDescription
+            AppLog.log("[KaPosts] Poster posts page failed: %@", error.localizedDescription)
+        }
+    }
+
+    /// A tapped poster's profile > Replies.
+    private func loadPosterProfileReplies(pubkey: String, reset: Bool) async {
+        guard !posterRepliesPage.isLoading else { return }
+        guard reset || (posterRepliesPage.hasMore && posterRepliesPage.errorMessage == nil && !posterRepliesPage.stalled) else { return }
+        if reset { posterRepliesPage.reset() }
+        let epoch = posterRepliesPage.epoch
+        let cursor = reset ? nil : posterRepliesPage.cursor
+        let known = Set(reset ? [] : posterProfileReplies.compactMap(\.remoteId))
+        posterRepliesPage.isLoading = true
+        posterRepliesPage.errorMessage = nil
+        do {
+            let batch = try await fetchProfileBatch(pubkey: pubkey, replies: true, cursor: cursor, knownIds: known)
+            guard posterRepliesPage.epoch == epoch else { return }
+            if reset {
+                posterProfileReplies = batch.items
+            } else {
+                posterProfileReplies.append(contentsOf: batch.items)
+            }
+            posterRepliesPage.apply(batch)
+            resolveIdentities(for: batch.items)
+        } catch {
+            guard posterRepliesPage.epoch == epoch else { return }
+            posterRepliesPage.isLoading = false
+            posterRepliesPage.errorMessage = error.localizedDescription
+            AppLog.log("[KaPosts] Poster replies page failed: %@", error.localizedDescription)
+        }
+    }
+
+    /// Scroll trigger for your own profile: pages whichever tab is on screen.
+    private func loadMoreMyProfile() {
+        guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
+        Task {
+            if myProfileFeedTab == .posts {
+                await loadMyProfilePosts(pubkey: pubkey, reset: false)
+            } else {
+                await loadMyProfileReplies(pubkey: pubkey, reset: false)
+            }
+        }
+    }
+
+    /// Same for the tapped poster's profile (its pubkey is remembered when the sheet loads).
+    private func loadMorePosterProfile() {
+        guard let pubkey = posterProfilePubkey else { return }
+        Task {
+            if posterProfileFeedTab == .posts {
+                await loadPosterProfilePosts(pubkey: pubkey, reset: false)
+            } else {
+                await loadPosterProfileReplies(pubkey: pubkey, reset: false)
+            }
+        }
+    }
+
+    // MARK: - Thread reply paging (detail sheet + inline "View N replies" chains)
+
+    /// Loads (or appends) a post's replies. Every thread - the detail sheet's root thread and
+    /// each inline reply chain - has its own paging state keyed by the parent's local id, so
+    /// two open threads never share a cursor or an in-flight request.
+    private func loadThreadReplies(for post: DraftPost, reset: Bool) async {
+        guard let remoteId = post.remoteId else { return }
+        let key = post.id
+        var page = threadPages[key] ?? KaPostsPageState()
+        guard !page.isLoading else { return }
+        guard reset || (page.hasMore && page.errorMessage == nil && !page.stalled) else { return }
+        if reset { page.reset() }
+        let epoch = page.epoch
+        let cursor = reset ? nil : page.cursor
+        page.isLoading = true
+        page.errorMessage = nil
+        threadPages[key] = page
+        // Replies already on screen - the server can repeat rows across pages.
+        let known: Set<String> = reset ? [] : Set(findPost(id: key)?.comments.compactMap(\.remoteId) ?? [])
+        do {
+            var seen = known
+            let batch = try await KaPostsPaginator.collect(
+                from: cursor,
+                fetch: { (before: String?, limit: Int) -> (items: [KaPostsAPIClient.KPost], pagination: KaPostsAPIClient.KPagination?) in
+                    let result = try await KaPostsAPIClient.shared.fetchReplies(postId: remoteId, limit: limit, before: before)
+                    return (result.posts, result.pagination)
+                },
+                keep: { (posts: [KaPostsAPIClient.KPost]) -> [DraftPost] in
+                    posts.compactMap { reply in
+                        guard !seen.contains(reply.id),
+                              let mapped = Self.mapRemotePost(reply),
+                              !moderationStore.isHidden(mapped.posterAddress) else { return nil }
+                        seen.insert(reply.id)
+                        return mapped
+                    }
+                }
+            )
+            guard threadPages[key]?.epoch == epoch else { return }
+            mutatePost(id: key) { target in
+                // Local (session) replies always stay layered at the end of the thread.
+                let localOnly = target.comments.filter { $0.remoteId == nil }
+                let fetched = reset ? [] : target.comments.filter { $0.remoteId != nil }
+                target.comments = fetched + batch.items + localOnly
+            }
+            var updated = threadPages[key] ?? KaPostsPageState()
+            updated.apply(batch)
+            threadPages[key] = updated
+            resolveIdentities(for: batch.items)
+        } catch {
+            guard threadPages[key]?.epoch == epoch else { return }
+            threadPages[key]?.isLoading = false
+            threadPages[key]?.errorMessage = error.localizedDescription
+            AppLog.log("[KaPosts] Replies page failed: %@", error.localizedDescription)
+        }
     }
 
     /// Poster name resolution, in priority order: the alias YOU set for a saved contact wins,
@@ -1155,15 +1636,8 @@ struct KaPostsView: View {
         // get-post endpoint on the fork would make this exact; flagged in the handoff doc.)
         // Replies come from get-replies?user= - the indexer's get-posts never returns them.
         if let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() {
-            async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey)
-            async let repliesFetch = try? KaPostsAPIClient.shared.fetchUserReplies(pubkey: pubkey)
-            if let fetched = await postsFetch {
-                myProfileRemotePosts = fetched.posts.compactMap(Self.mapRemotePost)
-                    .filter { $0.parentRemoteId == nil }
-            }
-            if let fetchedReplies = await repliesFetch {
-                myProfileRemoteReplies = fetchedReplies.posts.compactMap(Self.mapRemotePost)
-            }
+            await loadMyProfilePosts(pubkey: pubkey, reset: true)
+            await loadMyProfileReplies(pubkey: pubkey, reset: true)
         }
         if let post = findPost(byRemoteId: txId) {
             openDetail(post)
@@ -1210,7 +1684,8 @@ struct KaPostsView: View {
                         .frame(width: 2)
                         .padding(.leading, 35)
                     VStack(alignment: .leading, spacing: 0) {
-                        if visibleComments(of: comment).isEmpty {
+                        let replies = visibleComments(of: comment)
+                        if replies.isEmpty {
                             HStack(spacing: 8) {
                                 ProgressView().scaleEffect(0.8)
                                 Text("Loading replies...")
@@ -1220,8 +1695,18 @@ struct KaPostsView: View {
                             .padding(.vertical, 12)
                             .padding(.leading, 16)
                         } else {
-                            ForEach(visibleComments(of: comment)) { reply in
+                            let triggerId = kaPostsPrefetchTriggerId(replies)
+                            ForEach(replies) { reply in
                                 threadCell(reply)
+                                    .onAppear {
+                                        guard reply.id == triggerId else { return }
+                                        Task { await loadThreadReplies(for: comment, reset: false) }
+                                    }
+                            }
+                            // Inline chains page endlessly too (long comment threads).
+                            KaPostsLoadMoreFooter(state: threadPages[comment.id] ?? KaPostsPageState()) {
+                                threadPages[comment.id, default: KaPostsPageState()].prepareManualRetry()
+                                Task { await loadThreadReplies(for: comment, reset: false) }
                             }
                         }
                     }
@@ -1256,37 +1741,20 @@ struct KaPostsView: View {
         .buttonStyle(.plain)
     }
 
-    /// Expands a comment's reply chain inline, fetching its replies from the indexer.
+    /// Expands a comment's reply chain inline, fetching its first page of replies from the
+    /// indexer (the chain then pages endlessly like any other list).
     private func expandReplies(for comment: DraftPost) {
         withAnimation(.easeInOut(duration: 0.2)) {
             _ = expandedCommentIds.insert(comment.id)
         }
-        guard let remoteId = comment.remoteId else { return }
-        Task {
-            guard let replies = try? await KaPostsAPIClient.shared.fetchReplies(postId: remoteId).posts else { return }
-            let mapped = replies.compactMap { Self.mapRemotePost($0) }
-            mutatePost(id: comment.id) { target in
-                let localOnly = target.comments.filter { $0.remoteId == nil }
-                target.comments = mapped + localOnly
-            }
-        }
+        Task { await loadThreadReplies(for: comment, reset: true) }
     }
 
     private func openDetail(_ post: DraftPost) {
         replyText = ""
         detailTarget = PostDetailTarget(id: post.id)
         // Remote post: pull its real reply thread from the indexer into the comments array.
-        if let remoteId = post.remoteId {
-            Task {
-                guard let replies = try? await KaPostsAPIClient.shared.fetchReplies(postId: remoteId).posts else { return }
-                let mapped = replies.compactMap { Self.mapRemotePost($0) }
-                mutatePost(id: post.id) { target in
-                    // Keep any local (session) replies layered after the fetched thread.
-                    let localOnly = target.comments.filter { $0.remoteId == nil }
-                    target.comments = mapped + localOnly
-                }
-            }
-        }
+        Task { await loadThreadReplies(for: post, reset: true) }
     }
 
     // MARK: - My profile (side menu, X-style)
@@ -1399,6 +1867,7 @@ struct KaPostsView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 40)
                     } else {
+                        let triggerId = kaPostsPrefetchTriggerId(myFeedItems)
                         ForEach(myFeedItems) { post in
                             KaPostCellView(
                                 post: post,
@@ -1419,8 +1888,22 @@ struct KaPostsView: View {
                                 onRepost: { handleRepostTap(post) },
                                 onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                             )
+                            .onAppear {
+                                guard post.id == triggerId else { return }
+                                loadMoreMyProfile()
+                            }
                             Divider()
                                 .padding(.leading, 68)
+                        }
+                        KaPostsLoadMoreFooter(
+                            state: myProfileFeedTab == .posts ? myPostsPage : myRepliesPage
+                        ) {
+                            if myProfileFeedTab == .posts {
+                                myPostsPage.prepareManualRetry()
+                            } else {
+                                myRepliesPage.prepareManualRetry()
+                            }
+                            loadMoreMyProfile()
                         }
                     }
                 }
@@ -1438,12 +1921,15 @@ struct KaPostsView: View {
                 guard knsService.profileCache[myAddress] == nil, !myAddress.isEmpty else { return }
                 _ = await knsService.fetchProfile(for: myAddress)
             }
+            .refreshable {
+                guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
+                await loadMyProfilePosts(pubkey: pubkey, reset: true)
+                await loadMyProfileReplies(pubkey: pubkey, reset: true)
+            }
             .task {
                 guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
                 isLoadingMyProfilePosts = myProfileRemotePosts.isEmpty
                 async let detailsFetch = try? KaPostsAPIClient.shared.fetchUserDetails(pubkey: pubkey)
-                async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey)
-                async let repliesFetch = try? KaPostsAPIClient.shared.fetchUserReplies(pubkey: pubkey)
                 if let details = await detailsFetch {
                     // Never count yourself as your own follower. followedUser here means
                     // "requester follows user" - with both being us, true = a stale on-chain
@@ -1462,13 +1948,9 @@ struct KaPostsView: View {
                         myFollowersCount = details.followersCount
                     }
                 }
-                if let fetched = await postsFetch {
-                    myProfileRemotePosts = fetched.posts.compactMap(Self.mapRemotePost)
-                        .filter { $0.parentRemoteId == nil }
-                }
-                if let fetchedReplies = await repliesFetch {
-                    myProfileRemoteReplies = fetchedReplies.posts.compactMap(Self.mapRemotePost)
-                }
+                // First page of each tab; both then page endlessly on scroll.
+                await loadMyProfilePosts(pubkey: pubkey, reset: true)
+                await loadMyProfileReplies(pubkey: pubkey, reset: true)
                 isLoadingMyProfilePosts = false
             }
             .navigationDestination(isPresented: Binding(
@@ -1605,6 +2087,7 @@ struct KaPostsView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 40)
                     } else {
+                        let triggerId = kaPostsPrefetchTriggerId(posterFeedItems)
                         ForEach(posterFeedItems) { post in
                             KaPostCellView(
                                 post: post,
@@ -1625,8 +2108,22 @@ struct KaPostsView: View {
                                 onRepost: { handleRepostTap(post) },
                                 onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                             )
+                            .onAppear {
+                                guard post.id == triggerId else { return }
+                                loadMorePosterProfile()
+                            }
                             Divider()
                                 .padding(.leading, 68)
+                        }
+                        KaPostsLoadMoreFooter(
+                            state: posterProfileFeedTab == .posts ? posterPostsPage : posterRepliesPage
+                        ) {
+                            if posterProfileFeedTab == .posts {
+                                posterPostsPage.prepareManualRetry()
+                            } else {
+                                posterRepliesPage.prepareManualRetry()
+                            }
+                            loadMorePosterProfile()
                         }
                     }
                 }
@@ -1640,31 +2137,34 @@ struct KaPostsView: View {
                     Button("Done") { profileTarget = nil }
                 }
             }
+            .refreshable {
+                guard let pubkey = posterProfilePubkey else { return }
+                await loadPosterProfilePosts(pubkey: pubkey, reset: true)
+                await loadPosterProfileReplies(pubkey: pubkey, reset: true)
+            }
             .task(id: target.id) {
                 posterProfilePosts = []
                 posterProfileReplies = []
                 posterProfileFeedTab = .posts
                 posterProfileFollowers = nil
                 posterProfileFollowing = nil
+                // A different profile means different cursors: bumping the epochs makes any
+                // page still in flight for the previous poster discard its result.
+                posterPostsPage.reset()
+                posterRepliesPage.reset()
+                posterProfilePubkey = target.pubkey
                 if knsService.profileCache[address] == nil {
                     _ = await knsService.fetchProfile(for: address)
                 }
                 guard let pubkey = target.pubkey else { return }
                 isLoadingPosterProfile = true
                 async let detailsFetch = try? KaPostsAPIClient.shared.fetchUserDetails(pubkey: pubkey)
-                async let postsFetch = try? KaPostsAPIClient.shared.fetchUserPosts(pubkey: pubkey)
-                async let repliesFetch = try? KaPostsAPIClient.shared.fetchUserReplies(pubkey: pubkey)
                 if let details = await detailsFetch {
                     posterProfileFollowers = details.followersCount
                     posterProfileFollowing = details.followingCount
                 }
-                if let fetched = await postsFetch {
-                    posterProfilePosts = fetched.posts.compactMap(Self.mapRemotePost)
-                        .filter { $0.parentRemoteId == nil }
-                }
-                if let fetchedReplies = await repliesFetch {
-                    posterProfileReplies = fetchedReplies.posts.compactMap(Self.mapRemotePost)
-                }
+                await loadPosterProfilePosts(pubkey: pubkey, reset: true)
+                await loadPosterProfileReplies(pubkey: pubkey, reset: true)
                 isLoadingPosterProfile = false
             }
         }
@@ -1916,19 +2416,30 @@ struct KaPostsView: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
 
-                            if visibleComments(of: post).isEmpty {
+                            let comments = visibleComments(of: post)
+                            if comments.isEmpty {
                                 Text("No comments yet - be the first to reply.")
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 20)
                             } else {
-                                ForEach(visibleComments(of: post)) { comment in
+                                let triggerId = kaPostsPrefetchTriggerId(comments)
+                                ForEach(comments) { comment in
                                     threadCell(comment)
+                                        .onAppear {
+                                            guard comment.id == triggerId else { return }
+                                            Task { await loadThreadReplies(for: post, reset: false) }
+                                        }
                                     threadRepliesSection(for: comment)
                                     Divider()
                                         .padding(.leading, 68)
                                 }
+                            }
+                            // Endless scroll for the thread's own comment list.
+                            KaPostsLoadMoreFooter(state: threadPages[postId] ?? KaPostsPageState()) {
+                                threadPages[postId, default: KaPostsPageState()].prepareManualRetry()
+                                Task { await loadThreadReplies(for: post, reset: false) }
                             }
                         }
                     }
@@ -2802,6 +3313,11 @@ struct KaPostEngagementView: View {
     @State private var entries: [EngagementTab: [EngagementEntry]] = [:]
     @State private var isLoading = false
     @State private var loadFailed = false
+    /// One cursor for the whole actor stream (`type=all`), which the view fans out into the
+    /// four tabs - so "load more" from any tab advances the same underlying pagination.
+    @State private var page = KaPostsPageState()
+    /// Action txids already shown, across all four tabs (the server can repeat across pages).
+    @State private var seenActionIds: Set<String> = []
 
     private var isOwnPost: Bool {
         post.posterAddress == WalletManager.shared.currentWallet?.publicAddress
@@ -2828,8 +3344,20 @@ struct KaPostEngagementView: View {
                     if rows.isEmpty {
                         emptyState
                     } else {
-                        List(rows) { entry in
-                            entryRow(entry)
+                        let triggerId = kaPostsPrefetchTriggerId(rows)
+                        List {
+                            ForEach(rows) { entry in
+                                entryRow(entry)
+                                    .onAppear {
+                                        guard entry.id == triggerId else { return }
+                                        Task { await loadMore() }
+                                    }
+                            }
+                            KaPostsLoadMoreFooter(state: page) {
+                                page.prepareManualRetry()
+                                Task { await loadMore() }
+                            }
+                            .listRowSeparator(.hidden)
                         }
                         .listStyle(.plain)
                     }
@@ -2941,16 +3469,52 @@ struct KaPostEngagementView: View {
     /// post. Falls back to the notification-stream derivation (own posts only) if the endpoint
     /// isn't available (older indexer deployment).
     private func load() async {
+        await loadPage(reset: true)
+    }
+
+    private func loadMore() async {
+        await loadPage(reset: false)
+    }
+
+    private func loadPage(reset: Bool) async {
         guard let postId = post.remoteId else { return }
-        isLoading = true
-        defer { isLoading = false }
+        guard !page.isLoading else { return }
+        guard reset || (page.hasMore && page.errorMessage == nil && !page.stalled) else { return }
+        if reset {
+            page.reset()
+            seenActionIds = []
+        }
+        let epoch = page.epoch
+        let cursor = reset ? nil : page.cursor
+        page.isLoading = true
+        page.errorMessage = nil
+        if reset { isLoading = true }
+        defer { if reset { isLoading = false } }
         do {
-            let rows = try await KaPostsAPIClient.shared.fetchPostEngagement(postId: postId)
-            var likes: [EngagementEntry] = []
-            var dislikes: [EngagementEntry] = []
-            var reposts: [EngagementEntry] = []
-            var quotes: [EngagementEntry] = []
-            for row in rows {
+            var seen = seenActionIds
+            let batch = try await KaPostsPaginator.collect(
+                from: cursor,
+                fetch: { (before: String?, limit: Int) -> (items: [KaPostsAPIClient.KEngagementEntry], pagination: KaPostsAPIClient.KPagination?) in
+                    let result = try await KaPostsAPIClient.shared.fetchPostEngagement(
+                        postId: postId, limit: limit, before: before
+                    )
+                    return (result.entries, result.pagination)
+                },
+                keep: { (rows: [KaPostsAPIClient.KEngagementEntry]) -> [KaPostsAPIClient.KEngagementEntry] in
+                    rows.filter { row in
+                        guard !seen.contains(row.actionTxId) else { return false }
+                        seen.insert(row.actionTxId)
+                        return true
+                    }
+                }
+            )
+            guard page.epoch == epoch else { return }
+            seenActionIds = seen
+            var likes: [EngagementEntry] = reset ? [] : (entries[.likes] ?? [])
+            var dislikes: [EngagementEntry] = reset ? [] : (entries[.dislikes] ?? [])
+            var reposts: [EngagementEntry] = reset ? [] : (entries[.reposts] ?? [])
+            var quotes: [EngagementEntry] = reset ? [] : (entries[.quotes] ?? [])
+            for row in batch.items {
                 let entry = EngagementEntry(
                     id: row.actionTxId,
                     actorPubkey: row.actorPubkey,
@@ -2965,7 +3529,21 @@ struct KaPostEngagementView: View {
                 }
             }
             entries = [.likes: likes, .dislikes: dislikes, .reposts: reposts, .quotes: quotes]
+            page.apply(batch)
+            // Batched KNS resolution for the appended actors.
+            let addresses = Array(Set(batch.items.compactMap { KaPostsAPIClient.kaspaAddress(fromPubkey: $0.actorPubkey) }))
+            if !addresses.isEmpty {
+                Task { await knsService.refreshProfilesIfNeeded(for: addresses) }
+            }
         } catch {
+            guard page.epoch == epoch else { return }
+            page.isLoading = false
+            // Keep whatever is already listed; only a failed FIRST page falls back.
+            guard reset else {
+                page.errorMessage = error.localizedDescription
+                AppLog.log("[KaPosts] Engagement page failed: %@", error.localizedDescription)
+                return
+            }
             AppLog.log("[KaPosts] Engagement endpoint failed, falling back: %@", error.localizedDescription)
             if isOwnPost {
                 await loadFromNotifications(postId: postId)
@@ -2977,9 +3555,13 @@ struct KaPostEngagementView: View {
 
     /// Legacy path: derive the lists from the requester's notification stream, filtered to this
     /// post. Reposts vs Quotes split on whether the quote carried text beyond the KaChat marker.
+    /// Deliberately single-page: filtering a whole notification stream down to one post's
+    /// actions is so sparse that paging it would burn requests for nothing - so this fallback
+    /// marks the surface exhausted and shows no load-more affordance.
     private func loadFromNotifications(postId: String) async {
+        page.hasMore = false
         do {
-            let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 100)
+            let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 100).notifications
             var likes: [EngagementEntry] = []
             var dislikes: [EngagementEntry] = []
             var reposts: [EngagementEntry] = []
@@ -3044,6 +3626,9 @@ struct KaPostsFollowListView: View {
 
     @State private var entries: [Entry] = []
     @State private var isLoading = true
+    /// Endless-scroll state for the server-side follow list (the locally-merged rows are a
+    /// fixed tail, see `load`).
+    @State private var page = KaPostsPageState()
 
     init(kind: Kind, localFollowing: Set<String>, onToggleFollow: @escaping (String, String?) -> Void) {
         self.kind = kind
@@ -3053,16 +3638,29 @@ struct KaPostsFollowListView: View {
 
     var body: some View {
         Group {
-            if isLoading {
+            if isLoading, entries.isEmpty {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if entries.isEmpty {
                 emptyState
             } else {
-                List(entries) { entry in
-                    entryRow(entry)
+                let triggerId = kaPostsPrefetchTriggerId(entries)
+                List {
+                    ForEach(entries) { entry in
+                        entryRow(entry)
+                            .onAppear {
+                                guard entry.id == triggerId else { return }
+                                Task { await loadPage(reset: false) }
+                            }
+                    }
+                    KaPostsLoadMoreFooter(state: page) {
+                        page.prepareManualRetry()
+                        Task { await loadPage(reset: false) }
+                    }
+                    .listRowSeparator(.hidden)
                 }
                 .listStyle(.plain)
+                .refreshable { await load() }
             }
         }
         .navigationTitle(kind.title)
@@ -3146,31 +3744,82 @@ struct KaPostsFollowListView: View {
     }
 
     private func load() async {
-        defer { isLoading = false }
-        var remote: [Entry] = []
-        if let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() {
-            let users = (try? await KaPostsAPIClient.shared.fetchFollowList(
-                ofPubkey: pubkey, followers: kind == .followers
-            )) ?? []
-            let myAddress = WalletManager.shared.currentWallet?.publicAddress
-            remote = users.compactMap { user in
-                guard let address = KaPostsAPIClient.kaspaAddress(fromPubkey: user.userPublicKey),
-                      address != myAddress else { return nil }
-                let date = user.timestamp.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
-                return Entry(address: address, pubkey: user.userPublicKey, timestamp: date)
+        await loadPage(reset: true)
+    }
+
+    /// Pages the server list (newest-first, cursor-driven). Locally-stored follows the indexer
+    /// hasn't caught up on are merged in as a fixed tail AFTER the server rows, and stay there
+    /// as further pages arrive - they have no cursor position of their own.
+    private func loadPage(reset: Bool) async {
+        guard !page.isLoading else { return }
+        guard reset || (page.hasMore && page.errorMessage == nil && !page.stalled) else { return }
+        if reset { page.reset() }
+        let epoch = page.epoch
+        let cursor = reset ? nil : page.cursor
+        page.isLoading = true
+        page.errorMessage = nil
+        if reset { isLoading = true }
+        guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else {
+            page.isLoading = false
+            page.hasMore = false
+            isLoading = false
+            if reset { entries = localOnlyEntries(excluding: []) }
+            return
+        }
+        let myAddress = WalletManager.shared.currentWallet?.publicAddress
+        do {
+            var seen: Set<String> = reset ? [] : Set(entries.map(\.address))
+            let batch = try await KaPostsPaginator.collect(
+                from: cursor,
+                fetch: { (before: String?, limit: Int) -> (items: [KaPostsAPIClient.KFollowUser], pagination: KaPostsAPIClient.KPagination?) in
+                    let result = try await KaPostsAPIClient.shared.fetchFollowList(
+                        ofPubkey: pubkey, followers: kind == .followers, limit: limit, before: before
+                    )
+                    return (result.users, result.pagination)
+                },
+                keep: { (users: [KaPostsAPIClient.KFollowUser]) -> [Entry] in
+                    users.compactMap { user in
+                        guard let address = KaPostsAPIClient.kaspaAddress(fromPubkey: user.userPublicKey),
+                              address != myAddress,
+                              !seen.contains(address) else { return nil }
+                        seen.insert(address)
+                        let date = user.timestamp.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+                        return Entry(address: address, pubkey: user.userPublicKey, timestamp: date)
+                    }
+                }
+            )
+            guard page.epoch == epoch else { return }
+            // Server rows keep their (descending) order; the local-only tail is recomputed so
+            // an entry that just arrived from the indexer stops being duplicated locally.
+            var serverRows = reset ? [] : entries.filter { $0.pubkey != nil }
+            serverRows.append(contentsOf: batch.items)
+            entries = serverRows + localOnlyEntries(excluding: Set(serverRows.map(\.address)))
+            page.apply(batch)
+            isLoading = false
+            let addresses = Array(Set(batch.items.map(\.address).filter { !$0.isEmpty }))
+            if !addresses.isEmpty {
+                Task { await knsService.refreshProfilesIfNeeded(for: addresses) }
             }
+        } catch {
+            guard page.epoch == epoch else { return }
+            page.isLoading = false
+            page.errorMessage = error.localizedDescription
+            isLoading = false
+            if reset {
+                // First page failed: still show the local follows rather than an empty screen.
+                entries = localOnlyEntries(excluding: [])
+            }
+            AppLog.log("[KaPosts] Follow list load failed: %@", error.localizedDescription)
         }
-        if kind == .following {
-            // Merge in locally-stored follows the indexer may not have caught up on yet.
-            var seen = Set(remote.map(\.address))
-            let localOnly = localFollowing
-                .filter { !seen.contains($0) && $0 != WalletManager.shared.currentWallet?.publicAddress }
-                .sorted()
-                .map { Entry(address: $0, pubkey: nil, timestamp: nil) }
-            seen.formUnion(localOnly.map(\.address))
-            remote.append(contentsOf: localOnly)
-        }
-        entries = remote.sorted { ($0.timestamp ?? .distantPast) > ($1.timestamp ?? .distantPast) }
+    }
+
+    /// Locally-stored follows the indexer hasn't reported (Following list only).
+    private func localOnlyEntries(excluding known: Set<String>) -> [Entry] {
+        guard kind == .following else { return [] }
+        return localFollowing
+            .filter { !known.contains($0) && $0 != WalletManager.shared.currentWallet?.publicAddress }
+            .sorted()
+            .map { Entry(address: $0, pubkey: nil, timestamp: nil) }
     }
 }
 
@@ -3240,6 +3889,8 @@ struct KaPostsNotificationsView: View {
     @State private var items: [Item] = []
     @State private var isLoading = true
     @State private var loadFailed = false
+    /// Endless-scroll state for the notification stream (cursor-paginated by the indexer).
+    @State private var page = KaPostsPageState()
 
     var body: some View {
         NavigationStack {
@@ -3255,8 +3906,20 @@ struct KaPostsNotificationsView: View {
                     }
                     .refreshable { await load() }
                 } else {
-                    List(items) { item in
-                        itemRow(item)
+                    let triggerId = kaPostsPrefetchTriggerId(items)
+                    List {
+                        ForEach(items) { item in
+                            itemRow(item)
+                                .onAppear {
+                                    guard item.id == triggerId else { return }
+                                    Task { await loadMore() }
+                                }
+                        }
+                        KaPostsLoadMoreFooter(state: page) {
+                            page.prepareManualRetry()
+                            Task { await loadMore() }
+                        }
+                        .listRowSeparator(.hidden)
                     }
                     .listStyle(.plain)
                     .refreshable { await load() }
@@ -3365,54 +4028,103 @@ struct KaPostsNotificationsView: View {
         return String(address.suffix(10))
     }
 
+    /// Pull-to-refresh / first load: back to page one with the end-reached state cleared.
     private func load() async {
-        isLoading = true
-        loadFailed = false
-        defer { isLoading = false }
+        await loadPage(reset: true)
+    }
+
+    private func loadMore() async {
+        await loadPage(reset: false)
+    }
+
+    private func loadPage(reset: Bool) async {
+        guard !page.isLoading else { return }
+        guard reset || (page.hasMore && page.errorMessage == nil && !page.stalled) else { return }
+        if reset { page.reset() }
+        let epoch = page.epoch
+        let cursor = reset ? nil : page.cursor
+        page.isLoading = true
+        page.errorMessage = nil
+        if reset { isLoading = true; loadFailed = false }
         do {
-            let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 100)
-            // Everything now on screen counts as seen - the local-notification poller won't
-            // ping for it later.
-            if let newest = notifications.map(\.timestamp).max() {
-                KaPostsNotificationService.shared.markSeen(upTo: newest)
-            }
             let myAddress = WalletManager.shared.currentWallet?.publicAddress
-            items = notifications.compactMap { notification in
-                guard let address = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
-                      address != myAddress,
-                      !moderationStore.isHidden(address) else { return nil }
-                let text = KaPostsAPIClient.stripMarker(notification.decodedContent ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let kind: Item.Kind
-                let targetTxId: String?
-                switch notification.contentType {
-                case "vote":
-                    kind = notification.voteType == "downvote" ? .dislike : .like
-                    targetTxId = notification.contentId
-                case "reply":
-                    kind = .reply
-                    targetTxId = notification.id
-                case "quote":
-                    kind = text.isEmpty ? .repost : .quote
-                    targetTxId = text.isEmpty ? notification.contentId : notification.id
-                case "follow":
-                    kind = .follow
-                    targetTxId = nil
-                default:
-                    kind = .other
-                    targetTxId = notification.contentId
+            // Muted/blocked actors and your own actions are dropped client-side, so a server
+            // page can shrink a lot - the paginator keeps pulling until enough rows survive.
+            var seen: Set<String> = reset ? [] : Set(items.map(\.id))
+            var newestSeenTimestamp: Int64 = 0
+            let batch = try await KaPostsPaginator.collect(
+                from: cursor,
+                fetch: { (before: String?, limit: Int) -> (items: [KaPostsAPIClient.KNotification], pagination: KaPostsAPIClient.KPagination?) in
+                    let result = try await KaPostsAPIClient.shared.fetchNotifications(limit: limit, before: before)
+                    return (result.notifications, result.pagination)
+                },
+                keep: { (notifications: [KaPostsAPIClient.KNotification]) -> [Item] in
+                    notifications.compactMap { notification in
+                        newestSeenTimestamp = max(newestSeenTimestamp, notification.timestamp)
+                        guard !seen.contains(notification.id),
+                              let address = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
+                              address != myAddress,
+                              !moderationStore.isHidden(address) else { return nil }
+                        seen.insert(notification.id)
+                        let text = KaPostsAPIClient.stripMarker(notification.decodedContent ?? "")
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        let kind: Item.Kind
+                        let targetTxId: String?
+                        switch notification.contentType {
+                        case "vote":
+                            kind = notification.voteType == "downvote" ? .dislike : .like
+                            targetTxId = notification.contentId
+                        case "reply":
+                            kind = .reply
+                            targetTxId = notification.id
+                        case "quote":
+                            kind = text.isEmpty ? .repost : .quote
+                            targetTxId = text.isEmpty ? notification.contentId : notification.id
+                        case "follow":
+                            kind = .follow
+                            targetTxId = nil
+                        default:
+                            kind = .other
+                            targetTxId = notification.contentId
+                        }
+                        return Item(
+                            id: notification.id,
+                            actorAddress: address,
+                            kind: kind,
+                            snippet: text.isEmpty ? nil : text,
+                            timestamp: Date(timeIntervalSince1970: TimeInterval(notification.timestamp) / 1000),
+                            targetTxId: targetTxId
+                        )
+                    }
                 }
-                return Item(
-                    id: notification.id,
-                    actorAddress: address,
-                    kind: kind,
-                    snippet: text.isEmpty ? nil : text,
-                    timestamp: Date(timeIntervalSince1970: TimeInterval(notification.timestamp) / 1000),
-                    targetTxId: targetTxId
-                )
+            )
+            guard page.epoch == epoch else { return }
+            if reset {
+                items = batch.items
+                // Everything now on screen counts as seen - the local-notification poller
+                // won't ping for it later. Only the first (newest) page can advance this.
+                if newestSeenTimestamp > 0 {
+                    KaPostsNotificationService.shared.markSeen(upTo: newestSeenTimestamp)
+                }
+            } else {
+                items.append(contentsOf: batch.items)
+            }
+            page.apply(batch)
+            isLoading = false
+            // Batched KNS resolution for the appended actors (the per-row task only covers
+            // cache misses; this also refreshes stale entries).
+            let addresses = Array(Set(batch.items.map(\.actorAddress).filter { !$0.isEmpty }))
+            if !addresses.isEmpty {
+                Task { await knsService.refreshProfilesIfNeeded(for: addresses) }
             }
         } catch {
-            loadFailed = true
+            guard page.epoch == epoch else { return }
+            page.isLoading = false
+            page.errorMessage = error.localizedDescription
+            isLoading = false
+            // A failed page-append leaves the loaded notifications on screen; only a failed
+            // first load counts as an outright failure.
+            if reset { loadFailed = true }
             AppLog.log("[KaPosts] Notifications load failed: %@", error.localizedDescription)
         }
     }

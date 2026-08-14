@@ -132,6 +132,9 @@ final class KaPostsAPIClient: ObservableObject {
 
     private struct NotificationsResponse: Decodable {
         let notifications: [KNotification]
+        /// Present on the K webserver's paginated notifications response; optional so older
+        /// deployments (no pagination block) simply read as "one page, no more".
+        let pagination: KPagination?
     }
 
     /// One actor row from get-post-engagement (KaChat indexer fork): who did what to a post,
@@ -145,6 +148,7 @@ final class KaPostsAPIClient: ObservableObject {
 
     private struct EngagementResponse: Decodable {
         let engagement: [KEngagementEntry]
+        let pagination: KPagination?
     }
 
     struct KFollowUser: Decodable, Identifiable {
@@ -160,6 +164,7 @@ final class KaPostsAPIClient: ObservableObject {
         let users: [KFollowUser]?
         let following: [KFollowUser]?
         let followers: [KFollowUser]?
+        let pagination: KPagination?
         var items: [KFollowUser] { posts ?? users ?? following ?? followers ?? [] }
     }
 
@@ -298,34 +303,38 @@ final class KaPostsAPIClient: ObservableObject {
     /// The requester's notification stream - votes/replies/quotes on OUR content. This is the
     /// only documented source of per-action actor identity + action txid (the notification id),
     /// which is why the engagement screen can list actors for your own posts only.
-    func fetchNotifications(limit: Int = 100, before: String? = nil) async throws -> [KNotification] {
+    func fetchNotifications(limit: Int = 100, before: String? = nil) async throws -> (notifications: [KNotification], pagination: KPagination?) {
         var query = ["requesterPubkey": try requesterPubkey(), "limit": "\(limit)"]
         if let before { query["before"] = before }
         let response: NotificationsResponse = try await get("get-notifications", query: query)
-        return response.notifications
+        return (response.notifications, response.pagination)
     }
 
     /// Per-post actor lists from the KaChat indexer fork - works for ANY post, unlike the
     /// notifications stream (own posts only).
-    func fetchPostEngagement(postId: String, type: String = "all", limit: Int = 100) async throws -> [KEngagementEntry] {
-        let response: EngagementResponse = try await get("get-post-engagement", query: [
+    func fetchPostEngagement(postId: String, type: String = "all", limit: Int = 100, before: String? = nil) async throws -> (entries: [KEngagementEntry], pagination: KPagination?) {
+        var query = [
             "postId": postId,
             "type": type,
             "requesterPubkey": try requesterPubkey(),
             "limit": "\(limit)"
-        ])
-        return response.engagement
+        ]
+        if let before { query["before"] = before }
+        let response: EngagementResponse = try await get("get-post-engagement", query: query)
+        return (response.engagement, response.pagination)
     }
 
     /// Who `pubkey` follows (followers=false) or who follows them (followers=true).
-    func fetchFollowList(ofPubkey pubkey: String, followers: Bool, limit: Int = 100) async throws -> [KFollowUser] {
+    func fetchFollowList(ofPubkey pubkey: String, followers: Bool, limit: Int = 100, before: String? = nil) async throws -> (users: [KFollowUser], pagination: KPagination?) {
         let path = followers ? "get-users-followers" : "get-users-following"
-        let response: FollowListResponse = try await get(path, query: [
+        var query = [
             "requesterPubkey": try requesterPubkey(),
             "userPubkey": pubkey,
             "limit": "\(limit)"
-        ])
-        return response.items
+        ]
+        if let before { query["before"] = before }
+        let response: FollowListResponse = try await get(path, query: query)
+        return (response.items, response.pagination)
     }
 
     /// Follower/following counts etc. for an address's K identity.
@@ -340,6 +349,83 @@ final class KaPostsAPIClient: ObservableObject {
             guard post.blockedUser != true, let content = post.decodedContent else { return false }
             return isKaChatContent(content)
         }
+    }
+}
+
+
+// MARK: - Endless-scroll driver (server cursors + client-filter shrinkage)
+
+/// Shared pagination engine for every KaPosts list.
+///
+/// The problem it solves: KaPosts filters everything the indexer returns down to KaChat-marked
+/// content and then drops muted/blocked authors, so a server page of 50 can collapse to 2
+/// visible rows. A naive one-request-per-scroll pager would stall on those pages and look
+/// broken. `collect` therefore keeps following the server's `nextCursor` until it has
+/// accumulated `target` rows that actually survive filtering, the server says there is nothing
+/// left, or it hits `maxRequests` (so a single scroll trigger can never hammer the indexer).
+///
+/// Cursors are the server's own opaque `pagination.nextCursor` values - no client-side offset
+/// math anywhere. A missing/empty cursor, or `hasMore == false`, means the surface is exhausted;
+/// endpoints on older deployments that return no pagination block degrade to a single page.
+@MainActor
+enum KaPostsPaginator {
+    /// Server page size. The indexer caps `limit` at 100 on every endpoint.
+    /// (`nonisolated` so the tuning constants can be used as default arguments, which are
+    /// evaluated outside the enum's main-actor isolation.)
+    nonisolated static let pageSize = 50
+    /// How many post-filter rows one scroll trigger tries to add.
+    nonisolated static let targetNewRows = 18
+    /// Hard cap on requests per trigger.
+    nonisolated static let maxRequestsPerTrigger = 5
+
+    /// Everything a surface needs to append a page and update its own paging state.
+    /// `Row` is the VIEW's model (already mapped), not the wire type.
+    struct Batch<Row> {
+        /// Rows that survived mapping + filtering + dedup, in server order.
+        var items: [Row] = []
+        /// Cursor to pass as `before` on the NEXT trigger (nil once exhausted).
+        var cursor: String?
+        var hasMore = false
+        var requests = 0
+        /// True when the loop burned its whole request budget and NOTHING survived filtering.
+        /// The surface then shows an explicit "Load more" instead of auto-firing again, so a
+        /// heavily-filtered stretch of history can't turn into an API hammer loop. (A partial
+        /// batch - some rows, just fewer than `target` - is progress, so it keeps auto-loading.)
+        var stalled = false
+    }
+
+    /// - Parameters:
+    ///   - startCursor: `nil` for a first page / refresh, otherwise the surface's stored cursor.
+    ///   - fetch: performs ONE request for the given cursor and page size.
+    ///   - keep: maps + filters a server page down to the rows the surface will actually show
+    ///     (dedup by id belongs here - the server can repeat items across pages).
+    static func collect<Item, Row>(
+        from startCursor: String?,
+        pageSize: Int = pageSize,
+        target: Int = targetNewRows,
+        maxRequests: Int = maxRequestsPerTrigger,
+        fetch: (_ before: String?, _ limit: Int) async throws -> (items: [Item], pagination: KaPostsAPIClient.KPagination?),
+        keep: ([Item]) -> [Row]
+    ) async throws -> Batch<Row> {
+        var batch = Batch<Row>(cursor: startCursor, hasMore: true)
+        while batch.requests < maxRequests {
+            let page = try await fetch(batch.cursor, pageSize)
+            batch.requests += 1
+            batch.items.append(contentsOf: keep(page.items))
+            guard let pagination = page.pagination,
+                  pagination.hasMore,
+                  let next = pagination.nextCursor, !next.isEmpty else {
+                // End of the line: no cursor to continue with.
+                batch.cursor = nil
+                batch.hasMore = false
+                return batch
+            }
+            batch.cursor = next
+            if batch.items.count >= target { return batch }
+            if Task.isCancelled { return batch }
+        }
+        batch.stalled = batch.items.isEmpty
+        return batch
     }
 }
 
@@ -608,7 +694,7 @@ final class KaPostsNotificationService {
         // kaposts_pubkey) - polling here would double-notify, mirroring the broadcast guard.
         guard settings.notificationMode != .remotePush else { return }
         do {
-            let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 50)
+            let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 50).notifications
             guard let newest = notifications.map(\.timestamp).max() else { return }
             guard let lastSeen = (UserDefaults.standard.object(forKey: key) as? NSNumber)?.int64Value else {
                 // First run for this wallet: baseline silently instead of replaying history.
