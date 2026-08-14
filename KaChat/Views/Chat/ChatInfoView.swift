@@ -9,6 +9,10 @@ struct ChatInfoView: View {
     /// viewing a broadcast sender's profile (there's no per-sender notification setting there).
     var showsNotificationSettings: Bool = true
     @Environment(\.dismiss) private var dismiss
+    /// Revealed values for the Aliases section's rows (nil while hidden behind dots).
+    @State private var revealedReceivingAlias: String?
+    @State private var revealedSendingAlias: String?
+
     @EnvironmentObject var contactsManager: ContactsManager
     @ObservedObject private var contactAvatars = SystemContactAvatarStore.shared
     @EnvironmentObject var settingsViewModel: SettingsViewModel
@@ -268,6 +272,27 @@ struct ChatInfoView: View {
                     }
                 }
 
+                // This conversation's deterministic pair aliases (DeterministicAlias, ECDH +
+                // HKDF, 12 hex chars). Direction semantics match ChatService's routing state:
+                // deriveMyAlias = deterministicMyAlias = incoming/watch (the alias messages
+                // FROM this contact carry, what we watch for), deriveTheirAlias =
+                // deterministicTheirAlias = outgoing/send (the alias OUR messages to them
+                // carry). Hidden behind dots until tapped; keys are only touched on demand.
+                Section {
+                    aliasRow("Receiving alias", value: $revealedReceivingAlias) {
+                        guard let key = walletManager.getPrivateKey() else { return nil }
+                        return try? DeterministicAlias.deriveMyAlias(privateKey: key, theirAddress: contact.address)
+                    }
+                    aliasRow("Sending alias", value: $revealedSendingAlias) {
+                        guard let key = walletManager.getPrivateKey() else { return nil }
+                        return try? DeterministicAlias.deriveTheirAlias(privateKey: key, theirAddress: contact.address)
+                    }
+                } header: {
+                    Text("Aliases")
+                } footer: {
+                    Text("These identify this conversation's messages on the network. Receiving is the alias on messages this contact sends you. Sending is the alias on messages you send them. Useful when building tools that message this chat.")
+                }
+
                 Section("System Contact") {
                     if hasUserVisibleLink, let linkedSystemContactName, !linkedSystemContactName.isEmpty {
                         HStack {
@@ -464,6 +489,47 @@ struct ChatInfoView: View {
         let prefix = address.prefix(12)
         let suffix = address.suffix(8)
         return "\(prefix)...\(suffix)"
+    }
+
+    /// One reveal-then-copy alias row: dots + eye while hidden, first tap derives and reveals
+    /// the monospaced value, tapping the revealed value copies it with the standard toast.
+    private func aliasRow(
+        _ title: LocalizedStringKey,
+        value: Binding<String?>,
+        derive: @escaping () -> String?
+    ) -> some View {
+        Button {
+            if let revealed = value.wrappedValue {
+                UIPasteboard.general.string = revealed
+                Haptics.success()
+                showToast(localized("Alias copied to clipboard."))
+            } else if let derived = derive() {
+                value.wrappedValue = derived
+            } else {
+                showToast(localized("Alias unavailable."), style: .error)
+            }
+        } label: {
+            HStack {
+                Text(title)
+                    .foregroundColor(.primary)
+                Spacer()
+                if let revealed = value.wrappedValue {
+                    Text(revealed)
+                        .font(.system(.subheadline, design: .monospaced))
+                        .foregroundColor(.secondary)
+                } else {
+                    HStack(spacing: 6) {
+                        Text(String(repeating: "\u{2022}", count: 12))
+                            .foregroundColor(.secondary)
+                        Image(systemName: "eye")
+                            .font(.caption)
+                            .foregroundColor(.accentColor)
+                    }
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func showToast(_ message: String, style: ToastStyle = .success) {
