@@ -229,7 +229,7 @@ struct SettingsView: View {
                 }
 
             Section {
-                Toggle("Chats Privacy", isOn: $chatsPrivacyEnabled)
+                Toggle("Chats Payment Privacy", isOn: $chatsPrivacyEnabled)
                     .onChange(of: chatsPrivacyEnabled) { newValue in
                         AppSettings.setChatsPrivacyEnabledForActiveAccount(newValue)
                     }
