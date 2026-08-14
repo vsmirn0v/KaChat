@@ -31,6 +31,11 @@ final class PushNotificationManager: ObservableObject {
     /// Base URL of the service the device last successfully registered with - lets a push-URL
     /// change unregister from the OLD service (both kept pushing = duplicate notifications).
     private let registeredBaseURLDefaultsKey = "push_registered_base_url"
+    /// APNs environment ("development"/"production") the device last successfully registered
+    /// with. A token minted for one environment is rejected by the other (`BadDeviceToken`), so
+    /// installing a TestFlight build over an Xcode build must force a FULL re-registration
+    /// rather than reusing the stale server record.
+    private let registeredApnsEnvironmentDefaultsKey = "push_registered_apns_environment"
     private let legacyKasiaUnregisterDoneKey = "push_legacy_kasia_unregister_done"
     private let deviceAuthCounterDefaultsKey = "push_device_auth_counter"
 
@@ -379,6 +384,7 @@ final class PushNotificationManager: ObservableObject {
             kapostsPubkey: collectKaPostsPubkey(),
             primaryAddress: primaryAddress,
             aliases: aliases,
+            apnsEnvironment: ApnsEnvironment.current.rawValue,
             auth: auth
         )
 
@@ -406,6 +412,7 @@ final class PushNotificationManager: ObservableObject {
         lastError = nil
         persistRegistrationStatus(true)
         UserDefaults.standard.set(AppSettings.load().pushIndexerURL, forKey: registeredBaseURLDefaultsKey)
+        UserDefaults.standard.set(ApnsEnvironment.current.rawValue, forKey: registeredApnsEnvironmentDefaultsKey)
         clearWalletBindingConflictCooldown()
         lastWatchedSignature = buildWatchedSignature(
             watchedAddresses: watchedAddresses,
@@ -658,6 +665,7 @@ final class PushNotificationManager: ObservableObject {
             kapostsPubkey: collectKaPostsPubkey(),
             primaryAddress: primaryAddress,
             aliases: aliases,
+            apnsEnvironment: ApnsEnvironment.current.rawValue,
             auth: auth
         )
 
@@ -763,7 +771,8 @@ final class PushNotificationManager: ObservableObject {
         let hiddenBroadcast = collectHiddenBroadcastSenders()
             .sorted { $0.key < $1.key }
             .map { "\($0.key):\($0.value.joined(separator: "+"))" }
-        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels + ["|"] + hiddenBroadcast + ["|", kapostsKey]).joined(separator: ",")
+        let apnsEnvironment = ApnsEnvironment.current.rawValue
+        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels + ["|"] + hiddenBroadcast + ["|", kapostsKey] + ["|", apnsEnvironment]).joined(separator: ",")
     }
 
     /// Unregister device (call on logout/wallet delete)
@@ -1114,6 +1123,21 @@ final class PushNotificationManager: ObservableObject {
         }
         let storedRegistered = UserDefaults.standard.bool(forKey: registeredDefaultsKey)
         isRegistered = storedRegistered && deviceToken != nil
+
+        // A device that crossed APNs environments (developer installs a TestFlight build over an
+        // Xcode build, or vice versa) holds a server record pinned to the OLD environment and a
+        // token the old endpoint will reject. `refreshRegistrationIfNeeded()` would only PUT an
+        // update in that state; invalidate the cached status so it performs a FULL re-register.
+        let storedEnvironment = UserDefaults.standard.string(forKey: registeredApnsEnvironmentDefaultsKey)
+        if isRegistered,
+           let storedEnvironment,
+           storedEnvironment != ApnsEnvironment.current.rawValue {
+            AppLog.log("[Push] APNs environment changed (%@ -> %@) - forcing re-registration",
+                       storedEnvironment,
+                       ApnsEnvironment.current.rawValue)
+            isRegistered = false
+            persistRegistrationStatus(false)
+        }
     }
 
     private func persistDeviceToken(_ token: String) {
@@ -1905,6 +1929,66 @@ final class PushNotificationManager: ObservableObject {
     }
 }
 
+// MARK: - APNs Environment
+
+/// Which APNs endpoint the device token issued to THIS build belongs to.
+///
+/// APNs tokens are environment-scoped. A build installed from Xcode gets a *sandbox* token
+/// (`api.sandbox.push.apple.com`); TestFlight and App Store builds get a *production* token
+/// (`api.push.apple.com`). Sending a token to the wrong endpoint fails silently per device -
+/// Apple answers `BadDeviceToken` and nothing is delivered - which is exactly how TestFlight
+/// installs ended up receiving no pushes at all while a dev build on the same phone worked.
+/// A single global server setting cannot serve both populations, so the app reports its own
+/// environment at registration and the server routes per device.
+enum ApnsEnvironment: String {
+    case development
+    case production
+
+    /// Resolved once per process - the answer cannot change without a reinstall.
+    static let current: ApnsEnvironment = resolve()
+
+    private static func resolve() -> ApnsEnvironment {
+        switch apsEnvironmentEntitlement() {
+        case "development": return .development
+        case "production": return .production
+        default:
+            // No embedded profile (or an unexpected value): fall back to the build config.
+            #if DEBUG
+            return .development
+            #else
+            return .production
+            #endif
+        }
+    }
+
+    /// Reads `aps-environment` out of the embedded provisioning profile - the accurate runtime
+    /// signal for how this binary was signed. (`SecTaskCopyValueForEntitlement` is not public
+    /// API on iOS, so the profile is the only supported way to read our own entitlements.)
+    ///
+    /// `embedded.mobileprovision` is a CMS blob with the profile plist stored as plain XML
+    /// inside it, so the plist is sliced out between the XML prologue and the final `</plist>`.
+    private static func apsEnvironmentEntitlement() -> String? {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url),
+              let start = data.range(of: Data("<?xml".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), options: [.backwards]),
+              start.lowerBound < end.upperBound else {
+            return nil
+        }
+        let plistData = Data(data[start.lowerBound..<end.upperBound])
+        guard let plist = try? PropertyListSerialization.propertyList(
+                from: plistData,
+                options: [],
+                format: nil
+              ) as? [String: Any],
+              let entitlements = plist["Entitlements"] as? [String: Any],
+              let apsEnvironment = entitlements["aps-environment"] as? String else {
+            return nil
+        }
+        return apsEnvironment
+    }
+}
+
 // MARK: - Request Models
 
 struct PushRegistrationRequest: Codable {
@@ -1917,6 +2001,8 @@ struct PushRegistrationRequest: Codable {
     let kapostsPubkey: String?
     let primaryAddress: String?
     let aliases: [String]
+    /// "development" | "production" - which APNs endpoint this device's token is valid for.
+    let apnsEnvironment: String
     let auth: PushAuthRequest?
 
     enum CodingKeys: String, CodingKey {
@@ -1929,6 +2015,7 @@ struct PushRegistrationRequest: Codable {
         case kapostsPubkey = "kaposts_pubkey"
         case primaryAddress = "primary_address"
         case aliases
+        case apnsEnvironment = "apns_environment"
         case auth
     }
 }
@@ -1942,6 +2029,8 @@ struct PushUpdateRequest: Codable {
     let kapostsPubkey: String?
     let primaryAddress: String?
     let aliases: [String]
+    /// "development" | "production" - which APNs endpoint this device's token is valid for.
+    let apnsEnvironment: String
     let auth: PushAuthRequest?
 
     enum CodingKeys: String, CodingKey {
@@ -1953,6 +2042,7 @@ struct PushUpdateRequest: Codable {
         case kapostsPubkey = "kaposts_pubkey"
         case primaryAddress = "primary_address"
         case aliases
+        case apnsEnvironment = "apns_environment"
         case auth
     }
 }

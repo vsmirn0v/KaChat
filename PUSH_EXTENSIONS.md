@@ -35,8 +35,12 @@ fields (`watched_addresses`, `watched_group_ids`, `primary_address`, `aliases`, 
 | `watched_broadcast_channels` | `[String]` | Joined indexed channels with the bell ON (subset of `kaspa`, `kachat-bugs`). Bell toggles re-send registration immediately. Missing = `[]`. |
 | `hidden_broadcast_senders` | `{channel: [address]}` | Per-room senders this device hid — never push their messages to this device. Missing = `{}`. |
 | `kaposts_pubkey` | `String?` | The wallet's K identity (66-hex compressed secp256k1). Present = this device wants KaPosts pushes for actions on that identity's content. Missing/null = no KaPosts pushes. |
+| `apns_environment` | `String` | `"development"` or `"production"` — which APNs host this device's token is valid at. Read from the build's `aps-environment` entitlement (embedded provisioning profile) at runtime; Xcode installs are `development`, TestFlight/App Store are `production`. The server MUST route each push to `api.sandbox.push.apple.com` vs `api.push.apple.com` per device using this; a mismatch is dropped silently as `BadDeviceToken`. Missing = fall back to the server's global setting (old clients). |
 
-Store all three per device token. Old app versions omit them — treat as empty/none.
+Store all four per device token. Old app versions omit them — treat as empty/none.
+
+None of these fields are covered by the auth preimage, so adding them cannot break older
+clients' signatures.
 
 ## 2. Broadcast pushes (spec recap — details in BROADCAST_INDEXER.md §5)
 
