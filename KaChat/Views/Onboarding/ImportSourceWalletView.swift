@@ -23,6 +23,10 @@ struct ImportSourceWalletView: View {
         SourceWalletOption(name: "KaChat", icon: "bubble.left.and.bubble.right.fill", family: .kaspaStandard, isDefault: true),
         SourceWalletOption(name: "KasWare Wallet", icon: "puzzlepiece.extension.fill", family: .kaspaStandard),
         SourceWalletOption(name: "Kaspium Wallet", icon: "iphone", family: .kaspaStandard),
+        // Kastle derives m/44'/111111'/{account}'/0/{index}; account 0 is byte-identical to the
+        // standard family (its secondary variant m/44'/111111'/0'/0/{accountIndex} also falls
+        // inside the standard scan range), so no new derivation code is needed.
+        SourceWalletOption(name: "Kastle Wallet", icon: "shield.fill", family: .kaspaStandard),
         SourceWalletOption(name: "KDX Wallet", icon: "desktopcomputer", family: .kaspaLegacy972),
         SourceWalletOption(name: "Core Golang Cli Wallet", icon: "terminal.fill", family: .kaspaStandard),
         SourceWalletOption(name: "OKX Wallet", icon: "square.grid.2x2.fill", family: .kaspaStandard),
