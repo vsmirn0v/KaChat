@@ -413,7 +413,7 @@ struct WelcomeGuideView: View {
                 .font(.title2.weight(.bold))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
-            Text("How would you like to receive payments?")
+            Text("How would you like to send and receive payments in chats?")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -424,13 +424,13 @@ struct WelcomeGuideView: View {
                     enabled: true,
                     title: "On",
                     badge: "Recommended",
-                    subtitle: "Payments you receive arrive on fresh addresses that KaChat privately shares with your contacts. Nobody watching the network can connect those payments to your chatting identity."
+                    subtitle: "Payments in your chats travel between fresh private addresses. When you pay a contact who also has privacy on, the money goes to a fresh address only the two of you know about, and payments you receive arrive on fresh addresses of your own the same way. Nobody watching the network can tie chat payments to you or your contacts."
                 )
                 paymentPrivacyRow(
                     enabled: false,
                     title: "Off",
                     badge: nil,
-                    subtitle: "Payments go straight to your public chatting address. Simple, but anyone can see every payment that address has ever received."
+                    subtitle: "Payments you send and receive in chats go straight to public chatting addresses, where anyone can see the full payment history."
                 )
             }
             .padding(.horizontal, 24)
