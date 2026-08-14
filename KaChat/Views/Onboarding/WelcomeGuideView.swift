@@ -56,6 +56,9 @@ struct WelcomeGuideView: View {
         case nodeConnection
         case addressExplainer
         case chatting
+        /// Per-account Chats Payment Privacy (fresh-address payment pools) - placed directly
+        /// after the starting-a-conversation step, and the guide's final step.
+        case paymentPrivacy
     }
 
     private enum NodeChoice: Equatable {
@@ -70,11 +73,16 @@ struct WelcomeGuideView: View {
     }
 
     @State private var step: Step = .welcome
-    /// Gates every skip affordance: false while the Adult/Child choice is still owed (marker
-    /// "pending"), true otherwise (answered this session, or a replay/legacy run). While false
-    /// the Skip button is hidden and interactive dismissal is disabled.
-    @State private var userTypeAnswered = true
+    /// True when this presentation is the mandatory first run (the pending marker is set, i.e.
+    /// MainTabView presented the guide for a fresh account or is re-presenting an interrupted
+    /// one). On a first run the guide is FULLY unskippable: no Skip button at any step and no
+    /// interactive dismissal, all the way to Finish. False on a Profile > Help replay, where
+    /// the guide stays skippable/dismissable exactly as before.
+    @State private var isFirstRunPresentation = false
     @State private var userTypeChoice: UserTypeChoice = .adult
+    /// Chats Payment Privacy selection (per-account, default ON). Seeded from the active
+    /// account's stored value on appear so a replay shows and edits the real setting.
+    @State private var paymentPrivacyChoice = true
     @State private var childPasswordInput = ""
     @State private var childPasswordConfirm = ""
     @State private var childSetupError: String?
@@ -93,10 +101,10 @@ struct WelcomeGuideView: View {
             content
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    // Skip exists ONLY once the Adult/Child step is answered - until then the
-                    // wizard has no way out. After the choice, skipping the remainder of the
-                    // guide behaves exactly as before.
-                    if userTypeAnswered {
+                    // Skip exists ONLY on replays (Profile > Help). The initial
+                    // account-creation run is fully unskippable: every step must be advanced
+                    // through to Finish, at which point the guide simply completes.
+                    if !isFirstRunPresentation {
                         ToolbarItem(placement: .navigationBarLeading) {
                             Button("Skip") { onFinished() }
                         }
@@ -105,12 +113,15 @@ struct WelcomeGuideView: View {
         }
         .toast(message: toastMessage)
         // Both presenters use fullScreenCover today (no swipe-down exists), but if the guide is
-        // ever hosted in a sheet this keeps drag-to-dismiss off until the choice is made.
-        .interactiveDismissDisabled(!userTypeAnswered)
+        // ever hosted in a sheet this keeps drag-to-dismiss off for the whole first run.
+        .interactiveDismissDisabled(isFirstRunPresentation)
         .onAppear {
-            userTypeAnswered = !Self.isUserTypePending
-            if startAtUserType, !userTypeAnswered {
+            isFirstRunPresentation = Self.isUserTypePending
+            if startAtUserType, isFirstRunPresentation {
                 step = .userType
+            }
+            if let address = walletManager.currentWallet?.publicAddress {
+                paymentPrivacyChoice = AppSettings.chatsPrivacyEnabled(for: address)
             }
             nodeChoice = currentNodeChoiceFromSettings()
             ownNodeInput = settingsViewModel.settings.trustedNodeAddress == AppSettings.defaultTrustedNodeAddress
@@ -162,9 +173,12 @@ struct WelcomeGuideView: View {
                 icon: "bubble.left.and.bubble.right.fill",
                 title: "Starting a Conversation",
                 body: "To chat with someone, press Create Chat and enter their Kaspa address or KNS domain. If you send a message, they will not see it unless you send a handshake first, or you both decide to message each other around the same time - doing the latter increases your privacy.",
-                buttonTitle: "Finish",
+                buttonTitle: "Next",
                 extra: { EmptyView() }
-            ) { onFinished() }
+            ) { step = .paymentPrivacy }
+
+        case .paymentPrivacy:
+            paymentPrivacyStep
         }
     }
 
@@ -373,11 +387,114 @@ struct WelcomeGuideView: View {
         }
     }
 
-    /// The Adult/Child step is answered: persist the marker (so relaunches stop re-presenting
-    /// the wizard) and restore the Skip affordance for the rest of the guide.
+    /// The Adult/Child step is answered: persist the marker so relaunches stop re-presenting
+    /// the wizard. (Skip stays hidden regardless on a first run - the whole guide is mandatory
+    /// there; the marker only governs the kill/relaunch re-present.)
     private func markUserTypeAnswered() {
         Self.markUserTypeChosen()
-        userTypeAnswered = true
+    }
+
+    // MARK: - Chat Payment Privacy step
+
+    /// Per-account Chats Payment Privacy (fresh-address payment pools - see
+    /// `AppSettings.chatsPrivacyEnabled(for:)`, default ON, same setting as the Settings >
+    /// Chats toggle). Selection writes through immediately via the EXPLICIT-address variant
+    /// against the freshly created wallet: the active-account convenience resolves through the
+    /// app-group `activeDockAddress()` lookup, and this guide runs right after wallet creation
+    /// where relying on that sync's timing would be fragile. On replay the step simply shows
+    /// and edits the account's current value.
+    private var paymentPrivacyStep: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "eye.slash.circle")
+                .font(.system(size: 56))
+                .foregroundColor(.accentColor)
+            Text("Chat Payment Privacy")
+                .font(.title2.weight(.bold))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+            Text("How would you like to receive payments?")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+            VStack(spacing: 10) {
+                paymentPrivacyRow(
+                    enabled: true,
+                    title: "On",
+                    badge: "Recommended",
+                    subtitle: "Payments you receive arrive on fresh addresses that KaChat privately shares with your contacts. Nobody watching the network can connect those payments to your chatting identity."
+                )
+                paymentPrivacyRow(
+                    enabled: false,
+                    title: "Off",
+                    badge: nil,
+                    subtitle: "Payments go straight to your public chatting address. Simple, but anyone can see every payment that address has ever received."
+                )
+            }
+            .padding(.horizontal, 24)
+
+            Spacer()
+            Button {
+                applyPaymentPrivacyChoice()
+                onFinished()
+            } label: {
+                Text("Finish")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private func paymentPrivacyRow(enabled: Bool, title: String, badge: String?, subtitle: String) -> some View {
+        Button {
+            paymentPrivacyChoice = enabled
+            applyPaymentPrivacyChoice()
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: paymentPrivacyChoice == enabled ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(paymentPrivacyChoice == enabled ? .accentColor : .secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(LocalizedStringKey(title))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.primary)
+                        if let badge {
+                            Text(LocalizedStringKey(badge))
+                                .font(.caption2.weight(.bold))
+                                .foregroundColor(.accentColor)
+                        }
+                    }
+                    Text(LocalizedStringKey(subtitle))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer()
+            }
+            .padding(12)
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Writes the selection to the per-account store. Explicit address deliberately (see
+    /// `paymentPrivacyStep` docs); falls back to the active-account convenience only if no
+    /// wallet is somehow loaded.
+    private func applyPaymentPrivacyChoice() {
+        if let address = walletManager.currentWallet?.publicAddress {
+            AppSettings.setChatsPrivacyEnabled(paymentPrivacyChoice, for: address)
+        } else {
+            AppSettings.setChatsPrivacyEnabledForActiveAccount(paymentPrivacyChoice)
+        }
     }
 
     // MARK: - Language step
