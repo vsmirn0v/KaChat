@@ -849,6 +849,15 @@ struct ChatDetailView: View {
             guard inputMode == .payment else { return }
             await loadSpendingBalance()
         }
+        .task(id: walletManager.currentWallet?.spendingAddressIndex) {
+            // Live re-fetch when the PRIMARY spending address changes while composing - e.g.
+            // "Set as Primary Address" inside the Manage Addresses sheet opened from the
+            // Available bubble. setActiveSpendingAddress republishes currentWallet with the new
+            // spendingAddressIndex, which re-keys this task; without it the bubble kept showing
+            // the old primary's balance until payment mode was re-entered or a send completed.
+            guard inputMode == .payment else { return }
+            await loadSpendingBalance()
+        }
         .task(id: contact.address) {
             guard knsService.profileCache[contact.address] == nil else { return }
             _ = await knsService.fetchProfile(for: contact.address)
@@ -2127,7 +2136,15 @@ struct ChatDetailView: View {
         .onTapGesture {
             showManageAddresses = true
         }
-        .sheet(isPresented: $showManageAddresses) {
+        .sheet(
+            isPresented: $showManageAddresses,
+            onDismiss: {
+                // Catch-all refresh: covers balance changes made in the sheet that don't move
+                // the primary index (consolidation, withdrawals) - the primary-change case is
+                // additionally covered live by the .task keyed on spendingAddressIndex.
+                Task { await loadSpendingBalance() }
+            }
+        ) {
             // Own NavigationStack: ManageAddressesView relies on navigationTitle and pushes
             // its per-address detail screens via NavigationLink.
             NavigationStack {
