@@ -23,6 +23,7 @@ extension ChatService {
     func offerAddressPoolIfNeeded(to contactAddress: String) {
         guard let wallet = WalletManager.shared.currentWallet else { return }
         guard !PaymentPoolStore.shared.hasOfferedPool(to: contactAddress, wallet: wallet.publicAddress) else { return }
+        guard PaymentPoolStore.shared.canServePoolOffer(to: contactAddress, wallet: wallet.publicAddress) else { return }
         guard isPoolEstablishedConversation(contactAddress) else { return }
         guard let contact = contactsManager.getContact(byAddress: contactAddress) else { return }
 
@@ -51,8 +52,25 @@ extension ChatService {
         let walletAddress = wallet.publicAddress
         let store = PaymentPoolStore.shared
 
+        // Re-checked INSIDE the serialized operation, not just at the call sites: several
+        // envelope handlers can queue offers for the same contact before the first one runs
+        // (e.g. an attacker replaying varied addr_pool envelopes to trigger reciprocity, each
+        // with a distinct txId that passes the replay guard) - the marker/throttle only flip
+        // once a send actually happens, so the check must happen after the queue serializes us.
+        if replace {
+            guard !store.hasOfferedPool(to: contact.address, wallet: walletAddress) else { return }
+        }
+        guard store.canServePoolOffer(to: contact.address, wallet: walletAddress) else {
+            AppLog.log("[ChatService] Pool offer to %@ suppressed by serve throttle/caps",
+                       String(contact.address.suffix(10)))
+            return
+        }
+
         var pending = store.unofferedReservations(for: contact.address, wallet: walletAddress)
-        let missing = PaymentPoolStore.offerBatchSize - pending.count
+        // Never reserve past the per-contact lifetime cap, even mid-batch.
+        let lifetimeHeadroom = PaymentPoolStore.maxLifetimeReservationsPerContact
+            - store.lifetimeReservationCount(for: contact.address, wallet: walletAddress)
+        let missing = min(PaymentPoolStore.offerBatchSize - pending.count, lifetimeHeadroom)
         if missing > 0 {
             let fresh = await WalletManager.shared.reserveFreshSpendingAddresses(count: missing)
             guard !fresh.isEmpty else {
@@ -60,7 +78,7 @@ extension ChatService {
                 return
             }
             let entries = fresh.map {
-                PaymentPoolStore.ReservedAddress(address: $0.address, index: $0.index, offered: false)
+                PaymentPoolStore.ReservedAddress(address: $0.address, index: $0.index, offered: false, funded: nil)
             }
             store.recordMyReservations(entries, for: contact.address, wallet: walletAddress)
             pending.append(contentsOf: entries)
@@ -76,6 +94,7 @@ extension ChatService {
 
         store.markReservationsOffered(pending.map(\.address), for: contact.address, wallet: walletAddress)
         store.markPoolOffered(to: contact.address, wallet: walletAddress)
+        store.recordPoolOfferServed(to: contact.address, wallet: walletAddress)
         AppLog.log("[ChatService] Offered %d fresh pool addresses to %@ (replace=%@)",
                    pending.count, String(contact.address.suffix(10)), replace ? "true" : "false")
 
@@ -210,6 +229,15 @@ extension ChatService {
         case .request:
             guard !message.isOutgoing else { return }
             guard isPoolEstablishedConversation(contactAddress) else { return }
+            // Inbound abuse gate: every reply costs us a reservation batch AND an on-chain tx
+            // fee, so a contact spamming addr_pool_request gets at most one top-up per
+            // 10 minutes, and nothing once the lifetime/outstanding-unfunded caps are hit
+            // (re-checked inside reserveAndSendAddressPool once the queue serializes us).
+            guard store.canServePoolOffer(to: contactAddress, wallet: walletAddress) else {
+                AppLog.log("[ChatService] Ignoring addr_pool_request from %@ - serve throttle/caps",
+                           String(contactAddress.suffix(10)))
+                return
+            }
             guard let contact = contactsManager.getContact(byAddress: contactAddress) else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -275,6 +303,13 @@ extension ChatService {
     private func createPaymentBubbleFromNotice(_ content: PaymentNoticeContent, from contactAddress: String, noticeBlockTime: UInt64) {
         let txId = content.txId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !txId.isEmpty, content.amountSompi > 0 else { return }
+
+        // The notice names the reserved address the contact paid - record it funded so the
+        // outstanding-unfunded-offers cap reflects genuine pool usage (no-op if the address
+        // isn't one of our reservations for this contact).
+        if let wallet = WalletManager.shared.currentWallet {
+            PaymentPoolStore.shared.markReservationFunded(content.address, for: contactAddress, wallet: wallet.publicAddress)
+        }
 
         Task { @MainActor [weak self] in
             guard let self else { return }

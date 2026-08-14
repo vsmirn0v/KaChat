@@ -271,7 +271,8 @@ overlapping replace can never resurrect an already-spent address.
 
 Sent when the stored pool for a contact runs low (iOS: ≤ 2 unused remaining, throttled to at
 most one request per contact per 10 minutes). The receiver responds by reserving a fresh batch
-and sending `addr_pool` with `replace:false` (append semantics).
+and sending `addr_pool` with `replace:false` (append semantics) — subject to the mandatory
+inbound rate limits below (excess requests are silently ignored).
 
 #### 3. `payment_notice` — tell the recipient about a pool payment
 
@@ -335,6 +336,35 @@ NOT render anything from its own notice (its bubble was created by the send flow
 2. After the payment tx is accepted, send `payment_notice`.
 3. If consumption leaves ≤ 2 unused addresses, send `addr_pool_request`.
 4. No pool → pay the chatting address, no `payment_notice` (existing detection covers it).
+
+### Rate Limits & Abuse Resistance (mandatory — part of the contract)
+
+Serving an `addr_pool` costs the server real resources: a batch of enumerated future addresses
+AND an on-chain transaction fee for the reply. Without limits, a malicious contact spamming
+`addr_pool_request` (or replaying varied `addr_pool` envelopes to trigger reciprocity) could
+enumerate unbounded address space and drain the victim's balance in fees. All ports MUST
+enforce the same limits:
+
+| Limit | Value | Applies to |
+|-------|-------|------------|
+| Pool-serve throttle | max **1 `addr_pool` send per contact per 10 minutes** | every send: initial offer, reciprocity, and request-driven top-ups |
+| Lifetime reservation cap | max **50 addresses ever reserved per contact** | reservation itself — batches are clamped so the total never exceeds it |
+| Outstanding-unfunded cap | stop serving once **≥ 15 offered addresses have never received funds** | top-ups/offers |
+
+- Requests/offers suppressed by these limits are **silently ignored** (log locally, send
+  nothing) — no error envelope exists.
+- "Funded" knowledge is best-effort: a reservation counts as funded when a `payment_notice`
+  from that contact names it as the payment destination. This is only a proxy (a payer could
+  omit notices), which is why the lifetime cap + throttle backstop it.
+- Outbound side (already stated above): `addr_pool_request` is sent at most once per contact
+  per 10 minutes, and only when unused ≤ 2. A request suppressed by the peer's serve throttle
+  resolves itself: payments fall back to the chatting address until a later request (retried on
+  conversation open / consumption) is served.
+- Implementations must also guard the reciprocity and initial-offer paths against queued
+  duplicates: the "already offered" marker and the serve throttle must be re-checked at actual
+  send time (after any send-queue serialization), not only when the triggering envelope is
+  handled — otherwise several distinct replayed envelopes can each enqueue an offer before the
+  first one flips the marker.
 
 ### Replay Protection
 

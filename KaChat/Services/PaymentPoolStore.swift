@@ -32,11 +32,28 @@ final class PaymentPoolStore {
     /// Minimum spacing between `addr_pool_request` sends to the same contact.
     private static let requestThrottleSeconds: TimeInterval = 10 * 60
 
+    // MARK: Inbound abuse limits (part of the protocol contract - see MESSAGING.md)
+
+    /// Serve at most one addr_pool send (top-up reply, reciprocity, or initial offer) per
+    /// contact per this interval - a malicious contact spamming addr_pool_request must not be
+    /// able to make us pay a tx fee per request.
+    static let poolServeThrottleSeconds: TimeInterval = 10 * 60
+    /// Hard lifetime cap on addresses ever reserved for a single contact - bounds how much of
+    /// our future address space one contact can enumerate.
+    static let maxLifetimeReservationsPerContact = 50
+    /// Stop serving top-ups once this many offered addresses are outstanding without ever
+    /// having received funds (funded knowledge comes from payment_notice envelopes naming one
+    /// of our reservations - a best-effort proxy, backstopped by the lifetime cap + throttle).
+    static let maxOutstandingUnfundedOffers = 15
+
     struct ReservedAddress: Codable, Equatable {
         let address: String
         let index: Int
         /// True once the addr_pool envelope carrying this address was actually submitted.
         var offered: Bool
+        /// True once a payment_notice from the contact named this address as a payment
+        /// destination - optional so states persisted before this field decode fine.
+        var funded: Bool?
     }
 
     struct TheirPoolAddress: Codable, Equatable {
@@ -57,6 +74,9 @@ final class PaymentPoolStore {
         var handledEnvelopeTxIds: [String] = []
         /// contactAddress -> last time we sent addr_pool_request (throttle).
         var lastPoolRequestAt: [String: Date] = [:]
+        /// contactAddress -> last time we SERVED an addr_pool send to that contact (inbound
+        /// abuse throttle). Optional so states persisted before this field decode fine.
+        var lastPoolServeAt: [String: Date]? = nil
     }
 
     /// Payment-destination memory for in-flight sends, keyed by the payment's pending txId so a
@@ -139,6 +159,50 @@ final class PaymentPoolStore {
         for index in entries.indices where target.contains(entries[index].address) {
             entries[index].offered = true
         }
+        current.myReservations[contactAddress] = entries
+        save(current, for: walletAddress)
+    }
+
+    func lifetimeReservationCount(for contactAddress: String, wallet walletAddress: String) -> Int {
+        (state(for: walletAddress).myReservations[contactAddress] ?? []).count
+    }
+
+    /// Gate for EVERY addr_pool send to `contactAddress` (initial offer, reciprocity, and
+    /// request-driven top-ups alike): one send per contact per `poolServeThrottleSeconds`, and
+    /// nothing once the lifetime reservation cap or the outstanding-unfunded-offers cap is hit.
+    /// These limits are part of the protocol contract (MESSAGING.md) - they bound how much
+    /// address enumeration and how many fee-costing on-chain replies a malicious contact
+    /// spamming addr_pool_request (or replaying varied addr_pool envelopes) can extract.
+    func canServePoolOffer(to contactAddress: String, wallet walletAddress: String) -> Bool {
+        let current = state(for: walletAddress)
+        if let last = current.lastPoolServeAt?[contactAddress],
+           Date().timeIntervalSince(last) < Self.poolServeThrottleSeconds {
+            return false
+        }
+        let reservations = current.myReservations[contactAddress] ?? []
+        guard reservations.count < Self.maxLifetimeReservationsPerContact else { return false }
+        let outstandingUnfunded = reservations.filter { $0.offered && $0.funded != true }.count
+        guard outstandingUnfunded < Self.maxOutstandingUnfundedOffers else { return false }
+        return true
+    }
+
+    func recordPoolOfferServed(to contactAddress: String, wallet walletAddress: String) {
+        var current = state(for: walletAddress)
+        var serveMap = current.lastPoolServeAt ?? [:]
+        serveMap[contactAddress] = Date()
+        current.lastPoolServeAt = serveMap
+        save(current, for: walletAddress)
+    }
+
+    /// Marks one of our reservations for `contactAddress` as funded - called when a
+    /// payment_notice from that contact names the address as its payment destination. Feeds the
+    /// outstanding-unfunded-offers cap; no-op if the address isn't one of our reservations.
+    func markReservationFunded(_ address: String, for contactAddress: String, wallet walletAddress: String) {
+        var current = state(for: walletAddress)
+        guard var entries = current.myReservations[contactAddress],
+              let index = entries.firstIndex(where: { $0.address == address }) else { return }
+        guard entries[index].funded != true else { return }
+        entries[index].funded = true
         current.myReservations[contactAddress] = entries
         save(current, for: walletAddress)
     }
