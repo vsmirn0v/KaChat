@@ -1293,9 +1293,16 @@ struct ChatDetailView: View {
                 }
 
                 if shouldShowComposerHelperRow && !isDeclined {
+                    // One compact row, width-constrained so it can NEVER overflow the screen
+                    // edge (the old free-floating .offset(x:) row let a third pill clip off
+                    // narrow screens). The fee pill keeps its natural size (layoutPriority);
+                    // the available pill absorbs any squeeze by tail-truncating its text. The
+                    // fresh-address indicator lives INSIDE the available pill now (small accent
+                    // arrow) instead of being a third pill.
                     HStack(spacing: 6) {
                         if shouldShowFeeBubble {
                             feeBubble
+                                .layoutPriority(1)
                         }
                         if shouldShowAvailableBalanceBubble {
                             // No allowsHitTesting(false) here: the bubble is tappable (opens
@@ -1303,11 +1310,11 @@ struct ChatDetailView: View {
                             // be re-enabled from inside the bubble itself.
                             availableBalanceBubble
                         }
-                        if shouldShowAvailableBalanceBubble && paysToFreshPoolAddress {
-                            freshPoolAddressPill
-                        }
+                        Spacer(minLength: 0)
                     }
-                    .offset(x: 32, y: -26)
+                    .padding(.leading, 32)
+                    .padding(.trailing, 12)
+                    .offset(y: -26)
                     .transition(.opacity)
                 }
             }
@@ -2106,24 +2113,6 @@ struct ChatDetailView: View {
     /// ChatService+PaymentPools) - refreshed on entering payment mode and after each send.
     @State private var paysToFreshPoolAddress = false
 
-    /// Subtle indicator shown beside the Available pill in payment mode when the payment will go
-    /// to a fresh, unlinkable address the contact shared - styled to match the other helper-row
-    /// glass pills, deliberately understated.
-    private var freshPoolAddressPill: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "arrow.right")
-                .font(.system(size: 8, weight: .semibold))
-            Text("fresh address")
-        }
-        .font(.caption2)
-        .foregroundColor(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(glassBackground(cornerRadius: 14))
-        .allowsHitTesting(false)
-        .accessibilityLabel(Text("Payment goes to a fresh address this contact shared, so it cannot be linked to their chat address on-chain"))
-    }
-
     /// True while this account's Chats Payment Privacy toggle is ON - payments fund from the
     /// primary spending address; OFF funds them from the chatting address (see
     /// `ChatService.paymentFundingSourceAddress`). Read live so a Settings change applies on
@@ -2150,8 +2139,21 @@ struct ChatDetailView: View {
             if privacyOn {
                 Text(localizedAvailableBalanceText(balanceSompi))
                     .underline()
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             } else {
                 Text(localizedAvailableBalanceText(balanceSompi))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            // Fresh-address indicator, merged into this pill (used to be its own third pill
+            // that clipped off narrow screens): a small accent arrow, same accessibility
+            // label the standalone pill carried.
+            if paysToFreshPoolAddress {
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                    .accessibilityLabel(Text("Payment goes to a fresh address this contact shared, so it cannot be linked to their chat address on-chain"))
             }
         }
         .font(.caption2)

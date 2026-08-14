@@ -250,6 +250,14 @@ struct MessageBubbleView: View {
                             // keeps the raw link visible/tappable if no preview data is ever found,
                             // rather than the message rendering as nothing at all.
                             LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil)
+                        } else if message.messageType == .payment, let paymentParts = paymentCardParts {
+                            // Rich Apple-Pay-in-iMessage style card replacing the plain
+                            // "Sent/Received X KAS" text bubble. Unparseable/legacy payment
+                            // content falls through to the classic text bubble below (which
+                            // then also keeps its "Payment" capsule - see
+                            // shouldShowMessageTypeIndicator).
+                            paymentCardBubble(paymentParts)
+                                .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
                         } else {
                             messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
                                 .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
@@ -324,7 +332,10 @@ struct MessageBubbleView: View {
     }
 
     private var shouldShowMessageTypeIndicator: Bool {
-        message.messageType != .contextual || isKNSTransferMessage
+        // Payments render as the rich payment card, which carries its own identity - the
+        // orange "Payment" capsule only remains for odd/legacy content the card can't parse.
+        if message.messageType == .payment { return paymentCardParts == nil }
+        return message.messageType != .contextual || isKNSTransferMessage
     }
 
     private var isKNSTransferMessage: Bool {
@@ -797,6 +808,131 @@ struct MessageBubbleView: View {
         case .invite:
             return "Chess invite"
         }
+    }
+
+    // MARK: - Payment card
+
+    /// Amount + optional note pulled out of a payment message's display text ("Sent 0.2 KAS",
+    /// "Received 0.2 KAS — thanks!" and their localized equivalents). Both regular detected
+    /// payments and pool payment_notice bubbles produce this exact shape (ChatService formats
+    /// them from the same "Sent/Received %@ KAS" templates), so one parser covers both paths.
+    private struct PaymentCardParts {
+        let amountText: String
+        let note: String?
+    }
+
+    /// nil when the content doesn't look like a standard payment phrase (foreign/legacy data) -
+    /// the bubble then falls back to the classic text rendering with its "Payment" capsule.
+    private var paymentCardParts: PaymentCardParts? {
+        guard message.messageType == .payment else { return nil }
+        guard message.content.utf8.count <= 512 else { return nil }
+        // Note separator matches the "Sent %@ KAS — %@" template family.
+        let pieces = message.content.components(separatedBy: " — ")
+        let head = pieces[0]
+        let noteRaw = pieces.count > 1 ? pieces.dropFirst().joined(separator: " — ") : nil
+        guard let amountToken = head
+            .components(separatedBy: .whitespaces)
+            .first(where: { Double($0.replacingOccurrences(of: ",", with: ".")) != nil }) else {
+            return nil
+        }
+        let note = noteRaw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return PaymentCardParts(amountText: amountToken, note: (note?.isEmpty == false) ? note : nil)
+    }
+
+    /// Apple-Pay-in-iMessage style payment card: KaspaLogo leading, the amount large and bold,
+    /// a smaller Sent/Received line, optional note. Direction is carried by the fill - outgoing
+    /// uses a richer teal gradient (anchored on the app's own-bubble kaspaBubbleColor), incoming
+    /// stays neutral glass with teal accents. Same pending shimmer, context menu items, and
+    /// double-tap-to-react behavior as the text bubble it replaces; reaction pill/status/time
+    /// layout are untouched since the card sits in the exact same slot of messageContent.
+    private func paymentCardBubble(_ parts: PaymentCardParts) -> some View {
+        let outgoing = message.isOutgoing
+        return HStack(spacing: 12) {
+            Image("KaspaLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 34, height: 34)
+                .padding(6)
+                .background(
+                    Circle().fill(outgoing ? Color.white.opacity(0.18) : Color.accentColor.opacity(0.12))
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(outgoing ? "Sent" : "Received")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(outgoing ? Color.white.opacity(0.85) : .secondary)
+                Text("\(parts.amountText) KAS")
+                    .font(.title3.weight(.bold))
+                    .foregroundColor(outgoing ? .white : .primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                if let note = parts.note {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundColor(outgoing ? Color.white.opacity(0.8) : .secondary)
+                        .lineLimit(2)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(minWidth: 170, alignment: .leading)
+        .background {
+            if outgoing {
+                LinearGradient(
+                    colors: [kaspaBubbleColor, kaspaBubbleColor.opacity(0.78)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            } else {
+                Rectangle().fill(.regularMaterial)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(outgoing ? Color.white.opacity(0.22) : Color.accentColor.opacity(0.35), lineWidth: 0.8)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+        .overlay {
+            if shouldShowResolvingOverlay {
+                ShimmerOverlay(phase: shimmerPhase)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .allowsHitTesting(false)
+            }
+        }
+        .contextMenu {
+            Button {
+                handleCopy(displayText, toast: "Message copied to clipboard.")
+            } label: {
+                Label("Copy Message", systemImage: "doc.on.doc")
+            }
+
+            if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
+                Link(destination: url) {
+                    Label("View in Explorer", systemImage: "safari")
+                }
+            }
+
+            if let onReply {
+                Button {
+                    onReply()
+                } label: {
+                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                }
+            }
+
+            if let onSelect {
+                Button {
+                    onSelect()
+                } label: {
+                    Label("Select", systemImage: "checkmark.circle")
+                }
+            }
+        }
+        .tint(.accentColor)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(displayText))
     }
 
     @ViewBuilder
