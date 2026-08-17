@@ -145,7 +145,9 @@ struct ChatListView: View {
             }
             .toast(message: toastMessage, style: toastStyle)
             .sheet(isPresented: $showAddContact) {
-                AddContactView { contact in
+                // Tab-aware: the create button opens the group builder on the Group Chats
+                // tab and the 1:1 create screen on the Chats tab.
+                AddContactView(startInGroupMode: selectedListTab == .groups) { contact in
                     _ = chatService.getOrCreateConversation(for: contact)
                     selectedContactStartInPaymentMode = false
                     selectedGroup = nil

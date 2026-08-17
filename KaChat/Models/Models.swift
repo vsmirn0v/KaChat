@@ -189,6 +189,11 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
     var systemContactLinkSource: SystemContactLinkSource?
     var systemMatchConfidence: Double?
     var systemLastSyncedAt: Date?
+    /// A base64 JPEG photo carried in the cross-platform backup, shown as an avatar
+    /// fallback when this device has no system-contact photo or KNS avatar. Lets a photo
+    /// set on another device (e.g. desktop) appear here after a restore. Optional so
+    /// contacts stored before this field decode cleanly.
+    var backupPhoto: String?
 
     init(
         id: UUID = UUID(),
@@ -205,7 +210,8 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         systemDisplayNameSnapshot: String? = nil,
         systemContactLinkSource: SystemContactLinkSource? = nil,
         systemMatchConfidence: Double? = nil,
-        systemLastSyncedAt: Date? = nil
+        systemLastSyncedAt: Date? = nil,
+        backupPhoto: String? = nil
     ) {
         self.id = id
         self.address = address
@@ -222,6 +228,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         self.systemContactLinkSource = systemContactLinkSource
         self.systemMatchConfidence = systemMatchConfidence
         self.systemLastSyncedAt = systemLastSyncedAt
+        self.backupPhoto = backupPhoto
     }
 
     enum CodingKeys: String, CodingKey {
@@ -240,6 +247,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         case systemContactLinkSource
         case systemMatchConfidence
         case systemLastSyncedAt
+        case backupPhoto
     }
 
     // Custom decoding to handle missing fields in existing data
@@ -264,6 +272,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         systemContactLinkSource = try container.decodeIfPresent(SystemContactLinkSource.self, forKey: .systemContactLinkSource)
         systemMatchConfidence = try container.decodeIfPresent(Double.self, forKey: .systemMatchConfidence)
         systemLastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .systemLastSyncedAt)
+        backupPhoto = try container.decodeIfPresent(String.self, forKey: .backupPhoto)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -282,6 +291,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         try container.encodeIfPresent(systemContactLinkSource, forKey: .systemContactLinkSource)
         try container.encodeIfPresent(systemMatchConfidence, forKey: .systemMatchConfidence)
         try container.encodeIfPresent(systemLastSyncedAt, forKey: .systemLastSyncedAt)
+        try container.encodeIfPresent(backupPhoto, forKey: .backupPhoto)
     }
 
     /// Matches Android's `KaspaAddress.shortDisplay`: "prefix:xxxx....xxxx" — shown wherever a

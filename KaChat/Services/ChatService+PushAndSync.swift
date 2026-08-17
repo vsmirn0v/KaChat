@@ -71,11 +71,23 @@ extension ChatService {
                 .sorted(by: Self.isMessageOrderedBefore)
             let meta = metaByAddress[contactAddress]
             let inMemory = conversations.first(where: { $0.contact.address == contactAddress })
-            let alias = contactsManager.getContact(byAddress: contactAddress)?.alias ?? inMemory?.contact.alias
+            let contact = contactsManager.getContact(byAddress: contactAddress)
+            let alias = contact?.alias ?? inMemory?.contact.alias
+            // Carry a cross-platform contact photo: a photo restored from another device wins,
+            // else render the (cached) linked system-contact photo to a small JPEG so it travels
+            // in the shared backup. Best-effort - an uncached system photo is simply omitted.
+            var contactPhoto: String? = nil
+            if let stored = contact?.backupPhoto, !stored.isEmpty {
+                contactPhoto = stored
+            } else if let contact, let image = SystemContactAvatarStore.shared.rawImage(for: contact),
+                      let data = image.jpegData(compressionQuality: 0.7) {
+                contactPhoto = data.base64EncodedString()
+            }
             return ChatHistoryArchiveConversation(
                 conversationId: meta?.id ?? inMemory?.id,
                 contactAddress: contactAddress,
                 contactAlias: alias,
+                contactPhoto: contactPhoto,
                 unreadCount: max(0, meta?.unreadCount ?? inMemory?.unreadCount ?? 0),
                 messages: messages
             )
@@ -153,6 +165,16 @@ extension ChatService {
                 if contact.alias == autoAlias && importedAlias != autoAlias {
                     var updated = contact
                     updated.alias = importedAlias
+                    contactsManager.updateContact(updated)
+                }
+            }
+            // Adopt a backed-up photo only when this device has none of its own for the
+            // contact (never overwrite a linked system-contact photo the user already has).
+            if let photo = archivedConversation.contactPhoto, !photo.isEmpty {
+                let current = contactsManager.getContact(byAddress: contactAddress) ?? contact
+                if (current.backupPhoto ?? "").isEmpty {
+                    var updated = current
+                    updated.backupPhoto = photo
                     contactsManager.updateContact(updated)
                 }
             }

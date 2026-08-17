@@ -323,6 +323,8 @@ extension ChatService {
         let conversationId: UUID?
         let contactAddress: String
         let contactAlias: String?
+        // Cross-platform base64 JPEG contact photo (optional; older archives omit it).
+        let contactPhoto: String?
         let unreadCount: Int
         let messages: [ChatMessage]
     }

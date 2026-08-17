@@ -42,6 +42,23 @@ struct KNSAvatarView: View {
         contactAvatars.prefersContactPhotoOverKNS(forAddress: contactAddress)
     }
 
+    /// Decoded cache so a base64 backup photo is turned into a UIImage once, not on every
+    /// body pass while scrolling.
+    private static let backupPhotoCache = NSCache<NSString, UIImage>()
+    /// The cross-platform backup photo (base64 JPEG on the Contact), decoded lazily. Only the
+    /// final fallback before the glyph, so it is evaluated only for contacts with no device or
+    /// KNS photo.
+    private var backupPhotoImage: UIImage? {
+        guard overrideImage == nil, let contactAddress,
+              let base64 = ContactsManager.shared.getContact(byAddress: contactAddress)?.backupPhoto,
+              !base64.isEmpty else { return nil }
+        let key = base64 as NSString
+        if let cached = Self.backupPhotoCache.object(forKey: key) { return cached }
+        guard let data = Data(base64Encoded: base64), let image = UIImage(data: data) else { return nil }
+        Self.backupPhotoCache.setObject(image, forKey: key)
+        return image
+    }
+
     var body: some View {
         Group {
             let devicePhoto = deviceContactPhoto
@@ -57,6 +74,12 @@ struct KNSAvatarView: View {
                 // No KNS avatar (or it hasn't loaded/failed): the device-contact photo is the
                 // fallback, ahead of the glyph.
                 Image(uiImage: devicePhoto)
+                    .resizable()
+                    .scaledToFill()
+            } else if let backupPhoto = backupPhotoImage {
+                // A photo carried in the cross-platform backup (e.g. set on desktop): the last
+                // photo fallback before the glyph.
+                Image(uiImage: backupPhoto)
                     .resizable()
                     .scaledToFill()
             } else {
