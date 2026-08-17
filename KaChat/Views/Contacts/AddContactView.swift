@@ -470,6 +470,78 @@ struct AddContactView: View {
         } footer: {
             Text("Search and tap contacts to add them to the group. You can add up to \(Self.maxGroupMembers).")
         }
+
+        // Add someone who is not in your contacts, by raw address or KNS domain. Reuses the
+        // existing resolve / Import / Paste / Scan machinery on a single entry.
+        Section {
+            ForEach($groupAddressEntries) { $entry in
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("kaspa:qr... or name.kas", text: $entry.text)
+                        .font(.system(.body, design: .monospaced))
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .onChange(of: entry.text) { newValue in
+                            resolveGroupAddress(id: entry.id, input: newValue)
+                        }
+
+                    groupAddressStatus(for: entry)
+
+                    Divider()
+
+                    HStack {
+                        Button {
+                            contactPickerRowID = entry.id
+                        } label: {
+                            Label("Import", systemImage: "person.crop.circle.badge.plus")
+                        }
+
+                        Spacer()
+
+                        Button {
+                            if let pastedText = UIPasteboard.general.string {
+                                let trimmed = pastedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                entry.text = trimmed
+                                resolveGroupAddress(id: entry.id, input: trimmed)
+                            }
+                        } label: {
+                            Label("Paste", systemImage: "doc.on.clipboard")
+                        }
+
+                        Spacer()
+
+                        Button {
+                            scanningGroupRowID = entry.id
+                        } label: {
+                            Label("Scan QR", systemImage: "qrcode.viewfinder")
+                        }
+                    }
+                    .buttonStyle(.borderless)
+
+                    Button {
+                        addTypedGroupMember(entry)
+                    } label: {
+                        Text("Add to Group")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isValidGroupEntry(entry))
+                }
+                .padding(.vertical, 4)
+            }
+        } header: {
+            Text("Add by Address")
+        } footer: {
+            Text("Add anyone by Kaspa address or KNS domain, even if they are not in your contacts.")
+        }
+    }
+
+    /// Adds a resolved raw-address/KNS entry to the selected members, then resets the field.
+    private func addTypedGroupMember(_ entry: GroupAddressEntry) {
+        guard isValidGroupEntry(entry), let address = entry.effectiveAddress else { return }
+        if selectedMemberAddresses.count < Self.maxGroupMembers {
+            selectedMemberAddresses.insert(address)
+        }
+        groupAddressEntries = [GroupAddressEntry()]
     }
 
     /// Contacts shown in the group member picker, filtered by the search box (name or address).
