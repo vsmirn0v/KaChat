@@ -232,13 +232,6 @@ struct KaChatApp: App {
                         ReadStatusSyncManager.shared.runMigrationIfNeeded()
                     }
                 }
-                // Group catch-up (including "you were added to a group" control messages) runs in
-                // its OWN task, NOT serialized behind the cold-start grace + CloudKit import above,
-                // so a newly-joined group appears in the list within ~1 network round trip instead
-                // of the ~10s that serialization caused.
-                Task {
-                    await GroupChatService.shared.performCatchUpSync()
-                }
                 // Own-address receive catch-up: diff spending/cold-storage balances against the
                 // persisted baseline and notify for external receipts that landed while away
                 // (internally debounced; first run only seeds the baseline).
@@ -248,6 +241,14 @@ struct KaChatApp: App {
                     }
                     await AddressActivityNotifier.shared.runCatchUpIfNeeded()
                 }
+            }
+            // Group catch-up (including "you were added to a group" control messages) runs on
+            // EVERY foreground, NOT gated by the heavy-resync debounce above - otherwise a group
+            // you were just added to on another device would not appear until the debounce window
+            // elapsed and the app was re-activated. It is a cheap, cursor-based single round trip
+            // that runs in its own task, so a newly-joined group appears within ~1 network hop.
+            Task {
+                await GroupChatService.shared.performCatchUpSync()
             }
             if settingsViewModel.settings.notificationMode == .remotePush {
                 Task {
