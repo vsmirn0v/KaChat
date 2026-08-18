@@ -94,11 +94,13 @@ extension ChatService {
         }
         .sorted { $0.contactAddress < $1.contactAddress }
 
+        let archiveGroups = await MainActor.run { GroupChatService.shared.archiveGroups() }
         let archive = ChatHistoryArchive(
             schemaVersion: chatHistoryArchiveVersion,
             exportedAt: Date(),
             walletAddress: WalletManager.shared.currentWallet?.publicAddress,
-            conversations: exportedConversations
+            conversations: exportedConversations,
+            groups: archiveGroups
         )
 
         let encoder = JSONEncoder()
@@ -224,6 +226,13 @@ extension ChatService {
         }
 
         await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+
+        // Groups (cross-platform recovery): restore full group key material so this device
+        // recovers admin groups it created elsewhere as well as member ones. Optional - older
+        // archives omit it.
+        if let archivedGroups = archive.groups, !archivedGroups.isEmpty {
+            await MainActor.run { GroupChatService.shared.importArchiveGroups(archivedGroups) }
+        }
 
         let filledSentContentCount = existingOutgoingPlaceholderTxIds
             .intersection(importedOutgoingWithContentTxIds)

@@ -30,6 +30,9 @@ struct AddContactView: View {
     // New group flow: members are picked from existing contacts (searchable), not typed.
     @State private var selectedMemberAddresses: Set<String> = []
     @State private var memberSearchText = ""
+    // Collapsible New Group sections: "Members (N)" (added-so-far) and "Contacts" (search + list).
+    @State private var membersExpanded = false
+    @State private var contactsExpanded = false
     @State private var isCreatingGroup = false
     @State private var scanningGroupRowID: UUID?
     @State private var contactPickerRowID: UUID?
@@ -428,45 +431,86 @@ struct AddContactView: View {
             Text("Group Name")
         }
 
+        // Members (N): collapsible list of who has been added so far.
         Section {
-            TextField("Search contacts", text: $memberSearchText)
-                .autocapitalization(.none)
-                .autocorrectionDisabled()
-
-            if contactsManager.activeContacts.isEmpty {
-                Text("You have no contacts yet. Start a 1:1 chat with someone first, then you can add them to a group.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            } else if filteredGroupContacts.isEmpty {
-                Text("No contacts match your search.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            } else {
-                ForEach(filteredGroupContacts, id: \.address) { contact in
-                    Button {
-                        toggleGroupMember(contact.address)
-                    } label: {
+            DisclosureGroup(isExpanded: $membersExpanded) {
+                if selectedMemberAddresses.isEmpty {
+                    Text("No members added yet. Open Contacts below to add people.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(Array(selectedMemberAddresses), id: \.self) { address in
                         HStack(spacing: 12) {
-                            KNSAvatarView(avatarURLString: nil, fallbackText: contact.alias, size: 32, contactAddress: contact.address)
+                            KNSAvatarView(avatarURLString: nil, fallbackText: memberDisplayName(address), size: 32, contactAddress: address)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(contact.alias)
+                                Text(memberDisplayName(address))
                                     .foregroundColor(.primary)
                                     .lineLimit(1)
-                                Text(Contact.generateDefaultAlias(from: contact.address))
+                                Text(Contact.generateDefaultAlias(from: address))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
                             }
                             Spacer()
-                            Image(systemName: selectedMemberAddresses.contains(contact.address) ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(selectedMemberAddresses.contains(contact.address) ? .accentColor : .secondary)
+                            Button {
+                                selectedMemberAddresses.remove(address)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .buttonStyle(.plain)
                 }
+            } label: {
+                Text(selectedMemberAddresses.isEmpty ? "Members" : "Members (\(selectedMemberAddresses.count))")
+                    .font(.headline)
             }
-        } header: {
-            Text(selectedMemberAddresses.isEmpty ? "Members" : "Members (\(selectedMemberAddresses.count))")
+        }
+
+        // Contacts: collapsible search + list of people you have chatted with.
+        Section {
+            DisclosureGroup(isExpanded: $contactsExpanded) {
+                TextField("Search contacts", text: $memberSearchText)
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+
+                if contactsManager.activeContacts.isEmpty {
+                    Text("You have no contacts yet. Start a 1:1 chat with someone first, then you can add them to a group.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else if filteredGroupContacts.isEmpty {
+                    Text("No contacts match your search.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(filteredGroupContacts, id: \.address) { contact in
+                        Button {
+                            toggleGroupMember(contact.address)
+                        } label: {
+                            HStack(spacing: 12) {
+                                KNSAvatarView(avatarURLString: nil, fallbackText: contact.alias, size: 32, contactAddress: contact.address)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(contact.alias)
+                                        .foregroundColor(.primary)
+                                        .lineLimit(1)
+                                    Text(Contact.generateDefaultAlias(from: contact.address))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: selectedMemberAddresses.contains(contact.address) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(selectedMemberAddresses.contains(contact.address) ? .accentColor : .secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            } label: {
+                Text("Contacts")
+                    .font(.headline)
+            }
         } footer: {
             Text("Search and tap contacts to add them to the group. You can add up to \(Self.maxGroupMembers).")
         }
@@ -542,6 +586,17 @@ struct AddContactView: View {
             selectedMemberAddresses.insert(address)
         }
         groupAddressEntries = [GroupAddressEntry()]
+        // Reveal the Members list so the just-added person is visible.
+        membersExpanded = true
+    }
+
+    /// Display name for a selected member: the contact alias if we have one, else the default
+    /// short-address alias (covers members added by raw address / KNS domain).
+    private func memberDisplayName(_ address: String) -> String {
+        if let contact = contactsManager.activeContacts.first(where: { $0.address == address }) {
+            return contact.alias
+        }
+        return Contact.generateDefaultAlias(from: address)
     }
 
     /// Contacts shown in the group member picker, filtered by the search box (name or address).

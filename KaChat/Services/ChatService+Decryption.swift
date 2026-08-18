@@ -317,6 +317,10 @@ extension ChatService {
         let exportedAt: Date
         let walletAddress: String?
         let conversations: [ChatHistoryArchiveConversation]
+        // Cross-platform group key material (optional; older archives omit it). Carries the
+        // full bag - including the admin's groupSeed - so another device of the same account
+        // recovers admin groups that have no on-chain invite addressed to it.
+        let groups: [ChatHistoryArchiveGroup]?
     }
 
     struct ChatHistoryArchiveConversation: Codable {
@@ -327,6 +331,27 @@ extension ChatService {
         let contactPhoto: String?
         let unreadCount: Int
         let messages: [ChatMessage]
+    }
+
+    // Field names match the desktop/Android archive schema exactly. deviceId/msgCounter are
+    // per-device and deliberately NOT carried (the importer mints its own).
+    struct ChatHistoryArchiveGroup: Codable {
+        let groupId: String
+        let name: String
+        let isAdmin: Bool
+        let adminAddress: String?
+        let adminSigningPub: String?
+        let groupSeed: String?
+        let groupRootEpoch: String?
+        let blindingKey: String?
+        let currentEpoch: UInt64
+        let members: [ChatHistoryArchiveGroupMember]
+    }
+
+    struct ChatHistoryArchiveGroupMember: Codable {
+        let address: String
+        let xOnlyPubKeyHex: String?
+        let isAdmin: Bool
     }
 
 /// Result from resolving transaction info from REST API

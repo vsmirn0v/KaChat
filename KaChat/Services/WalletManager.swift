@@ -233,6 +233,10 @@ final class WalletManager: ObservableObject {
                 await MessageStore.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 BroadcastService.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 GroupChatService.shared.setCurrentWallet(canonicalWallet.publicAddress)
+                // Discover group invites for THIS account right away - switching accounts in-app
+                // does not fire a scenePhase .active, so without this a group you were added to
+                // under this account would not appear until the app was backgrounded/foregrounded.
+                Task { await GroupChatService.shared.performCatchUpSync() }
                 ColdStorageManager.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 PortfolioManager.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 PortfolioViewModel.shared.setCurrentWallet(canonicalWallet.publicAddress)
@@ -370,6 +374,9 @@ final class WalletManager: ObservableObject {
         await MessageStore.shared.setCurrentWallet(wallet.publicAddress)
         BroadcastService.shared.setCurrentWallet(wallet.publicAddress)
         GroupChatService.shared.setCurrentWallet(wallet.publicAddress)
+        // Discover group invites for this newly-activated account immediately (see the same
+        // call in loadWallet) - an in-app account activation does not fire scenePhase .active.
+        Task { await GroupChatService.shared.performCatchUpSync() }
         ColdStorageManager.shared.setCurrentWallet(wallet.publicAddress)
         PortfolioManager.shared.setCurrentWallet(wallet.publicAddress)
         PortfolioViewModel.shared.setCurrentWallet(wallet.publicAddress)

@@ -456,6 +456,59 @@ final class GroupChatService: ObservableObject {
         ChatService.shared.scheduleBadgeUpdate()
     }
 
+    // MARK: - Cross-platform backup archive (manual export/import)
+
+    /// Full group key material for the shared backup archive - including the admin's groupSeed,
+    /// which lives ONLY on the creating device and has no on-chain invite for other devices of
+    /// the same account to recover from. deviceId/msgCounter are per-device and omitted.
+    func archiveGroups() -> [ChatHistoryArchiveGroup] {
+        groups.compactMap { group in
+            guard let bag = try? keychain.loadGroupBag(groupId: group.id) else { return nil }
+            return ChatHistoryArchiveGroup(
+                groupId: group.id,
+                name: group.name,
+                isAdmin: group.isAdmin,
+                adminAddress: group.adminAddress,
+                adminSigningPub: group.adminXOnlyPubKeyHex,
+                groupSeed: bag.groupSeed,
+                groupRootEpoch: bag.groupRootEpoch,
+                blindingKey: bag.blindingKey,
+                currentEpoch: bag.currentEpoch,
+                members: group.members.map {
+                    ChatHistoryArchiveGroupMember(address: $0.address, xOnlyPubKeyHex: $0.xOnlyPubKeyHex, isAdmin: $0.isAdmin)
+                }
+            )
+        }
+    }
+
+    /// Restore groups from a shared backup archive. Recovers admin groups (groupSeed present)
+    /// as well as member ones. Mints a fresh deviceId per group so this device's sends can't
+    /// collide with msg_ids the exporting device already used; never downgrades a newer epoch.
+    func importArchiveGroups(_ archiveGroups: [ChatHistoryArchiveGroup]) {
+        for g in archiveGroups {
+            guard let groupRootEpoch = g.groupRootEpoch, let blindingKey = g.blindingKey else { continue }
+            let existingBag = try? keychain.loadGroupBag(groupId: g.groupId)
+            if let existingBag, existingBag.currentEpoch > g.currentEpoch { continue }
+            let deviceId = existingBag?.deviceId ?? GroupCipher.generateDeviceId().hexString
+            let msgCounter = existingBag?.currentEpoch == g.currentEpoch ? (existingBag?.msgCounter ?? 0) : 0
+            let bag = GroupBag(
+                groupId: g.groupId, groupSeed: g.groupSeed, groupRootEpoch: groupRootEpoch,
+                blindingKey: blindingKey, currentEpoch: g.currentEpoch, deviceId: deviceId, msgCounter: msgCounter
+            )
+            try? keychain.saveGroupBag(bag)
+            let members = g.members.map {
+                GroupMember(address: $0.address, xOnlyPubKeyHex: $0.xOnlyPubKeyHex ?? "", isAdmin: $0.isAdmin, displayName: nil)
+            }
+            let group = GroupChat(
+                id: g.groupId, name: g.name, adminAddress: g.adminAddress ?? "",
+                adminXOnlyPubKeyHex: g.adminSigningPub ?? "", members: members,
+                currentEpoch: g.currentEpoch, createdAt: Date(), isAdmin: g.isAdmin
+            )
+            store.upsertGroup(group)
+        }
+        groups = store.allGroups()
+    }
+
     // MARK: - GroupChat creation & membership
 
     func createGroup(name: String, members: [Contact]) async throws -> GroupChat {
