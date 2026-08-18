@@ -179,6 +179,7 @@ private struct KasPriceChartScreen: View {
             }
             .padding(16)
         }
+        .refreshable { await viewModel.refreshPriceAsync() }
         .navigationTitle("KAS Price")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -280,6 +281,7 @@ private struct PortfolioValueChartScreen: View {
             }
             .padding(16)
         }
+        .refreshable { await viewModel.refreshPriceAsync() }
         .navigationTitle("Value Over Time")
         .navigationBarTitleDisplayMode(.inline)
     }
