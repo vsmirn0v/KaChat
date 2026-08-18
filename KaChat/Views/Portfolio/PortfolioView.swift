@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 struct PortfolioView: View {
     @ObservedObject private var viewModel = PortfolioViewModel.shared
@@ -167,14 +168,14 @@ private struct KasPriceChartScreen: View {
     @State private var scrubbed: PricePoint?
 
     private var currency: AppCurrency { settingsViewModel.settings.currency }
-    private let ranges: [(label: String, days: Int)] = [("1D", 1), ("1W", 7), ("1M", 30), ("3M", 90), ("1Y", 365)]
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 chart
-                rangePicker
+                PortfolioRangePicker(viewModel: viewModel, onChange: { scrubbed = nil })
+                aboutKaspa
             }
             .padding(16)
         }
@@ -182,21 +183,22 @@ private struct KasPriceChartScreen: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    // The Kaspa logo + name stay put while scrubbing - only the date + scrubbed price change.
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image("KaspaLogo").resizable().scaledToFit().frame(width: 30, height: 30)
+                Text("Kaspa").font(.title3).fontWeight(.semibold)
+                Spacer()
+            }
             if let scrub = scrubbed {
-                Text(scrub.timestamp, format: .dateTime.month().day().hour().minute())
+                Text(scrub.timestamp, format: .dateTime.month().day().year().hour().minute())
                     .font(.subheadline).foregroundColor(.secondary)
-                Text(PortfolioFormat.price(scrub.value, currency: currency))
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text((scrubbed?.value ?? viewModel.currentPriceUsd).map { PortfolioFormat.price($0, currency: currency) } ?? "—")
                     .font(.system(size: 34, weight: .bold))
-            } else {
-                HStack(spacing: 8) {
-                    Image("KaspaLogo").resizable().scaledToFit().frame(width: 30, height: 30)
-                    Text("Kaspa").font(.title3).fontWeight(.semibold)
-                }
-                Text(viewModel.currentPriceUsd.map { PortfolioFormat.price($0, currency: currency) } ?? "—")
-                    .font(.system(size: 34, weight: .bold))
-                if let change = viewModel.priceChange24h {
+                if scrubbed == nil, let change = viewModel.priceChange24h {
                     HStack(spacing: 3) {
                         Image(systemName: change >= 0 ? "arrow.up" : "arrow.down").font(.footnote)
                         Text("\(String(format: "%.2f", abs(change)))% (24h)")
@@ -212,35 +214,37 @@ private struct KasPriceChartScreen: View {
     @ViewBuilder
     private var chart: some View {
         if viewModel.priceHistory.count >= 2 {
-            SparklineChart(points: viewModel.priceHistory, lineWidth: 2.5, dotRadius: 5, onScrub: { scrubbed = $0 })
-                .frame(height: 240)
+            PortfolioAreaChart(points: viewModel.priceHistory, onScrub: { scrubbed = $0 })
+                .frame(height: 260)
         } else {
             ProgressView()
-                .frame(height: 240)
+                .frame(height: 260)
                 .frame(maxWidth: .infinity)
         }
     }
 
-    private var rangePicker: some View {
-        HStack(spacing: 8) {
-            ForEach(ranges, id: \.days) { range in
-                Button {
-                    Haptics.impact(.light)
-                    scrubbed = nil
-                    viewModel.setPriceRangeDays(range.days)
-                } label: {
-                    Text(range.label)
-                        .font(.subheadline).fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(viewModel.priceRangeDays == range.days ? Color.accentColor.opacity(0.2) : Color.clear)
-                        .foregroundColor(viewModel.priceRangeDays == range.days ? .accentColor : .secondary)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
+    private var aboutKaspa: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("About Kaspa").font(.headline)
+            Text(Self.kaspaDescription)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(portfolioGlassBackground(cornerRadius: 18))
     }
+
+    // Original factual summary (paraphrased, not copied from any single source).
+    private static let kaspaDescription = """
+    Kaspa is a decentralized, open-source, proof-of-work cryptocurrency. It is built on the \
+    GHOSTDAG protocol - a generalization of Nakamoto consensus that, instead of discarding blocks \
+    created in parallel, orders them together in a blockDAG. This lets Kaspa reach very high block \
+    rates and near-instant transaction confirmation while keeping the security guarantees of \
+    proof of work. Kaspa launched in November 2021 with a fair release: no pre-mine, no pre-sale, \
+    and no coin allocations. Its native coin is KAS.
+    """
 }
 
 // MARK: - Portfolio value full-screen chart + stats
@@ -255,29 +259,22 @@ private struct PortfolioValueChartScreen: View {
     var body: some View {
         let summary = viewModel.summary
         let history = viewModel.valueHistory
-        let displayed = scrubbed ?? history.last
 
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(scrubbed != nil
-                         ? "Value on \(scrubbed!.timestamp.formatted(date: .abbreviated, time: .omitted))"
-                         : "Portfolio Value")
-                        .font(.subheadline).foregroundColor(.secondary)
-                    Text(PortfolioFormat.currency(displayed?.value ?? summary.currentValue, currency))
-                        .font(.system(size: 34, weight: .bold))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                header(currentValue: summary.currentValue)
 
                 if history.count >= 2 {
-                    SparklineChart(points: history, lineWidth: 3, dotRadius: 6, onScrub: { scrubbed = $0 })
-                        .frame(height: 220)
+                    PortfolioAreaChart(points: history, onScrub: { scrubbed = $0 })
+                        .frame(height: 240)
                 } else {
                     Text("Not enough history yet - check back after a few days of activity.")
                         .font(.subheadline).foregroundColor(.secondary)
-                        .frame(height: 220)
+                        .frame(height: 240)
                         .frame(maxWidth: .infinity)
                 }
+
+                PortfolioRangePicker(viewModel: viewModel, onChange: { scrubbed = nil })
 
                 statsCard(summary)
             }
@@ -285,6 +282,22 @@ private struct PortfolioValueChartScreen: View {
         }
         .navigationTitle("Value Over Time")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func header(currentValue: Double) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Portfolio Value").font(.title3).fontWeight(.semibold)
+                Spacer()
+            }
+            if let scrub = scrubbed {
+                Text(scrub.timestamp, format: .dateTime.month().day().year())
+                    .font(.subheadline).foregroundColor(.secondary)
+            }
+            Text(PortfolioFormat.currency(scrubbed?.value ?? currentValue, currency))
+                .font(.system(size: 34, weight: .bold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func statsCard(_ summary: PortfolioSummary) -> some View {
@@ -317,6 +330,38 @@ private struct PortfolioValueChartScreen: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+}
+
+// MARK: - Shared range picker (1D / 1W / 1M / 3M / 1Y)
+
+/// Drives `PortfolioViewModel.priceRangeDays`, which both the KAS price history AND the derived
+/// portfolio value-over-time series read from, so this one control ranges both charts.
+private struct PortfolioRangePicker: View {
+    @ObservedObject var viewModel: PortfolioViewModel
+    var onChange: () -> Void = {}
+
+    private let ranges: [(label: String, days: Int)] = [("1D", 1), ("1W", 7), ("1M", 30), ("3M", 90), ("1Y", 365)]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(ranges, id: \.days) { range in
+                Button {
+                    Haptics.impact(.light)
+                    onChange()
+                    viewModel.setPriceRangeDays(range.days)
+                } label: {
+                    Text(range.label)
+                        .font(.subheadline).fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(viewModel.priceRangeDays == range.days ? Color.accentColor.opacity(0.2) : Color.clear)
+                        .foregroundColor(viewModel.priceRangeDays == range.days ? .accentColor : .secondary)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 }
 
@@ -378,77 +423,98 @@ private func portfolioGlassBackground(cornerRadius: CGFloat) -> some View {
         .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
 }
 
-/// Hand-rolled line chart with optional drag-to-scrub. Normalizes points to the view's frame,
-/// no drawn axes/labels (matches the compact sparkline style used throughout Portfolio).
-private struct SparklineChart: View {
+// MARK: - Chart
+
+/// Swift Charts area+line chart with gridlines/axes and drag-to-scrub. Replaces the old bare
+/// sparkline so the full-screen views read like a real price/value graph. `onScrub` fires the
+/// nearest point (or nil on release) so the screen's header can show the selected value/date.
+private struct PortfolioAreaChart: View {
     let points: [PricePoint]
-    var lineWidth: CGFloat = 2.5
-    var dotRadius: CGFloat = 4
     var onScrub: ((PricePoint?) -> Void)?
 
-    @State private var scrubIndex: Int?
+    @State private var selected: PricePoint?
 
     var body: some View {
-        GeometryReader { proxy in
-            chartContent(size: proxy.size)
-        }
-    }
-
-    @ViewBuilder
-    private func chartContent(size: CGSize) -> some View {
         let values = points.map(\.value)
-        let minValue = values.min() ?? 0
-        let maxValue = values.max() ?? 0
-        let range = (maxValue - minValue) > 0 ? (maxValue - minValue) : 1
-        let stepX = points.count > 1 ? size.width / CGFloat(points.count - 1) : 0
+        let minV = values.min() ?? 0
+        let maxV = values.max() ?? 1
+        let span = (maxV - minV) > 0 ? (maxV - minV) : max(abs(maxV), 1)
+        let pad = span * 0.10
+        let lowerBound = minV - pad
+        let upperBound = maxV + pad
 
-        let content = ZStack {
-            Path { path in
-                for (index, point) in points.enumerated() {
-                    let x = CGFloat(index) * stepX
-                    let y = size.height - CGFloat((point.value - minValue) / range) * size.height
-                    if index == 0 {
-                        path.move(to: CGPoint(x: x, y: y))
-                    } else {
-                        path.addLine(to: CGPoint(x: x, y: y))
-                    }
-                }
+        Chart {
+            ForEach(points, id: \.timestamp) { point in
+                AreaMark(
+                    x: .value("Time", point.timestamp),
+                    yStart: .value("Min", lowerBound),
+                    yEnd: .value("Value", point.value)
+                )
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [Color.accentColor.opacity(0.28), Color.accentColor.opacity(0.03)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+
+                LineMark(
+                    x: .value("Time", point.timestamp),
+                    y: .value("Value", point.value)
+                )
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(Color.accentColor)
+                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             }
-            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
 
-            if let index = scrubIndex, index < points.count {
-                let x = CGFloat(index) * stepX
-                let y = size.height - CGFloat((points[index].value - minValue) / range) * size.height
-                Path { path in
-                    path.move(to: CGPoint(x: x, y: 0))
-                    path.addLine(to: CGPoint(x: x, y: size.height))
-                }
-                .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
-
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: dotRadius * 2, height: dotRadius * 2)
-                    .position(x: x, y: y)
+            if let selected {
+                RuleMark(x: .value("Time", selected.timestamp))
+                    .foregroundStyle(Color.secondary.opacity(0.35))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+                PointMark(x: .value("Time", selected.timestamp), y: .value("Value", selected.value))
+                    .foregroundStyle(Color.accentColor)
+                    .symbolSize(120)
             }
         }
-        .contentShape(Rectangle())
-
-        if let onScrub {
-            content.gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        guard stepX > 0 else { return }
-                        let index = min(max(Int((value.location.x / stepX).rounded()), 0), points.count - 1)
-                        scrubIndex = index
-                        onScrub(points[index])
-                    }
-                    .onEnded { _ in
-                        scrubIndex = nil
-                        onScrub(nil)
-                    }
-            )
-        } else {
-            content
+        .chartYScale(domain: lowerBound...upperBound)
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) {
+                AxisGridLine()
+                AxisValueLabel()
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) {
+                AxisGridLine()
+                AxisValueLabel()
+            }
+        }
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                Rectangle()
+                    .fill(Color.clear)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let plot = geo[proxy.plotAreaFrame]
+                                let xInPlot = value.location.x - plot.minX
+                                guard xInPlot >= 0, xInPlot <= plot.width,
+                                      let date: Date = proxy.value(atX: xInPlot) else { return }
+                                let nearest = points.min(by: {
+                                    abs($0.timestamp.timeIntervalSince(date)) < abs($1.timestamp.timeIntervalSince(date))
+                                })
+                                if selected?.timestamp != nearest?.timestamp {
+                                    selected = nearest
+                                    onScrub?(nearest)
+                                }
+                            }
+                            .onEnded { _ in
+                                selected = nil
+                                onScrub?(nil)
+                            }
+                    )
+            }
         }
     }
 }
