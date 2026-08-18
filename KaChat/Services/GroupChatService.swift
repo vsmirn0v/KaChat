@@ -642,6 +642,35 @@ final class GroupChatService: ObservableObject {
         }
     }
 
+    /// Re-broadcast the CURRENT root to every member (admin) — retries invites that failed to
+    /// send, without rotating the epoch. Throws if any member still can't be reached.
+    func resendInvites(_ groupId: String) async throws {
+        guard let group = store.group(id: groupId), group.isAdmin else {
+            throw KasiaError.networkError("Only the group admin can resend invites.")
+        }
+        guard let bag = try keychain.loadGroupBag(groupId: groupId) else { throw KasiaError.networkError("Missing admin group secrets.") }
+        guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey() else { throw KasiaError.walletNotFound }
+        var sendErrors: [Error] = []
+        for member in group.members where member.address != wallet.publicAddress {
+            do { try await sendRootControlMessage(group: group, bag: bag, to: member.address, privateKey: privateKey) }
+            catch { sendErrors.append(error) }
+        }
+        if !sendErrors.isEmpty {
+            throw KasiaError.networkError("\(sendErrors.count) invite(s) still could not be sent.")
+        }
+    }
+
+    /// Re-broadcast the current root to ONE member (admin) — a targeted retry of a single invite.
+    func resendInvite(to address: String, groupId: String) async throws {
+        guard let group = store.group(id: groupId), group.isAdmin else {
+            throw KasiaError.networkError("Only the group admin can resend invites.")
+        }
+        guard let bag = try keychain.loadGroupBag(groupId: groupId) else { throw KasiaError.networkError("Missing admin group secrets.") }
+        guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey() else { throw KasiaError.walletNotFound }
+        guard address != wallet.publicAddress else { return }
+        try await sendRootControlMessage(group: group, bag: bag, to: address, privateKey: privateKey)
+    }
+
     /// Deletes a group locally: its message history, Keychain-held secrets (root/seed/blinding
     /// key), and roster. Local-only, like leaving/deleting a broadcast channel - there's no
     /// server-side group record to delete, and other members aren't notified (the trust model
@@ -1149,9 +1178,23 @@ final class GroupChatService: ObservableObject {
         let jsonString = String(data: json, encoding: .utf8) ?? "{}"
         let encrypted = try KasiaCipher.encrypt(jsonString, recipientPublicKey: recipientPublicKey)
         let payloadString = Self.gctlPrefix + recipientPublicKey.hexString + ":" + encrypted.toHex()
-        try await ChatService.shared.enqueueOutgoingTxOperation { [weak self] in
-            _ = try await self?.sendSelfStashPayload(payloadString, from: senderAddress, privateKey: privateKey)
+        // Retry to ride out UTXO contention: each member's invite is its own tx, and a
+        // back-to-back send fails until the prior tx's change output settles. Without this a
+        // multi-member invite silently drops the 2nd+ members even though the loop doesn't abort.
+        var lastError: Error?
+        let attempts = 4
+        for i in 0..<attempts {
+            do {
+                try await ChatService.shared.enqueueOutgoingTxOperation { [weak self] in
+                    _ = try await self?.sendSelfStashPayload(payloadString, from: senderAddress, privateKey: privateKey)
+                }
+                return
+            } catch {
+                lastError = error
+                if i < attempts - 1 { try? await Task.sleep(nanoseconds: 1_800_000_000) }
+            }
         }
+        throw lastError ?? NSError(domain: "KaChat", code: -1, userInfo: [NSLocalizedDescriptionKey: "Group invite send failed."])
     }
 
     // MARK: - Message loading (decrypt-on-read from stored ciphertext)
@@ -1174,7 +1217,17 @@ final class GroupChatService: ObservableObject {
             // Discard if the wallet changed while we were decrypting (avoids a stale group's
             // messages landing under a different account).
             guard let self, self.currentWalletAddress == targetWallet else { return }
-            self.groupMessages[groupId] = decoded
+            // Merge, don't clobber. `rows` was snapshotted from the store BEFORE we decrypted;
+            // meanwhile catch-up sync / the live block-scan (both @MainActor, same as this write)
+            // may have appended newly-arrived messages to the in-memory array. Overwriting with the
+            // stale decoded snapshot would drop those just-received messages until the next
+            // relaunch - the "reopening the app doesn't reload missed group messages" bug. Keep any
+            // in-memory message whose txId isn't in the decoded set (the newest, caught-up ones),
+            // appended after the store history so chronological order is preserved.
+            let existing = self.groupMessages[groupId] ?? []
+            let decodedTxIds = Set(decoded.map { $0.txId })
+            let inMemoryOnly = existing.filter { !decodedTxIds.contains($0.txId) }
+            self.groupMessages[groupId] = inMemoryOnly.isEmpty ? decoded : decoded + inMemoryOnly
         }
     }
 
@@ -1555,6 +1608,17 @@ final class GroupChatService: ObservableObject {
 
         await catchUpGroupControlByRecipient(recipientAddress: wallet.publicAddress)
 
+        // Pass 1 - CONTROL first. gctl carries epoch advances + the new epoch's root (and roster
+        // changes). A non-admin who was offline when the admin added/removed a member holds no root
+        // for the new epoch, so any message sent at that epoch would be rejected ("no root for
+        // epoch") AND its catch-up cursor would advance past it, losing it permanently. Ingesting
+        // control before messages guarantees we hold the latest root/roster before decrypting.
+        for group in groups where !group.adminAddress.isEmpty {
+            await catchUpGroupControl(adminAddress: group.adminAddress)
+        }
+
+        // Pass 2 - MESSAGES. Re-read `groups` (control catch-up above may have changed rosters/epoch)
+        // so newly-added members are queried too and the current-epoch root is available.
         for group in groups {
             guard let bag = try? keychain.loadGroupBag(groupId: group.id),
                   let blindingKey = Data(hexString: bag.blindingKey) else { continue }
@@ -1563,10 +1627,6 @@ final class GroupChatService: ObservableObject {
                 guard let memberPubKey = Data(hexString: member.xOnlyPubKeyHex) else { continue }
                 let blindedGroupId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: memberPubKey)
                 await catchUpGroupMessages(groupId: group.id, blindedGroupIdHex: blindedGroupId.hexString)
-            }
-
-            if !group.adminAddress.isEmpty {
-                await catchUpGroupControl(adminAddress: group.adminAddress)
             }
         }
     }

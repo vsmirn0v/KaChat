@@ -2249,7 +2249,23 @@ struct GroupChatInfoView: View {
     @State private var renameText = ""
     @State private var renameError: String?
     @State private var isRenaming = false
+    @State private var resendMessage: String?
+    @State private var showAddMembers = false
     var onDeleted: (() -> Void)?
+
+    /// Re-broadcast the current group root to a single member (or all when address is nil), then
+    /// surface the result in an alert. Admin-only (guarded again in the service).
+    private func resendInvites(to address: String?) {
+        Task {
+            do {
+                if let address { try await groupChatService.resendInvite(to: address, groupId: group.id) }
+                else { try await groupChatService.resendInvites(group.id) }
+                await MainActor.run { resendMessage = address == nil ? "Invites resent to all members." : "Invite resent." }
+            } catch {
+                await MainActor.run { resendMessage = error.localizedDescription }
+            }
+        }
+    }
 
     private var myAddress: String? { walletManager.currentWallet?.publicAddress }
 
@@ -2304,6 +2320,14 @@ struct GroupChatInfoView: View {
                             guard knsService.profileCache[member.address] == nil else { return }
                             _ = await knsService.fetchProfile(for: member.address)
                         }
+                        .swipeActions(edge: .trailing) {
+                            if group.isAdmin && member.address != myAddress {
+                                Button { resendInvites(to: member.address) } label: {
+                                    Label("Resend", systemImage: "arrow.clockwise")
+                                }
+                                .tint(.blue)
+                            }
+                        }
                     }
                 }
 
@@ -2333,6 +2357,18 @@ struct GroupChatInfoView: View {
                         } label: {
                             Label("Rename Group", systemImage: "pencil")
                         }
+                        Button {
+                            resendInvites(to: nil)
+                        } label: {
+                            Label("Resend Invites", systemImage: "arrow.clockwise.circle")
+                        }
+                        Button {
+                            showAddMembers = true
+                        } label: {
+                            Label("Add Members", systemImage: "person.badge.plus")
+                        }
+                    } footer: {
+                        Text("Resends the group invite to every member (or swipe a single member to resend just theirs) - use this if someone didn't receive the group. Adding members rotates the group key, so new members see messages from when they join onward.")
                     }
                 }
 
@@ -2372,6 +2408,16 @@ struct GroupChatInfoView: View {
                 NavigationStack {
                     HiddenGroupMembersView(group: group)
                 }
+            }
+            .sheet(isPresented: $showAddMembers) {
+                NavigationStack {
+                    AddGroupMembersView(group: group)
+                }
+            }
+            .alert("Resend Invites", isPresented: Binding(get: { resendMessage != nil }, set: { if !$0 { resendMessage = nil } })) {
+                Button("OK", role: .cancel) { resendMessage = nil }
+            } message: {
+                Text(resendMessage ?? "")
             }
             .alert("Rename Group", isPresented: $showRename) {
                 TextField("Group name", text: $renameText)
@@ -2469,6 +2515,116 @@ private struct HiddenGroupMembersView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Done") { dismiss() }
             }
+        }
+    }
+}
+
+/// Admin-only "Add Members" sheet: pick contacts who aren't already in the group and add them.
+/// Each add rotates the group epoch and redistributes the new root to the whole roster (see
+/// `GroupChatService.addMember`), so new members only see messages from when they join onward.
+private struct AddGroupMembersView: View {
+    let group: GroupChat
+    @EnvironmentObject var groupChatService: GroupChatService
+    @EnvironmentObject var contactsManager: ContactsManager
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @State private var selectedAddresses: Set<String> = []
+    @State private var isAdding = false
+    @State private var resultMessage: String?
+
+    /// Contacts not already in the group, filtered by the search box (name or address).
+    private var candidates: [Contact] {
+        let existing = Set(group.members.map { $0.address })
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let all = contactsManager.activeContacts
+            .filter { !existing.contains($0.address) }
+            .sorted { $0.alias.localizedCaseInsensitiveCompare($1.alias) == .orderedAscending }
+        guard !query.isEmpty else { return all }
+        return all.filter { $0.alias.lowercased().contains(query) || $0.address.lowercased().contains(query) }
+    }
+
+    private func addSelected() {
+        let addresses = Array(selectedAddresses)
+        guard !addresses.isEmpty else { return }
+        isAdding = true
+        Task {
+            var failures = 0
+            for address in addresses {
+                let contact = contactsManager.getContact(byAddress: address)
+                    ?? contactsManager.getOrCreateContact(address: address)
+                do { try await groupChatService.addMember(contact, to: group.id) }
+                catch { failures += 1 }
+            }
+            await MainActor.run {
+                isAdding = false
+                if failures == 0 { dismiss() }
+                else { resultMessage = "\(failures) member(s) could not be added. Please try again." }
+            }
+        }
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Search contacts", text: $searchText)
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+            }
+            Section {
+                if contactsManager.activeContacts.isEmpty {
+                    Text("You have no contacts yet. Start a 1:1 chat with someone first, then you can add them to the group.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else if candidates.isEmpty {
+                    Text(searchText.isEmpty ? "Everyone in your contacts is already in this group." : "No contacts match your search.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(candidates, id: \.address) { contact in
+                        Button {
+                            if selectedAddresses.contains(contact.address) { selectedAddresses.remove(contact.address) }
+                            else { selectedAddresses.insert(contact.address) }
+                        } label: {
+                            HStack(spacing: 12) {
+                                KNSAvatarView(avatarURLString: nil, fallbackText: contact.alias, size: 32, contactAddress: contact.address)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(contact.alias).foregroundColor(.primary).lineLimit(1)
+                                    Text(Contact.generateDefaultAlias(from: contact.address))
+                                        .font(.caption).foregroundColor(.secondary).lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: selectedAddresses.contains(contact.address) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(selectedAddresses.contains(contact.address) ? .accentColor : .secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            } footer: {
+                Text("New members can read messages from the moment they're added, not earlier history.")
+            }
+        }
+        .navigationTitle("Add Members")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button("Cancel") { dismiss() }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if isAdding {
+                    ProgressView()
+                } else {
+                    Button(selectedAddresses.isEmpty ? "Add" : "Add (\(selectedAddresses.count))") {
+                        addSelected()
+                    }
+                    .disabled(selectedAddresses.isEmpty)
+                }
+            }
+        }
+        .alert("Add Members", isPresented: Binding(get: { resultMessage != nil }, set: { if !$0 { resultMessage = nil } })) {
+            Button("OK", role: .cancel) { resultMessage = nil }
+        } message: {
+            Text(resultMessage ?? "")
         }
     }
 }
