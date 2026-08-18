@@ -443,6 +443,11 @@ private struct PortfolioAreaChart: View {
         let lowerBound = minV - pad
         let upperBound = maxV + pad
 
+        // For a short (intraday, e.g. 1D) span, default date+time labels are wide and collide.
+        // Format those as hours ("3 PM") and longer spans as dates ("Mar 5") so labels stay short.
+        let timeSpan = (points.last?.timestamp ?? Date()).timeIntervalSince(points.first?.timestamp ?? Date())
+        let isIntraday = timeSpan <= 2 * 24 * 60 * 60
+
         Chart {
             ForEach(points, id: \.timestamp) { point in
                 AreaMark(
@@ -480,7 +485,9 @@ private struct PortfolioAreaChart: View {
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 4)) {
                 AxisGridLine()
-                AxisValueLabel()
+                AxisValueLabel(format: isIntraday
+                    ? Date.FormatStyle().hour()
+                    : Date.FormatStyle().month(.abbreviated).day())
             }
         }
         .chartYAxis {
