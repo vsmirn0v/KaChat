@@ -438,7 +438,9 @@ enum KaPostsPaginator {
 /// (schnorr(blake2b256(key: "PersonalMessageSigningHash", msg))) over the action's canonical
 /// field string - the app's WalletManager.signArbitraryMessage(.kaspaPersonalMessage) scheme.
 enum KaPostsProtocol {
-    static let prefix = "k:1:"
+    // `kchat:` migration: KaPosts now writes the `kchat:1:<action>:` root (was `k:1:`). Reads come
+    // pre-parsed from the K indexer (dual-reads server-side), so only the write shape changes.
+    static let prefix = "kchat:1:"
 
     static func b64(_ text: String) -> String {
         Data(text.utf8).base64EncodedString()

@@ -49,9 +49,9 @@ final class BroadcastService: ObservableObject {
     /// Fast pre-filter for the broadcast payload prefix, applied to the still-hex-encoded
     /// `Protowire_RpcTransaction.payload` before paying the cost of hex-decoding it - avoids
     /// decoding every transaction in every new block just to reject non-broadcast ones.
-    private nonisolated static let bcastPrefixHex: String = "ciph_msg:1:bcast:".utf8
-        .map { String(format: "%02x", $0) }
-        .joined()
+    private nonisolated static func hexOf(_ s: String) -> String { s.utf8.map { String(format: "%02x", $0) }.joined() }
+    private nonisolated static let bcastPrefixHex: String = hexOf("kchat:1:bcast:")        // write + read
+    private nonisolated static let legacyBcastPrefixHex: String = hexOf("ciph_msg:1:bcast:") // read-only
 
     private init() {
         let defaults = UserDefaults.standard
@@ -835,7 +835,7 @@ final class BroadcastService: ObservableObject {
         guard let notification = try? Protowire_BlockAddedNotificationMessage(serializedBytes: data) else { return [] }
         var hits: [BlockScanHit] = []
         for tx in notification.block.transactions {
-            guard tx.payload.hasPrefix(bcastPrefixHex) else { continue }
+            guard tx.payload.hasPrefix(bcastPrefixHex) || tx.payload.hasPrefix(legacyBcastPrefixHex) else { continue }
             guard let payloadData = CryptoUtils.hexToData(tx.payload),
                   let payloadString = String(data: payloadData, encoding: .utf8),
                   let parsed = KasiaTransactionBuilder.parseBroadcastPayload(payloadString) else { continue }

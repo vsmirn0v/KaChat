@@ -665,17 +665,17 @@ extension ChatService {
         guard let payloadString = Self.payloadPrefixString(from: payloadHex, byteCount: 21) else {
             return false
         }
-        return payloadString.hasPrefix("ciph_msg:1:handshake:")
+        return payloadString.hasPrefix("kchat:1:handshake:") || payloadString.hasPrefix("ciph_msg:1:handshake:")
     }
 
     func isContextualPayload(_ payloadHex: String) -> Bool {
         guard let payloadString = Self.payloadPrefixString(from: payloadHex, byteCount: 16) else {
             return false
         }
-        let matches = payloadString.hasPrefix("ciph_msg:1:comm:")
-        if !matches && payloadString.hasPrefix("ciph_msg:") {
+        let matches = payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:")
+        if !matches && (payloadString.hasPrefix("kchat:") || payloadString.hasPrefix("ciph_msg:")) {
             // Log near-miss for debugging
-            AppLog.log("[ChatService] Payload prefix '%@' starts with 'ciph_msg:' but not 'ciph_msg:1:comm:'", payloadString)
+            AppLog.log("[ChatService] Payload prefix '%@' is a KaChat root but not comm", payloadString)
         }
         return matches
     }
@@ -684,10 +684,10 @@ extension ChatService {
         guard let payloadString = Self.payloadPrefixString(from: payloadHex, byteCount: 22) else {
             return false
         }
-        let matches = payloadString.hasPrefix("ciph_msg:1:self_stash:")
-        if !matches && payloadString.hasPrefix("ciph_msg:") {
+        let matches = payloadString.hasPrefix("kchat:1:self_stash:") || payloadString.hasPrefix("ciph_msg:1:self_stash:")
+        if !matches && (payloadString.hasPrefix("kchat:") || payloadString.hasPrefix("ciph_msg:")) {
             // Log near-miss for debugging
-            AppLog.log("[ChatService] Payload prefix '%@' starts with 'ciph_msg:' but not 'ciph_msg:1:self_stash:'", payloadString)
+            AppLog.log("[ChatService] Payload prefix '%@' is a KaChat root but not self_stash", payloadString)
         }
         return matches
     }
@@ -2572,14 +2572,14 @@ extension ChatService {
         if let payloadHint,
            let data = Data(base64Encoded: payloadHint),
            let raw = String(data: data, encoding: .utf8),
-           raw.hasPrefix("ciph_msg:") {
+           (raw.hasPrefix("kchat:") || raw.hasPrefix("ciph_msg:")) {
             return raw.data(using: .utf8)?.hexString
         }
 
         if let payloadHint,
            let data = Data(hexString: payloadHint),
            let raw = String(data: data, encoding: .utf8),
-           raw.hasPrefix("ciph_msg:") {
+           (raw.hasPrefix("kchat:") || raw.hasPrefix("ciph_msg:")) {
             return payloadHint
         }
 
@@ -2914,7 +2914,9 @@ extension ChatService {
         guard let hexPayload = hexPayload else { return nil }
         // Remove "ciph_msg:" prefix if present
         var payload = hexPayload
-        if payload.hasPrefix("ciph_msg:") {
+        if payload.hasPrefix("kchat:") {
+            payload = String(payload.dropFirst(6))
+        } else if payload.hasPrefix("ciph_msg:") {
             payload = String(payload.dropFirst(9))
         }
 
@@ -2940,7 +2942,9 @@ extension ChatService {
     func decodePaymentPayload(_ hexPayload: String?) -> PaymentPayload? {
         guard let hexPayload = hexPayload else { return nil }
         var payload = hexPayload
-        if payload.hasPrefix("ciph_msg:") {
+        if payload.hasPrefix("kchat:") {
+            payload = String(payload.dropFirst(6))
+        } else if payload.hasPrefix("ciph_msg:") {
             payload = String(payload.dropFirst(9))
         }
 

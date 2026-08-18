@@ -21,19 +21,26 @@ extension ChatService {
     nonisolated static func decryptHandshakePayloadSync(_ payload: String, privateKey: Data) -> DecryptedHandshake? {
         var encryptedHex = payload
 
-        // Strip protocol prefix if present (REST API returns full transaction payload)
-        // "ciph_msg:1:handshake:" = 21 bytes = 42 hex chars
-        let handshakePrefixHex = "636970685f6d73673a313a68616e647368616b653a"
+        // Strip protocol prefix if present (REST API returns full transaction payload).
+        // Dual-read: new `kchat:1:handshake:` and legacy `ciph_msg:1:handshake:` hex roots.
+        let handshakePrefixHexes = [
+            "6b636861743a313a68616e647368616b653a",       // kchat:1:handshake:
+            "636970685f6d73673a313a68616e647368616b653a", // ciph_msg:1:handshake: (legacy)
+        ]
         let lowered = payload.lowercased()
 
         // Also handle optional OP_RETURN prefix: "6a" + 1 byte length
-        if lowered.hasPrefix("6a") {
-            let stripped = String(lowered.dropFirst(4))
-            if stripped.hasPrefix(handshakePrefixHex) {
-                encryptedHex = String(payload.dropFirst(4 + handshakePrefixHex.count))
+        for handshakePrefixHex in handshakePrefixHexes {
+            if lowered.hasPrefix("6a") {
+                let stripped = String(lowered.dropFirst(4))
+                if stripped.hasPrefix(handshakePrefixHex) {
+                    encryptedHex = String(payload.dropFirst(4 + handshakePrefixHex.count))
+                    break
+                }
+            } else if lowered.hasPrefix(handshakePrefixHex) {
+                encryptedHex = String(payload.dropFirst(handshakePrefixHex.count))
+                break
             }
-        } else if lowered.hasPrefix(handshakePrefixHex) {
-            encryptedHex = String(payload.dropFirst(handshakePrefixHex.count))
         }
 
         // Decrypt the encrypted portion
@@ -113,10 +120,11 @@ extension ChatService {
             return nil
         }
 
-        // Check if it's a contextual message: "ciph_msg:1:comm:ALIAS:BASE64_ENCRYPTED"
-        guard payloadString.hasPrefix("ciph_msg:1:comm:") else {
+        // Check if it's a contextual message: "kchat:1:comm:ALIAS:BASE64_ENCRYPTED" (dual-read
+        // of the legacy "ciph_msg:1:comm:" root too).
+        guard payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:") else {
             // Not a contextual message - could be handshake or other type
-            if payloadString.hasPrefix("ciph_msg:") {
+            if payloadString.hasPrefix("kchat:") || payloadString.hasPrefix("ciph_msg:") {
                 AppLog.log("[ChatService] Raw payload: different message type: %@", String(payloadString.prefix(30)))
             }
             return nil
@@ -157,7 +165,7 @@ extension ChatService {
     }
 
     nonisolated static func extractContextualAlias(fromRawPayloadString payloadString: String) -> String? {
-        guard payloadString.hasPrefix("ciph_msg:1:comm:") else {
+        guard payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:") else {
             return nil
         }
 
@@ -209,11 +217,15 @@ extension ChatService {
             return nil
         }
 
+        // Dual-read: new `kchat:1:pay:` root and the two legacy `ciph_msg:` roots.
+        let prefixNew = Data("kchat:1:pay:".utf8)
         let prefixV1 = Data("ciph_msg:1:pay:".utf8)
         let prefixLegacy = Data("ciph_msg:pay:".utf8)
         let encryptedBytes: Data
 
-        if payloadData.starts(with: prefixV1) {
+        if payloadData.starts(with: prefixNew) {
+            encryptedBytes = Data(payloadData.dropFirst(prefixNew.count))
+        } else if payloadData.starts(with: prefixV1) {
             encryptedBytes = Data(payloadData.dropFirst(prefixV1.count))
         } else if payloadData.starts(with: prefixLegacy) {
             encryptedBytes = Data(payloadData.dropFirst(prefixLegacy.count))
@@ -240,9 +252,10 @@ extension ChatService {
 
     nonisolated static func isPaymentRawPayload(_ payload: String) -> Bool {
         guard let payloadData = hexStringToData(payload) else { return false }
+        let prefixNew = Data("kchat:1:pay:".utf8)
         let prefixV1 = Data("ciph_msg:1:pay:".utf8)
         let prefixLegacy = Data("ciph_msg:pay:".utf8)
-        return payloadData.starts(with: prefixV1) || payloadData.starts(with: prefixLegacy)
+        return payloadData.starts(with: prefixNew) || payloadData.starts(with: prefixV1) || payloadData.starts(with: prefixLegacy)
     }
 
     /// Decrypt self-stash on background thread

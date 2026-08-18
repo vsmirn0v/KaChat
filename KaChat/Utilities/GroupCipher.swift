@@ -330,12 +330,15 @@ enum GroupCipher {
         ciphertext: Data,
         signature: Data
     ) -> String {
-        "ciph_msg:1:gcomm:\(blindedGroupId.hexString):\(epoch):\(senderId.hexString):\(senderPubKey.hexString):\(msgId.hexString):\(ciphertext.hexString):\(signature.hexString)"
+        "kchat:1:gcomm:\(blindedGroupId.hexString):\(epoch):\(senderId.hexString):\(senderPubKey.hexString):\(msgId.hexString):\(ciphertext.hexString):\(signature.hexString)"
     }
 
     static func parseGroupMessagePayload(_ payloadString: String) -> ParsedGroupMessage? {
-        let prefix = "ciph_msg:1:gcomm:"
-        guard payloadString.hasPrefix(prefix) else { return nil }
+        // Dual-read: new `kchat:` root and legacy `ciph_msg:` root (tail identical).
+        let prefix: String
+        if payloadString.hasPrefix("kchat:1:gcomm:") { prefix = "kchat:1:gcomm:" }
+        else if payloadString.hasPrefix("ciph_msg:1:gcomm:") { prefix = "ciph_msg:1:gcomm:" }
+        else { return nil }
         let rest = payloadString.dropFirst(prefix.count)
         let parts = rest.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count == 7 else { return nil }

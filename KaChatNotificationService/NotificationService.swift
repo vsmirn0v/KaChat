@@ -369,7 +369,7 @@ class NotificationService: UNNotificationServiceExtension {
 
     private func decryptGroupMessage(blindedGroupIdHex: String, payloadHex: String) -> GroupMessageMatch? {
         guard let targetBlindedId = Data(hexString: blindedGroupIdHex) else { return nil }
-        let payloadString = "ciph_msg:1:gcomm:" + payloadHex
+        let payloadString = "kchat:1:gcomm:" + payloadHex
         guard let parsed = NotificationGroupCipher.parseGroupMessagePayload(payloadString),
               parsed.blindedGroupId == targetBlindedId else { return nil }
 
@@ -977,7 +977,7 @@ private struct NotificationCipher {
         var firstError: String?
 
         if let payloadString = decodePayloadString(from: payloadHex),
-           payloadString.hasPrefix("ciph_msg:1:comm:") {
+           (payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:")) {
             let (message, error) = decryptContextualProtocolPayload(payloadString, privateKey: privateKey)
             if let message {
                 return (message, nil)
@@ -1006,7 +1006,7 @@ private struct NotificationCipher {
                 }
 
                 if let nestedPayloadString = decodePayloadString(from: utf8),
-                   nestedPayloadString.hasPrefix("ciph_msg:1:comm:") {
+                   (nestedPayloadString.hasPrefix("kchat:1:comm:") || nestedPayloadString.hasPrefix("ciph_msg:1:comm:")) {
                     let (nestedMessage, nestedError) = decryptContextualProtocolPayload(
                         nestedPayloadString,
                         privateKey: privateKey
@@ -1055,7 +1055,7 @@ private struct NotificationCipher {
             return payloadString
         }
 
-        if payloadHex.hasPrefix("ciph_msg:") {
+        if payloadHex.hasPrefix("kchat:") || payloadHex.hasPrefix("ciph_msg:") {
             return payloadHex
         }
 
@@ -1209,8 +1209,10 @@ private struct NotificationGroupCipher {
     }
 
     static func parseGroupMessagePayload(_ payloadString: String) -> ParsedGroupMessage? {
-        let prefix = "ciph_msg:1:gcomm:"
-        guard payloadString.hasPrefix(prefix) else { return nil }
+        let prefix: String
+        if payloadString.hasPrefix("kchat:1:gcomm:") { prefix = "kchat:1:gcomm:" }
+        else if payloadString.hasPrefix("ciph_msg:1:gcomm:") { prefix = "ciph_msg:1:gcomm:" }
+        else { return nil }
         let rest = payloadString.dropFirst(prefix.count)
         let parts = rest.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count == 7 else { return nil }

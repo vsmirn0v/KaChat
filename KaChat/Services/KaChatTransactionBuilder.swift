@@ -231,7 +231,7 @@ struct KasiaTransactionBuilder {
 
     /// Build the plaintext broadcast payload: ciph_msg:1:bcast:<channel>:<content>
     static func buildBroadcastPayload(channel: String, content: String) -> Data {
-        Data("ciph_msg:1:bcast:\(channel):\(content)".utf8)
+        Data("kchat:1:bcast:\(channel):\(content)".utf8)
     }
 
     /// Build a group chat message (`gcomm`) or control (`gctl`) transaction. Same self-stash
@@ -296,8 +296,11 @@ struct KasiaTransactionBuilder {
     /// Parse a decoded transaction payload string back into (channel, content).
     /// Returns nil if the payload isn't a broadcast message.
     static func parseBroadcastPayload(_ payloadString: String) -> (channel: String, content: String)? {
-        let prefix = "ciph_msg:1:bcast:"
-        guard payloadString.hasPrefix(prefix) else { return nil }
+        // Dual-read: new `kchat:` root and legacy `ciph_msg:` root (tail identical).
+        let prefix: String
+        if payloadString.hasPrefix("kchat:1:bcast:") { prefix = "kchat:1:bcast:" }
+        else if payloadString.hasPrefix("ciph_msg:1:bcast:") { prefix = "ciph_msg:1:bcast:" }
+        else { return nil }
         let rest = payloadString.dropFirst(prefix.count)
         guard let colonIndex = rest.firstIndex(of: ":") else { return nil }
         let channel = String(rest[rest.startIndex..<colonIndex])
@@ -802,7 +805,7 @@ struct KasiaTransactionBuilder {
         )
 
         // Payload format: hex("ciph_msg:1:handshake:") + <encrypted_hex>
-        let prefixHex = hexString(from: "ciph_msg:1:handshake:")
+        let prefixHex = hexString(from: "kchat:1:handshake:")
         let payloadHex = prefixHex + encryptedHandshake.toBytes().hexString
         let kasiaPayload = Data(hexString: payloadHex) ?? Data()
 
@@ -916,7 +919,7 @@ struct KasiaTransactionBuilder {
         let encryptedHex = encrypted.toBytes().hexString
 
         // Payload format: hex("ciph_msg:1:self_stash:") + hex("saved_handshake:") + <hex encrypted bytes>
-        let prefixHex = hexString(from: "ciph_msg:1:self_stash:")
+        let prefixHex = hexString(from: "kchat:1:self_stash:")
         let scopeHex = hexString(from: "\(selfStashScope):")
         let payloadHex = prefixHex + scopeHex + encryptedHex
         let payload = Data(hexString: payloadHex) ?? Data()
@@ -1206,11 +1209,11 @@ struct KasiaTransactionBuilder {
         switch type {
         case .handshake:
             // Handshake payload is binary: ciph_msg:1:handshake:<encrypted_bytes>
-            var data = Data("ciph_msg:1:handshake:".utf8)
+            var data = Data("kchat:1:handshake:".utf8)
             data.append(payload)
             return data
         case .contextualMessage:
-            var protocolString = "ciph_msg:1:comm:"
+            var protocolString = "kchat:1:comm:"
             if let alias = alias {
                 protocolString += alias + ":"
             }
@@ -1219,13 +1222,13 @@ struct KasiaTransactionBuilder {
             }
             return Data(protocolString.utf8)
         case .payment:
-            var protocolString = "ciph_msg:1:pay:"
+            var protocolString = "kchat:1:pay:"
             if let payloadString = String(data: payload, encoding: .utf8) {
                 protocolString += payloadString
             }
             return Data(protocolString.utf8)
         case .selfStash:
-            var protocolString = "ciph_msg:1:self_stash:"
+            var protocolString = "kchat:1:self_stash:"
             if let payloadString = String(data: payload, encoding: .utf8) {
                 protocolString += payloadString
             }
@@ -1556,7 +1559,7 @@ struct KasiaTransactionBuilder {
         }
         let encrypted = try KasiaCipher.encrypt(jsonString, recipientPublicKey: recipientPublicKey)
         let hex = encrypted.toBytes().hexString
-        let prefixHex = hexString(from: "ciph_msg:1:pay:")
+        let prefixHex = hexString(from: "kchat:1:pay:")
         let payloadHex = prefixHex + hex
         return Data(hexString: payloadHex) ?? Data()
     }

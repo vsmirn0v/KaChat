@@ -103,10 +103,15 @@ final class GroupChatService: ObservableObject {
 
     // nonisolated: pure constants/helpers with no actor state, referenced from the off-main
     // block-scan extractor (extractBlockScanHits).
-    private nonisolated static let gcommPrefix = "ciph_msg:1:gcomm:"
-    private nonisolated static let gctlPrefix = "ciph_msg:1:gctl:"
+    // `kchat:` migration: write the new root, still read the legacy `ciph_msg:` root (tail identical).
+    private nonisolated static let gcommPrefix = "kchat:1:gcomm:"        // write
+    private nonisolated static let gctlPrefix = "kchat:1:gctl:"          // write
+    private nonisolated static let legacyGcommPrefix = "ciph_msg:1:gcomm:" // read-only
+    private nonisolated static let legacyGctlPrefix = "ciph_msg:1:gctl:"   // read-only
     private nonisolated static let gcommPrefixHex = hexPrefix(gcommPrefix)
     private nonisolated static let gctlPrefixHex = hexPrefix(gctlPrefix)
+    private nonisolated static let legacyGcommPrefixHex = hexPrefix(legacyGcommPrefix)
+    private nonisolated static let legacyGctlPrefixHex = hexPrefix(legacyGctlPrefix)
 
     private nonisolated static func hexPrefix(_ string: String) -> String {
         string.utf8.map { String(format: "%02x", $0) }.joined()
@@ -1286,8 +1291,9 @@ final class GroupChatService: ObservableObject {
         var hits: [BlockScanHit] = []
         for tx in notification.block.transactions {
             let payloadHex = tx.payload
-            let matchesGcomm = payloadHex.hasPrefix(Self.gcommPrefixHex)
-            let matchesGctl = payloadHex.hasPrefix(Self.gctlPrefixHex)
+            // Dual-read: new `kchat:` hex root and legacy `ciph_msg:` hex root.
+            let matchesGcomm = payloadHex.hasPrefix(Self.gcommPrefixHex) || payloadHex.hasPrefix(Self.legacyGcommPrefixHex)
+            let matchesGctl = payloadHex.hasPrefix(Self.gctlPrefixHex) || payloadHex.hasPrefix(Self.legacyGctlPrefixHex)
             guard matchesGcomm || matchesGctl else { continue }
             guard let payloadData = CryptoUtils.hexToData(payloadHex),
                   let payloadString = String(data: payloadData, encoding: .utf8) else { continue }
@@ -1433,12 +1439,17 @@ final class GroupChatService: ObservableObject {
     /// `ciph_msg:1:gctl:{encrypted}` shape. No recipient-address filtering happens here - same as
     /// legacy gctl already relied on, a mismatched recipient's ECIES decrypt just fails silently.
     private nonisolated static func normalizeControlPayload(_ payloadString: String) -> String {
-        guard payloadString.hasPrefix(gctlPrefix) else { return payloadString }
-        let rest = payloadString.dropFirst(gctlPrefix.count)
+        // Dual-read: accept either root, then ALWAYS re-root to the canonical `kchat:` gctl
+        // prefix so the downstream `dropFirst(gctlPrefix.count)` is correct for old and new.
+        let root: String
+        if payloadString.hasPrefix(gctlPrefix) { root = gctlPrefix }
+        else if payloadString.hasPrefix(legacyGctlPrefix) { root = legacyGctlPrefix }
+        else { return payloadString }
+        let rest = payloadString.dropFirst(root.count)
         let parts = rest.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count == 2, parts[0].count == 64,
               parts[0].allSatisfy({ $0.isHexDigit }) else {
-            return payloadString
+            return gctlPrefix + rest
         }
         return gctlPrefix + parts[1]
     }

@@ -79,8 +79,8 @@ final class PushNotificationManager: ObservableObject {
     private let updateEndpoint = "/v1/push/update"
     private let unregisterEndpoint = "/v1/push/unregister"
     private let challengeEndpoint = "/v1/push/challenge"
-    private let pushAuthDomain = "kasia-push-auth:v1"
-    private let pushDeviceAuthDomain = "kasia-push-device-auth:v1"
+    private let pushAuthDomain = "kchat-push-auth:v1"
+    private let pushDeviceAuthDomain = "kchat-push-device-auth:v1"
     private let pushDeviceAuthScheme = "device_key_v1"
 
     // MARK: - Initialization
@@ -1803,7 +1803,7 @@ final class PushNotificationManager: ObservableObject {
         }
 
         if let payloadString = decodePayloadString(from: payload),
-           payloadString.hasPrefix("ciph_msg:1:comm:") {
+           (payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:")) {
             let parts = payloadString.split(separator: ":", maxSplits: 4, omittingEmptySubsequences: false)
             guard parts.count >= 5 else { return nil }
             let base64String = String(parts[4])
@@ -1821,7 +1821,7 @@ final class PushNotificationManager: ObservableObject {
                     return decryptEncryptedBytes(hexData, privateKey: privateKey)
                 }
                 if let payloadString = decodePayloadString(from: utf8),
-                   payloadString.hasPrefix("ciph_msg:1:comm:") {
+                   (payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:")) {
                     let parts = payloadString.split(separator: ":", maxSplits: 4, omittingEmptySubsequences: false)
                     if parts.count >= 5,
                        let nestedEncrypted = Data(base64Encoded: String(parts[4])) {
@@ -1843,7 +1843,7 @@ final class PushNotificationManager: ObservableObject {
            let payloadString = String(data: payloadData, encoding: .utf8) {
             return payloadString
         }
-        if payload.hasPrefix("ciph_msg:") {
+        if payload.hasPrefix("kchat:") || payload.hasPrefix("ciph_msg:") {
             return payload
         }
         return nil
