@@ -3175,11 +3175,19 @@ private struct KaPostTipSheet: View {
     @State private var fundingIsSpending = false
     @State private var amountInput = ""
     @State private var availableSompi: UInt64?
-    @State private var feeSompi: UInt64?
+    @State private var normalFeeSompi: UInt64?
     @State private var isEstimatingFee = false
     @State private var isEstimatingMax = false
     @State private var isSending = false
     @State private var errorMessage: String?
+
+    // Fee tiers, mirroring WithdrawKaspaView: Normal/Fast/Priority multiply the estimated base
+    // fee; tapping the fee amount sets a custom total instead (values under the network minimum
+    // are clamped up to it at commit).
+    @State private var feeTier: WithdrawFeeTier = .normal
+    @State private var customExtraFeeSompi: UInt64?
+    @State private var isEditingFee = false
+    @State private var customFeeText = ""
 
     private var amountSompi: UInt64? {
         guard let kas = Double(amountInput), kas > 0 else { return nil }
@@ -3188,6 +3196,18 @@ private struct KaPostTipSheet: View {
 
     private var canSend: Bool {
         contact != nil && amountSompi != nil && !isSending
+    }
+
+    /// Extra priority tip on top of the base (Normal-tier) fee - custom overrides the tier.
+    private var extraFeeSompi: UInt64 {
+        guard let normalFeeSompi else { return 0 }
+        if let customExtraFeeSompi { return customExtraFeeSompi }
+        return normalFeeSompi * (feeTier.multiplier - 1)
+    }
+
+    private var totalFeeSompi: UInt64? {
+        guard let normalFeeSompi else { return nil }
+        return normalFeeSompi + extraFeeSompi
     }
 
     private func trimmedKas(_ sompi: UInt64) -> String {
@@ -3291,14 +3311,47 @@ private struct KaPostTipSheet: View {
                 }
 
                 Section {
+                    Picker("Fee", selection: $feeTier) {
+                        ForEach(WithdrawFeeTier.allCases) { tier in
+                            Text(tier.rawValue).tag(tier)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: feeTier) { _ in
+                        customExtraFeeSompi = nil
+                        isEditingFee = false
+                    }
+
                     HStack {
                         Text("Network Fee")
                         Spacer()
-                        if isEstimatingFee {
+                        if isEditingFee {
+                            TextField("0.00", text: $customFeeText)
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(maxWidth: 100)
+                                .onSubmit { commitCustomFee() }
+                            Button {
+                                commitCustomFee()
+                            } label: {
+                                Image(systemName: "checkmark.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                        } else if isEstimatingFee {
                             ProgressView().scaleEffect(0.75)
-                        } else if let feeSompi {
-                            Text("\(trimmedKas(feeSompi)) KAS")
-                                .foregroundColor(.secondary)
+                        } else if let totalFeeSompi {
+                            Button {
+                                startEditingFee()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("\(trimmedKas(totalFeeSompi)) KAS")
+                                        .underline()
+                                    Image(systemName: "pencil")
+                                        .font(.caption2)
+                                }
+                                .foregroundColor(.accentColor)
+                            }
+                            .buttonStyle(.plain)
                         } else {
                             Text("—")
                                 .foregroundColor(.secondary)
@@ -3306,6 +3359,8 @@ private struct KaPostTipSheet: View {
                     }
                 } header: {
                     Text("Fee")
+                } footer: {
+                    Text("If the network is busy, Fast or Priority pays a higher fee to help your tip confirm sooner. Tap the fee amount to set a custom fee.")
                 }
 
                 if let errorMessage {
@@ -3356,13 +3411,13 @@ private struct KaPostTipSheet: View {
             }
             .task(id: amountSompi ?? 0) {
                 guard let contact, let amountSompi else {
-                    feeSompi = nil
+                    normalFeeSompi = nil
                     return
                 }
                 isEstimatingFee = true
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 guard !Task.isCancelled else { return }
-                feeSompi = try? await ChatService.shared.estimatePaymentFee(to: contact, amountSompi: amountSompi)
+                normalFeeSompi = try? await ChatService.shared.estimatePaymentFee(to: contact, amountSompi: amountSompi)
                 isEstimatingFee = false
             }
         }
@@ -3387,13 +3442,29 @@ private struct KaPostTipSheet: View {
         }
     }
 
+    private func startEditingFee() {
+        guard let totalFeeSompi else { return }
+        customFeeText = trimmedKas(totalFeeSompi)
+        isEditingFee = true
+    }
+
+    /// Commits the manually-typed total fee. Values below the network-computed minimum are
+    /// clamped up to that minimum, matching WithdrawKaspaView.
+    private func commitCustomFee() {
+        defer { isEditingFee = false }
+        guard let normalFeeSompi, let kas = Double(customFeeText), kas >= 0 else { return }
+        let totalSompi = UInt64((kas * 100_000_000).rounded())
+        customExtraFeeSompi = totalSompi > normalFeeSompi ? totalSompi - normalFeeSompi : 0
+    }
+
     private func send() {
         guard let contact, let amountSompi else { return }
         isSending = true
         errorMessage = nil
+        let tipExtraFee = extraFeeSompi
         Task {
             do {
-                try await ChatService.shared.sendPayment(to: contact, amountSompi: amountSompi)
+                try await ChatService.shared.sendPayment(to: contact, amountSompi: amountSompi, extraFeeSompi: tipExtraFee)
                 await MainActor.run {
                     Haptics.success()
                     dismiss()

@@ -365,10 +365,17 @@ struct KasiaTransactionBuilder {
         senderPrivateKey: Data,
         recipientPublicKey: Data,
         utxos: [UTXO],
-        changeAddress: String? = nil
+        changeAddress: String? = nil,
+        /// Extra priority fee on top of the computed base fee (Fast/Priority tiers). Covered by
+        /// input selection and left unclaimed by the outputs, so it becomes miner fee.
+        extraFeeSompi: UInt64 = 0
     ) throws -> KaspaRpcTransaction {
         guard amount > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
+        }
+        let (amountToCover, coverOverflow) = amount.addingReportingOverflow(extraFeeSompi)
+        guard !coverOverflow else {
+            throw KasiaError.networkError("Amount plus priority fee overflows")
         }
 
         #if DEBUG
@@ -405,9 +412,12 @@ struct KasiaTransactionBuilder {
             changeScriptPubKey = senderScriptPubKey
         }
 
+        // Selection covers amount + priority tip; the recipient output below still carries only
+        // `amount`, so the extra stays unclaimed by outputs and becomes miner fee (change is
+        // computed net of it).
         let selection = try selectUtxosForPayment(
             utxos: utxos,
-            amount: amount,
+            amount: amountToCover,
             payload: paymentPayload,
             recipientScriptPubKey: recipientScriptPubKey,
             senderScriptPubKey: senderScriptPubKey

@@ -1817,14 +1817,16 @@ extension ChatService {
         to contact: Contact,
         amountSompi: UInt64,
         note: String = "",
-        pendingTxId: String? = nil
+        pendingTxId: String? = nil,
+        extraFeeSompi: UInt64 = 0
     ) async throws {
         try await enqueueOutgoingTxOperation {
             try await self.sendPaymentInternal(
                 to: contact,
                 amountSompi: amountSompi,
                 note: note,
-                pendingTxId: pendingTxId
+                pendingTxId: pendingTxId,
+                extraFeeSompi: extraFeeSompi
             )
         }
     }
@@ -1833,7 +1835,9 @@ extension ChatService {
         to contact: Contact,
         amountSompi: UInt64,
         note: String = "",
-        pendingTxId: String? = nil
+        pendingTxId: String? = nil,
+        /// Extra priority fee (Fast/Priority tiers) on top of the computed base fee.
+        extraFeeSompi: UInt64 = 0
     ) async throws {
         guard amountSompi > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
@@ -1979,7 +1983,8 @@ extension ChatService {
                 senderPrivateKey: sourcePrivateKey,
                 recipientPublicKey: recipientPublicKey,
                 utxos: spendable,
-                changeAddress: changeAddress
+                changeAddress: changeAddress,
+                extraFeeSompi: extraFeeSompi
             )
 
             // Submit via RPC manager
