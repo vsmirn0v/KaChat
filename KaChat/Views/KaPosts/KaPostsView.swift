@@ -1361,6 +1361,17 @@ struct KaPostsView: View {
         return Array(found)
     }
 
+    /// Unposted work for an in-flight or failed thread, keyed by the root post's LOCAL id.
+    /// `rootText` is non-nil until the root actually posts; `parentTxId` is the txid the next
+    /// segment must chain to. Kept until every segment lands, so Retry RESUMES the chain from
+    /// exactly where it failed instead of reposting only the root.
+    struct ThreadRemainder {
+        var rootText: String?
+        var segments: [String]
+        var parentTxId: String?
+    }
+    @State private var threadRemainders: [UUID: ThreadRemainder] = [:]
+
     /// X-style thread: the first segment becomes a top-level post, each following segment a
     /// reply to the PREVIOUS one. Threads submit sequentially right away (each segment needs
     /// the previous txid) - no 5s undo window; the optimistic root post carries the pending/
@@ -1373,29 +1384,68 @@ struct KaPostsView: View {
         }
         let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
         var rootPost = DraftPost(text: first, timestamp: Date(), posterAddress: myAddress)
-        let myPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
-        rootPost.posterPubkey = myPubkey
+        rootPost.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
         rootPost.deliveryStatus = .pending
         let localId = rootPost.id
         posts.insert(rootPost, at: 0)
+        threadRemainders[localId] = ThreadRemainder(rootText: first, segments: Array(segments.dropFirst()), parentTxId: nil)
+        continueThread(localId: localId)
+    }
+
+    /// Sequential, RESUMABLE chain submitter. Consecutive payload txs spend each other's change
+    /// before the node has indexed it, so every segment gets a settle delay plus a retry loop -
+    /// and progress persists to `threadRemainders` after every landed segment, so a mid-chain
+    /// failure retried later continues from the next unposted segment.
+    private func continueThread(localId: UUID) {
+        guard threadRemainders[localId] != nil else { return }
+        mutatePost(id: localId) { $0.deliveryStatus = .pending }
         Task {
             do {
-                let rootTxId = try await KaPostsAPIClient.shared.submitPost(
-                    text: first, mentionedPubkeys: mentionedPubkeys(in: first)
-                )
-                mutatePost(id: localId) {
-                    $0.remoteId = rootTxId
-                    $0.deliveryStatus = .sent
+                let myPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
+                if let rootText = threadRemainders[localId]?.rootText {
+                    let rootTxId = try await submitWithUtxoRetry {
+                        try await KaPostsAPIClient.shared.submitPost(
+                            text: rootText, mentionedPubkeys: mentionedPubkeys(in: rootText)
+                        )
+                    }
+                    mutatePost(id: localId) { $0.remoteId = rootTxId }
+                    threadRemainders[localId]?.rootText = nil
+                    threadRemainders[localId]?.parentTxId = rootTxId
                 }
-                var parentTxId = rootTxId
-                for segment in segments.dropFirst() {
-                    parentTxId = try await KaPostsAPIClient.shared.submitReply(
-                        text: segment, postId: parentTxId, parentAuthorPubkey: myPubkey
-                    )
+                while let remainder = threadRemainders[localId],
+                      let segment = remainder.segments.first,
+                      let parentTxId = remainder.parentTxId {
+                    // Let the previous tx's change land in the node's UTXO index (~1s blocks).
+                    try await Task.sleep(nanoseconds: 1_500_000_000)
+                    let txId = try await submitWithUtxoRetry {
+                        try await KaPostsAPIClient.shared.submitReply(
+                            text: segment, postId: parentTxId, parentAuthorPubkey: myPubkey
+                        )
+                    }
+                    threadRemainders[localId]?.segments.removeFirst()
+                    threadRemainders[localId]?.parentTxId = txId
                 }
+                threadRemainders[localId] = nil
+                mutatePost(id: localId) { $0.deliveryStatus = .sent }
             } catch {
                 mutatePost(id: localId) { $0.deliveryStatus = .failed }
-                AppLog.log("[KaPosts] Thread submit failed: %@", error.localizedDescription)
+                AppLog.log("[KaPosts] Thread submit failed (resumable): %@", error.localizedDescription)
+            }
+        }
+    }
+
+    /// Retries an action tx a few times with settle delays - rapid sequential sends routinely
+    /// hit "UTXO already spent / none spendable" until the node indexes the previous change.
+    private func submitWithUtxoRetry(_ op: () async throws -> String) async throws -> String {
+        var attempt = 0
+        while true {
+            do {
+                return try await op()
+            } catch {
+                attempt += 1
+                guard attempt <= 4 else { throw error }
+                AppLog.log("[KaPosts] Thread segment retry %d: %@", attempt, error.localizedDescription)
+                try await Task.sleep(nanoseconds: 1_500_000_000)
             }
         }
     }
@@ -1650,6 +1700,12 @@ struct KaPostsView: View {
     /// Re-submits a failed post or reply (found by id; replies resolve their parent for the
     /// reply payload). Pending while in flight, back to failed on another miss.
     private func retryPost(_ post: DraftPost) {
+        // A failed THREAD resumes its remaining chain (root included if it never posted)
+        // instead of re-posting just the root text.
+        if threadRemainders[post.id] != nil {
+            continueThread(localId: post.id)
+            return
+        }
         mutatePost(id: post.id) { $0.deliveryStatus = .pending }
         Task {
             do {
