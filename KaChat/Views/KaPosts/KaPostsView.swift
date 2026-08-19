@@ -2642,9 +2642,12 @@ struct KaPostsView: View {
                             }
                             .lineLimit(1...4)
                             .textFieldStyle(.plain)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            // Fixed-radius rectangle, NOT a Capsule: a capsule's corner radius is
+                            // half its height, so on a grown multi-line field the end-caps curve
+                            // into the text area and the outer lines escape the bubble.
+                            .background(RoundedRectangle(cornerRadius: 18).fill(Color.secondary.opacity(0.12)))
                         KaPostCharacterMeter(count: replyText.count)
                         Button {
                             let trimmed = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
