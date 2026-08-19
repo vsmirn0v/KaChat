@@ -382,9 +382,14 @@ struct KaPostsView: View {
             toastOverlay
         }
         .sheet(isPresented: $showComposer) {
-            KaPostComposerView { text in
-                schedulePost(text: text)
-            }
+            KaPostComposerView(
+                onPost: { text in
+                    schedulePost(text: text)
+                },
+                onPostThread: { segments in
+                    scheduleThread(segments)
+                }
+            )
             .presentationDetents([.medium, .large])
         }
         .sheet(item: $tipTarget) { target in
@@ -1354,6 +1359,45 @@ struct KaPostsView: View {
             if let pubkey = byDomain[domain] { found.insert(pubkey) }
         }
         return Array(found)
+    }
+
+    /// X-style thread: the first segment becomes a top-level post, each following segment a
+    /// reply to the PREVIOUS one. Threads submit sequentially right away (each segment needs
+    /// the previous txid) - no 5s undo window; the optimistic root post carries the pending/
+    /// sent/failed state for the whole chain.
+    private func scheduleThread(_ segments: [String]) {
+        guard let first = segments.first else { return }
+        guard segments.count > 1 else {
+            schedulePost(text: first)
+            return
+        }
+        let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
+        var rootPost = DraftPost(text: first, timestamp: Date(), posterAddress: myAddress)
+        let myPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
+        rootPost.posterPubkey = myPubkey
+        rootPost.deliveryStatus = .pending
+        let localId = rootPost.id
+        posts.insert(rootPost, at: 0)
+        Task {
+            do {
+                let rootTxId = try await KaPostsAPIClient.shared.submitPost(
+                    text: first, mentionedPubkeys: mentionedPubkeys(in: first)
+                )
+                mutatePost(id: localId) {
+                    $0.remoteId = rootTxId
+                    $0.deliveryStatus = .sent
+                }
+                var parentTxId = rootTxId
+                for segment in segments.dropFirst() {
+                    parentTxId = try await KaPostsAPIClient.shared.submitReply(
+                        text: segment, postId: parentTxId, parentAuthorPubkey: myPubkey
+                    )
+                }
+            } catch {
+                mutatePost(id: localId) { $0.deliveryStatus = .failed }
+                AppLog.log("[KaPosts] Thread submit failed: %@", error.localizedDescription)
+            }
+        }
     }
 
     private func schedulePost(text: String) {
@@ -3489,103 +3533,211 @@ private struct KaPostComposerView: View {
     var quotedDisplayName: String = ""
     var quotedAvatarURL: String? = nil
     let onPost: (String) -> Void
+    /// Thread posting (X-style): when set (and not quoting), a + button appears once you start
+    /// typing - each tap stacks the current text as a thread segment. "Post All" hands every
+    /// segment here; single posts still go through `onPost`.
+    var onPostThread: (([String]) -> Void)? = nil
 
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
+    @State private var threadSegments: [String] = []
     @FocusState private var isFocused: Bool
 
     private var trimmed: String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var threadingEnabled: Bool {
+        onPostThread != nil && quotedPost == nil
+    }
+
+    /// Everything that would be posted right now: stacked segments plus the in-progress text.
+    private var allSegments: [String] {
+        trimmed.isEmpty ? threadSegments : threadSegments + [trimmed]
+    }
+
+    private var canPost: Bool {
+        !allSegments.isEmpty
+    }
+
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                TextEditor(text: $text)
-                    .focused($isFocused)
-                    .font(.body)
-                    .scrollContentBackground(.hidden)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                    .overlay(alignment: .topLeading) {
-                        if text.isEmpty {
-                            Text(quotedPost == nil ? "What's happening on Kaspa?" : "Add a comment")
-                                .font(.body)
-                                .foregroundColor(.secondary.opacity(0.6))
-                                .padding(.horizontal, 17)
-                                .padding(.top, 16)
-                                .allowsHitTesting(false)
-                        }
-                    }
-                if let quotedPost {
-                    quotedPostCard(quotedPost)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 10)
+        VStack(spacing: 0) {
+            // Header card row, matching the desktop composer: X in a rounded square, bold
+            // title, and a teal capsule Post button.
+            HStack(spacing: 12) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(.primary)
+                        .frame(width: 38, height: 38)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.08)))
                 }
-                // @mention autocomplete: chips of your 1:1 KNS-domain contacts while an @token
-                // is being typed at the end of the text; tapping inserts "@domain ".
-                if !mentionSuggestions.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(mentionSuggestions, id: \.self) { domain in
+                .buttonStyle(.plain)
+                Text(quotedPost == nil
+                     ? (threadSegments.isEmpty ? "New Post" : "New Thread")
+                     : "Quote Post")
+                    .font(.title3.weight(.bold))
+                Spacer()
+                characterMeter
+                Button {
+                    postAll()
+                } label: {
+                    Text(allSegments.count > 1 ? "Post All (\(allSegments.count))" : "Post")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(canPost ? Color.black : Color.secondary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 9)
+                        .background(Capsule().fill(canPost ? Color.accentColor : Color.primary.opacity(0.08)))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canPost)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+
+            // Already-stacked thread segments, numbered, each removable.
+            if !threadSegments.isEmpty {
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(Array(threadSegments.enumerated()), id: \.offset) { index, segment in
+                            HStack(alignment: .top, spacing: 10) {
+                                Text("\(index + 1)")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundColor(.accentColor)
+                                    .frame(width: 20, height: 20)
+                                    .background(Circle().fill(Color.accentColor.opacity(0.15)))
+                                Text(segment)
+                                    .font(.subheadline)
+                                    .lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 Button {
-                                    insertMention(domain)
+                                    threadSegments.remove(at: index)
                                 } label: {
-                                    Text("@\(domain)")
-                                        .font(.caption.weight(.bold))
-                                        .foregroundColor(.accentColor)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.secondary)
                                 }
                                 .buttonStyle(.plain)
                             }
+                            .padding(10)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
                         }
-                        .padding(.horizontal, 16)
                     }
-                    .padding(.bottom, 6)
+                    .padding(.horizontal, 16)
                 }
-                Divider()
-                HStack {
-                    characterMeter
-                    Spacer()
-                    // Live network-fee estimate while typing (Settings > Show Fee Estimate),
-                    // matching the chat composer's behavior.
-                    if settingsViewModel.settings.showFeeEstimate, !trimmed.isEmpty,
-                       let fee = KaPostsAPIClient.estimatePostFee(text: trimmed) {
-                        Text("Est. fee: \(String(format: "%.8f", Double(fee) / 100_000_000.0)) KAS")
-                            .font(.caption)
-                            .monospacedDigit()
-                            .foregroundColor(.secondary)
+                .frame(maxHeight: 150)
+                .padding(.bottom, 6)
+            }
+
+            // Bordered editor card, like the desktop textarea.
+            TextEditor(text: $text)
+                .focused($isFocused)
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .padding(8)
+                .frame(minHeight: 120)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.primary.opacity(0.35), lineWidth: 1)
+                )
+                .overlay(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text(quotedPost == nil
+                             ? (threadSegments.isEmpty ? "What's happening on Kaspa?" : "Add another post")
+                             : "Add a comment")
+                            .font(.body)
+                            .foregroundColor(.secondary.opacity(0.6))
+                            .padding(.horizontal, 13)
+                            .padding(.top, 16)
+                            .allowsHitTesting(false)
+                    }
+                }
+                // X-style +: appears once you start typing; stacks this text as a segment and
+                // clears the editor for the next post in the thread.
+                .overlay(alignment: .bottomTrailing) {
+                    if threadingEnabled, !trimmed.isEmpty {
+                        Button {
+                            threadSegments.append(trimmed)
+                            text = ""
+                            isFocused = true
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundColor(.accentColor)
+                                .frame(width: 32, height: 32)
+                                .background(Circle().fill(Color.accentColor.opacity(0.15)))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(10)
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+
+            if let quotedPost {
+                quotedPostCard(quotedPost)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
             }
-            .navigationTitle(quotedPost == nil ? "New Post" : "Quote Post")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Post") {
-                        onPost(trimmed)
-                        dismiss()
+            // @mention autocomplete: chips of your 1:1 KNS-domain contacts while an @token
+            // is being typed at the end of the text; tapping inserts "@domain ".
+            if !mentionSuggestions.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(mentionSuggestions, id: \.self) { domain in
+                            Button {
+                                insertMention(domain)
+                            } label: {
+                                Text("@\(domain)")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundColor(.accentColor)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .fontWeight(.bold)
-                    .disabled(trimmed.isEmpty)
+                    .padding(.horizontal, 16)
+                }
+                .padding(.top, 8)
+            }
+            HStack {
+                Spacer()
+                // Live network-fee estimate while typing (Settings > Show Fee Estimate),
+                // matching the chat composer's behavior.
+                if settingsViewModel.settings.showFeeEstimate, !trimmed.isEmpty,
+                   let fee = KaPostsAPIClient.estimatePostFee(text: trimmed) {
+                    Text("Est. fee: \(String(format: "%.8f", Double(fee) / 100_000_000.0)) KAS")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundColor(.secondary)
                 }
             }
-            .onAppear { isFocused = true }
-            .onChange(of: text) { newValue in
-                // Hard cap at the limit, X-style.
-                if newValue.count > KaPostsView.postCharacterLimit {
-                    text = String(newValue.prefix(KaPostsView.postCharacterLimit))
-                }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            Spacer(minLength: 0)
+        }
+        .onAppear { isFocused = true }
+        .onChange(of: text) { newValue in
+            // Hard cap at the limit, X-style.
+            if newValue.count > KaPostsView.postCharacterLimit {
+                text = String(newValue.prefix(KaPostsView.postCharacterLimit))
             }
         }
+    }
+
+    private func postAll() {
+        let segments = allSegments
+        guard !segments.isEmpty else { return }
+        if segments.count > 1, let onPostThread {
+            onPostThread(segments)
+        } else {
+            onPost(segments[0])
+        }
+        dismiss()
     }
 
     private var characterMeter: some View {
