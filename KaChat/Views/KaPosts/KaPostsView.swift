@@ -3170,6 +3170,9 @@ private struct KaPostTipSheet: View {
 
     @State private var contact: Contact?
     @State private var paysViaPool = false
+    /// True when the funding source is the primary spending address (privacy ON), false when
+    /// it's the chatting address (privacy OFF) - drives the Available footer label.
+    @State private var fundingIsSpending = false
     @State private var amountInput = ""
     @State private var availableSompi: UInt64?
     @State private var feeSompi: UInt64?
@@ -3283,7 +3286,7 @@ private struct KaPostTipSheet: View {
                     Text("Amount")
                 } footer: {
                     if let availableSompi {
-                        Text("Available: \(trimmedKas(availableSompi)) KAS")
+                        Text("Available: \(trimmedKas(availableSompi)) KAS from your \(fundingIsSpending ? "primary spending address" : "chatting address")")
                     }
                 }
 
@@ -3342,7 +3345,14 @@ private struct KaPostTipSheet: View {
                     return
                 }
                 paysViaPool = ChatService.shared.willPayViaFreshPoolAddress(contactAddress: contact.address)
-                availableSompi = try? await ChatService.shared.estimateMaxPaymentAmount(to: contact)
+                // Available = the FUNDING SOURCE's spendable balance, exactly what the send will
+                // see: the primary spending address when Payment Privacy is on, the chatting
+                // address when it's off (paymentFundingSourceAddress is the single authority).
+                if let source = try? ChatService.shared.paymentFundingSourceAddress() {
+                    fundingIsSpending = source != WalletManager.shared.currentWallet?.publicAddress
+                    let utxos = (try? await ChatService.shared.fetchUtxosWithFallback(for: source)) ?? []
+                    availableSompi = utxos.filter { !$0.isCoinbase }.reduce(0) { $0 + $1.amount }
+                }
             }
             .task(id: amountSompi ?? 0) {
                 guard let contact, let amountSompi else {
@@ -3367,7 +3377,8 @@ private struct KaPostTipSheet: View {
             await MainActor.run {
                 isEstimatingMax = false
                 guard let max, max > 0 else { return }
-                availableSompi = max
+                // Max = balance minus the send-all fee; Available keeps showing the source's
+                // full spendable balance, matching the Send Kaspa screen's semantics.
                 amountInput = fiatAmountState.setMaxKas(
                     Double(max) / 100_000_000.0,
                     priceInCurrency: portfolioViewModel.currentPriceUsd
