@@ -3756,6 +3756,55 @@ private struct KaPostComposerView: View {
                 .padding(.bottom, 6)
             }
 
+            // @mention autocomplete: a SCROLLABLE vertical list of the KNS domains of everyone
+            // you've chatted with 1:1 (plus a live-resolved non-contact match), shown the moment
+            // an @token is being typed. Placed ABOVE the editor - below it the keyboard pushed
+            // the list off-screen in the medium sheet, which read as "no list at all".
+            if !mentionSuggestions.isEmpty {
+                let rows = VStack(alignment: .leading, spacing: 0) {
+                    ForEach(mentionSuggestions, id: \.self) { domain in
+                        Button {
+                            insertMention(domain)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("@")
+                                    .font(.subheadline.weight(.bold))
+                                    .foregroundColor(.accentColor)
+                                Text(domain)
+                                    .font(.subheadline)
+                                    .foregroundColor(.primary)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if domain != mentionSuggestions.last {
+                            Divider()
+                        }
+                    }
+                }
+                Group {
+                    // Short lists hug their content; longer ones get an EXACT-height ScrollView
+                    // (~4.5 rows so it visibly reads as scrollable) - group chat's pattern.
+                    if mentionSuggestions.count > 4 {
+                        ScrollView {
+                            rows
+                        }
+                        .frame(height: 168)
+                    } else {
+                        rows
+                    }
+                }
+                .frame(maxWidth: 280, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.12), lineWidth: 1))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             // Bordered editor card, like the desktop textarea.
             TextEditor(text: $text)
                 .focused($isFocused)
@@ -3804,41 +3853,6 @@ private struct KaPostComposerView: View {
                 quotedPostCard(quotedPost)
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
-            }
-            // @mention autocomplete: a vertical list of the KNS domains of your 1:1 contacts
-            // (styled like group chat's mention list), shown while an @token is being typed at
-            // the end of the text; tapping a row inserts "@domain ".
-            if !mentionSuggestions.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(mentionSuggestions, id: \.self) { domain in
-                        Button {
-                            insertMention(domain)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text("@")
-                                    .font(.subheadline.weight(.bold))
-                                    .foregroundColor(.accentColor)
-                                Text(domain)
-                                    .font(.subheadline)
-                                    .foregroundColor(.primary)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 9)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        if domain != mentionSuggestions.last {
-                            Divider()
-                        }
-                    }
-                }
-                .frame(maxWidth: 280, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.06)))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.12), lineWidth: 1))
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack {
                 Spacer()
@@ -3923,8 +3937,8 @@ private struct KaPostComposerView: View {
                   query.isEmpty || bare.hasPrefix(query) else { continue }
             seen.insert(bare)
             out.append(bare)
-            if out.count >= 6 { break }
         }
+        out.sort()
         // Live-resolved non-contact domain matching the current query rides along at the end.
         if let extra = resolvedAnyDomain, !seen.contains(extra),
            query.isEmpty || extra.hasPrefix(query) {
