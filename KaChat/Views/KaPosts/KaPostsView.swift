@@ -3169,6 +3169,7 @@ private struct KaPostTipSheet: View {
     @StateObject private var fiatAmountState = KaspaFiatAmountState()
 
     @State private var contact: Contact?
+    @State private var paysViaPool = false
     @State private var amountInput = ""
     @State private var availableSompi: UInt64?
     @State private var feeSompi: UInt64?
@@ -3207,6 +3208,18 @@ private struct KaPostTipSheet: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .frame(maxWidth: 150)
+                    }
+                    // Which of the privacy scenarios this tip will actually hit (same signal as
+                    // the chat composer's fresh-address indicator).
+                    HStack(spacing: 6) {
+                        Image(systemName: paysViaPool ? "lock.fill" : "globe")
+                            .font(.caption)
+                            .foregroundColor(paysViaPool ? .green : .secondary)
+                        Text(paysViaPool
+                             ? "Goes to a fresh private address they shared"
+                             : "Goes to their public chatting address")
+                            .font(.caption)
+                            .foregroundColor(paysViaPool ? .green : .secondary)
                     }
                 } header: {
                     Text("Tipping")
@@ -3328,6 +3341,7 @@ private struct KaPostTipSheet: View {
                     errorMessage = "Couldn't prepare the recipient."
                     return
                 }
+                paysViaPool = ChatService.shared.willPayViaFreshPoolAddress(contactAddress: contact.address)
                 availableSompi = try? await ChatService.shared.estimateMaxPaymentAmount(to: contact)
             }
             .task(id: amountSompi ?? 0) {
