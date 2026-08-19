@@ -287,15 +287,12 @@ extension ChatService {
     /// even if this one fails), else the chatting address (exact pre-pool behavior). A retry of
     /// the same payment (same `pendingTxId`) reuses the address already consumed for it instead
     /// of burning another.
+    ///
+    /// Deliberately NOT gated on the sender's Chats Payment Privacy toggle: the RECIPIENT'S
+    /// privacy governs the destination - if they shared fresh addresses, money arrives on one
+    /// no matter the sender's setting. The sender's toggle only governs the FUNDING side
+    /// (see `paymentFundingSourceAddress`).
     func poolPaymentDestination(for contact: Contact, pendingTxId: String) -> String {
-        // Chats Privacy OFF (per account): always the chatting address - stored pools are kept,
-        // just not consumed. Checked before the retry memory on purpose: a payment consumed
-        // while the toggle was ON but retried after it went OFF pays the chatting address (the
-        // already-consumed pool address stays burned, which is always safe).
-        if let wallet = WalletManager.shared.currentWallet,
-           !AppSettings.chatsPrivacyEnabled(for: wallet.publicAddress) {
-            return contact.address
-        }
         let store = PaymentPoolStore.shared
         if let remembered = store.paymentDestination(forPendingTxId: pendingTxId) {
             return remembered
@@ -313,10 +310,10 @@ extension ChatService {
     }
 
     /// True when the NEXT payment to this contact would go to a fresh pool address - drives the
-    /// subtle "fresh address" indicator in the payment composer.
+    /// subtle "fresh address" indicator in the payment composer and the tip sheet. Matches
+    /// `poolPaymentDestination`: recipient-governed, independent of the sender's privacy toggle.
     func willPayViaFreshPoolAddress(contactAddress: String) -> Bool {
         guard let wallet = WalletManager.shared.currentWallet else { return false }
-        guard AppSettings.chatsPrivacyEnabled(for: wallet.publicAddress) else { return false }
         return PaymentPoolStore.shared.nextUnusedPoolAddress(for: contactAddress, wallet: wallet.publicAddress) != nil
     }
 
