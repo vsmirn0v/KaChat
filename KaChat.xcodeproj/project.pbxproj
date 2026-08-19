@@ -47,6 +47,7 @@
 		CS0002B0000000000000001 /* KaspaExtendedPublicKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */; };
 		CS0003B0000000000000001 /* ColdStorageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0003A0000000000000001 /* ColdStorageManager.swift */; };
 		NC0001B0000000000000001 /* NextcloudService.swift in Sources */ = {isa = PBXBuildFile; fileRef = NC0001A0000000000000001 /* NextcloudService.swift */; };
+		GN0001B0000000000000001 /* GlobalNotificationCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = GN0001A0000000000000001 /* GlobalNotificationCenter.swift */; };
 		CS0004B0000000000000001 /* ColdStorageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0004A0000000000000001 /* ColdStorageView.swift */; };
 		CS0006B0000000000000001 /* KsptCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0006A0000000000000001 /* KsptCodec.swift */; };
 		CS0007B0000000000000001 /* QrFrameChunker.swift in Sources */ = {isa = PBXBuildFile; fileRef = CS0007A0000000000000001 /* QrFrameChunker.swift */; };
@@ -254,6 +255,7 @@
 		CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaExtendedPublicKey.swift; sourceTree = "<group>"; };
 		CS0003A0000000000000001 /* ColdStorageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColdStorageManager.swift; sourceTree = "<group>"; };
 		NC0001A0000000000000001 /* NextcloudService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NextcloudService.swift; sourceTree = "<group>"; };
+		GN0001A0000000000000001 /* GlobalNotificationCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalNotificationCenter.swift; sourceTree = "<group>"; };
 		CS0004A0000000000000001 /* ColdStorageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColdStorageView.swift; sourceTree = "<group>"; };
 		CS0006A0000000000000001 /* KsptCodec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KsptCodec.swift; sourceTree = "<group>"; };
 		CS0007A0000000000000001 /* QrFrameChunker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrFrameChunker.swift; sourceTree = "<group>"; };
@@ -594,6 +596,7 @@
 				PF0010A0000000000000001 /* PortfolioAddressImporter.swift */,
 				CS0003A0000000000000001 /* ColdStorageManager.swift */,
 				NC0001A0000000000000001 /* NextcloudService.swift */,
+				GN0001A0000000000000001 /* GlobalNotificationCenter.swift */,
 				CS0009A0000000000000001 /* ColdStorageSendEngine.swift */,
 				KPAPI001A000000000000001 /* KaPostsAPIClient.swift */,
 				CH0002A0000000000000001 /* ChessGameService.swift */,
@@ -1091,6 +1094,7 @@
 				CS0002B0000000000000001 /* KaspaExtendedPublicKey.swift in Sources */,
 				CS0003B0000000000000001 /* ColdStorageManager.swift in Sources */,
 				NC0001B0000000000000001 /* NextcloudService.swift in Sources */,
+				GN0001B0000000000000001 /* GlobalNotificationCenter.swift in Sources */,
 				CH0002B0000000000000001 /* ChessGameService.swift in Sources */,
 				CM0001B0000000000000001 /* ChildModeService.swift in Sources */,
 				CM0002B0000000000000001 /* ChildModeSettingsView.swift in Sources */,
