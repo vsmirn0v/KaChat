@@ -163,11 +163,6 @@ struct SettingsView: View {
                     } label: {
                         Label("Customize Dock", systemImage: "list.bullet")
                     }
-
-                    Toggle("Show Setup Guides", isOn: Binding(
-                        get: { walletManager.showSetupGuides },
-                        set: { walletManager.showSetupGuides = $0 }
-                    ))
                 }
         }
         .navigationTitle("Customization")
@@ -263,7 +258,28 @@ struct SettingsView: View {
     /// into its own screen.
     private var storagePage: some View {
         Form {
-            Section("Storage") {
+            Section {
+                Picker("Message retention", selection: $settingsViewModel.settings.messageRetention) {
+                    ForEach(MessageRetention.allCases, id: \.self) { option in
+                        Text(option.displayName).tag(option)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: settingsViewModel.settings.messageRetention) { _ in
+                    settingsViewModel.saveSettings()
+                    refreshMessageStoreSize()
+                }
+
+                Text("Local storage used: \(messageStoreSize)")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            } header: {
+                Text("On This Device")
+            } footer: {
+                Text("How long messages are kept on this device, and how much space they use. Applies before any cloud storage.")
+            }
+
+            Section("Cloud Storage") {
                 settingsCategoryRow("iCloud", icon: "icloud", tint: .accentColor) {
                     iCloudStoragePage
                 }
@@ -287,21 +303,6 @@ struct SettingsView: View {
 
                 Text("Required for cross-device sync and backup of sent messages.")
                     .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Picker("Message retention", selection: $settingsViewModel.settings.messageRetention) {
-                    ForEach(MessageRetention.allCases, id: \.self) { option in
-                        Text(option.displayName).tag(option)
-                    }
-                }
-                .pickerStyle(.menu)
-                .onChange(of: settingsViewModel.settings.messageRetention) { _ in
-                    settingsViewModel.saveSettings()
-                    refreshMessageStoreSize()
-                }
-
-                Text("Local storage used: \(messageStoreSize)")
-                    .font(.footnote)
                     .foregroundColor(.secondary)
             }
         }

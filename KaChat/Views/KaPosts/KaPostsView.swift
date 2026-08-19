@@ -269,6 +269,8 @@ struct KaPostsView: View {
     @State private var posterProfilePubkey: String?
     @State private var posterProfileFollowers: Int?
     @State private var posterProfileFollowing: Int?
+    /// Followers/Following list opened from the OPEN poster profile's counts.
+    @State private var posterProfileFollowListKind: KaPostsFollowListView.Kind?
     @State private var isLoadingPosterProfile = false
     /// Repost tapped on an on-chain post: choose plain repost vs quote.
     @State private var repostDialogTarget: DraftPost?
@@ -676,6 +678,7 @@ struct KaPostsView: View {
                             onViewEngagement: { engagementTarget = post },
                             onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                             onOpenProfile: { profileTarget = PosterProfileTarget(address: post.posterAddress, pubkey: post.posterPubkey) },
+                            onTip: { tip(post.posterAddress) },
                             onLike: { toggleLike(post) },
                             onDislike: { toggleDislike(post) },
                             onRepost: { handleRepostTap(post) },
@@ -1314,12 +1317,47 @@ struct KaPostsView: View {
 
     /// Inserts the optimistic post immediately, then holds the on-chain submit behind the 5s
     /// Undo toast - Undo pulls the card before anything touches the network.
+    // @mention candidates: your 1:1 contacts that have a KNS domain AND a derivable pubkey. Only
+    // these are mentionable (matches desktop getMentionCandidates).
+    private func mentionCandidates() -> [(domain: String, pubkey: String)] {
+        var out: [(domain: String, pubkey: String)] = []
+        var seen = Set<String>()
+        for contact in ContactsManager.shared.activeContacts {
+            guard let raw = KNSService.shared.domainCache[contact.address]?.primaryDomain else { continue }
+            let bare = KaPostsView.strippingKasSuffix(raw).lowercased()
+            guard !bare.isEmpty, !seen.contains(bare),
+                  let pubkey = KaPostsAPIClient.kapostPubkey(fromAddress: contact.address) else { continue }
+            seen.insert(bare)
+            out.append((bare, pubkey))
+        }
+        return out
+    }
+
+    /// Resolve the @domain tokens in a post to the pubkeys the indexer needs in mentioned_pubkeys.
+    private func mentionedPubkeys(in text: String) -> [String] {
+        let candidates = mentionCandidates()
+        guard !candidates.isEmpty else { return [] }
+        var byDomain: [String: String] = [:]
+        for candidate in candidates { byDomain[candidate.domain] = candidate.pubkey }
+        var found = Set<String>()
+        let ns = text as NSString
+        let regex = try? NSRegularExpression(pattern: "(^|[\\s([{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)", options: [.caseInsensitive])
+        regex?.enumerateMatches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) { match, _, _ in
+            guard let match = match, match.numberOfRanges >= 3 else { return }
+            var domain = ns.substring(with: match.range(at: 2)).lowercased()
+            if domain.hasSuffix(".kas") { domain = String(domain.dropLast(4)) }
+            if let pubkey = byDomain[domain] { found.insert(pubkey) }
+        }
+        return Array(found)
+    }
+
     private func schedulePost(text: String) {
         let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
         var newPost = DraftPost(text: text, timestamp: Date(), posterAddress: myAddress)
         newPost.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
         newPost.deliveryStatus = .pending
         let localId = newPost.id
+        let mentionPubkeys = mentionedPubkeys(in: text)
         posts.insert(newPost, at: 0)
         let key = "post:\(localId)"
         showUndoToast(key: key, postId: localId, label: "Posting")
@@ -1329,7 +1367,7 @@ struct KaPostsView: View {
             // post with the returned txid so it dedupes against the feed once indexed.
             Task {
                 do {
-                    let txId = try await KaPostsAPIClient.shared.submitPost(text: text)
+                    let txId = try await KaPostsAPIClient.shared.submitPost(text: text, mentionedPubkeys: mentionPubkeys)
                     mutatePost(id: localId) {
                         $0.remoteId = txId
                         $0.deliveryStatus = .sent
@@ -1575,7 +1613,7 @@ struct KaPostsView: View {
                         text: post.text, postId: parentRemoteId, parentAuthorPubkey: parent.posterPubkey
                     )
                 } else {
-                    txId = try await KaPostsAPIClient.shared.submitPost(text: post.text)
+                    txId = try await KaPostsAPIClient.shared.submitPost(text: post.text, mentionedPubkeys: mentionedPubkeys(in: post.text))
                 }
                 mutatePost(id: post.id) {
                     $0.remoteId = txId
@@ -1663,6 +1701,7 @@ struct KaPostsView: View {
             onViewEngagement: { engagementTarget = item },
             onFollowToggle: { toggleFollowSubmitting(address: item.posterAddress, pubkey: item.posterPubkey) },
             onOpenProfile: { profileTarget = PosterProfileTarget(address: item.posterAddress, pubkey: item.posterPubkey) },
+            onTip: { tip(item.posterAddress) },
             onLike: { toggleLike(item) },
             onDislike: { toggleDislike(item) },
             onRepost: { handleRepostTap(item) },
@@ -1883,7 +1922,8 @@ struct KaPostsView: View {
                                 onViewEngagement: { engagementTarget = post },
                                 onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                                 onOpenProfile: {},
-                                onLike: { toggleLike(post) },
+                                onTip: { tip(post.posterAddress) },
+                            onLike: { toggleLike(post) },
                                 onDislike: { toggleDislike(post) },
                                 onRepost: { handleRepostTap(post) },
                                 onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
@@ -2041,20 +2081,32 @@ struct KaPostsView: View {
                             .tint(.accentColor)
                         }
                         HStack(spacing: 16) {
-                            HStack(spacing: 4) {
-                                Text("\(posterProfileFollowing ?? 0)")
-                                    .font(.subheadline.weight(.bold))
-                                Text("Following")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+                            Button {
+                                posterProfileFollowListKind = .following
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("\(posterProfileFollowing ?? 0)")
+                                        .font(.subheadline.weight(.bold))
+                                        .foregroundColor(.primary)
+                                    Text("Following")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
                             }
-                            HStack(spacing: 4) {
-                                Text("\(posterProfileFollowers ?? 0)")
-                                    .font(.subheadline.weight(.bold))
-                                Text("Followers")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+                            .buttonStyle(.plain)
+                            Button {
+                                posterProfileFollowListKind = .followers
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("\(posterProfileFollowers ?? 0)")
+                                        .font(.subheadline.weight(.bold))
+                                        .foregroundColor(.primary)
+                                    Text("Followers")
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
                             }
+                            .buttonStyle(.plain)
                         }
                         if let bio = info?.profile?.bio,
                            !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -2103,7 +2155,8 @@ struct KaPostsView: View {
                                 onViewEngagement: { engagementTarget = post },
                                 onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                                 onOpenProfile: {},
-                                onLike: { toggleLike(post) },
+                                onTip: { tip(post.posterAddress) },
+                            onLike: { toggleLike(post) },
                                 onDislike: { toggleDislike(post) },
                                 onRepost: { handleRepostTap(post) },
                                 onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
@@ -2135,6 +2188,21 @@ struct KaPostsView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { profileTarget = nil }
+                }
+            }
+            .navigationDestination(isPresented: Binding(
+                get: { posterProfileFollowListKind != nil },
+                set: { if !$0 { posterProfileFollowListKind = nil } }
+            )) {
+                if let kind = posterProfileFollowListKind {
+                    KaPostsFollowListView(
+                        kind: kind,
+                        localFollowing: followStore.following,
+                        targetPubkey: target.pubkey,
+                        onToggleFollow: { address, pubkey in
+                            toggleFollowSubmitting(address: address, pubkey: pubkey)
+                        }
+                    )
                 }
             }
             .refreshable {
@@ -2173,7 +2241,7 @@ struct KaPostsView: View {
     /// Jumps into (or creates) the 1:1 chat with this poster: ensures a contact exists
     /// (silently auto-added if new), ensures the conversation exists, then routes through the
     /// standard .openChat navigation. Slight delay so the profile sheet finishes dismissing.
-    private func startChat(with address: String) {
+    private func startChat(with address: String, paymentMode: Bool = false) {
         let contact: Contact?
         if let existing = ContactsManager.shared.getContact(byAddress: address) {
             contact = existing
@@ -2187,9 +2255,15 @@ struct KaPostsView: View {
             NotificationCenter.default.post(
                 name: .openChat,
                 object: nil,
-                userInfo: ["contactAddress": contact.address]
+                userInfo: ["contactAddress": contact.address, "paymentMode": paymentMode]
             )
         }
+    }
+
+    /// KaPosts "Tip" button: open the poster's 1:1 chat straight in KAS-send mode.
+    private func tip(_ address: String) {
+        guard address != WalletManager.shared.currentWallet?.publicAddress else { return }
+        startChat(with: address, paymentMode: true)
     }
 
     /// Underline tab bar for profile feeds (Posts | Replies), matching the app's other tab
@@ -2354,7 +2428,8 @@ struct KaPostsView: View {
                                     onViewEngagement: { engagementTarget = post },
                                     onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
                                     onOpenProfile: {},
-                                    onLike: { toggleLike(post) },
+                                    onTip: { tip(post.posterAddress) },
+                            onLike: { toggleLike(post) },
                                     onDislike: { toggleDislike(post) },
                                     onRepost: { handleRepostTap(post) },
                                     onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
@@ -2560,6 +2635,8 @@ private struct KaPostCellView: View {
     let onRepost: () -> Void
     /// Tapping the quoted-post embed opens that post's own thread (comments and all).
     var onOpenQuoted: ((String) -> Void)? = nil
+    /// "Tip": opens the 1:1 chat with the poster in KAS-send mode. nil (or your own post) hides it.
+    var onTip: (() -> Void)? = nil
 
     /// Long enough that the feed should fold it behind "Show more" (X-style ~280-char threshold,
     /// or a wall of newlines).
@@ -2769,6 +2846,22 @@ private struct KaPostCellView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    // Tip: opens the 1:1 chat with the poster already in KAS-send mode. Hidden on
+                    // your own posts (you can't tip yourself).
+                    if let onTip, !isOwnPost {
+                        Button {
+                            Haptics.impact(.light)
+                            onTip()
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "bitcoinsign.circle")
+                                Text("Tip")
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                    }
                     Spacer()
                     // Bottom-right: on-chain delivery state, mirroring chat bubbles - green check
                     // once the K transaction is on the network, spinner while submitting, red
@@ -2880,6 +2973,21 @@ private struct KaPostCellView: View {
             let end = attributed.index(start, offsetByCharacters: length)
             attributed[start..<end].link = url
             attributed[start..<end].underlineStyle = .single
+        }
+        // Highlight @mentions (accent-coloured), matching the desktop renderer and the indexer rule.
+        if let mentionRegex = try? NSRegularExpression(pattern: "(^|[\\s([{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)", options: [.caseInsensitive]) {
+            for match in mentionRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) {
+                let domainRange = match.range(at: 2)
+                let tokenStart = domainRange.location - 1 // include the '@'
+                let tokenLength = domainRange.length + 1
+                guard tokenStart >= 0,
+                      let stringRange = Range(NSRange(location: tokenStart, length: tokenLength), in: text) else { continue }
+                let startOffset = text.distance(from: text.startIndex, to: stringRange.lowerBound)
+                let length = text.distance(from: stringRange.lowerBound, to: stringRange.upperBound)
+                let start = attributed.index(attributed.startIndex, offsetByCharacters: startOffset)
+                let end = attributed.index(start, offsetByCharacters: length)
+                attributed[start..<end].foregroundColor = .accentColor
+            }
         }
         return attributed
     }
@@ -3610,9 +3718,15 @@ struct KaPostsFollowListView: View {
 
     let kind: Kind
     let localFollowing: Set<String>
+    /// The profile whose follow list this is. nil = the signed-in user's own list (loaded via
+    /// requesterPubkey, with locally-stored follows merged in); non-nil = another user's list.
+    let targetPubkey: String?
     /// Routes through KaPostsView.toggleFollowSubmitting - local store toggle + the on-chain
     /// follow/unfollow tx (and its toast) when the pubkey is known.
     let onToggleFollow: (String, String?) -> Void
+
+    /// Own list when no target pubkey is supplied; only then do we merge local-only follows.
+    private var isOwnList: Bool { targetPubkey == nil }
 
     @ObservedObject private var knsService = KNSService.shared
     @ObservedObject private var followStore = KaPostsFollowStore.shared
@@ -3630,9 +3744,10 @@ struct KaPostsFollowListView: View {
     /// fixed tail, see `load`).
     @State private var page = KaPostsPageState()
 
-    init(kind: Kind, localFollowing: Set<String>, onToggleFollow: @escaping (String, String?) -> Void) {
+    init(kind: Kind, localFollowing: Set<String>, targetPubkey: String? = nil, onToggleFollow: @escaping (String, String?) -> Void) {
         self.kind = kind
         self.localFollowing = localFollowing
+        self.targetPubkey = targetPubkey
         self.onToggleFollow = onToggleFollow
     }
 
@@ -3759,14 +3874,16 @@ struct KaPostsFollowListView: View {
         page.isLoading = true
         page.errorMessage = nil
         if reset { isLoading = true }
-        guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else {
+        guard let pubkey = targetPubkey ?? (try? KaPostsAPIClient.shared.requesterPubkey()) else {
             page.isLoading = false
             page.hasMore = false
             isLoading = false
             if reset { entries = localOnlyEntries(excluding: []) }
             return
         }
-        let myAddress = WalletManager.shared.currentWallet?.publicAddress
+        // Only hide the signed-in user from their OWN list (you never follow yourself). On another
+        // user's list you legitimately may appear, and should - the row hides just the Follow button.
+        let myAddress = isOwnList ? WalletManager.shared.currentWallet?.publicAddress : nil
         do {
             var seen: Set<String> = reset ? [] : Set(entries.map(\.address))
             let batch = try await KaPostsPaginator.collect(
@@ -3813,9 +3930,9 @@ struct KaPostsFollowListView: View {
         }
     }
 
-    /// Locally-stored follows the indexer hasn't reported (Following list only).
+    /// Locally-stored follows the indexer hasn't reported (own Following list only).
     private func localOnlyEntries(excluding known: Set<String>) -> [Entry] {
-        guard kind == .following else { return [] }
+        guard isOwnList, kind == .following else { return [] }
         return localFollowing
             .filter { !known.contains($0) && $0 != WalletManager.shared.currentWallet?.publicAddress }
             .sorted()
@@ -3838,7 +3955,7 @@ struct KaPostsNotificationsView: View {
 
     struct Item: Identifiable {
         enum Kind {
-            case like, dislike, reply, quote, repost, follow, other
+            case like, dislike, reply, quote, repost, follow, mention, other
 
             var icon: String {
                 switch self {
@@ -3847,6 +3964,7 @@ struct KaPostsNotificationsView: View {
                 case .reply: return "bubble.left.fill"
                 case .quote, .repost: return "arrow.2.squarepath"
                 case .follow: return "person.fill.badge.plus"
+                case .mention: return "at"
                 case .other: return "bell.fill"
                 }
             }
@@ -3858,6 +3976,7 @@ struct KaPostsNotificationsView: View {
                 case .reply: return .accentColor
                 case .quote, .repost: return .green
                 case .follow: return .accentColor
+                case .mention: return .accentColor
                 case .other: return .secondary
                 }
             }
@@ -3870,6 +3989,7 @@ struct KaPostsNotificationsView: View {
                 case .quote: return "quoted your post"
                 case .repost: return "reposted your post"
                 case .follow: return "followed you"
+                case .mention: return "mentioned you in a post"
                 case .other: return "interacted with your post"
                 }
             }
@@ -4083,6 +4203,9 @@ struct KaPostsNotificationsView: View {
                         case "follow":
                             kind = .follow
                             targetTxId = nil
+                        case "mention":
+                            kind = .mention
+                            targetTxId = notification.contentId
                         default:
                             kind = .other
                             targetTxId = notification.contentId

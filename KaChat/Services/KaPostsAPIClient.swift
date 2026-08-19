@@ -490,11 +490,17 @@ enum KaPostsProtocol {
 extension KaPostsAPIClient {
     /// Publishes a KaChat post on-chain. The KaChat exclusivity marker is prepended INSIDE the
     /// message (the only channel the read API surfaces). Returns the transaction id = post id.
-    func submitPost(text: String) async throws -> String {
+    func submitPost(text: String, mentionedPubkeys: [String] = []) async throws -> String {
         let marked = Self.kaChatMarker + text
         let b64 = KaPostsProtocol.b64(marked)
-        let mentions = "[]"
         let pubkey = try requesterPubkey()
+        // Client-resolved @mentions: dedupe, drop bad shapes and self, then serialize into the
+        // signed mentioned_pubkeys array. The indexer turns each into a `mention` notification.
+        let me = pubkey.lowercased()
+        let clean = Array(Set(mentionedPubkeys
+            .map { $0.lowercased() }
+            .filter { $0.range(of: "^0[23][0-9a-f]{64}$", options: .regularExpression) != nil && $0 != me }))
+        let mentions = "[" + clean.map { "\"\($0)\"" }.joined(separator: ",") + "]"
         let signature = try WalletManager.shared.signArbitraryMessage(
             KaPostsProtocol.postSigningString(b64Message: b64, mentionsJSON: mentions),
             mode: .kaspaPersonalMessage
@@ -502,6 +508,14 @@ extension KaPostsAPIClient {
         return try await submitPayloadTx(
             KaPostsProtocol.postPayload(pubkey: pubkey, signature: signature, b64Message: b64, mentionsJSON: mentions)
         )
+    }
+
+    /// The compressed KaPost pubkey (even-Y convention) for a Kaspa address, or nil. The whole
+    /// KaChat/Kasia stack is address-derived, so this mirrors desktop's kapostPubkeyForAddress and
+    /// lets us fill mentioned_pubkeys from a KNS-domain contact's address alone.
+    static func kapostPubkey(fromAddress address: String) -> String? {
+        guard let xOnly = KaspaAddress.publicKey(from: address), xOnly.count == 32 else { return nil }
+        return "02" + xOnly.hexString
     }
 
     /// Replies to a post (its K txid). Mention rule per spec: parent author, deduped.
