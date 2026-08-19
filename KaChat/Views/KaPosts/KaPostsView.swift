@@ -2872,11 +2872,16 @@ private struct KaPostCellView: View {
                                     .scaledToFit()
                                     .frame(width: 16, height: 16)
                                 Text("Tip")
+                                    .lineLimit(1)
                             }
                             .font(.subheadline.weight(.semibold))
                             .foregroundColor(.accentColor)
+                            // Never let the row squeeze "Tip" into vertical letters - the label
+                            // keeps its intrinsic width and wins the compression fight.
+                            .fixedSize(horizontal: true, vertical: false)
                         }
                         .buttonStyle(.plain)
+                        .layoutPriority(1)
                     }
                     Spacer()
                     // Bottom-right: on-chain delivery state, mirroring chat bubbles - green check
@@ -3148,78 +3153,217 @@ private struct KaPostCellView: View {
 
 // MARK: - Quick tip
 
-/// Quick tip sheet: amount in, direct send out - no chat detour. Reuses
+/// Quick tip sheet, styled to match the app's Send Kaspa UI (WithdrawKaspaView's Form
+/// language: fixed recipient row, KaspaLogo/fiat amount toggle with conversion + Max, an
+/// Available footer, and a Network Fee row). The send itself goes through
 /// `ChatService.sendPayment`, so the destination and funding follow the exact same Chats
 /// Payment Privacy rules as an in-chat payment (privacy on + pool data -> a fresh private pool
 /// address; otherwise the poster's public chatting address), and the payment bubble still lands
-/// in the 1:1 conversation with them.
+/// in the 1:1 conversation with them. No fee tiers or coin control - chat payments have neither.
 private struct KaPostTipSheet: View {
     let address: String
     let displayName: String
 
     @Environment(\.dismiss) private var dismiss
-    @State private var amountText = ""
+    @ObservedObject private var portfolioViewModel = PortfolioViewModel.shared
+    @StateObject private var fiatAmountState = KaspaFiatAmountState()
+
+    @State private var contact: Contact?
+    @State private var amountInput = ""
+    @State private var availableSompi: UInt64?
+    @State private var feeSompi: UInt64?
+    @State private var isEstimatingFee = false
+    @State private var isEstimatingMax = false
     @State private var isSending = false
     @State private var errorMessage: String?
-    @FocusState private var amountFocused: Bool
 
     private var amountSompi: UInt64? {
-        guard let value = Double(amountText.replacingOccurrences(of: ",", with: ".")),
-              value > 0 else { return nil }
-        return UInt64((value * 100_000_000).rounded())
+        guard let kas = Double(amountInput), kas > 0 else { return nil }
+        return UInt64((kas * 100_000_000).rounded())
+    }
+
+    private var canSend: Bool {
+        contact != nil && amountSompi != nil && !isSending
+    }
+
+    private func trimmedKas(_ sompi: UInt64) -> String {
+        var text = String(format: "%.8f", Double(sompi) / 100_000_000.0)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    HStack(spacing: 6) {
-                        Image("KaspaLogo")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 18, height: 18)
-                        TextField("Amount (KAS)", text: $amountText)
-                            .keyboardType(.decimalPad)
-                            .focused($amountFocused)
+                    HStack {
+                        Text(displayName)
+                            .fontWeight(.semibold)
+                        Spacer()
+                        Text(address)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: 150)
                     }
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
+                } header: {
+                    Text("Tipping")
                 } footer: {
-                    Text("Sends Kaspa straight to \(displayName). Your Chats Payment Privacy setting decides the destination and funding, exactly like a payment inside their chat.")
+                    Text("Your Chats Payment Privacy setting decides the destination and funding, exactly like a payment inside their chat.")
+                }
+
+                Section {
+                    HStack {
+                        Button {
+                            fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
+                        } label: {
+                            if fiatAmountState.isFiatMode {
+                                Text(currencySymbol(for: portfolioViewModel.currentCurrency))
+                                    .font(.title3.weight(.semibold))
+                                    .foregroundColor(.accentColor)
+                                    .frame(width: 22, height: 22)
+                            } else {
+                                Image("KaspaLogo")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 22, height: 22)
+                            }
+                        }
+                        .buttonStyle(.plain)
+
+                        TextField(
+                            "0.00",
+                            text: Binding(
+                                get: { fiatAmountState.displayText },
+                                set: { amountInput = fiatAmountState.onDisplayTextChange($0, priceInCurrency: portfolioViewModel.currentPriceUsd) }
+                            )
+                        )
+                        .keyboardType(.decimalPad)
+
+                        if let conversionLabel = fiatAmountState.conversionLabelText(
+                            priceInCurrency: portfolioViewModel.currentPriceUsd,
+                            currency: portfolioViewModel.currentCurrency
+                        ) {
+                            Text(conversionLabel)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .onTapGesture {
+                                    fiatAmountState.toggleMode(priceInCurrency: portfolioViewModel.currentPriceUsd)
+                                }
+                        }
+
+                        if isEstimatingMax {
+                            ProgressView().scaleEffect(0.75)
+                        } else {
+                            Button("Max") { setMaxAmount() }
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .buttonStyle(.borderless)
+                                .disabled(contact == nil)
+                        }
+                        Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : "KAS")
+                            .foregroundColor(.secondary)
+                    }
+                } header: {
+                    Text("Amount")
+                } footer: {
+                    if let availableSompi {
+                        Text("Available: \(trimmedKas(availableSompi)) KAS")
+                    }
+                }
+
+                Section {
+                    HStack {
+                        Text("Network Fee")
+                        Spacer()
+                        if isEstimatingFee {
+                            ProgressView().scaleEffect(0.75)
+                        } else if let feeSompi {
+                            Text("\(trimmedKas(feeSompi)) KAS")
+                                .foregroundColor(.secondary)
+                        } else {
+                            Text("—")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Fee")
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundColor(.red)
+                            .font(.caption)
+                    }
                 }
             }
             .navigationTitle("Tip \(displayName)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(isSending ? "Sending..." : "Send") { send() }
-                        .fontWeight(.semibold)
-                        .disabled(amountSompi == nil || isSending)
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if isSending {
+                        ProgressView()
+                    } else {
+                        Button("Send") { send() }
+                            .disabled(!canSend)
+                    }
                 }
             }
-            .onAppear { amountFocused = true }
+            .scrollDismissesKeyboard(.interactively)
+            .task {
+                // Resolve (or auto-add) the poster as a contact once, then load the max
+                // sendable from the privacy-appropriate funding source for the footer.
+                if let existing = ContactsManager.shared.getContact(byAddress: address) {
+                    contact = existing
+                } else {
+                    contact = try? ContactsManager.shared.addContact(address: address, alias: "", isAutoAdded: true)
+                }
+                guard let contact else {
+                    errorMessage = "Couldn't prepare the recipient."
+                    return
+                }
+                availableSompi = try? await ChatService.shared.estimateMaxPaymentAmount(to: contact)
+            }
+            .task(id: amountSompi ?? 0) {
+                guard let contact, let amountSompi else {
+                    feeSompi = nil
+                    return
+                }
+                isEstimatingFee = true
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                guard !Task.isCancelled else { return }
+                feeSompi = try? await ChatService.shared.estimatePaymentFee(to: contact, amountSompi: amountSompi)
+                isEstimatingFee = false
+            }
         }
-        .presentationDetents([.height(280), .medium])
+        .interactiveDismissDisabled(isSending)
+    }
+
+    private func setMaxAmount() {
+        guard let contact else { return }
+        isEstimatingMax = true
+        Task {
+            let max = try? await ChatService.shared.estimateMaxPaymentAmount(to: contact)
+            await MainActor.run {
+                isEstimatingMax = false
+                guard let max, max > 0 else { return }
+                availableSompi = max
+                amountInput = fiatAmountState.setMaxKas(
+                    Double(max) / 100_000_000.0,
+                    priceInCurrency: portfolioViewModel.currentPriceUsd
+                )
+            }
+        }
     }
 
     private func send() {
-        guard let amountSompi else { return }
-        let contact: Contact?
-        if let existing = ContactsManager.shared.getContact(byAddress: address) {
-            contact = existing
-        } else {
-            contact = try? ContactsManager.shared.addContact(address: address, alias: "", isAutoAdded: true)
-        }
-        guard let contact else {
-            errorMessage = "Couldn't prepare the recipient."
-            return
-        }
+        guard let contact, let amountSompi else { return }
         isSending = true
         errorMessage = nil
         Task {
