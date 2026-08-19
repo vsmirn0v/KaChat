@@ -1405,7 +1405,7 @@ struct KaPostsView: View {
     static func mentionDomains(in text: String) -> [String] {
         let ns = text as NSString
         guard let regex = try? NSRegularExpression(
-            pattern: "(^|[\\s([{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)",
+            pattern: "(^|[\\s(\\[{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)",
             options: [.caseInsensitive]
         ) else { return [] }
         var seen = Set<String>()
@@ -3282,7 +3282,7 @@ private struct KaPostCellView: View {
         // Highlight @mentions (accent-coloured) and make them TAPPABLE: each carries a
         // kachat-mention:// link that KaPostsView's OpenURLAction resolves to the mentioned
         // user's profile (any KNS domain, contact or not).
-        if let mentionRegex = try? NSRegularExpression(pattern: "(^|[\\s([{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)", options: [.caseInsensitive]) {
+        if let mentionRegex = try? NSRegularExpression(pattern: "(^|[\\s(\\[{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)", options: [.caseInsensitive]) {
             for match in mentionRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) {
                 let domainRange = match.range(at: 2)
                 let tokenStart = domainRange.location - 1 // include the '@'
@@ -4045,7 +4045,7 @@ private struct KaPostComposerView: View {
     /// Must start the text or follow whitespace/opening punctuation so emails don't trigger it.
     private var mentionQuery: String? {
         guard let range = text.range(
-            of: "(^|[\\s([{<\"'])@([a-z0-9-]*)$",
+            of: "(^|[\\s(\\[{<\"'])@([a-z0-9-]*)$",
             options: [.regularExpression, .caseInsensitive]
         ) else { return nil }
         let token = text[range]

@@ -230,7 +230,7 @@ final class GlobalNotificationCenter: ObservableObject {
     /// @domain tokens in `text` (bare, lowercased) - same regex as the KaPosts mention parser.
     private static func mentionedDomains(in text: String) -> [String] {
         guard let regex = try? NSRegularExpression(
-            pattern: "(^|[\\s([{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)",
+            pattern: "(^|[\\s(\\[{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)",
             options: [.caseInsensitive]
         ) else { return [] }
         let ns = text as NSString
