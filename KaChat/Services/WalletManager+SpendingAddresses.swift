@@ -246,6 +246,49 @@ extension WalletManager {
         await updateSpendingBounds(maxIndex: maxSpendingAddressIndex + 1)
     }
 
+    /// "Generate New Spending Address", recycling-aware: returns the LOWEST index that is truly
+    /// unused - zero balance, no on-chain history, not the primary, and never offered to a
+    /// contact as a payment-pool reservation (a contact may still pay into those). A hidden
+    /// unused index is un-hidden and reused rather than growing the chain; only when every
+    /// revealed index is spoken for does the chain extend by one. Returns the chosen index.
+    func lowestUnusedSpendingAddress() async -> Int {
+        let entries = await getSpendingAddressList().sorted { $0.index < $1.index }
+        let reserved: Set<String> = {
+            guard let wallet = currentWallet else { return [] }
+            return Set(PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress))
+        }()
+        for entry in entries {
+            if entry.isCurrent { continue }
+            if entry.balanceSompi > 0 { continue }
+            if reserved.contains(entry.address) { continue }
+            let used = await ChatService.shared.hasSpendingAddressBeenUsed(entry.address)
+            if !used {
+                _ = await setSpendingAddressHidden(index: entry.index, hidden: false)
+                return entry.index
+            }
+        }
+        await generateNextSpendingAddress()
+        let newIndex = maxSpendingAddressIndex
+        _ = await setSpendingAddressHidden(index: newIndex, hidden: false)
+        return newIndex
+    }
+
+    /// Reveals a specific index from the Address Visibility pager, extending the chain when the
+    /// index is beyond the current max - intermediate newly-covered indices are marked hidden so
+    /// checking ONE far-out row doesn't flood the main list with everything below it.
+    func revealSpendingAddress(at index: Int) async {
+        let currentMax = maxSpendingAddressIndex
+        if index > currentMax {
+            await updateSpendingBounds(maxIndex: index)
+            if index - 1 > currentMax {
+                var hiddenSet = hiddenSpendingIndices
+                for i in (currentMax + 1)..<index { hiddenSet.insert(i) }
+                hiddenSpendingIndices = hiddenSet
+            }
+        }
+        _ = await setSpendingAddressHidden(index: index, hidden: false)
+    }
+
     /// Reveals and returns `count` brand-new spending-chain slots in one step - used by the
     /// fresh-address payment pool feature (`ChatService+PaymentPools`) to reserve addresses to
     /// offer a contact. Indices start strictly past `maxSpendingAddressIndex`, and the max is

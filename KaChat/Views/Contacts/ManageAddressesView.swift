@@ -423,9 +423,13 @@ struct ManageAddressesView: View {
         guard !isGenerating else { return }
         isGenerating = true
         Task {
-            await walletManager.generateNextSpendingAddress()
+            // Recycling-aware: reuses the lowest truly-unused index (unhiding it if needed)
+            // instead of forever growing the chain; extends only when everything is spoken for.
+            let index = await walletManager.lowestUnusedSpendingAddress()
             await loadEntries()
             isGenerating = false
+            toastMessage = "Spending address #\(index) is ready."
+            toastToken = UUID()
         }
     }
 
@@ -2081,6 +2085,25 @@ private struct SpendingAddressVisibilityView: View {
     @State private var isLoading = true
     /// Lazily-filled history results for zero-balance addresses (address -> ever used).
     @State private var usedByAddress: [String: Bool] = [:]
+    /// Pager: 50 addresses per page, endless - pages past the revealed set derive future
+    /// indices on the fly (checking one reveals it without flooding the main list).
+    @State private var page = 0
+    private let pageSize = 50
+
+    /// The rows for the current page, by raw index order. Revealed indices come from the
+    /// loaded entries; anything beyond derives its address fresh (unrevealed = unchecked).
+    private var pageEntries: [SpendingAddressEntry] {
+        let byIndex = Dictionary(uniqueKeysWithValues: entries.map { ($0.index, $0) })
+        let start = page * pageSize
+        return (start..<(start + pageSize)).compactMap { index in
+            if let existing = byIndex[index] { return existing }
+            guard let address = walletManager.spendingAddress(at: index) else { return nil }
+            return SpendingAddressEntry(
+                index: index, address: address, balanceSompi: 0,
+                isCurrent: false, everUsed: false, label: nil, hidden: true
+            )
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -2090,16 +2113,15 @@ private struct SpendingAddressVisibilityView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
-                        Section {
-                            ForEach(entries) { entry in
-                                row(entry)
-                            }
-                        } footer: {
-                            Text("Checked addresses show on the Manage Addresses list. The primary address and addresses holding a balance always stay visible.")
+                        ForEach(pageEntries) { entry in
+                            row(entry)
                         }
                     }
                     .listStyle(.plain)
                 }
+            }
+            .safeAreaInset(edge: .bottom) {
+                pagerBar
             }
             .navigationTitle("Address Visibility")
             .navigationBarTitleDisplayMode(.inline)
@@ -2111,6 +2133,36 @@ private struct SpendingAddressVisibilityView: View {
             }
             .task { await load() }
         }
+    }
+
+    /// Bottom pager: "#start - #end" with arrows; the right arrow never runs out (pages past
+    /// the revealed set derive future addresses).
+    private var pagerBar: some View {
+        HStack {
+            Button {
+                page = max(0, page - 1)
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.headline)
+                    .frame(width: 44, height: 36)
+            }
+            .disabled(page == 0)
+            Spacer()
+            Text("#\(page * pageSize) - #\(page * pageSize + pageSize - 1)")
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+            Spacer()
+            Button {
+                page += 1
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.headline)
+                    .frame(width: 44, height: 36)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.thinMaterial)
     }
 
     private func row(_ entry: SpendingAddressEntry) -> some View {
@@ -2185,12 +2237,20 @@ private struct SpendingAddressVisibilityView: View {
         // Locked rows (primary / funded) don't toggle - mirrors the server-side guard.
         guard !entry.isCurrent, entry.balanceSompi == 0 else { return }
         Task {
-            let ok = await walletManager.setSpendingAddressHidden(index: entry.index, hidden: !entry.hidden)
-            guard ok else { return }
-            if let position = entries.firstIndex(where: { $0.id == entry.id }) {
-                var updated = entries[position]
-                updated.hidden.toggle()
-                entries[position] = updated
+            let revealedMax = entries.map(\.index).max() ?? -1
+            if entry.index > revealedMax {
+                // A derived future index from the endless pager: reveal exactly this one
+                // (indices in between stay hidden so the main list doesn't flood).
+                await walletManager.revealSpendingAddress(at: entry.index)
+                entries = await walletManager.getSpendingAddressList()
+            } else {
+                let ok = await walletManager.setSpendingAddressHidden(index: entry.index, hidden: !entry.hidden)
+                guard ok else { return }
+                if let position = entries.firstIndex(where: { $0.id == entry.id }) {
+                    var updated = entries[position]
+                    updated.hidden.toggle()
+                    entries[position] = updated
+                }
             }
         }
     }
