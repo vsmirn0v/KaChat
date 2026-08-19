@@ -2643,13 +2643,13 @@ private struct KaPostCellView: View {
     var onViewEngagement: (() -> Void)? = nil
     let onFollowToggle: () -> Void
     let onOpenProfile: () -> Void
+    /// "Tip": opens the 1:1 chat with the poster in KAS-send mode. nil (or your own post) hides it.
+    var onTip: (() -> Void)? = nil
     let onLike: () -> Void
     let onDislike: () -> Void
     let onRepost: () -> Void
     /// Tapping the quoted-post embed opens that post's own thread (comments and all).
     var onOpenQuoted: ((String) -> Void)? = nil
-    /// "Tip": opens the 1:1 chat with the poster in KAS-send mode. nil (or your own post) hides it.
-    var onTip: (() -> Void)? = nil
 
     /// Long enough that the feed should fold it behind "Show more" (X-style ~280-char threshold,
     /// or a wall of newlines).
