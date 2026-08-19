@@ -355,6 +355,13 @@ extension WalletManager {
         return true
     }
 
+    /// Read-only snapshot of the hidden set, so Manage Addresses can apply bulk
+    /// visibility edits to its already-loaded rows instantly on sheet dismiss
+    /// (before the full balance/used reload finishes).
+    func hiddenSpendingIndexSet() -> Set<Int> {
+        hiddenSpendingIndices
+    }
+
     func setSpendingAddressLabel(index: Int, label: String) {
         var labels = spendingLabels
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -151,6 +151,10 @@ struct ManageAddressesView: View {
             }
         }
         .sheet(isPresented: $showVisibilityManager, onDismiss: {
+            // Apply the visibility edits to the rows we already have IMMEDIATELY -
+            // loadEntries() re-fetches every balance and used-flag, which takes long
+            // enough on big wallets that the screen looked stale after hitting Done.
+            applyVisibilityChangesInstantly()
             Task { await loadEntries() }
         }) {
             SpendingAddressVisibilityView()
@@ -364,6 +368,35 @@ struct ManageAddressesView: View {
             .padding(16)
         }
         .background(glassBackground(cornerRadius: 18))
+    }
+
+    /// Instant sync after the Address Visibility sheet closes: stamp the stored hidden
+    /// set onto the rows already loaded and add any newly revealed indices (pager-derived
+    /// addresses beyond what this screen had), so the list reflects the user's edits the
+    /// moment they hit Done. The full loadEntries() that follows fills in balances/used.
+    private func applyVisibilityChangesInstantly() {
+        let hidden = walletManager.hiddenSpendingIndexSet()
+        var updated = entries
+        for i in updated.indices {
+            updated[i].hidden = hidden.contains(updated[i].index)
+        }
+        let known = Set(updated.map(\.index))
+        let maxIndex = walletManager.maxSpendingAddressIndex
+        if maxIndex >= 0 {
+            for index in 0...maxIndex where !known.contains(index) && !hidden.contains(index) {
+                guard let address = walletManager.spendingAddress(at: index) else { continue }
+                updated.append(SpendingAddressEntry(
+                    index: index,
+                    address: address,
+                    balanceSompi: 0,
+                    isCurrent: index == walletManager.currentSpendingAddressIndex,
+                    everUsed: false,
+                    label: nil,
+                    hidden: false
+                ))
+            }
+        }
+        entries = updated.sorted { $0.index < $1.index }
     }
 
     private func loadEntries() async {
