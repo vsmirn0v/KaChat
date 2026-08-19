@@ -182,6 +182,9 @@ struct KaPostsView: View {
         /// The indexer's reply count for this post - feed cells show it before any replies
         /// have actually been fetched (they load lazily on opening the thread).
         var remoteReplyCount: Int = 0
+        /// True for a thread root WE posted this session (scheduleThread) - shows the feed's
+        /// "View thread" affordance immediately, before any probe could discover it remotely.
+        var isLocalThreadRoot = false
         /// Replies, X-style. Comments are themselves DraftPosts so the cell (avatar/KNS
         /// name/follow/engagement) is reused wholesale - and they nest: a comment carries its
         /// own comments, opened as its own thread.
@@ -709,11 +712,37 @@ struct KaPostsView: View {
                                   !post.posterAddress.isEmpty else { return }
                             _ = await knsService.fetchProfile(for: post.posterAddress)
                         }
+                        // Thread-root probe: once per commented post, so the "View thread"
+                        // affordance below can appear for other people's threads too.
+                        .task(id: post.remoteId ?? "") {
+                            await probeThreadRoot(post)
+                        }
                         // Endless scroll: the row ~5 from the end pulls the next pages in,
                         // well before the user reaches the bottom.
                         .onAppear {
                             guard post.id == triggerId else { return }
                             Task { await loadFeedPage(reset: false) }
+                        }
+                        // X-style "View thread" under a thread root - opens the detail, where
+                        // the full continuation renders as a connected Thread section.
+                        if isThreadRoot(post) {
+                            Button {
+                                openDetail(post)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "text.append")
+                                        .font(.caption2.weight(.semibold))
+                                    Text("View thread")
+                                        .font(.caption.weight(.semibold))
+                                }
+                                .foregroundColor(.accentColor)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.leading, 68)
+                            .padding(.top, 2)
+                            .padding(.bottom, 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         Divider()
                             .padding(.leading, 68)
@@ -1439,6 +1468,7 @@ struct KaPostsView: View {
         var rootPost = DraftPost(text: first, timestamp: Date(), posterAddress: myAddress)
         rootPost.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
         rootPost.deliveryStatus = .pending
+        rootPost.isLocalThreadRoot = true
         let localId = rootPost.id
         posts.insert(rootPost, at: 0)
         threadRemainders[localId] = ThreadRemainder(rootText: first, segments: Array(segments.dropFirst()), parentTxId: nil)
@@ -1484,6 +1514,72 @@ struct KaPostsView: View {
                 mutatePost(id: localId) { $0.deliveryStatus = .failed }
                 AppLog.log("[KaPosts] Thread submit failed (resumable): %@", error.localizedDescription)
             }
+        }
+    }
+
+    // MARK: - Thread reading (X-style "View thread")
+
+    /// The author's own continuation chain for an opened root post, keyed by the root's local
+    /// id: [segment2, segment3, ...]. Loaded by walking self-authored replies link by link.
+    @State private var threadChains: [UUID: [DraftPost]] = [:]
+    /// Feed probe results: post txid -> "its replies include one by the author" (= thread root).
+    /// false is also cached so a post is probed at most once per session.
+    @State private var threadRootProbe: [String: Bool] = [:]
+
+    private func isThreadRoot(_ post: DraftPost) -> Bool {
+        if post.isLocalThreadRoot { return true }
+        guard let remoteId = post.remoteId else { return false }
+        return threadRootProbe[remoteId] ?? false
+    }
+
+    /// Cheap feed probe, run once per commented post as its cell appears: fetch the first reply
+    /// page and check for a self-authored reply (X's own "Show this thread" heuristic).
+    private func probeThreadRoot(_ post: DraftPost) async {
+        guard let remoteId = post.remoteId,
+              !post.isLocalThreadRoot,
+              commentCount(of: post) > 0,
+              threadRootProbe[remoteId] == nil else { return }
+        threadRootProbe[remoteId] = false // claim, so one post never probes twice
+        guard let page = try? await KaPostsAPIClient.shared.fetchReplies(postId: remoteId, limit: 10, before: nil) else { return }
+        let isThread = page.posts.contains { reply in
+            KaPostsAPIClient.kaspaAddress(fromPubkey: reply.userPublicKey) == post.posterAddress
+        }
+        threadRootProbe[remoteId] = isThread
+    }
+
+    /// Walks the author's self-reply chain from an opened root: segment 2 comes from the
+    /// already-loaded direct replies, each further segment from fetching the previous one's
+    /// replies (a thread is root <- seg2 <- seg3 ... by the same author). Capped defensively.
+    private func loadSelfThreadChain(rootId: UUID) async {
+        guard let root = findPost(id: rootId), root.remoteId != nil else { return }
+        var chain: [DraftPost] = []
+        var current = root.comments
+            .filter { $0.posterAddress == root.posterAddress && $0.remoteId != nil }
+            .sorted { $0.timestamp < $1.timestamp }
+            .first
+        var hops = 0
+        while let segment = current, hops < 25 {
+            chain.append(segment)
+            hops += 1
+            guard let segmentRemoteId = segment.remoteId,
+                  let page = try? await KaPostsAPIClient.shared.fetchReplies(postId: segmentRemoteId, limit: 25, before: nil) else { break }
+            current = page.posts
+                .compactMap { Self.mapRemotePost($0) }
+                .filter { $0.posterAddress == root.posterAddress }
+                .sorted { $0.timestamp < $1.timestamp }
+                .first
+        }
+        threadChains[rootId] = chain
+        if let remoteId = root.remoteId, !chain.isEmpty { threadRootProbe[remoteId] = true }
+    }
+
+    /// The root's comments with thread segments removed - a thread's segment 2 IS a direct
+    /// reply, but it belongs to the Thread section, not the Comments list.
+    private func commentsExcludingThread(of post: DraftPost) -> [DraftPost] {
+        let chainRemoteIds = Set((threadChains[post.id] ?? []).compactMap(\.remoteId))
+        return visibleComments(of: post).filter { comment in
+            guard let remoteId = comment.remoteId else { return true }
+            return !chainRemoteIds.contains(remoteId)
         }
     }
 
@@ -1949,8 +2045,12 @@ struct KaPostsView: View {
     private func openDetail(_ post: DraftPost) {
         replyText = ""
         detailTarget = PostDetailTarget(id: post.id)
-        // Remote post: pull its real reply thread from the indexer into the comments array.
-        Task { await loadThreadReplies(for: post, reset: true) }
+        // Remote post: pull its real reply thread from the indexer into the comments array,
+        // then walk the author's own continuation so the Thread section can render.
+        Task {
+            await loadThreadReplies(for: post, reset: true)
+            await loadSelfThreadChain(rootId: post.id)
+        }
     }
 
     // MARK: - My profile (side menu, X-style)
@@ -2647,8 +2747,38 @@ struct KaPostsView: View {
                             threadCell(post, isRoot: true)
                             Divider()
 
+                            // X-style thread reading: the author's own continuation renders as
+                            // a connected, ordered section right under the root - separate from
+                            // other people's comments below.
+                            if let chain = threadChains[post.id], !chain.isEmpty {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "text.append")
+                                        .font(.caption.weight(.semibold))
+                                    Text("Thread · \(chain.count + 1) posts")
+                                        .font(.subheadline.weight(.bold))
+                                    Spacer()
+                                }
+                                .foregroundColor(.accentColor)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+
+                                ForEach(chain) { segment in
+                                    HStack(alignment: .top, spacing: 0) {
+                                        // Connector rail, X-style: visually chains the segments.
+                                        RoundedRectangle(cornerRadius: 1)
+                                            .fill(Color.accentColor.opacity(0.35))
+                                            .frame(width: 2)
+                                            .padding(.leading, 16)
+                                            .padding(.vertical, 2)
+                                        threadCell(segment)
+                                    }
+                                }
+                                Divider()
+                            }
+
+                            let comments = commentsExcludingThread(of: post)
                             HStack {
-                                Text(visibleComments(of: post).isEmpty ? "Comments" : "Comments (\(visibleComments(of: post).count))")
+                                Text(comments.isEmpty ? "Comments" : "Comments (\(comments.count))")
                                     .font(.subheadline.weight(.bold))
                                     .foregroundColor(.secondary)
                                 Spacer()
@@ -2656,7 +2786,6 @@ struct KaPostsView: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
 
-                            let comments = visibleComments(of: post)
                             if comments.isEmpty {
                                 Text("No comments yet - be the first to reply.")
                                     .font(.subheadline)
