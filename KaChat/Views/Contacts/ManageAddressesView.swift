@@ -30,6 +30,8 @@ struct ManageAddressesView: View {
     /// Addresses that own at least one KNS domain (cached assets-by-owner lookup) - drives the
     /// "Contains domain" row tag and promotes those rows into the funded group in the sort.
     @State private var domainOwningAddresses: Set<String> = []
+    /// The bulk show/hide checklist (toolbar top-right).
+    @State private var showVisibilityManager = false
 
     private var visibleEntries: [SpendingAddressEntry] {
         entries.filter { !$0.hidden }
@@ -61,41 +63,12 @@ struct ManageAddressesView: View {
         return primary + active + fresh
     }
 
-    /// Hide is only ever offered for a non-primary, zero-balance address — the same guard is
-    /// re-enforced (against the live balance, not this cached check) server-side in
-    /// WalletManager.setSpendingAddressHidden.
-    private func canHide(_ entry: SpendingAddressEntry) -> Bool {
-        !entry.isCurrent && entry.balanceSompi == 0
-    }
-
-    private func hideAddress(_ entry: SpendingAddressEntry) {
-        Task {
-            let hidden = await walletManager.setSpendingAddressHidden(index: entry.index, hidden: true)
-            if hidden {
-                await loadEntries()
-            }
-        }
-    }
-
     var body: some View {
         List {
             chattingAddressWarningCard
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-
-            if hiddenCount > 0 {
-                NavigationLink {
-                    HiddenSpendingAddressesView()
-                } label: {
-                    Text("Hidden (\(hiddenCount))")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
 
             if isLoading && entries.isEmpty {
                 HStack {
@@ -113,22 +86,14 @@ struct ManageAddressesView: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             } else {
+                // Hiding moved to the bulk Address Visibility screen (toolbar checklist) -
+                // the old swipe-to-hide is gone.
                 ForEach(sortedEntries) { entry in
                     addressRow(entry)
                         .padding(.vertical, 6)
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
-                        .swipeActions(edge: .trailing) {
-                            if canHide(entry) {
-                                Button {
-                                    hideAddress(entry)
-                                } label: {
-                                    Label("Hide", systemImage: "eye.slash")
-                                }
-                                .tint(.gray)
-                            }
-                        }
                 }
             }
         }
@@ -173,6 +138,23 @@ struct ManageAddressesView: View {
         }
         .navigationTitle("Manage Addresses")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // Bulk visibility manager: compact checkmark list of EVERY address, so dozens can
+            // be toggled off the main list in one sitting.
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showVisibilityManager = true
+                } label: {
+                    Image(systemName: "checklist")
+                }
+                .accessibilityLabel(Text("Manage address visibility"))
+            }
+        }
+        .sheet(isPresented: $showVisibilityManager, onDismiss: {
+            Task { await loadEntries() }
+        }) {
+            SpendingAddressVisibilityView()
+        }
         .refreshable {
             await loadEntries()
         }
@@ -2079,5 +2061,137 @@ private struct HiddenSpendingAddressesView: View {
                     .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
             )
             .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+    }
+}
+
+// MARK: - Bulk address visibility (toolbar checklist on Manage Addresses)
+
+/// A very compact list of EVERY revealed spending address with a toggleable checkmark per row -
+/// checked = shown on the Manage Addresses list. Built for wallets with a hundred-plus revealed
+/// addresses: tap through as many rows as you like in one sitting. Each row also shows whether
+/// the address has ever been used on-chain (balance counts as used; swept-to-zero addresses are
+/// checked against history lazily). The primary address and any address holding a balance can't
+/// be hidden - the same rule WalletManager.setSpendingAddressHidden enforces server-side.
+private struct SpendingAddressVisibilityView: View {
+    @EnvironmentObject var walletManager: WalletManager
+    @EnvironmentObject var chatService: ChatService
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var entries: [SpendingAddressEntry] = []
+    @State private var isLoading = true
+    /// Lazily-filled history results for zero-balance addresses (address -> ever used).
+    @State private var usedByAddress: [String: Bool] = [:]
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading && entries.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        Section {
+                            ForEach(entries) { entry in
+                                row(entry)
+                            }
+                        } footer: {
+                            Text("Checked addresses show on the Manage Addresses list. The primary address and addresses holding a balance always stay visible.")
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Address Visibility")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func row(_ entry: SpendingAddressEntry) -> some View {
+        let funded = entry.balanceSompi > 0
+        let locked = entry.isCurrent || funded
+        let visible = !entry.hidden
+        return HStack(spacing: 10) {
+            Image(systemName: visible ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 20))
+                .foregroundColor(visible ? .accentColor : .secondary)
+                .opacity(locked ? 0.45 : 1)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text("#\(entry.index)")
+                        .font(.subheadline.weight(.bold))
+                        .monospacedDigit()
+                    if entry.isCurrent {
+                        Text("Primary")
+                            .font(.caption2.weight(.bold))
+                            .foregroundColor(.accentColor)
+                    }
+                    if let label = entry.label, !label.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Text(label)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Text("\(entry.address.prefix(16))…\(entry.address.suffix(6))")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            usedTag(entry, funded: funded)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { toggle(entry) }
+        .listRowSeparatorTint(Color.secondary.opacity(0.2))
+        .task(id: entry.address) { await ensureUsedLoaded(entry, funded: funded) }
+    }
+
+    @ViewBuilder
+    private func usedTag(_ entry: SpendingAddressEntry, funded: Bool) -> some View {
+        if funded {
+            Text("\(Double(entry.balanceSompi) / 100_000_000.0, specifier: "%.4f") KAS")
+                .font(.caption2.weight(.semibold))
+                .foregroundColor(.accentColor)
+        } else if let used = usedByAddress[entry.address] {
+            Text(used ? "Used" : "Unused")
+                .font(.caption2.weight(.semibold))
+                .foregroundColor(used ? .orange : .secondary)
+        } else {
+            Text("…")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func load() async {
+        entries = await walletManager.getSpendingAddressList()
+        isLoading = false
+    }
+
+    /// One history lookup per zero-balance address, cached for the session of this sheet.
+    private func ensureUsedLoaded(_ entry: SpendingAddressEntry, funded: Bool) async {
+        guard !funded, usedByAddress[entry.address] == nil else { return }
+        usedByAddress[entry.address] = await chatService.hasSpendingAddressBeenUsed(entry.address)
+    }
+
+    private func toggle(_ entry: SpendingAddressEntry) {
+        // Locked rows (primary / funded) don't toggle - mirrors the server-side guard.
+        guard !entry.isCurrent, entry.balanceSompi == 0 else { return }
+        Task {
+            let ok = await walletManager.setSpendingAddressHidden(index: entry.index, hidden: !entry.hidden)
+            guard ok else { return }
+            if let position = entries.firstIndex(where: { $0.id == entry.id }) {
+                var updated = entries[position]
+                updated.hidden.toggle()
+                entries[position] = updated
+            }
+        }
     }
 }
