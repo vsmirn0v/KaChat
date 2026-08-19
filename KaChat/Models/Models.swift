@@ -1684,7 +1684,7 @@ struct AppSettings: Codable {
     var lastPoolPersistDate: Date?       // Track when pool was last saved
 
     // Default URLs per network
-    static let defaultIndexerURL = "https://indexer.kasia.wtf"
+    static let defaultIndexerURL = "https://kachat.duckdns.org"
     static let defaultKaPostIndexerURL = "https://kachat.duckdns.org"
     static let defaultBroadcastIndexerURL = defaultKaPostIndexerURL
     /// Retired default - the public K social indexer (`mainnet.kaspatalk.net`). KaPosts now
@@ -1693,9 +1693,11 @@ struct AppSettings: Codable {
     /// default is migrated in `SettingsViewModel.load()`.
     static let legacyDefaultKaPostIndexerURL = "https://mainnet.kaspatalk.net"
     /// Retired default - `indexer.kasia.fyi` doesn't run the group-chat REST endpoints
-    /// (`/group-messages/...`, `/group-control/...`), only `indexer.kasia.wtf` does. See
-    /// `AppSettings.load()`'s one-time migration off this value.
+    /// (`/group-messages/...`, `/group-control/...`). See `AppSettings.load()`'s one-time migration.
     static let legacyDefaultIndexerURL = "https://indexer.kasia.fyi"
+    /// The previous shipped default (the community `indexer.kasia.wtf`), now replaced by KaChat's
+    /// own indexer (`kachat.duckdns.org`). Swept in `SettingsViewModel.load()` like kasia.fyi.
+    static let legacyDefaultIndexerURLKasiaWtf = "https://indexer.kasia.wtf"
     /// Our own push service (chat/group push + the broadcast/KaPosts extensions - see
     /// PUSH_EXTENSIONS.md). Superseded the community indexer.kasia.wtf once kachat.duckdns.org
     /// went live.

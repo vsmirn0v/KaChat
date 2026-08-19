@@ -129,11 +129,11 @@ extension AppSettings {
             AppSettingsCache.shared.set(.default)
             return .default
         }
-        // One-time migration for anyone who saved settings before the indexer moved from
-        // kasia.fyi to kasia.wtf - kasia.fyi never got the group-chat REST endpoints
-        // (`/group-messages/...`, `/group-control/...`), which otherwise 404 forever with no
-        // clear signal to the user (group catch-up sync just silently never delivers anything).
-        if settings.indexerURL == legacyDefaultIndexerURL {
+        // One-time migration for anyone still pointed at a superseded default indexer - the
+        // offline kasia.fyi, or the previous community default kasia.wtf now replaced by KaChat's
+        // own indexer (kachat.duckdns.org). Users who set a custom indexer keep it; only the old
+        // shipped defaults are moved.
+        if settings.indexerURL == legacyDefaultIndexerURL || settings.indexerURL == legacyDefaultIndexerURLKasiaWtf {
             settings.indexerURL = defaultIndexerURL
             save(settings)
         }

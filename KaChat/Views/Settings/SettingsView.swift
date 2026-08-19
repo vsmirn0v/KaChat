@@ -1818,7 +1818,7 @@ struct ConnectionSettingsView: View {
                     Text("Indexer URL")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    TextField("https://indexer.kasia.wtf", text: $indexerURL)
+                    TextField("https://kachat.duckdns.org", text: $indexerURL)
                         .font(.system(.body, design: .monospaced))
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
