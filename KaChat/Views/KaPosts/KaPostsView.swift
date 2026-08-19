@@ -453,6 +453,16 @@ struct KaPostsView: View {
             }
             .presentationDetents([.medium, .large])
         }
+        // Tapping an @mention anywhere in KaPosts (feed, thread detail, profiles - sheets
+        // inherit this environment) resolves the KNS domain and opens that user's profile.
+        // Every other link keeps the system behavior.
+        .environment(\.openURL, OpenURLAction { url in
+            guard url.scheme == "kachat-mention" else { return .systemAction }
+            let domain = url.host ?? url.absoluteString
+                .replacingOccurrences(of: "kachat-mention://", with: "")
+            openMentionProfile(domain: domain)
+            return .handled
+        })
         .task {
             if let myAddress = WalletManager.shared.currentWallet?.publicAddress {
                 followStore.removeIfPresent(myAddress)
@@ -1344,21 +1354,64 @@ struct KaPostsView: View {
     }
 
     /// Resolve the @domain tokens in a post to the pubkeys the indexer needs in mentioned_pubkeys.
-    private func mentionedPubkeys(in text: String) -> [String] {
-        let candidates = mentionCandidates()
-        guard !candidates.isEmpty else { return [] }
-        var byDomain: [String: String] = [:]
-        for candidate in candidates { byDomain[candidate.domain] = candidate.pubkey }
-        var found = Set<String>()
+    /// Tapped @mention: resolve the KNS domain to its owner and open that user's profile.
+    /// Works for ANY KNS domain, contact or not (the pubkey derives from the owner address).
+    /// Any sheet currently up (thread detail, etc.) is dismissed first - only one sheet can
+    /// present at a time, so the profile waits for the dismissal animation.
+    private func openMentionProfile(domain: String) {
+        Task {
+            guard let resolution = await KNSService.shared.resolveDomain(domain) else { return }
+            let pubkey = KaPostsAPIClient.kapostPubkey(fromAddress: resolution.ownerAddress)
+            let hadSheetUp = detailTarget != nil || quoteComposerTarget != nil || showComposer
+            detailTarget = nil
+            quoteComposerTarget = nil
+            showComposer = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + (hadSheetUp ? 0.4 : 0)) {
+                profileTarget = PosterProfileTarget(address: resolution.ownerAddress, pubkey: pubkey)
+            }
+        }
+    }
+
+    /// The bare @domain tokens in `text`, in order, deduped.
+    static func mentionDomains(in text: String) -> [String] {
         let ns = text as NSString
-        let regex = try? NSRegularExpression(pattern: "(^|[\\s([{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)", options: [.caseInsensitive])
-        regex?.enumerateMatches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) { match, _, _ in
+        guard let regex = try? NSRegularExpression(
+            pattern: "(^|[\\s([{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)",
+            options: [.caseInsensitive]
+        ) else { return [] }
+        var seen = Set<String>()
+        var out: [String] = []
+        regex.enumerateMatches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) { match, _, _ in
             guard let match = match, match.numberOfRanges >= 3 else { return }
             var domain = ns.substring(with: match.range(at: 2)).lowercased()
             if domain.hasSuffix(".kas") { domain = String(domain.dropLast(4)) }
-            if let pubkey = byDomain[domain] { found.insert(pubkey) }
+            if !domain.isEmpty, seen.insert(domain).inserted { out.append(domain) }
         }
-        return Array(found)
+        return out
+    }
+
+    /// Resolves every @domain in `text` to a compressed pubkey for mentioned_pubkeys. Chatted
+    /// contacts resolve from the local KNS cache; ANYONE else with a KNS domain resolves live
+    /// through resolveDomain (owner address -> pubkey). Unresolvable tokens stay plain text.
+    private func mentionedPubkeys(in text: String) async -> [String] {
+        let domains = Self.mentionDomains(in: text)
+        guard !domains.isEmpty else { return [] }
+        var byDomain: [String: String] = [:]
+        for candidate in mentionCandidates() { byDomain[candidate.domain] = candidate.pubkey }
+        var found = Set<String>()
+        var out: [String] = []
+        for domain in domains {
+            if let pubkey = byDomain[domain] {
+                if found.insert(pubkey).inserted { out.append(pubkey) }
+                continue
+            }
+            if let resolution = await KNSService.shared.resolveDomain(domain),
+               let pubkey = KaPostsAPIClient.kapostPubkey(fromAddress: resolution.ownerAddress),
+               found.insert(pubkey).inserted {
+                out.append(pubkey)
+            }
+        }
+        return out
     }
 
     /// Unposted work for an in-flight or failed thread, keyed by the root post's LOCAL id.
@@ -1405,7 +1458,7 @@ struct KaPostsView: View {
                 if let rootText = threadRemainders[localId]?.rootText {
                     let rootTxId = try await submitWithUtxoRetry {
                         try await KaPostsAPIClient.shared.submitPost(
-                            text: rootText, mentionedPubkeys: mentionedPubkeys(in: rootText)
+                            text: rootText, mentionedPubkeys: await mentionedPubkeys(in: rootText)
                         )
                     }
                     mutatePost(id: localId) { $0.remoteId = rootTxId }
@@ -1456,7 +1509,6 @@ struct KaPostsView: View {
         newPost.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
         newPost.deliveryStatus = .pending
         let localId = newPost.id
-        let mentionPubkeys = mentionedPubkeys(in: text)
         posts.insert(newPost, at: 0)
         let key = "post:\(localId)"
         showUndoToast(key: key, postId: localId, label: "Posting")
@@ -1466,7 +1518,7 @@ struct KaPostsView: View {
             // post with the returned txid so it dedupes against the feed once indexed.
             Task {
                 do {
-                    let txId = try await KaPostsAPIClient.shared.submitPost(text: text, mentionedPubkeys: mentionPubkeys)
+                    let txId = try await KaPostsAPIClient.shared.submitPost(text: text, mentionedPubkeys: await mentionedPubkeys(in: text))
                     mutatePost(id: localId) {
                         $0.remoteId = txId
                         $0.deliveryStatus = .sent
@@ -1718,7 +1770,7 @@ struct KaPostsView: View {
                         text: post.text, postId: parentRemoteId, parentAuthorPubkey: parent.posterPubkey
                     )
                 } else {
-                    txId = try await KaPostsAPIClient.shared.submitPost(text: post.text, mentionedPubkeys: mentionedPubkeys(in: post.text))
+                    txId = try await KaPostsAPIClient.shared.submitPost(text: post.text, mentionedPubkeys: await mentionedPubkeys(in: post.text))
                 }
                 mutatePost(id: post.id) {
                     $0.remoteId = txId
@@ -3098,7 +3150,9 @@ private struct KaPostCellView: View {
             attributed[start..<end].link = url
             attributed[start..<end].underlineStyle = .single
         }
-        // Highlight @mentions (accent-coloured), matching the desktop renderer and the indexer rule.
+        // Highlight @mentions (accent-coloured) and make them TAPPABLE: each carries a
+        // kachat-mention:// link that KaPostsView's OpenURLAction resolves to the mentioned
+        // user's profile (any KNS domain, contact or not).
         if let mentionRegex = try? NSRegularExpression(pattern: "(^|[\\s([{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)", options: [.caseInsensitive]) {
             for match in mentionRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) {
                 let domainRange = match.range(at: 2)
@@ -3106,11 +3160,16 @@ private struct KaPostCellView: View {
                 let tokenLength = domainRange.length + 1
                 guard tokenStart >= 0,
                       let stringRange = Range(NSRange(location: tokenStart, length: tokenLength), in: text) else { continue }
+                var domain = nsText.substring(with: domainRange).lowercased()
+                if domain.hasSuffix(".kas") { domain = String(domain.dropLast(4)) }
                 let startOffset = text.distance(from: text.startIndex, to: stringRange.lowerBound)
                 let length = text.distance(from: stringRange.lowerBound, to: stringRange.upperBound)
                 let start = attributed.index(attributed.startIndex, offsetByCharacters: startOffset)
                 let end = attributed.index(start, offsetByCharacters: length)
                 attributed[start..<end].foregroundColor = .accentColor
+                if let url = URL(string: "kachat-mention://\(domain)") {
+                    attributed[start..<end].link = url
+                }
             }
         }
         return attributed
@@ -3604,6 +3663,9 @@ private struct KaPostComposerView: View {
     @ObservedObject private var knsService = KNSService.shared
     @State private var text = ""
     @State private var threadSegments: [String] = []
+    /// A live KNS resolution of the CURRENT @query - lets you mention anyone with a KNS
+    /// domain, not just chatted contacts (those come from the local cache).
+    @State private var resolvedAnyDomain: String?
     @FocusState private var isFocused: Bool
 
     private var trimmed: String {
@@ -3800,6 +3862,19 @@ private struct KaPostComposerView: View {
         .task {
             await ContactsManager.shared.fetchKNSDomainsForAllContacts()
         }
+        // Anyone-with-a-KNS-domain mentions: debounce-resolve the typed @query live; a hit
+        // appends its row to the list even when they're not a contact.
+        .task(id: mentionQuery ?? "") {
+            resolvedAnyDomain = nil
+            guard let query = mentionQuery, query.count >= 2 else { return }
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            guard let resolution = await KNSService.shared.resolveDomain(query) else { return }
+            guard !Task.isCancelled, mentionQuery == query else { return }
+            var bare = resolution.domain.lowercased()
+            if bare.hasSuffix(".kas") { bare = String(bare.dropLast(4)) }
+            resolvedAnyDomain = bare
+        }
         .onChange(of: text) { newValue in
             // Hard cap at the limit, X-style.
             if newValue.count > KaPostsView.postCharacterLimit {
@@ -3849,6 +3924,11 @@ private struct KaPostComposerView: View {
             seen.insert(bare)
             out.append(bare)
             if out.count >= 6 { break }
+        }
+        // Live-resolved non-contact domain matching the current query rides along at the end.
+        if let extra = resolvedAnyDomain, !seen.contains(extra),
+           query.isEmpty || extra.hasPrefix(query) {
+            out.append(extra)
         }
         return out
     }
