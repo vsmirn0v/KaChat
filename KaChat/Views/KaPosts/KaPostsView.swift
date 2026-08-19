@@ -214,6 +214,8 @@ struct KaPostsView: View {
     @State private var loadedFeedSource: FeedSource?
     @State private var feedError: String?
     @State private var showComposer = false
+    /// Poster being tipped via the quick-tip sheet (amount + direct send).
+    @State private var tipTarget: TipTarget?
     /// Zero-balance interception for the new-post entry point: with a CONFIRMED 0 KAS chatting
     /// balance (never on unknown/still-loading - see
     /// `WalletManager.hasConfirmedZeroChattingBalance`) the pencil button presents the shared
@@ -384,6 +386,9 @@ struct KaPostsView: View {
                 schedulePost(text: text)
             }
             .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $tipTarget) { target in
+            KaPostTipSheet(address: target.address, displayName: posterDisplayName(target.address))
         }
         .sheet(isPresented: $showComposeFundingSheet) {
             // Zero-balance gate: presented INSTEAD of the post composer (see
@@ -2260,10 +2265,18 @@ struct KaPostsView: View {
         }
     }
 
-    /// KaPosts "Tip" button: open the poster's 1:1 chat straight in KAS-send mode.
+    struct TipTarget: Identifiable {
+        let address: String
+        var id: String { address }
+    }
+
+    /// KaPosts "Tip" button: quick amount dialog, then a DIRECT send through
+    /// ChatService.sendPayment - destination and funding follow the same Chats Payment
+    /// Privacy rules as an in-chat payment (privacy pool address when available, else the
+    /// poster's chatting address), and the payment bubble lands in the 1:1 chat.
     private func tip(_ address: String) {
         guard address != WalletManager.shared.currentWallet?.publicAddress else { return }
-        startChat(with: address, paymentMode: true)
+        tipTarget = TipTarget(address: address)
     }
 
     /// Underline tab bar for profile feeds (Posts | Replies), matching the app's other tab
@@ -2854,7 +2867,10 @@ private struct KaPostCellView: View {
                             onTip()
                         } label: {
                             HStack(spacing: 3) {
-                                Image(systemName: "bitcoinsign.circle")
+                                Image("KaspaLogo")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 16, height: 16)
                                 Text("Tip")
                             }
                             .font(.subheadline.weight(.semibold))
@@ -3130,6 +3146,99 @@ private struct KaPostCellView: View {
     }
 }
 
+// MARK: - Quick tip
+
+/// Quick tip sheet: amount in, direct send out - no chat detour. Reuses
+/// `ChatService.sendPayment`, so the destination and funding follow the exact same Chats
+/// Payment Privacy rules as an in-chat payment (privacy on + pool data -> a fresh private pool
+/// address; otherwise the poster's public chatting address), and the payment bubble still lands
+/// in the 1:1 conversation with them.
+private struct KaPostTipSheet: View {
+    let address: String
+    let displayName: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var amountText = ""
+    @State private var isSending = false
+    @State private var errorMessage: String?
+    @FocusState private var amountFocused: Bool
+
+    private var amountSompi: UInt64? {
+        guard let value = Double(amountText.replacingOccurrences(of: ",", with: ".")),
+              value > 0 else { return nil }
+        return UInt64((value * 100_000_000).rounded())
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack(spacing: 6) {
+                        Image("KaspaLogo")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 18, height: 18)
+                        TextField("Amount (KAS)", text: $amountText)
+                            .keyboardType(.decimalPad)
+                            .focused($amountFocused)
+                    }
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                } footer: {
+                    Text("Sends Kaspa straight to \(displayName). Your Chats Payment Privacy setting decides the destination and funding, exactly like a payment inside their chat.")
+                }
+            }
+            .navigationTitle("Tip \(displayName)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSending ? "Sending..." : "Send") { send() }
+                        .fontWeight(.semibold)
+                        .disabled(amountSompi == nil || isSending)
+                }
+            }
+            .onAppear { amountFocused = true }
+        }
+        .presentationDetents([.height(280), .medium])
+    }
+
+    private func send() {
+        guard let amountSompi else { return }
+        let contact: Contact?
+        if let existing = ContactsManager.shared.getContact(byAddress: address) {
+            contact = existing
+        } else {
+            contact = try? ContactsManager.shared.addContact(address: address, alias: "", isAutoAdded: true)
+        }
+        guard let contact else {
+            errorMessage = "Couldn't prepare the recipient."
+            return
+        }
+        isSending = true
+        errorMessage = nil
+        Task {
+            do {
+                try await ChatService.shared.sendPayment(to: contact, amountSompi: amountSompi)
+                await MainActor.run {
+                    Haptics.success()
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    isSending = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Composer
 
 /// Text-only post composer. Deliberately NO attachment affordances (no photo picker, no link
@@ -3173,6 +3282,29 @@ private struct KaPostComposerView: View {
                     quotedPostCard(quotedPost)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 10)
+                }
+                // @mention autocomplete: chips of your 1:1 KNS-domain contacts while an @token
+                // is being typed at the end of the text; tapping inserts "@domain ".
+                if !mentionSuggestions.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(mentionSuggestions, id: \.self) { domain in
+                                Button {
+                                    insertMention(domain)
+                                } label: {
+                                    Text("@\(domain)")
+                                        .font(.caption.weight(.bold))
+                                        .foregroundColor(.accentColor)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    .padding(.bottom, 6)
                 }
                 Divider()
                 HStack {
@@ -3218,6 +3350,40 @@ private struct KaPostComposerView: View {
 
     private var characterMeter: some View {
         KaPostCharacterMeter(count: text.count)
+    }
+
+    /// The @token currently being typed at the END of the text ("" right after "@"), or nil.
+    /// Must start the text or follow whitespace/opening punctuation so emails don't trigger it.
+    private var mentionQuery: String? {
+        guard let range = text.range(
+            of: "(^|[\\s([{<\"'])@([a-z0-9-]*)$",
+            options: [.regularExpression, .caseInsensitive]
+        ) else { return nil }
+        let token = text[range]
+        guard let atIndex = token.firstIndex(of: "@") else { return nil }
+        return String(token[token.index(after: atIndex)...]).lowercased()
+    }
+
+    /// Mentionable = your 1:1 contacts that have a KNS domain, filtered by the live @query.
+    private var mentionSuggestions: [String] {
+        guard let query = mentionQuery else { return [] }
+        var seen = Set<String>()
+        var out: [String] = []
+        for contact in ContactsManager.shared.activeContacts {
+            guard let raw = KNSService.shared.domainCache[contact.address]?.primaryDomain else { continue }
+            let bare = KaPostsView.strippingKasSuffix(raw).lowercased()
+            guard !bare.isEmpty, !seen.contains(bare),
+                  query.isEmpty || bare.hasPrefix(query) else { continue }
+            seen.insert(bare)
+            out.append(bare)
+            if out.count >= 6 { break }
+        }
+        return out
+    }
+
+    private func insertMention(_ domain: String) {
+        guard let range = text.range(of: "@[a-z0-9-]*$", options: [.regularExpression, .caseInsensitive]) else { return }
+        text.replaceSubrange(range, with: "@\(domain) ")
     }
 
     /// X-style embedded preview of the post being quoted.

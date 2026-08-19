@@ -1460,6 +1460,14 @@ final class GroupChatService: ObservableObject {
                 isOutgoing: senderAddress == WalletManager.shared.currentWallet?.publicAddress, deliveryStatus: .sent
             )
             groupMessages[group.id, default: []].append(message)
+            // Global notification center: list incoming messages that @mention one of the
+            // wallet's own KNS domains (deduped by txId inside the center).
+            if !message.isOutgoing {
+                GlobalNotificationCenter.shared.recordGroupMentionIfNeeded(
+                    groupId: group.id, groupName: group.name, senderAddress: senderAddress,
+                    text: plaintext, txId: txId, timestampMs: blockTime
+                )
+            }
             // Already looking at this group's thread right now - keep it marked read instead of
             // letting the badge tick up for a message the user is actively seeing arrive live
             // (mirrors ChatService's identical `isUserViewing` check). Covers both this live

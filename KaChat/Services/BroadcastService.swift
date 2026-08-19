@@ -249,6 +249,14 @@ final class BroadcastService: ObservableObject {
                 store.pruneExpiredMessages()
                 loadMessages(for: channel)
             }
+            // Global notification center: live (session-gated) incoming channel messages. The
+            // center dedupes by txId, so re-serving the same history every poll is a no-op.
+            for row in rows {
+                GlobalNotificationCenter.shared.recordBroadcastIfLive(
+                    channel: channel, senderAddress: row.senderAddress,
+                    content: row.content, txId: row.id, blockTime: row.blockTime
+                )
+            }
         } catch {
             // Best-effort on top of live scanning - the loop just tries again next tick.
             AppLog.log("%@", "[Broadcast] Indexer fetch failed for #\(channel): \(error.localizedDescription)")

@@ -44,6 +44,8 @@ struct ProfileView: View {
     @State private var knsSaveProgressText: String?
     @State private var failedKNSUpdates: [KNSProfileFieldKey: String] = [:]
     @State private var showSettings = false
+    @State private var showNotifCenter = false
+    @ObservedObject private var notifCenter = GlobalNotificationCenter.shared
     @State private var isResolvingDonateAddress = false
     @State private var showLogoutConfirmation = false
     @State private var showWelcomeGuideReplay = false
@@ -95,6 +97,27 @@ struct ProfileView: View {
                     balanceToolbarView
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
+                    // Global notification center: KaPosts activity, group @mentions, live
+                    // broadcasts - sits beside the Profile title, unread count as a red badge.
+                    Button {
+                        showNotifCenter = true
+                    } label: {
+                        Image(systemName: "bell")
+                            .overlay(alignment: .topTrailing) {
+                                if notifCenter.unreadCount > 0 {
+                                    Text(notifCenter.unreadCount > 99 ? "99+" : "\(notifCenter.unreadCount)")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 3.5)
+                                        .padding(.vertical, 1.5)
+                                        .background(Capsule().fill(Color.red))
+                                        .offset(x: 8, y: -6)
+                                }
+                            }
+                    }
+                    .accessibilityLabel(Text("Notifications"))
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
                         showSettings = true
                     } label: {
@@ -102,6 +125,9 @@ struct ProfileView: View {
                     }
                     .accessibilityLabel(Text("Settings"))
                 }
+            }
+            .sheet(isPresented: $showNotifCenter) {
+                GlobalNotificationListView()
             }
             .toast(message: toastMessage, style: toastStyle)
             // KNS save progress: a PERSISTENT banner (state-driven, no auto-dismiss timer) that
