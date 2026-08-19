@@ -3599,6 +3599,9 @@ private struct KaPostComposerView: View {
 
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
     @Environment(\.dismiss) private var dismiss
+    // Observed so the @mention list live-updates as KNS lookups land after the on-appear
+    // prefetch (an unobserved singleton read would stay empty until an unrelated re-render).
+    @ObservedObject private var knsService = KNSService.shared
     @State private var text = ""
     @State private var threadSegments: [String] = []
     @FocusState private var isFocused: Bool
@@ -3740,28 +3743,40 @@ private struct KaPostComposerView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 10)
             }
-            // @mention autocomplete: chips of your 1:1 KNS-domain contacts while an @token
-            // is being typed at the end of the text; tapping inserts "@domain ".
+            // @mention autocomplete: a vertical list of the KNS domains of your 1:1 contacts
+            // (styled like group chat's mention list), shown while an @token is being typed at
+            // the end of the text; tapping a row inserts "@domain ".
             if !mentionSuggestions.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(mentionSuggestions, id: \.self) { domain in
-                            Button {
-                                insertMention(domain)
-                            } label: {
-                                Text("@\(domain)")
-                                    .font(.caption.weight(.bold))
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(mentionSuggestions, id: \.self) { domain in
+                        Button {
+                            insertMention(domain)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("@")
+                                    .font(.subheadline.weight(.bold))
                                     .foregroundColor(.accentColor)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                                Text(domain)
+                                    .font(.subheadline)
+                                    .foregroundColor(.primary)
+                                Spacer(minLength: 0)
                             }
-                            .buttonStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if domain != mentionSuggestions.last {
+                            Divider()
                         }
                     }
-                    .padding(.horizontal, 16)
                 }
+                .frame(maxWidth: 280, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.12), lineWidth: 1))
+                .padding(.horizontal, 16)
                 .padding(.top, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack {
                 Spacer()
@@ -3780,6 +3795,11 @@ private struct KaPostComposerView: View {
             Spacer(minLength: 0)
         }
         .onAppear { isFocused = true }
+        // Warm the KNS domain cache for every 1:1 contact so typing @ has a populated list -
+        // without this the mention list stayed empty until something else happened to fetch.
+        .task {
+            await ContactsManager.shared.fetchKNSDomainsForAllContacts()
+        }
         .onChange(of: text) { newValue in
             // Hard cap at the limit, X-style.
             if newValue.count > KaPostsView.postCharacterLimit {
@@ -3821,7 +3841,8 @@ private struct KaPostComposerView: View {
         var seen = Set<String>()
         var out: [String] = []
         for contact in ContactsManager.shared.activeContacts {
-            guard let raw = KNSService.shared.domainCache[contact.address]?.primaryDomain else { continue }
+            // Read through the OBSERVED service so rows appear live as lookups land.
+            guard let raw = knsService.domainCache[contact.address]?.primaryDomain else { continue }
             let bare = KaPostsView.strippingKasSuffix(raw).lowercased()
             guard !bare.isEmpty, !seen.contains(bare),
                   query.isEmpty || bare.hasPrefix(query) else { continue }
