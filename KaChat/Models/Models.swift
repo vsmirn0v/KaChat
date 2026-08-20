@@ -852,6 +852,14 @@ enum MessageReplyCodec {
         if ChessCodec.parseAny(unwrapped) != nil {
             return "♟️ Chess"
         }
+        // Any other {type:"file"} media envelope (video, documents, or one whose mime the
+        // head-sniff can't pin down) - never leak raw JSON into a preview.
+        if let mime = InlineMediaSniff.mimeType(of: unwrapped) {
+            return mime.lowercased().hasPrefix("video/") ? "🎬 Video" : "📎 File"
+        }
+        if InlineMediaSniff.isFileEnvelope(unwrapped) {
+            return "📎 File"
+        }
         return unwrapped
     }
 }
@@ -1090,17 +1098,74 @@ enum InlineFileSniff {
 /// multi-MB of base64, and the sniffs run inside list-row view bodies (chat-list previews, reply
 /// quotes), costing 10-100ms per call. App-generated inline-media JSON always carries `mimeType`
 /// near the front; 2KB comfortably covers it.
+///
+/// Hardened against two real wire variants that used to defeat the sniff and leak raw JSON into
+/// previews: (1) senders that built the envelope from a `[String: Any]` dictionary serialize the
+/// keys in UNDEFINED order, so `content` can land before `mimeType`, pushing the mime megabytes
+/// past this head window - but the `data:` URL itself names the mime right up front; and
+/// (2) `JSONSerialization` escapes "/" as "\/", so the extracted value must be unescaped before
+/// any `hasPrefix("image/")`-style check can match.
 enum InlineMediaSniff {
     static func mimeType(of text: String) -> String? {
         let head = String(text.prefix(2048)).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard head.first == "{", let keyRange = head.range(of: "\"mimeType\"") else { return nil }
-        let afterKey = head[keyRange.upperBound...]
-        guard let colon = afterKey.firstIndex(of: ":") else { return nil }
-        let afterColon = afterKey[afterKey.index(after: colon)...].drop { $0 == " " }
-        guard afterColon.first == "\"" else { return nil }
-        let valueStart = afterColon.index(after: afterColon.startIndex)
-        guard let endQuote = afterColon[valueStart...].firstIndex(of: "\"") else { return nil }
-        return String(afterColon[valueStart..<endQuote])
+        guard head.first == "{" else { return nil }
+        if let keyRange = head.range(of: "\"mimeType\"") {
+            let afterKey = head[keyRange.upperBound...]
+            if let colon = afterKey.firstIndex(of: ":") {
+                let afterColon = afterKey[afterKey.index(after: colon)...].drop { $0 == " " }
+                if afterColon.first == "\"" {
+                    let valueStart = afterColon.index(after: afterColon.startIndex)
+                    if let endQuote = afterColon[valueStart...].firstIndex(of: "\"") {
+                        return unescaped(String(afterColon[valueStart..<endQuote]))
+                    }
+                }
+            }
+        }
+        // Fallback: `content` serialized before `mimeType` - read the mime out of the data: URL.
+        if let keyRange = head.range(of: "\"content\"") {
+            let afterKey = head[keyRange.upperBound...]
+            if let colon = afterKey.firstIndex(of: ":") {
+                var value = afterKey[afterKey.index(after: colon)...].drop { $0 == " " }
+                if value.hasPrefix("\"data:") {
+                    value = value.dropFirst("\"data:".count)
+                    if let end = value.firstIndex(where: { $0 == ";" || $0 == "\"" || $0 == "," }) {
+                        return unescaped(String(value[..<end]))
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Whether the head looks like the cross-platform `{"type":"file",...}` media envelope at
+    /// all - the last-resort preview catch so raw JSON never shows even when the mime can't be
+    /// determined.
+    static func isFileEnvelope(_ text: String) -> Bool {
+        let head = String(text.prefix(2048)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard head.first == "{" else { return false }
+        return head.range(of: "\"type\"\\s*:\\s*\"file\"", options: .regularExpression) != nil
+    }
+
+    private static func unescaped(_ value: String) -> String {
+        value.replacingOccurrences(of: "\\/", with: "/")
+    }
+}
+
+/// Builds the cross-platform inline-media JSON envelope with a DETERMINISTIC field order:
+/// `type, name, size, mimeType, content` - `mimeType` BEFORE the multi-MB `content`, and no
+/// "\/" escaping. Senders used to build this from a `[String: Any]` + `JSONSerialization`
+/// dictionary, whose undefined key order could push `mimeType` past every client's head-window
+/// preview sniff (showing raw JSON in chat lists). Field order now matches Android's
+/// `VoiceMessage.encode` and desktop's `buildImageEnvelopeJson` exactly.
+enum MediaFileEnvelope {
+    static func json(name: String, size: Int, mimeType: String, dataUrlContent: String) -> String {
+        "{\"type\":\"file\",\"name\":\"\(escape(name))\",\"size\":\(size),\"mimeType\":\"\(escape(mimeType))\",\"content\":\"\(escape(dataUrlContent))\"}"
+    }
+
+    private static func escape(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 }
 

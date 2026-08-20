@@ -534,17 +534,13 @@ final class BroadcastService: ObservableObject {
         mimeType: String = "audio/webm"
     ) async throws {
         let base64 = audioData.base64EncodedString()
-        let payload: [String: Any] = [
-            "type": "file",
-            "name": fileName,
-            "size": audioData.count,
-            "mimeType": mimeType,
-            "content": "data:\(mimeType);base64,\(base64)"
-        ]
-        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
-        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
-            throw KasiaError.networkError("Failed to prepare audio payload")
-        }
+        // Deterministic field order (mimeType before content) - see MediaFileEnvelope.
+        let jsonString = MediaFileEnvelope.json(
+            name: fileName,
+            size: audioData.count,
+            mimeType: mimeType,
+            dataUrlContent: "data:\(mimeType);base64,\(base64)"
+        )
         try await sendBroadcast(channel: channel, content: jsonString)
     }
 

@@ -751,17 +751,13 @@ final class GroupChatService: ObservableObject {
             throw KasiaError.networkError("Image is empty")
         }
         let base64 = imageData.base64EncodedString()
-        let payload: [String: Any] = [
-            "type": "file",
-            "name": fileName,
-            "size": imageData.count,
-            "mimeType": mimeType,
-            "content": "data:\(mimeType);base64,\(base64)"
-        ]
-        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
-        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
-            throw KasiaError.networkError("Failed to prepare image payload")
-        }
+        // Deterministic field order (mimeType before content) - see MediaFileEnvelope.
+        let jsonString = MediaFileEnvelope.json(
+            name: fileName,
+            size: imageData.count,
+            mimeType: mimeType,
+            dataUrlContent: "data:\(mimeType);base64,\(base64)"
+        )
         try await sendGroupMessage(jsonString, to: groupId)
     }
 
@@ -771,17 +767,12 @@ final class GroupChatService: ObservableObject {
             throw KasiaError.networkError("Audio file is empty")
         }
         let base64 = audioData.base64EncodedString()
-        let payload: [String: Any] = [
-            "type": "file",
-            "name": fileName,
-            "size": audioData.count,
-            "mimeType": mimeType,
-            "content": "data:\(mimeType);base64,\(base64)"
-        ]
-        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
-        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
-            throw KasiaError.networkError("Failed to prepare audio payload")
-        }
+        let jsonString = MediaFileEnvelope.json(
+            name: fileName,
+            size: audioData.count,
+            mimeType: mimeType,
+            dataUrlContent: "data:\(mimeType);base64,\(base64)"
+        )
         try await sendGroupMessage(jsonString, to: groupId)
     }
 

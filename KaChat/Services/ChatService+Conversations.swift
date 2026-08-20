@@ -981,17 +981,14 @@ extension ChatService {
             ? "audio/webm"
             : mimeType
         let base64 = audioData.base64EncodedString()
-        let payload: [String: Any] = [
-            "type": "file",
-            "name": resolvedFileName,
-            "size": audioData.count,
-            "mimeType": resolvedMimeType,
-            "content": "data:\(resolvedMimeType);base64,\(base64)"
-        ]
-        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
-        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
-            throw KasiaError.networkError("Failed to prepare audio payload")
-        }
+        // Deterministic field order (mimeType before the multi-MB content) so every client's
+        // head-window preview sniff can identify the media kind - see MediaFileEnvelope.
+        let jsonString = MediaFileEnvelope.json(
+            name: resolvedFileName,
+            size: audioData.count,
+            mimeType: resolvedMimeType,
+            dataUrlContent: "data:\(resolvedMimeType);base64,\(base64)"
+        )
 
         try await sendMessage(to: contact, content: jsonString, messageType: .audio)
     }
@@ -1016,17 +1013,12 @@ extension ChatService {
             ? "image/jpeg"
             : mimeType
         let base64 = imageData.base64EncodedString()
-        let payload: [String: Any] = [
-            "type": "file",
-            "name": resolvedFileName,
-            "size": imageData.count,
-            "mimeType": resolvedMimeType,
-            "content": "data:\(resolvedMimeType);base64,\(base64)"
-        ]
-        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
-        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
-            throw KasiaError.networkError("Failed to prepare image payload")
-        }
+        let jsonString = MediaFileEnvelope.json(
+            name: resolvedFileName,
+            size: imageData.count,
+            mimeType: resolvedMimeType,
+            dataUrlContent: "data:\(resolvedMimeType);base64,\(base64)"
+        )
 
         try await sendMessage(to: contact, content: jsonString, messageType: .audio)
     }

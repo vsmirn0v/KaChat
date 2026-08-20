@@ -3439,15 +3439,14 @@ struct ChatDetailView: View {
         isEstimatingFee = true
         recordingFeeTask = Task {
             do {
-                let payload: [String: Any] = [
-                    "type": "file",
-                    "name": fileName,
-                    "size": fileSize,
-                    "mimeType": mime,
-                    "content": contentString
-                ]
-                let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
-                guard let jsonString = String(data: jsonData, encoding: .utf8) else { return }
+                // Same deterministic envelope the real send uses, so the estimate sizes the
+                // exact bytes that will go on the wire - see MediaFileEnvelope.
+                let jsonString = MediaFileEnvelope.json(
+                    name: fileName,
+                    size: fileSize,
+                    mimeType: mime,
+                    dataUrlContent: contentString
+                )
                 let estimate = try await chatService.estimateMessageFee(to: contact, content: jsonString)
                 await MainActor.run {
                     self.recordingFeeSompi = estimate
