@@ -1844,7 +1844,8 @@ struct AppSettings: Codable {
             tabOrder: AppTab.defaultOrder.map { $0.rawValue },
             childModeEnabled: false,
             biometricSeedPhraseEnabled: true,
-            biometricAccountLoginEnabled: true,
+            // Account-login biometrics are opt-in (off by default) on every platform.
+            biometricAccountLoginEnabled: false,
             biometricSpendingKeyEnabled: true,
             swapDisclaimerAgreed: false,
             indexerURL: defaultIndexerURL,
@@ -1960,7 +1961,7 @@ struct AppSettings: Codable {
         tabOrder: [String] = AppTab.defaultOrder.map { $0.rawValue },
         childModeEnabled: Bool = false,
         biometricSeedPhraseEnabled: Bool = true,
-        biometricAccountLoginEnabled: Bool = true,
+        biometricAccountLoginEnabled: Bool = false,
         biometricSpendingKeyEnabled: Bool = true,
         swapDisclaimerAgreed: Bool = false,
         indexerURL: String,
@@ -2099,7 +2100,7 @@ struct AppSettings: Codable {
         tabOrder = try container.decodeIfPresent([String].self, forKey: .tabOrder) ?? AppTab.defaultOrder.map { $0.rawValue }
         childModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .childModeEnabled) ?? false
         biometricSeedPhraseEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSeedPhraseEnabled) ?? true
-        biometricAccountLoginEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricAccountLoginEnabled) ?? true
+        biometricAccountLoginEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricAccountLoginEnabled) ?? false
         biometricSpendingKeyEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSpendingKeyEnabled) ?? true
         swapDisclaimerAgreed = try container.decodeIfPresent(Bool.self, forKey: .swapDisclaimerAgreed) ?? false
 
