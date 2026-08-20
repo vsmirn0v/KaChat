@@ -3486,7 +3486,7 @@ private struct KaPostTipSheet: View {
     }
 
     private var canSend: Bool {
-        contact != nil && amountSompi != nil && !isSending
+        amountSompi != nil && !isSending
     }
 
     /// Extra priority tip on top of the base (Normal-tier) fee - custom overrides the tier.
@@ -3588,7 +3588,6 @@ private struct KaPostTipSheet: View {
                                 .font(.caption)
                                 .fontWeight(.semibold)
                                 .buttonStyle(.borderless)
-                                .disabled(contact == nil)
                         }
                         Text(fiatAmountState.isFiatMode ? portfolioViewModel.currentCurrency.code : "KAS")
                             .foregroundColor(.secondary)
@@ -3679,18 +3678,11 @@ private struct KaPostTipSheet: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .task {
-                // Resolve (or auto-add) the poster as a contact once, then load the max
-                // sendable from the privacy-appropriate funding source for the footer.
-                if let existing = ContactsManager.shared.getContact(byAddress: address) {
-                    contact = existing
-                } else {
-                    contact = try? ContactsManager.shared.addContact(address: address, alias: "", isAutoAdded: true)
-                }
-                guard let contact else {
-                    errorMessage = "Couldn't prepare the recipient."
-                    return
-                }
-                paysViaPool = ChatService.shared.willPayViaFreshPoolAddress(contactAddress: contact.address)
+                // Deliberately does NOT create a contact here: opening the tip sheet and
+                // cancelling must leave no trace in the Chats list. The contact (and its
+                // conversation) is created in send(), only once a tip is actually sent.
+                contact = ContactsManager.shared.getContact(byAddress: address)
+                paysViaPool = ChatService.shared.willPayViaFreshPoolAddress(contactAddress: address)
                 // Available = the FUNDING SOURCE's spendable balance, exactly what the send will
                 // see: the primary spending address when Payment Privacy is on, the chatting
                 // address when it's off (paymentFundingSourceAddress is the single authority).
@@ -3701,25 +3693,30 @@ private struct KaPostTipSheet: View {
                 }
             }
             .task(id: amountSompi ?? 0) {
-                guard let contact, let amountSompi else {
+                guard let amountSompi else {
                     normalFeeSompi = nil
                     return
                 }
                 isEstimatingFee = true
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 guard !Task.isCancelled else { return }
-                normalFeeSompi = try? await ChatService.shared.estimatePaymentFee(to: contact, amountSompi: amountSompi)
+                normalFeeSompi = try? await ChatService.shared.estimatePaymentFee(to: estimationContact, amountSompi: amountSompi)
                 isEstimatingFee = false
             }
         }
         .interactiveDismissDisabled(isSending)
     }
 
+    /// Estimation-only stand-in when the poster isn't a contact yet: fee/max sizing needs a
+    /// Contact value but must NOT persist one - the real contact is only created on send().
+    private var estimationContact: Contact {
+        contact ?? Contact(address: address, isAutoAdded: true)
+    }
+
     private func setMaxAmount() {
-        guard let contact else { return }
         isEstimatingMax = true
         Task {
-            let max = try? await ChatService.shared.estimateMaxPaymentAmount(to: contact)
+            let max = try? await ChatService.shared.estimateMaxPaymentAmount(to: estimationContact)
             await MainActor.run {
                 isEstimatingMax = false
                 guard let max, max > 0 else { return }
@@ -3749,13 +3746,26 @@ private struct KaPostTipSheet: View {
     }
 
     private func send() {
-        guard let contact, let amountSompi else { return }
+        guard let amountSompi else { return }
+        // The chat with the poster is created HERE, on an actual send - not when the
+        // sheet opened - so a cancelled tip never leaves an orphan conversation.
+        let recipient: Contact
+        if let existing = contact ?? ContactsManager.shared.getContact(byAddress: address) {
+            recipient = existing
+        } else if let created = try? ContactsManager.shared.addContact(address: address, alias: "", isAutoAdded: true) {
+            recipient = created
+        } else {
+            errorMessage = "Couldn't prepare the recipient."
+            return
+        }
+        contact = recipient
+        _ = ChatService.shared.getOrCreateConversation(for: recipient)
         isSending = true
         errorMessage = nil
         let tipExtraFee = extraFeeSompi
         Task {
             do {
-                try await ChatService.shared.sendPayment(to: contact, amountSompi: amountSompi, extraFeeSompi: tipExtraFee)
+                try await ChatService.shared.sendPayment(to: recipient, amountSompi: amountSompi, extraFeeSompi: tipExtraFee)
                 await MainActor.run {
                     Haptics.success()
                     dismiss()

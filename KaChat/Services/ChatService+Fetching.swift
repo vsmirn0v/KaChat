@@ -2316,7 +2316,23 @@ extension ChatService {
             }
 
             // Decode payment message
-            let content = paymentContent(payment, isOutgoing: isOutgoing)
+            var content = paymentContent(payment, isOutgoing: isOutgoing)
+
+            // A plain KAS payment from an address we have NO contact for must not open a
+            // chat with the stranger. Internal moves from our own spending chain surface
+            // nowhere in chats; genuinely unknown senders collect in the SELF-chat (the
+            // conversation with our own chatting address) with the sender noted in the
+            // bubble. Wallet history and notifications are unaffected. Outgoing payments
+            // (withdrawals from the chatting address) keep creating destination chats.
+            var conversationAddress = contactAddress
+            if !isOutgoing, contactsManager.getContact(byAddress: contactAddress) == nil {
+                if WalletManager.shared.allSpendingAddresses().contains(contactAddress) {
+                    AppLog.log("[ChatService] Skipping payment %@ - internal move from own spending chain", String(payment.txId.prefix(16)))
+                    continue
+                }
+                conversationAddress = myAddress
+                content = "\(content)\n\(AppLocalization.string("From:")) \(contactAddress)"
+            }
 
             // Use resolved sender for incoming payments
             let resolvedSender = isOutgoing ? payment.sender : contactAddress
@@ -2348,7 +2364,7 @@ extension ChatService {
                 deliveryStatus: deliveryStatus
             )
 
-            addMessageToConversation(message, contactAddress: contactAddress)
+            addMessageToConversation(message, contactAddress: conversationAddress)
 
             if !isOutgoing {
                 if deliveryStatus == .sent {

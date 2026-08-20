@@ -65,7 +65,10 @@ extension ChatService {
             }
         }
 
+        // Deleted chats are excluded from the export AND their tombstones travel with the
+        // archive, so restoring anywhere never brings them back.
         let allAddresses = Set(messagesByAddress.keys).union(metaByAddress.keys)
+            .filter { !contactsManager.isAddressDeleted($0) }
         let exportedConversations = allAddresses.map { contactAddress in
             let messages = Array(messagesByAddress[contactAddress, default: [:]].values)
                 .sorted(by: Self.isMessageOrderedBefore)
@@ -100,7 +103,8 @@ extension ChatService {
             exportedAt: Date(),
             walletAddress: WalletManager.shared.currentWallet?.publicAddress,
             conversations: exportedConversations,
-            groups: archiveGroups
+            groups: archiveGroups,
+            deletedContactAddresses: contactsManager.deletedAddressSnapshot
         )
 
         let encoder = JSONEncoder()
@@ -148,9 +152,13 @@ extension ChatService {
         var importedByAddress: [String: Conversation] = [:]
         var importedOutgoingWithContentTxIds = Set<String>()
 
+        let archivedTombstones = Set(archive.deletedContactAddresses ?? [])
         for archivedConversation in archive.conversations {
             let contactAddress = archivedConversation.contactAddress.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !contactAddress.isEmpty else { continue }
+            // Never resurrect a deleted chat: honor this device's tombstones AND the ones the
+            // archive itself carries (covers restoring onto a fresh install).
+            if contactsManager.isAddressDeleted(contactAddress) || archivedTombstones.contains(contactAddress) { continue }
 
             var importedMessages = archivedConversation.messages.filter { !$0.txId.isEmpty }
             guard !importedMessages.isEmpty else { continue }

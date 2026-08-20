@@ -334,6 +334,10 @@ extension ChatService {
         // full bag - including the admin's groupSeed - so another device of the same account
         // recovers admin groups that have no on-chain invite addressed to it.
         let groups: [ChatHistoryArchiveGroup]?
+        // Deletion tombstones (optional; older archives omit it): addresses whose chats the
+        // user deleted. A restore - local file, Nextcloud, or any other transport - must
+        // never resurrect them, even on a fresh install with no local tombstones.
+        let deletedContactAddresses: [String]?
     }
 
     struct ChatHistoryArchiveConversation: Codable {

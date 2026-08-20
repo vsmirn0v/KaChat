@@ -171,7 +171,11 @@ extension ChatService {
             }
         }
 
+        // Deletion tombstones win over stored/CloudKit history: without this filter, a chat
+        // the user deleted would quietly resurrect from Core Data or a CloudKit sync because
+        // getOrCreateContact() below does not consult the tombstone list.
         let allContactAddresses = Set(grouped.keys).union(meta.keys)
+            .filter { !contactsManager.isAddressDeleted($0) }
         var contactsByAddress: [String: Contact] = [:]
         var pendingReadBlockTimeByAddress: [String: Int64] = [:]
         for contactAddress in allContactAddresses {

@@ -82,6 +82,12 @@ final class ContactsManager: ObservableObject {
         deletedAddresses.contains(address)
     }
 
+    /// Snapshot of every deletion tombstone, carried in chat-history backups so a restore on
+    /// any device (fresh install included) skips chats the user deleted.
+    var deletedAddressSnapshot: [String] {
+        Array(deletedAddresses)
+    }
+
     // MARK: - KNS Integration
 
     /// Fetch KNS domains for all contacts
