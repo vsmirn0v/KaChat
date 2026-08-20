@@ -183,13 +183,22 @@ final class GlobalNotificationCenter: ObservableObject {
                 case "mention": action = "mentioned you in a post"
                 default: action = "interacted with your post"
                 }
+                // Per-kind tap target, matching the KaPosts notifications sheet: reply/quote-
+                // with-text open the reply itself; vote/mention open the containing post.
+                let targetTxId: String?
+                switch notification.contentType {
+                case "reply": targetTxId = notification.id
+                case "quote": targetTxId = text.isEmpty ? notification.contentId : notification.id
+                case "follow": targetTxId = nil
+                default: targetTxId = notification.contentId
+                }
                 record(
                     id: "kaposts-\(notification.id)",
                     source: .kaposts,
                     title: "\(displayName(for: actorAddress)) \(action)",
                     body: String(text.prefix(90)),
                     timestamp: notification.timestamp,
-                    targetId: notification.contentId
+                    targetId: targetTxId
                 )
             }
         } catch {
@@ -292,6 +301,17 @@ struct GlobalNotificationListView: View {
                             }
                         }
                         .padding(.vertical, 2)
+                        // KaPosts rows deep-open the exact post/comment via the same
+                        // pending-deep-link flow notification taps use.
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            guard entry.source == .kaposts, let target = entry.targetId, !target.isEmpty else { return }
+                            KaPostsDeepLink.pendingPostTxId = target
+                            dismiss()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                                NotificationCenter.default.post(name: .openKaPost, object: nil)
+                            }
+                        }
                     }
                     .listStyle(.plain)
                 }

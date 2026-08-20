@@ -2248,6 +2248,8 @@ struct AppSettings: Codable {
         case "reply": return kaPostsNotifyComments
         case "quote": return kaPostsNotifyReposts
         case "follow": return kaPostsNotifyFollows
+        // Being @mentioned always pings - deliberate, not the unknown-kind fallback.
+        case "mention": return true
         default: return true
         }
     }

@@ -1500,9 +1500,11 @@ struct KaPostsView: View {
                       let parentTxId = remainder.parentTxId {
                     // Let the previous tx's change land in the node's UTXO index (~1s blocks).
                     try await Task.sleep(nanoseconds: 1_500_000_000)
+                    let segmentMentions = await mentionedPubkeys(in: segment)
                     let txId = try await submitWithUtxoRetry {
                         try await KaPostsAPIClient.shared.submitReply(
-                            text: segment, postId: parentTxId, parentAuthorPubkey: myPubkey
+                            text: segment, postId: parentTxId, parentAuthorPubkey: myPubkey,
+                            mentionedPubkeys: segmentMentions
                         )
                     }
                     threadRemainders[localId]?.segments.removeFirst()
@@ -1863,7 +1865,8 @@ struct KaPostsView: View {
                         throw KaPostsAPIClient.KaPostsAPIError.badResponse
                     }
                     txId = try await KaPostsAPIClient.shared.submitReply(
-                        text: post.text, postId: parentRemoteId, parentAuthorPubkey: parent.posterPubkey
+                        text: post.text, postId: parentRemoteId, parentAuthorPubkey: parent.posterPubkey,
+                        mentionedPubkeys: await mentionedPubkeys(in: post.text)
                     )
                 } else {
                     txId = try await KaPostsAPIClient.shared.submitPost(text: post.text, mentionedPubkeys: await mentionedPubkeys(in: post.text))
@@ -2813,6 +2816,9 @@ struct KaPostsView: View {
                         }
                     }
                     Divider()
+                    // @mention autocomplete for COMMENTS - the same suggestion list as the post
+                    // composer, rendered above the input so the keyboard can never hide it.
+                    KaPostMentionSuggestionBar(text: $replyText)
                     // X's "Post your reply" bar - text only, same rule as posts.
                     HStack(spacing: 10) {
                         TextField("Post your reply", text: $replyText, axis: .vertical)
@@ -2849,8 +2855,11 @@ struct KaPostsView: View {
                                 let parentAuthor = post.posterPubkey
                                 Task {
                                     do {
+                                        // @mentions work in comments exactly like in posts:
+                                        // resolved client-side to pubkeys.
                                         let txId = try await KaPostsAPIClient.shared.submitReply(
-                                            text: trimmed, postId: parentRemoteId, parentAuthorPubkey: parentAuthor
+                                            text: trimmed, postId: parentRemoteId, parentAuthorPubkey: parentAuthor,
+                                            mentionedPubkeys: await mentionedPubkeys(in: trimmed)
                                         )
                                         mutatePost(id: localReplyId) {
                                             $0.remoteId = txId
@@ -2957,6 +2966,9 @@ private struct KaPostCellView: View {
 
     /// URL tapped in the post text - drives the Copy / Open option menu.
     @State private var tappedLinkURL: URL?
+    /// The PARENT's openURL handler, captured from the environment ABOVE this cell's own
+    /// override - @mention taps forward straight to it (profile open), never the URL dialog.
+    @Environment(\.openURL) private var parentOpenURL
 
     // Kaspa-logo like burst: appears over the heart, spins, then dissolves into the liked state.
     @State private var burstVisible = false
@@ -3042,6 +3054,12 @@ private struct KaPostCellView: View {
                     .foregroundColor(.primary)
                     .tint(.accentColor)
                     .environment(\.openURL, OpenURLAction { url in
+                        // @mention taps open the profile directly - the Copy/Open dialog
+                        // (showing a raw kachat-mention:// string) is only for real URLs.
+                        if url.scheme == "kachat-mention" {
+                            parentOpenURL(url)
+                            return .handled
+                        }
                         tappedLinkURL = url
                         return .handled
                     })
@@ -3784,6 +3802,106 @@ private struct KaPostTipSheet: View {
 
 /// Text-only post composer. Deliberately NO attachment affordances (no photo picker, no link
 /// tools) - a KaPost is plain text, full stop.
+/// Reusable @mention autocomplete for the comment/reply bar - the exact same suggestion
+/// source as KaPostComposerView (chatted contacts' KNS domains + a live-resolved any-KNS
+/// match). Rendered above the input so the keyboard can never hide it; tapping a row
+/// completes the @token in the bound text.
+private struct KaPostMentionSuggestionBar: View {
+    @Binding var text: String
+    @ObservedObject private var knsService = KNSService.shared
+    @State private var resolvedAnyDomain: String? = nil
+
+    private var mentionQuery: String? {
+        guard let range = text.range(
+            of: "(^|[\\s(\\[{<\"'])@([a-z0-9-]*)$",
+            options: [.regularExpression, .caseInsensitive]
+        ) else { return nil }
+        let token = text[range]
+        guard let atIndex = token.firstIndex(of: "@") else { return nil }
+        return String(token[token.index(after: atIndex)...]).lowercased()
+    }
+
+    private var suggestions: [String] {
+        guard let query = mentionQuery else { return [] }
+        var seen = Set<String>()
+        var out: [String] = []
+        for contact in ContactsManager.shared.activeContacts {
+            guard let raw = knsService.domainCache[contact.address]?.primaryDomain else { continue }
+            let bare = KaPostsView.strippingKasSuffix(raw).lowercased()
+            guard !bare.isEmpty, !seen.contains(bare),
+                  query.isEmpty || bare.hasPrefix(query) else { continue }
+            seen.insert(bare)
+            out.append(bare)
+        }
+        out.sort()
+        if let extra = resolvedAnyDomain, !seen.contains(extra),
+           query.isEmpty || extra.hasPrefix(query) {
+            out.append(extra)
+        }
+        return out
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !suggestions.isEmpty {
+                let rows = VStack(alignment: .leading, spacing: 0) {
+                    ForEach(suggestions, id: \.self) { domain in
+                        Button {
+                            if let range = text.range(of: "@[a-z0-9-]*$", options: [.regularExpression, .caseInsensitive]) {
+                                text.replaceSubrange(range, with: "@\(domain) ")
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text("@")
+                                    .font(.subheadline.weight(.bold))
+                                    .foregroundColor(.accentColor)
+                                Text(domain)
+                                    .font(.subheadline)
+                                    .foregroundColor(.primary)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if domain != suggestions.last {
+                            Divider()
+                        }
+                    }
+                }
+                Group {
+                    if suggestions.count > 4 {
+                        ScrollView { rows }.frame(height: 168)
+                    } else {
+                        rows
+                    }
+                }
+                .frame(maxWidth: 280, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.12), lineWidth: 1))
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Warm the contact KNS cache so @ has a populated list immediately.
+        .task { await ContactsManager.shared.fetchKNSDomainsForAllContacts() }
+        // Anyone-with-a-KNS-domain mentions: debounce-resolve the typed @query live.
+        .task(id: mentionQuery ?? "") {
+            resolvedAnyDomain = nil
+            guard let query = mentionQuery, query.count >= 2 else { return }
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            guard let resolution = await KNSService.shared.resolveDomain(query) else { return }
+            guard !Task.isCancelled, mentionQuery == query else { return }
+            var bare = resolution.domain.lowercased()
+            if bare.hasSuffix(".kas") { bare = String(bare.dropLast(4)) }
+            resolvedAnyDomain = bare
+        }
+    }
+}
+
 private struct KaPostComposerView: View {
     // When quoting: the post being quoted renders X-style below the editor - you write above it.
     var quotedPost: KaPostsView.DraftPost? = nil

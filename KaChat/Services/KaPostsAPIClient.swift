@@ -518,17 +518,20 @@ extension KaPostsAPIClient {
         return "02" + xOnly.hexString
     }
 
-    /// Replies to a post (its K txid). Mention rule per spec: parent author, deduped.
-    func submitReply(text: String, postId: String, parentAuthorPubkey: String?) async throws -> String {
+    /// Replies to a post (its K txid). mentioned_pubkeys carries the parent author (the spec's
+    /// reply-notification hook) PLUS any @mentions the comment text resolved to - same dedupe/
+    /// validate/self-drop rules as submitPost, so @someone works in comments exactly like in
+    /// top-level posts.
+    func submitReply(text: String, postId: String, parentAuthorPubkey: String?, mentionedPubkeys: [String] = []) async throws -> String {
         let marked = Self.kaChatMarker + text
         let b64 = KaPostsProtocol.b64(marked)
-        let mentions: String
-        if let parentAuthorPubkey, !parentAuthorPubkey.isEmpty {
-            mentions = "[\"\(parentAuthorPubkey)\"]"
-        } else {
-            mentions = "[]"
-        }
         let pubkey = try requesterPubkey()
+        let me = pubkey.lowercased()
+        var seen = Set<String>()
+        let clean = ([parentAuthorPubkey].compactMap { $0 } + mentionedPubkeys)
+            .map { $0.lowercased() }
+            .filter { $0.range(of: "^0[23][0-9a-f]{64}$", options: .regularExpression) != nil && $0 != me && seen.insert($0).inserted }
+        let mentions = "[" + clean.map { "\"\($0)\"" }.joined(separator: ",") + "]"
         let signature = try WalletManager.shared.signArbitraryMessage(
             KaPostsProtocol.replySigningString(postId: postId, b64Message: b64, mentionsJSON: mentions),
             mode: .kaspaPersonalMessage
@@ -753,6 +756,7 @@ final class KaPostsNotificationService {
         case "reply": action = "replied to your post"
         case "quote": action = text.isEmpty ? "reposted your post" : "quoted your post"
         case "follow": action = "followed you"
+        case "mention": action = "mentioned you in a post"
         default: action = "interacted with your post"
         }
 
@@ -761,6 +765,19 @@ final class KaPostsNotificationService {
         content.body = "\(await actorName(for: address)) \(action)" + (text.isEmpty ? "" : ": \(text)")
         content.sound = .default
         content.threadIdentifier = "kaposts"
+        // A tap deep-opens the exact post/comment (KaChatApp reads userInfo["postId"]).
+        // Per-kind target rule matches the in-app notifications sheet: reply/quote-with-text
+        // open the reply itself; vote/mention open the containing post.
+        let targetTxId: String?
+        switch notification.contentType {
+        case "reply": targetTxId = notification.id
+        case "quote": targetTxId = text.isEmpty ? notification.contentId : notification.id
+        case "follow": targetTxId = nil
+        default: targetTxId = notification.contentId
+        }
+        if let targetTxId, !targetTxId.isEmpty {
+            content.userInfo = ["postId": targetTxId]
+        }
 
         let request = UNNotificationRequest(
             identifier: "kaposts-\(notification.id)",
