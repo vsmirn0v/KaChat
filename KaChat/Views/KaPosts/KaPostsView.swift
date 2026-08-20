@@ -2004,9 +2004,27 @@ struct KaPostsView: View {
         }
         if let post = findPost(byRemoteId: txId) {
             openDetail(post)
-        } else {
-            showActionToast("Post not found - it may be older than the current feed", txId: txId)
+            return
         }
+        // Still unresolved: the txid is usually a notification's ACTING content — someone
+        // ELSE's reply/quote/mentioning post, which neither the feed window nor the own-
+        // content fetch above ever returns. The notification stream knows who wrote it,
+        // so pull THAT author's posts+replies and look once more (falling back to the
+        // parent conversation when the acting content itself still can't be loaded).
+        if let n = try? await KaPostsAPIClient.shared.fetchNotifications(limit: 100).notifications
+            .first(where: { $0.id == txId }) {
+            await loadPosterProfilePosts(pubkey: n.userPublicKey, reset: true)
+            await loadPosterProfileReplies(pubkey: n.userPublicKey, reset: true)
+            if let post = findPost(byRemoteId: txId) {
+                openDetail(post)
+                return
+            }
+            if let parentId = n.contentId, !parentId.isEmpty, let parent = findPost(byRemoteId: parentId) {
+                openDetail(parent)
+                return
+            }
+        }
+        showActionToast("Post not found - it may be older than the current feed", txId: txId)
     }
 
     /// One place for the thread view's cells (root, comments, inline replies) - identical

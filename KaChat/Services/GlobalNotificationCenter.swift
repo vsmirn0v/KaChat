@@ -172,6 +172,11 @@ final class GlobalNotificationCenter: ObservableObject {
                 guard let actorAddress = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
                       actorAddress != myAddress,
                       !KaPostsModerationStore.shared.isHidden(actorAddress) else { continue }
+                // Warm the KNS cache so displayName can use the actor's domain — a cold
+                // cache would fall back to the short address even when they own one.
+                if KNSService.shared.domainCache[actorAddress] == nil {
+                    await KNSService.shared.refreshIfNeeded(for: [actorAddress])
+                }
                 let text = KaPostsAPIClient.stripMarker(notification.decodedContent ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let action: String
