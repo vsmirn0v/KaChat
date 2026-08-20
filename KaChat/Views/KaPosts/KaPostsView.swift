@@ -5343,7 +5343,10 @@ struct KaPostsNotificationsView: View {
                             targetTxId = nil
                         case "mention":
                             kind = .mention
-                            targetTxId = notification.contentId
+                            // A mention's acting content IS the post/comment mentioning you, so
+                            // when the indexer leaves contentId empty fall back to the
+                            // notification's own txid — otherwise mention rows have no target.
+                            targetTxId = (notification.contentId?.isEmpty == false) ? notification.contentId : notification.id
                         default:
                             kind = .other
                             targetTxId = notification.contentId

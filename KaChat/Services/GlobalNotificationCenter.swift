@@ -190,6 +190,9 @@ final class GlobalNotificationCenter: ObservableObject {
                 case "reply": targetTxId = notification.id
                 case "quote": targetTxId = text.isEmpty ? notification.contentId : notification.id
                 case "follow": targetTxId = nil
+                // A mention's acting content IS the post/comment mentioning you — fall back to
+                // the notification's own txid when contentId is empty, else the row has no target.
+                case "mention": targetTxId = (notification.contentId?.isEmpty == false) ? notification.contentId : notification.id
                 default: targetTxId = notification.contentId
                 }
                 record(
