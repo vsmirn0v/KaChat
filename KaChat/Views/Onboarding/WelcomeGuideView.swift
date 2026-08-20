@@ -122,6 +122,20 @@ struct WelcomeGuideView: View {
         walletManager.currentWallet?.publicAddress ?? ""
     }
 
+    /// One step back. The Adult/Child step is skipped on the way back — its choice
+    /// (including turning Child Mode on) applies the moment it's made.
+    private func goBack() {
+        let target: Step?
+        switch step {
+        case .welcome: target = nil
+        case .userType, .language: target = .welcome
+        default: target = Step(rawValue: step.rawValue - 1)
+        }
+        if let target {
+            withAnimation(.easeInOut(duration: 0.2)) { step = target }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             content
@@ -135,6 +149,19 @@ struct WelcomeGuideView: View {
                     if !isOnboardingRun {
                         ToolbarItem(placement: .navigationBarLeading) {
                             Button("Skip") { onFinished() }
+                        }
+                    }
+                    // Previous-step navigation: every run (onboarding included) can go BACK —
+                    // only skipping forward stays forbidden. Backing INTO the Adult/Child step
+                    // is not allowed once it's been answered (the choice applies immediately),
+                    // so from Language the button returns to Welcome.
+                    if step != .welcome {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button {
+                                goBack()
+                            } label: {
+                                Label("Previous", systemImage: "chevron.left")
+                            }
                         }
                     }
                 }

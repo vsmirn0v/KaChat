@@ -96,11 +96,14 @@ struct MainTabView: View {
                 // (e.g. an import on a device that answered it for a prior account): re-present
                 // the full guide from the top, still as an unskippable onboarding run.
                 showWelcomeGuide = true
-            } else if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey) {
-                // What's-new wizard for everyone else, every entry until dismissed for good.
+            } else if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey),
+                      !settingsViewModel.settings.childModeEnabled {
+                // What's-new wizard, shown ONCE (any dismissal persists). Child Mode skips it
+                // entirely - it describes the Chats cycle, which Child Mode doesn't have.
                 // Slightly deferred so the first render settles before a sheet animates in.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey) {
+                    if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey),
+                       !settingsViewModel.settings.childModeEnabled {
                         showDockWizard = true
                     }
                 }
@@ -119,8 +122,10 @@ struct MainTabView: View {
                     showWelcomeGuide = false
                     resumeGuideAtUserType = false
                     // Fresh installs chain straight into the 4.0 what's-new wizard once the full
-                    // setup guide is done (returning users get it from onAppear instead).
-                    if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey) {
+                    // setup guide is done (returning users get it from onAppear instead). Child
+                    // Mode skips it - the guide's Child choice removes the Chats cycle it teaches.
+                    if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey),
+                       !settingsViewModel.settings.childModeEnabled {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
                             showDockWizard = true
                         }
@@ -613,22 +618,17 @@ struct DockWizardView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.accentColor)
-
-                Button {
-                    UserDefaults.standard.set(true, forKey: Self.dismissedKey)
-                    dismiss()
-                } label: {
-                    Text("Don't Show Again")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 18)
             .padding(.top, 6)
         }
         .background(Color(uiColor: .systemBackground))
+        // Shows exactly ONCE: any way out (Got It, swipe-down) persists the dismissal.
+        // Replayable on demand from Profile > Help.
+        .onDisappear {
+            UserDefaults.standard.set(true, forKey: Self.dismissedKey)
+        }
     }
 
     private func wizardPage<Demo: View>(
