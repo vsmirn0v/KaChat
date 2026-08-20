@@ -96,6 +96,9 @@ extension ChatService {
                 AppLog.log("[ChatService] Pool offer aborted - could not reserve fresh spending addresses")
                 return
             }
+            // Pool reservations are internal plumbing: born HIDDEN so each offer batch doesn't
+            // flood Manage Addresses with 5 fresh "Unused" rows; unhidden the moment one is funded.
+            await WalletManager.shared.hideFreshReservedIndices(fresh.map { $0.index })
             let entries = fresh.map {
                 PaymentPoolStore.ReservedAddress(address: $0.address, index: $0.index, offered: false, funded: nil)
             }
@@ -495,6 +498,11 @@ extension ChatService {
         // isn't one of our reservations for this contact).
         if let wallet = WalletManager.shared.currentWallet {
             PaymentPoolStore.shared.markReservationFunded(content.address, for: contactAddress, wallet: wallet.publicAddress)
+            // The reserved address now holds money — funded addresses are always visible
+            // (reservations are born hidden, see hideFreshReservedIndices).
+            if let index = PaymentPoolStore.shared.reservationIndex(for: content.address, wallet: wallet.publicAddress) {
+                Task { _ = await WalletManager.shared.setSpendingAddressHidden(index: index, hidden: false) }
+            }
         }
 
         Task { @MainActor [weak self] in

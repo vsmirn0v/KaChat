@@ -302,6 +302,15 @@ final class PaymentPoolStore {
         save(current, for: walletAddress)
     }
 
+    /// The spending-chain index of one of our reservations, by address — used to unhide the
+    /// address (pool reservations are born hidden) once a payment_notice marks it funded.
+    func reservationIndex(for address: String, wallet walletAddress: String) -> Int? {
+        state(for: walletAddress).myReservations.values
+            .flatMap { $0 }
+            .first { $0.address == address }?
+            .index
+    }
+
     /// Every reserved-and-offered address across all contacts - these belong in the UTXO
     /// subscription watched set so incoming pool payments are noticed promptly.
     func allOfferedReservationAddresses(wallet walletAddress: String) -> [String] {

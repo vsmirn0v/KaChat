@@ -362,6 +362,15 @@ extension WalletManager {
         hiddenSpendingIndices
     }
 
+    /// Marks freshly reserved payment-pool indices hidden WITHOUT the funded-balance network
+    /// guard — they were just derived and cannot hold funds yet. Pool reservations are internal
+    /// plumbing; the payment_notice handler unhides one the moment it receives money.
+    func hideFreshReservedIndices(_ indices: [Int]) {
+        var current = hiddenSpendingIndices
+        for index in indices where index != currentSpendingAddressIndex { current.insert(index) }
+        hiddenSpendingIndices = current
+    }
+
     func setSpendingAddressLabel(index: Int, label: String) {
         var labels = spendingLabels
         let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
