@@ -214,25 +214,9 @@ struct SettingsView: View {
                     }
                 }
 
-            Section {
-                Toggle("Chats Payment Privacy", isOn: $chatsPrivacyEnabled)
-                    .onChange(of: chatsPrivacyEnabled) { newValue in
-                        AppSettings.setChatsPrivacyEnabledForActiveAccount(newValue)
-                        // OFF actively revokes our shared pools at every contact holding one
-                        // (their next payment falls back to our chatting address immediately);
-                        // ON lets the lazy per-contact offers re-fire. See
-                        // ChatService+PaymentPools.handleChatsPrivacyToggleChanged.
-                        ChatService.shared.handleChatsPrivacyToggleChanged(enabled: newValue)
-                    }
-            } footer: {
-                Text("On: you receive payments on fresh private addresses shared with each contact, and payments you send are funded from your private spending addresses. Off: you receive on your public chatting address and send from it. Either way, payments you send arrive on a fresh address whenever the recipient shares one.")
-            }
         }
         .navigationTitle("Chats")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            chatsPrivacyEnabled = AppSettings.chatsPrivacyEnabledForActiveAccount()
-        }
     }
 
     private var contactsPage: some View {
@@ -661,6 +645,9 @@ fileprivate func settingsCategoryRow<Destination: View>(
 /// Mode is reachable from the accounts list (a parent can manage it without unlocking anything).
 struct SecuritySettingsPage: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    /// Per-ACCOUNT Chats Payment Privacy (moved here from the Chats page). Seeded on appear
+    /// from the active account; a no-account context just shows the default.
+    @State private var chatsPrivacyEnabled = true
 
     var body: some View {
         Form {
@@ -698,9 +685,26 @@ struct SecuritySettingsPage: View {
                     }
                 }
             }
+
+            Section {
+                Toggle("Chats Payment Privacy", isOn: $chatsPrivacyEnabled)
+                    .onChange(of: chatsPrivacyEnabled) { newValue in
+                        AppSettings.setChatsPrivacyEnabledForActiveAccount(newValue)
+                        // OFF actively revokes our shared pools at every contact holding one
+                        // (their next payment falls back to our chatting address immediately);
+                        // ON lets the lazy per-contact offers re-fire. See
+                        // ChatService+PaymentPools.handleChatsPrivacyToggleChanged.
+                        ChatService.shared.handleChatsPrivacyToggleChanged(enabled: newValue)
+                    }
+            } footer: {
+                Text("On: you receive payments on fresh private addresses shared with each contact, and payments you send are funded from your private spending addresses. Off: you receive on your public chatting address and send from it. Either way, payments you send arrive on a fresh address whenever the recipient shares one.")
+            }
         }
         .navigationTitle("Security")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            chatsPrivacyEnabled = AppSettings.chatsPrivacyEnabledForActiveAccount()
+        }
     }
 }
 

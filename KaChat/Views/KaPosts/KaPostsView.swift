@@ -420,16 +420,22 @@ struct KaPostsView: View {
         ) { target in
             if !target.repostedByMe {
                 Button("Repost") {
-                    // Held for 5s behind the icon countdown - tap it to cancel before submit.
-                    scheduler.schedule(key: "repost:\(target.id)") {
+                    // Held for 5s with an always-visible undo TOAST (plus the icon countdown).
+                    let key = "repost:\(target.id)"
+                    showUndoToast(key: key, postId: target.id, label: "Reposting")
+                    scheduler.schedule(key: key) {
+                        clearUndoToast(key: key)
                         performRepost(target: target, text: nil, localQuoteId: nil)
                     }
                 }
             } else {
                 Button("Remove Repost", role: .destructive) {
-                    // Same 5s countdown window; the fork's `unquote` counter-action nets the
+                    // Same 5s undo window; the fork's `unquote` counter-action nets the
                     // repost out on the indexer (the chain keeps both transactions).
-                    scheduler.schedule(key: "repost:\(target.id)") {
+                    let key = "repost:\(target.id)"
+                    showUndoToast(key: key, postId: target.id, label: "Removing repost")
+                    scheduler.schedule(key: key) {
+                        clearUndoToast(key: key)
                         performUnrepost(target)
                     }
                 }
@@ -1671,9 +1677,36 @@ struct KaPostsView: View {
     private func undoPendingPost(_ toast: UndoPostToast) {
         scheduler.cancel(key: toast.key)
         withAnimation(.easeIn(duration: 0.25)) {
-            posts.removeAll { $0.id == toast.postId }
+            // Only compose-style actions have an optimistic CARD to remove; a cancelled
+            // like/dislike/repost simply never happens (their mutation fires post-countdown),
+            // and a cancelled comment removes its optimistic reply from the thread.
+            if toast.key.hasPrefix("post:") {
+                posts.removeAll { $0.id == toast.postId }
+            } else if toast.key.hasPrefix("comment:") {
+                removeReply(withId: toast.postId)
+            }
             undoToast = nil
         }
+    }
+
+    /// Removes an optimistic comment from whichever post's comment tree holds it —
+    /// the same collections mutatePost() searches.
+    private func removeReply(withId id: UUID) {
+        func strip(_ list: inout [DraftPost]) -> Bool {
+            for index in list.indices {
+                let before = list[index].comments.count
+                list[index].comments.removeAll { $0.id == id }
+                if list[index].comments.count != before { return true }
+                if strip(&list[index].comments) { return true }
+            }
+            return false
+        }
+        if strip(&posts) { return }
+        if strip(&remotePosts) { return }
+        if strip(&posterProfilePosts) { return }
+        if strip(&posterProfileReplies) { return }
+        if strip(&myProfileRemotePosts) { return }
+        _ = strip(&myProfileRemoteReplies)
     }
 
     /// Shows the on-chain confirmation toast for ~4s with a tappable explorer link.
@@ -1694,7 +1727,14 @@ struct KaPostsView: View {
             performLike(post)   // local-only unlike, instant
             return
         }
-        scheduler.schedule(key: "like:\(post.id)") { performLike(post) }
+        // Every interaction gets an always-visible undo TOAST (the in-icon countdown
+        // alone could scroll out of view).
+        let key = "like:\(post.id)"
+        showUndoToast(key: key, postId: post.id, label: post.likedByMe ? "Removing like" : "Liking")
+        scheduler.schedule(key: key) {
+            clearUndoToast(key: key)
+            performLike(post)
+        }
     }
 
     private func performLike(_ post: DraftPost) {
@@ -1734,7 +1774,12 @@ struct KaPostsView: View {
             performDislike(post)
             return
         }
-        scheduler.schedule(key: "dislike:\(post.id)") { performDislike(post) }
+        let key = "dislike:\(post.id)"
+        showUndoToast(key: key, postId: post.id, label: post.dislikedByMe ? "Removing dislike" : "Disliking")
+        scheduler.schedule(key: key) {
+            clearUndoToast(key: key)
+            performDislike(post)
+        }
     }
 
     private func performDislike(_ post: DraftPost) {
@@ -2850,24 +2895,32 @@ struct KaPostsView: View {
                                 target.comments.append(reply)
                             }
                             replyText = ""
-                            // On-chain reply when the parent post lives on K.
+                            // On-chain reply when the parent post lives on K — behind the same
+                            // 5s undo TOAST as every other interaction: the optimistic comment
+                            // shows immediately, the submit fires when the countdown ends, and
+                            // Undo removes it before anything hits the network.
                             if let parentRemoteId = post.remoteId {
                                 let parentAuthor = post.posterPubkey
-                                Task {
-                                    do {
-                                        // @mentions work in comments exactly like in posts:
-                                        // resolved client-side to pubkeys.
-                                        let txId = try await KaPostsAPIClient.shared.submitReply(
-                                            text: trimmed, postId: parentRemoteId, parentAuthorPubkey: parentAuthor,
-                                            mentionedPubkeys: await mentionedPubkeys(in: trimmed)
-                                        )
-                                        mutatePost(id: localReplyId) {
-                                            $0.remoteId = txId
-                                            $0.deliveryStatus = .sent
+                                let key = "comment:\(localReplyId)"
+                                showUndoToast(key: key, postId: localReplyId, label: "Posting comment")
+                                scheduler.schedule(key: key) {
+                                    clearUndoToast(key: key)
+                                    Task {
+                                        do {
+                                            // @mentions work in comments exactly like in posts:
+                                            // resolved client-side to pubkeys.
+                                            let txId = try await KaPostsAPIClient.shared.submitReply(
+                                                text: trimmed, postId: parentRemoteId, parentAuthorPubkey: parentAuthor,
+                                                mentionedPubkeys: await mentionedPubkeys(in: trimmed)
+                                            )
+                                            mutatePost(id: localReplyId) {
+                                                $0.remoteId = txId
+                                                $0.deliveryStatus = .sent
+                                            }
+                                        } catch {
+                                            mutatePost(id: localReplyId) { $0.deliveryStatus = .failed }
+                                            AppLog.log("[KaPosts] Reply submit failed: %@", error.localizedDescription)
                                         }
-                                    } catch {
-                                        mutatePost(id: localReplyId) { $0.deliveryStatus = .failed }
-                                        AppLog.log("[KaPosts] Reply submit failed: %@", error.localizedDescription)
                                     }
                                 }
                             }

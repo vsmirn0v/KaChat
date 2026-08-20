@@ -28,6 +28,9 @@ struct MainTabView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var giftService: GiftService
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    // Red dot on the Profile tab while the bell (which lives on the Profile screen)
+    // holds unread notifications.
+    @ObservedObject private var notifCenter = GlobalNotificationCenter.shared
 
     /// The Chats slot's effective content - the cycled-to tab, validated against what's still
     /// masked behind the slot (menu toggles can restore a tab to the dock mid-flight). Single
@@ -49,6 +52,9 @@ struct MainTabView: View {
                             systemImage: tab == .chats ? chatsSlotMode.icon : tab.icon
                         )
                     }
+                    // Profile hosts the notification bell - surface its unread state on the
+                    // dock as a plain red dot (an empty badge renders as a dot, not a count).
+                    .badge(tab == .profile && notifCenter.unreadCount > 0 ? Text(" ") : nil)
                     .tag(tab.tag)
             }
         }

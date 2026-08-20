@@ -98,20 +98,18 @@ struct ProfileView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     // Global notification center: KaPosts activity, group @mentions, live
-                    // broadcasts - sits beside the Profile title, unread count as a red badge.
+                    // broadcasts - sits beside the Profile title. A plain red DOT (no count)
+                    // signals unread.
                     Button {
                         showNotifCenter = true
                     } label: {
                         Image(systemName: "bell")
                             .overlay(alignment: .topTrailing) {
                                 if notifCenter.unreadCount > 0 {
-                                    Text(notifCenter.unreadCount > 99 ? "99+" : "\(notifCenter.unreadCount)")
-                                        .font(.system(size: 9, weight: .bold))
-                                        .foregroundColor(.white)
-                                        .padding(.horizontal, 3.5)
-                                        .padding(.vertical, 1.5)
-                                        .background(Capsule().fill(Color.red))
-                                        .offset(x: 8, y: -6)
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 4, y: -3)
                                 }
                             }
                     }
