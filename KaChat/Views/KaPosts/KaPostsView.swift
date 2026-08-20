@@ -711,6 +711,7 @@ struct KaPostsView: View {
                             onLike: { toggleLike(post) },
                             onDislike: { toggleDislike(post) },
                             onRepost: { handleRepostTap(post) },
+                            onRepostAction: { handleRepostAction(post, $0) },
                             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                         )
                         .task(id: post.posterAddress) {
@@ -1823,6 +1824,29 @@ struct KaPostsView: View {
         }
     }
 
+    /// X-style anchored repost menu actions (the cell shows the popover; this runs the choice).
+    /// Same 5s undo toast + scheduler behavior as the old confirmation dialog.
+    private func handleRepostAction(_ post: DraftPost, _ action: KaPostRepostAction) {
+        switch action {
+        case .repost:
+            let key = "repost:\(post.id)"
+            showUndoToast(key: key, postId: post.id, label: "Reposting")
+            scheduler.schedule(key: key) {
+                clearUndoToast(key: key)
+                performRepost(target: post, text: nil, localQuoteId: nil)
+            }
+        case .removeRepost:
+            let key = "repost:\(post.id)"
+            showUndoToast(key: key, postId: post.id, label: "Removing repost")
+            scheduler.schedule(key: key) {
+                clearUndoToast(key: key)
+                performUnrepost(post)
+            }
+        case .quote:
+            quoteComposerTarget = post
+        }
+    }
+
     /// K's repost mechanism is the quote action: nil text = plain repost (marker-only message),
     /// text = quote with commentary. Runs AFTER the 5s undo window - the optimistic quote card
     /// (if any) was already inserted by scheduleQuote and is stamped here by id.
@@ -2006,6 +2030,7 @@ struct KaPostsView: View {
             onLike: { toggleLike(item) },
             onDislike: { toggleDislike(item) },
             onRepost: { handleRepostTap(item) },
+            onRepostAction: { handleRepostAction(item, $0) },
             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
         )
     }
@@ -2231,6 +2256,7 @@ struct KaPostsView: View {
                             onLike: { toggleLike(post) },
                                 onDislike: { toggleDislike(post) },
                                 onRepost: { handleRepostTap(post) },
+                                onRepostAction: { handleRepostAction(post, $0) },
                                 onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                             )
                             .onAppear {
@@ -2464,6 +2490,7 @@ struct KaPostsView: View {
                             onLike: { toggleLike(post) },
                                 onDislike: { toggleDislike(post) },
                                 onRepost: { handleRepostTap(post) },
+                                onRepostAction: { handleRepostAction(post, $0) },
                                 onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                             )
                             .onAppear {
@@ -2745,6 +2772,7 @@ struct KaPostsView: View {
                             onLike: { toggleLike(post) },
                                     onDislike: { toggleDislike(post) },
                                     onRepost: { handleRepostTap(post) },
+                                onRepostAction: { handleRepostAction(post, $0) },
                                     onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                                 )
                                 Divider()
@@ -2994,6 +3022,9 @@ private struct KaPostCellView: View {
     let onLike: () -> Void
     let onDislike: () -> Void
     let onRepost: () -> Void
+    /// X-style repost menu: when set (and the post is on-chain), tapping repost opens a small
+    /// anchored popover with Repost/Quote rows instead of the old confirmation dialog.
+    var onRepostAction: ((KaPostRepostAction) -> Void)? = nil
     /// Tapping the quoted-post embed opens that post's own thread (comments and all).
     var onOpenQuoted: ((String) -> Void)? = nil
 
@@ -3019,6 +3050,8 @@ private struct KaPostCellView: View {
 
     /// URL tapped in the post text - drives the Copy / Open option menu.
     @State private var tappedLinkURL: URL?
+    /// X-style anchored Repost/Quote menu over the repost button.
+    @State private var showRepostMenu = false
     /// The PARENT's openURL handler, captured from the environment ABOVE this cell's own
     /// override - @mention taps forward straight to it (profile open), never the URL dialog.
     @Environment(\.openURL) private var parentOpenURL
@@ -3192,8 +3225,54 @@ private struct KaPostCellView: View {
                             icon: "arrow.2.squarepath",
                             count: post.reposts,
                             tint: post.repostedByMe ? .accentColor : .secondary,
-                            action: onRepost
+                            action: {
+                                // X-style: a compact anchored menu over the tapped button.
+                                if onRepostAction != nil, post.remoteId != nil, post.posterPubkey != nil {
+                                    showRepostMenu = true
+                                } else {
+                                    onRepost()
+                                }
+                            }
                         )
+                        .popover(isPresented: $showRepostMenu, arrowEdge: .bottom) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Button {
+                                    showRepostMenu = false
+                                    onRepostAction?(post.repostedByMe ? .removeRepost : .repost)
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "arrow.2.squarepath")
+                                        Text(post.repostedByMe ? "Remove Repost" : "Repost")
+                                            .fontWeight(.semibold)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .foregroundColor(post.repostedByMe ? .red : .primary)
+                                Divider()
+                                Button {
+                                    showRepostMenu = false
+                                    onRepostAction?(.quote)
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "pencil.line")
+                                        Text("Quote")
+                                            .fontWeight(.semibold)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 12)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .frame(width: 190)
+                            // A REAL anchored popover bubble on iPhone (not a bottom sheet).
+                            .modifier(CompactPopoverAdaptation())
+                        }
                     }
                     // Bookmark sits with the other actions (no inline count - saved posts live in
                     // the side menu's Bookmarks screen).
@@ -3855,6 +3934,23 @@ private struct KaPostTipSheet: View {
 
 /// Text-only post composer. Deliberately NO attachment affordances (no photo picker, no link
 /// tools) - a KaPost is plain text, full stop.
+/// The X-style anchored repost menu's choices (see KaPostCellView's popover).
+enum KaPostRepostAction {
+    case repost, removeRepost, quote
+}
+
+/// `.presentationCompactAdaptation(.popover)` is iOS 16.4+ — it makes the repost menu a real
+/// anchored bubble on iPhone. On 16.0-16.3 the popover falls back to a sheet, still functional.
+private struct CompactPopoverAdaptation: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) {
+            content.presentationCompactAdaptation(.popover)
+        } else {
+            content
+        }
+    }
+}
+
 /// Reusable @mention autocomplete for the comment/reply bar - the exact same suggestion
 /// source as KaPostComposerView (chatted contacts' KNS domains + a live-resolved any-KNS
 /// match). Rendered above the input so the keyboard can never hide it; tapping a row
