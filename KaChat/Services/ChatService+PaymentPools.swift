@@ -98,7 +98,7 @@ extension ChatService {
             }
             // Pool reservations are internal plumbing: born HIDDEN so each offer batch doesn't
             // flood Manage Addresses with 5 fresh "Unused" rows; unhidden the moment one is funded.
-            await WalletManager.shared.hideFreshReservedIndices(fresh.map { $0.index })
+            WalletManager.shared.hideFreshReservedIndices(fresh.map { $0.index })
             let entries = fresh.map {
                 PaymentPoolStore.ReservedAddress(address: $0.address, index: $0.index, offered: false, funded: nil)
             }
