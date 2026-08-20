@@ -221,6 +221,75 @@ final class ColdStorageManager: ObservableObject {
         saveAccounts()
     }
 
+    /// "Generate More Addresses", recycling-aware (mirrors
+    /// WalletManager.lowestUnusedSpendingAddress): returns the LOWEST index that is truly
+    /// unused - zero balance and no on-chain history. A hidden unused index is un-hidden and
+    /// reused rather than growing the chain; only when every derived index is spoken for does
+    /// the chain extend by one. Returns the chosen index.
+    func lowestUnusedAddress(for account: ColdStorageAccount) async -> Int {
+        let entries = await getAddressList(for: account)
+        for entry in entries {
+            if entry.balanceSompi > 0 { continue }
+            let used = await ChatService.shared.hasSpendingAddressBeenUsed(entry.address)
+            if !used {
+                setAddressHidden(accountId: account.id, index: entry.index, hidden: false, balanceSompi: 0)
+                return entry.index
+            }
+        }
+        generateNextAddress(for: account)
+        let newIndex = (accounts.first(where: { $0.id == account.id })?.maxAddressIndex) ?? (account.maxAddressIndex + 1)
+        setAddressHidden(accountId: account.id, index: newIndex, hidden: false, balanceSompi: 0)
+        return newIndex
+    }
+
+    /// Reveals a specific index from the Address Visibility pager, extending the chain when the
+    /// index is beyond the current max - intermediate newly-covered indices are marked hidden so
+    /// checking ONE far-out row doesn't flood the main list with everything below it. Mirrors
+    /// WalletManager.revealSpendingAddress.
+    func revealAddress(for account: ColdStorageAccount, at index: Int) {
+        guard let idx = accounts.firstIndex(where: { $0.id == account.id }) else { return }
+        let currentMax = accounts[idx].maxAddressIndex
+        if index > currentMax {
+            accounts[idx].maxAddressIndex = index
+            saveAccounts()
+            if index - 1 > currentMax {
+                var hiddenSet = loadHiddenIndices(accountId: account.id)
+                for i in (currentMax + 1)..<index { hiddenSet.insert(i) }
+                saveHiddenIndices(hiddenSet, accountId: account.id)
+            }
+        }
+        setAddressHidden(accountId: account.id, index: index, hidden: false, balanceSompi: 0)
+    }
+
+    /// Read-only snapshot of the hidden set, so the detail screen can apply bulk visibility
+    /// edits to its already-loaded rows instantly on sheet dismiss (before the full balance
+    /// reload finishes). Mirrors WalletManager.hiddenSpendingIndexSet().
+    func hiddenIndexSet(accountId: UUID) -> Set<Int> {
+        loadHiddenIndices(accountId: accountId)
+    }
+
+    /// Derives a single receive address on demand (used by the Address Visibility pager for
+    /// rows beyond the derived chain). Returns nil on kpub/derivation failure.
+    func address(for account: ColdStorageAccount, at index: Int) -> String? {
+        guard let extendedKey = KaspaExtendedPublicKey(kpubString: account.kpubString) else { return nil }
+        let network = AppSettings.load().networkType
+        return try? extendedKey.receiveAddress(at: UInt32(index), network: network)
+    }
+
+    /// Hide variant with the same live-balance re-check the spending side does
+    /// (WalletManager.setSpendingAddressHidden): the cached row balance the UI holds may be
+    /// stale, so hiding re-fetches UTXOs for the derived address before committing.
+    @discardableResult
+    func setAddressHidden(account: ColdStorageAccount, index: Int, hidden: Bool) async -> Bool {
+        if hidden {
+            guard let address = address(for: account, at: index) else { return false }
+            let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
+            let balance = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+            guard balance == 0 else { return false }
+        }
+        return setAddressHidden(accountId: account.id, index: index, hidden: hidden, balanceSompi: 0)
+    }
+
     // MARK: - Per-address labels
 
     func setAddressLabel(accountId: UUID, index: Int, label: String?) {
