@@ -97,16 +97,16 @@ extension ChatService {
         }
         .sorted { $0.contactAddress < $1.contactAddress }
 
-        // Groups are no longer backed up: member groups (their on-chain invite) and admin groups
-        // (the self-addressed recovery invite) both rediscover from chain on a seedless import, so
-        // shipping their secret key material to iCloud/the shared archive is unnecessary. Old
-        // archives carrying a `groups` array are still imported (below), so nobody loses data.
+        // Groups ARE backed up again - now including decrypted message history (not just keys),
+        // so group messages survive even if the indexer has pruned them. Import skips tombstoned
+        // (deleted) groups so a restore never resurrects one.
+        let archivedGroups = await MainActor.run { GroupChatService.shared.archiveGroups() }
         let archive = ChatHistoryArchive(
             schemaVersion: chatHistoryArchiveVersion,
             exportedAt: Date(),
             walletAddress: WalletManager.shared.currentWallet?.publicAddress,
             conversations: exportedConversations,
-            groups: nil,
+            groups: archivedGroups,
             deletedContactAddresses: contactsManager.deletedAddressSnapshot
         )
 

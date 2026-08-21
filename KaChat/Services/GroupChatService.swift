@@ -469,6 +469,17 @@ final class GroupChatService: ObservableObject {
     func archiveGroups() -> [ChatHistoryArchiveGroup] {
         groups.compactMap { group in
             guard let bag = try? keychain.loadGroupBag(groupId: group.id) else { return nil }
+            // Decrypt each group's stored history so it can be restored even if the indexer prunes.
+            let archivedMessages: [ChatHistoryArchiveGroupMessage] = Data(hexString: group.id).map { gid in
+                Self.decryptGroupRows(store.messageRows(forGroup: group.id), groupId: group.id, gid: gid, bag: bag).compactMap { m in
+                    guard !m.txId.hasPrefix("pending_") else { return nil }
+                    return ChatHistoryArchiveGroupMessage(
+                        msgIdHex: nil, txId: m.txId,
+                        senderAddress: m.senderAddress, senderIdHex: m.senderIdHex.isEmpty ? nil : m.senderIdHex,
+                        content: m.content, blockTime: UInt64(max(0, m.blockTime)), isOutgoing: m.isOutgoing
+                    )
+                }
+            } ?? []
             return ChatHistoryArchiveGroup(
                 groupId: group.id,
                 name: group.name,
@@ -481,7 +492,8 @@ final class GroupChatService: ObservableObject {
                 currentEpoch: bag.currentEpoch,
                 members: group.members.map {
                     ChatHistoryArchiveGroupMember(address: $0.address, xOnlyPubKeyHex: $0.xOnlyPubKeyHex, isAdmin: $0.isAdmin)
-                }
+                },
+                messages: archivedMessages
             )
         }
     }
@@ -491,6 +503,8 @@ final class GroupChatService: ObservableObject {
     /// collide with msg_ids the exporting device already used; never downgrades a newer epoch.
     func importArchiveGroups(_ archiveGroups: [ChatHistoryArchiveGroup]) {
         for g in archiveGroups {
+            // Never resurrect a group you deleted (tombstoned) - same rule as the on-chain path.
+            if isGroupTombstoned(g.groupId) { continue }
             guard let groupRootEpoch = g.groupRootEpoch, let blindingKey = g.blindingKey else { continue }
             let existingBag = try? keychain.loadGroupBag(groupId: g.groupId)
             if let existingBag, existingBag.currentEpoch > g.currentEpoch { continue }
@@ -510,6 +524,16 @@ final class GroupChatService: ObservableObject {
                 currentEpoch: g.currentEpoch, createdAt: Date(), isAdmin: g.isAdmin
             )
             store.upsertGroup(group)
+
+            // Restore decrypted message history under the negative-epoch sentinel, deduped by txId.
+            for m in g.messages ?? [] {
+                let txId = (m.txId?.isEmpty == false ? m.txId! : "imported_\((m.msgIdHex ?? UUID().uuidString))")
+                store.insertImportedPlaintextMessage(
+                    txId: txId, groupId: g.groupId, senderAddress: m.senderAddress,
+                    senderIdHex: m.senderIdHex ?? "", msgIdHex: m.msgIdHex ?? "",
+                    content: m.content, blockTime: Int64(m.blockTime), isOutgoing: m.isOutgoing
+                )
+            }
         }
         groups = store.allGroups()
     }
@@ -1329,6 +1353,17 @@ final class GroupChatService: ObservableObject {
         var decoded: [GroupMessage] = []
         decoded.reserveCapacity(rows.count)
         for row in rows {
+            // Backup-restored rows carry decrypted plaintext (UTF-8 bytes) under the negative
+            // epoch sentinel - no group key involved. Preserves history the indexer may have pruned.
+            if row.isImportedPlaintext {
+                guard let plaintext = String(data: row.contentEncrypted, encoding: .utf8) else { continue }
+                decoded.append(GroupMessage(
+                    id: UUID(), groupId: groupId, txId: row.txId, senderAddress: row.senderAddress,
+                    senderIdHex: row.senderIdHex, content: plaintext, timestamp: Date(timeIntervalSince1970: Double(row.blockTime) / 1000),
+                    blockTime: row.blockTime, isOutgoing: row.isOutgoing, deliveryStatus: row.deliveryStatus
+                ))
+                continue
+            }
             guard let msgId = Data(hexString: row.msgIdHex),
                   let root = rootEpoch(for: row.epoch, bag: bag, groupId: gid) else { continue }
             let senderId = Data(hexString: row.senderIdHex) ?? Data()

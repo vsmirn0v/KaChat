@@ -363,12 +363,26 @@ extension ChatService {
         let blindingKey: String?
         let currentEpoch: UInt64
         let members: [ChatHistoryArchiveGroupMember]
+        // Decrypted plaintext message history (optional; older archives omit it). Lets history
+        // survive an indexer prune - the importer stores these under a negative-epoch sentinel.
+        let messages: [ChatHistoryArchiveGroupMessage]?
     }
 
     struct ChatHistoryArchiveGroupMember: Codable {
         let address: String
         let xOnlyPubKeyHex: String?
         let isAdmin: Bool
+    }
+
+    // Cross-platform decrypted group message. Field names match desktop/Android exactly.
+    struct ChatHistoryArchiveGroupMessage: Codable {
+        let msgIdHex: String?
+        let txId: String?
+        let senderAddress: String?
+        let senderIdHex: String?
+        let content: String
+        let blockTime: UInt64
+        let isOutgoing: Bool
     }
 
 /// Result from resolving transaction info from REST API
