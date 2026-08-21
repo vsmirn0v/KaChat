@@ -125,6 +125,25 @@ final class GroupChatService: ObservableObject {
     /// Hex of the current photo for a group, or nil.
     func groupPhotoHex(for groupId: String) -> String? { groupPhotos[groupId] }
 
+    // Block time of the last gctl_photo we applied per group. The by-sender catch-up returns one
+    // control per member (M+ copies per action) and a cursor reset (e.g. after reimport) re-scans
+    // ALL history — without this guard each historical photo transition re-applied and re-emitted a
+    // "changed/removed the group photo" line, flooding the thread. Persisted per wallet.
+    private var groupPhotoUpdatedAt: [String: UInt64] = [:]
+    private var groupPhotoUpdatedAtKey: String? {
+        guard let addr = WalletManager.shared.currentWallet?.publicAddress else { return nil }
+        return "kachat_group_photo_bt_\(addr)"
+    }
+    private func loadGroupPhotoUpdatedAt() {
+        guard let key = groupPhotoUpdatedAtKey, let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([String: UInt64].self, from: data) else { groupPhotoUpdatedAt = [:]; return }
+        groupPhotoUpdatedAt = decoded
+    }
+    private func persistGroupPhotoUpdatedAt() {
+        guard let key = groupPhotoUpdatedAtKey else { return }
+        if let data = try? JSONEncoder().encode(groupPhotoUpdatedAt) { UserDefaults.standard.set(data, forKey: key) }
+    }
+
     /// Estimated total on-chain fee (KAS string) for a group action that sends `controlTx` small
     /// control messages and `photoTx` (larger) gctl_photo messages. Pure mass computation (no
     /// network), returning the policy fee this device actually pays. nil on failure.
@@ -468,6 +487,7 @@ final class GroupChatService: ObservableObject {
         loadGroupMutedMembers()
         loadGroupMentionsOnlyNotifications()
         loadGroupPhotos()
+        loadGroupPhotoUpdatedAt()
         store.setCurrentWallet(walletAddress)
         groups = walletAddress == nil ? [] : store.allGroups()
         groupMessages.removeAll()
@@ -881,9 +901,13 @@ final class GroupChatService: ObservableObject {
     }
 
     /// Insert one iMessage-style system line (photo/name change) into a group thread.
-    func insertGroupSystemLine(_ groupId: String, _ text: String) {
+    /// `stableKey`, when given, makes the row's txId deterministic (derived from the control's
+    /// block time) so re-processing the same control can't insert a duplicate line — the DB dedupes
+    /// on txId. Without it we fall back to a wall-clock id (fine for one-shot local emits).
+    func insertGroupSystemLine(_ groupId: String, _ text: String, stableKey: String? = nil) {
         let t = Int64(Date().timeIntervalSince1970 * 1000)
-        store.insertImportedPlaintextMessage(txId: "sys_\(groupId.prefix(8))_\(t)_\(text.prefix(12))", groupId: groupId, senderAddress: Self.systemSender, senderIdHex: "", msgIdHex: "", content: text, blockTime: t, isOutgoing: false)
+        let txId = stableKey.map { "sys_\(groupId.prefix(8))_\($0)" } ?? "sys_\(groupId.prefix(8))_\(t)_\(text.prefix(12))"
+        store.insertImportedPlaintextMessage(txId: txId, groupId: groupId, senderAddress: Self.systemSender, senderIdHex: "", msgIdHex: "", content: text, blockTime: t, isOutgoing: false)
         loadMessages(for: groupId)
     }
 
@@ -1601,7 +1625,7 @@ final class GroupChatService: ObservableObject {
     /// A block-scan candidate extracted OFF the main actor - only what the MainActor ingest needs.
     private enum BlockScanHit {
         case gcomm(parsed: GroupCipher.ParsedGroupMessage, txId: String, blockTime: Int64)
-        case gctl(payload: String, senderAddress: String)
+        case gctl(payload: String, senderAddress: String, blockTime: Int64)
     }
 
     /// One serial lane for all block parsing - bounds concurrency to a single off-main worker.
@@ -1639,7 +1663,7 @@ final class GroupChatService: ObservableObject {
                 guard let firstOutput = tx.outputs.first,
                       let scriptData = CryptoUtils.hexToData(firstOutput.scriptPublicKey.scriptPublicKey),
                       let senderAddress = KaspaAddress.address(fromScriptPublicKey: scriptData, hrp: hrp) else { continue }
-                hits.append(.gctl(payload: Self.normalizeControlPayload(payloadString), senderAddress: senderAddress))
+                hits.append(.gctl(payload: Self.normalizeControlPayload(payloadString), senderAddress: senderAddress, blockTime: blockTime))
             }
         }
         return hits
@@ -1653,8 +1677,8 @@ final class GroupChatService: ObservableObject {
             switch hit {
             case .gcomm(let parsed, let txId, let blockTime):
                 handleIncomingGroupMessage(parsed, txId: txId, blockTime: blockTime)
-            case .gctl(let payload, let senderAddress):
-                handleIncomingControlMessage(payload, senderAddress: senderAddress)
+            case .gctl(let payload, let senderAddress, let blockTime):
+                handleIncomingControlMessage(payload, senderAddress: senderAddress, blockTime: blockTime > 0 ? UInt64(blockTime) : 0)
             }
         }
     }
@@ -1785,7 +1809,7 @@ final class GroupChatService: ObservableObject {
         return gctlPrefix + parts[1]
     }
 
-    private func handleIncomingControlMessage(_ payloadString: String, senderAddress: String) {
+    private func handleIncomingControlMessage(_ payloadString: String, senderAddress: String, blockTime: UInt64 = 0) {
         guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey() else { return }
         // Normally we ignore our own echoed controls — EXCEPT the self-addressed recovery root
         // (sender == us, carries group_seed), which is exactly how a seedless import rebuilds an
@@ -1808,13 +1832,19 @@ final class GroupChatService: ObservableObject {
         if let photo = try? JSONDecoder().decode(GroupCipher.GroupPhotoPayload.self, from: jsonData), photo.type == "gctl_photo" {
             guard let group = store.group(id: photo.groupId) else { return }
             if photo.signingPub == group.adminXOnlyPubKeyHex, GroupCipher.verifyPhotoPayload(photo) {
+                // Ignore any photo control strictly older than the last one we applied. This makes
+                // re-scans (cursor reset / by-sender M-copy fan-out) no-ops and is the primary guard
+                // against the duplicate "removed the group photo" flood.
+                if blockTime > 0, blockTime < (groupPhotoUpdatedAt[photo.groupId] ?? 0) { return }
                 let newHex = photo.photo.isEmpty ? nil : photo.photo
                 let changed = groupPhotos[photo.groupId] != newHex
                 setLocalGroupPhoto(photo.groupId, hex: newHex)
+                if blockTime > 0 { groupPhotoUpdatedAt[photo.groupId] = blockTime; persistGroupPhotoUpdatedAt() }
                 if changed {
                     // "You" on the admin's own other devices; the admin's name for regular members.
                     let who = group.isAdmin ? "You" : groupMemberLabel(group.adminAddress, fallback: nil)
-                    insertGroupSystemLine(photo.groupId, newHex == nil ? "\(who) removed the group photo" : "\(who) changed the group photo")
+                    // Stable per-control key (block time) so a re-delivery can't duplicate the line.
+                    insertGroupSystemLine(photo.groupId, newHex == nil ? "\(who) removed the group photo" : "\(who) changed the group photo", stableKey: "photo_\(blockTime)")
                 }
             }
             return
@@ -2021,7 +2051,7 @@ final class GroupChatService: ObservableObject {
             advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
             for msg in messages {
                 guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
-                handleIncomingControlMessage(payloadString, senderAddress: msg.sender)
+                handleIncomingControlMessage(payloadString, senderAddress: msg.sender, blockTime: msg.blockTime)
             }
         } catch {
             AppLog.log("[GroupChatService] Catch-up gctl-by-sender fetch failed for admin %@: %@",
@@ -2040,7 +2070,7 @@ final class GroupChatService: ObservableObject {
             advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
             for msg in messages {
                 guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
-                handleIncomingControlMessage(payloadString, senderAddress: msg.sender)
+                handleIncomingControlMessage(payloadString, senderAddress: msg.sender, blockTime: msg.blockTime)
             }
         } catch {
             AppLog.log("[GroupChatService] Catch-up gctl-by-recipient fetch failed: %@", error.localizedDescription)
