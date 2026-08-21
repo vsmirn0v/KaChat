@@ -686,6 +686,52 @@ final class GroupChatService: ObservableObject {
         groupMessages.removeValue(forKey: groupId)
         SharedDataManager.syncGroupsForExtension()
         updateScanningStateIfNeeded()
+        // Tombstone it so discovery/recovery never re-adds it, and publish an on-chain delete
+        // marker (best-effort; the catch-up backfill retries) so the delete survives a seedless
+        // re-import too. Local intent is recorded now; the chain write is async.
+        recordGroupTombstone(groupId, published: false)
+        Task { try? await publishGroupTombstone(groupId) }
+    }
+
+    // MARK: - Group deletion tombstones (UserDefaults-backed, per wallet)
+
+    private var tombstonesDefaultsKey: String? {
+        guard let addr = WalletManager.shared.currentWallet?.publicAddress else { return nil }
+        return "kachat_group_tombstones_\(addr)"
+    }
+    private struct GroupTombstoneState: Codable { var deleted: [String] = []; var published: [String] = [] }
+    private func loadTombstoneState() -> GroupTombstoneState {
+        guard let key = tombstonesDefaultsKey, let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode(GroupTombstoneState.self, from: data) else { return GroupTombstoneState() }
+        return decoded
+    }
+    private func saveTombstoneState(_ state: GroupTombstoneState) {
+        guard let key = tombstonesDefaultsKey, let data = try? JSONEncoder().encode(state) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+    func isGroupTombstoned(_ groupId: String) -> Bool { loadTombstoneState().deleted.contains(groupId) }
+    private func recordGroupTombstone(_ groupId: String, published: Bool) {
+        var state = loadTombstoneState()
+        if !state.deleted.contains(groupId) { state.deleted.append(groupId) }
+        if published, !state.published.contains(groupId) { state.published.append(groupId) }
+        saveTombstoneState(state)
+    }
+    private func markTombstonePublished(_ groupId: String) {
+        var state = loadTombstoneState()
+        if !state.published.contains(groupId) { state.published.append(groupId) }
+        saveTombstoneState(state)
+    }
+    /// Self-addressed, self-signed delete marker — only our key can produce one, only our key
+    /// can read it (see the signing_pub == self + verify check in handleIncomingControlMessage).
+    private func publishGroupTombstone(_ groupId: String) async throws {
+        guard let gid = Data(hexString: groupId),
+              let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey(),
+              let selfPub = KaspaAddress.publicKey(from: wallet.publicAddress) else { return }
+        let signingPub = try schnorrXOnlyPublicKey(from: privateKey)
+        let payload = try GroupCipher.buildSignedTombstonePayload(groupId: gid, signingPub: signingPub, privateKey: privateKey)
+        let json = try JSONEncoder().encode(payload)
+        try await sendControlPayload(json, to: selfPub, from: wallet.publicAddress, privateKey: privateKey)
+        markTombstonePublished(groupId)
     }
 
     /// Deletes the given messages from this device only - purely local (Core Data + in-memory),
@@ -1544,6 +1590,15 @@ final class GroupChatService: ObservableObject {
         guard let plaintext = try? KasiaCipher.decryptHex(hexPayload, privateKey: privateKey),
               let jsonData = plaintext.data(using: .utf8) else { return }
 
+        // A self-addressed delete marker — honor ONLY our own (signed by + addressed to us).
+        if let tomb = try? JSONDecoder().decode(GroupCipher.GroupTombstonePayload.self, from: jsonData), tomb.type == "gctl_tombstone" {
+            let myPub = WalletManager.shared.getPrivateKey().flatMap { try? schnorrXOnlyPublicKey(from: $0).hexString }
+            if tomb.signingPub == myPub, GroupCipher.verifyTombstonePayload(tomb) {
+                recordGroupTombstone(tomb.groupId, published: true)
+                if store.group(id: tomb.groupId) != nil { deleteLocalGroupForTombstone(tomb.groupId) }
+            }
+            return
+        }
         if let rootPayload = try? JSONDecoder().decode(GroupCipher.GroupRootPayload.self, from: jsonData), rootPayload.type == "gctl_root" {
             if isSelfSent && rootPayload.groupSeed == nil { return } // our own member-copy echo — ignore
             guard GroupCipher.verifyRootPayload(rootPayload) else { return }
@@ -1556,7 +1611,21 @@ final class GroupChatService: ObservableObject {
 
     /// Applies a verified `gctl_root` payload: creates or updates the local GroupBag + roster.
     /// Refuses to downgrade to an older epoch than what's already stored (replay protection).
+    /// Removes a group locally when a tombstone for it arrives (the tombstone itself is already
+    /// recorded by the caller). Deliberately does NOT call deleteGroup, which would re-publish.
+    private func deleteLocalGroupForTombstone(_ groupId: String) {
+        try? keychain.deleteGroupBag(groupId: groupId)
+        store.deleteGroup(id: groupId)
+        groups.removeAll { $0.id == groupId }
+        groupMessages.removeValue(forKey: groupId)
+        SharedDataManager.syncGroupsForExtension()
+        updateScanningStateIfNeeded()
+    }
+
     private func completeJoin(from payload: GroupCipher.GroupRootPayload) {
+        // A tombstoned group must never be re-added — this makes a delete survive a seedless
+        // re-import against the recovery invite.
+        if isGroupTombstoned(payload.groupId) { return }
         // Refuse to downgrade to an older epoch than what's already stored locally (replay
         // protection); otherwise apply (covers both "brand new group" and "legitimate advance").
         if let existingBag = try? keychain.loadGroupBag(groupId: payload.groupId),
@@ -1660,6 +1729,11 @@ final class GroupChatService: ObservableObject {
                       bag.groupSeed != nil, bag.selfInviteEpoch != bag.currentEpoch else { continue }
                 try? await sendSelfRootControlMessage(group: group, bag: bag, privateKey: privateKey)
             }
+        }
+        // Backfill delete markers for groups deleted while offline (or whose publish failed).
+        let tombState = loadTombstoneState()
+        for groupId in tombState.deleted where !tombState.published.contains(groupId) {
+            try? await publishGroupTombstone(groupId)
         }
 
         await catchUpGroupControlByRecipient(recipientAddress: wallet.publicAddress)

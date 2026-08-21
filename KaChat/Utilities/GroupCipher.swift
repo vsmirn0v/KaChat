@@ -315,6 +315,44 @@ enum GroupCipher {
         return GroupEpochPayload(groupId: groupId.hexString, epoch: epoch, reason: reason, sig: sig.hexString)
     }
 
+    /// `gctl_tombstone` - a self-addressed "I deleted this group" marker so a delete survives a
+    /// seedless re-import (the recovery invite would otherwise resurrect it). Signed by the
+    /// deleter, honored ONLY when signed by + addressed to the reader's own key.
+    struct GroupTombstonePayload: Codable {
+        var type = "gctl_tombstone"
+        var v: UInt8 = 1
+        var groupId: String
+        var signingPub: String
+        var sig: String
+        enum CodingKeys: String, CodingKey {
+            case type, v
+            case groupId = "group_id"
+            case signingPub = "signing_pub"
+            case sig
+        }
+    }
+
+    static func buildTombstoneSigningPayload(v: UInt8, groupId: Data) -> Data {
+        var payload = Data([v])
+        payload.append(Data("gctl_tombstone".utf8))
+        payload.append(groupId)
+        return payload
+    }
+
+    static func buildSignedTombstonePayload(groupId: Data, signingPub: Data, privateKey: Data) throws -> GroupTombstonePayload {
+        let signingPayload = buildTombstoneSigningPayload(v: 1, groupId: groupId)
+        let sig = try sign(signingPayload, privateKey: privateKey)
+        return GroupTombstonePayload(groupId: groupId.hexString, signingPub: signingPub.hexString, sig: sig.hexString)
+    }
+
+    static func verifyTombstonePayload(_ payload: GroupTombstonePayload) -> Bool {
+        guard let groupId = Data(hexString: payload.groupId),
+              let signingPub = Data(hexString: payload.signingPub),
+              let sig = Data(hexString: payload.sig) else { return false }
+        let signingPayload = buildTombstoneSigningPayload(v: payload.v, groupId: groupId)
+        return verify(sig, message: signingPayload, xOnlyPublicKey: signingPub)
+    }
+
     // MARK: - On-chain payload codecs
 
     struct ParsedGroupMessage {
