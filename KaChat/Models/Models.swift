@@ -817,12 +817,26 @@ enum MessageReplyCodec {
     /// UTF8 re-encode, and full `JSONDecoder` decode attempt here, just to fail the `type ==
     /// "reply"` check afterward. Scrolling fast through a photo-heavy chat's history - revealing
     /// many such messages at once - made that add up to a real multi-second freeze.
+    // Small content-keyed cache: messageRow calls this (directly and via unwrappedText) several
+    // times per row per frame, and the swipe-to-reveal-timestamps gesture re-runs the whole
+    // body at 60-120 Hz. NSCache is thread-safe and self-evicting under memory pressure.
+    private static let parseCache: NSCache<NSString, ReplyBox> = {
+        let cache = NSCache<NSString, ReplyBox>(); cache.countLimit = 1024; return cache
+    }()
+    private final class ReplyBox { let value: MessageReplyContent?; init(_ v: MessageReplyContent?) { value = v } }
+
     static func parse(_ text: String?) -> MessageReplyContent? {
         guard let text, text.utf8.count < 100_000 else { return nil }
+        let key = text as NSString
+        if let hit = parseCache.object(forKey: key) { return hit.value }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
-        guard let parsed = try? JSONDecoder().decode(MessageReplyContent.self, from: data),
-              parsed.type == "reply" else { return nil }
+        let parsed: MessageReplyContent? = {
+            guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
+            guard let p = try? JSONDecoder().decode(MessageReplyContent.self, from: data),
+                  p.type == "reply" else { return nil }
+            return p
+        }()
+        parseCache.setObject(ReplyBox(parsed), forKey: key)
         return parsed
     }
 
@@ -1058,9 +1072,22 @@ enum ChessCodec {
         return json
     }
 
+    private static let parseAnyCache: NSCache<NSString, ChessBox> = {
+        let cache = NSCache<NSString, ChessBox>(); cache.countLimit = 1024; return cache
+    }()
+    private final class ChessBox { let value: ChessEnvelope?; init(_ v: ChessEnvelope?) { value = v } }
+
     /// Parses `text` as any of the four chess envelope shapes, or nil if it isn't one.
     static func parseAny(_ text: String?) -> ChessEnvelope? {
         guard let text, text.utf8.count < 100_000 else { return nil }
+        let key = text as NSString
+        if let hit = parseAnyCache.object(forKey: key) { return hit.value }
+        let result = parseAnyUncached(text)
+        parseAnyCache.setObject(ChessBox(result), forKey: key)
+        return result
+    }
+
+    private static func parseAnyUncached(_ text: String) -> ChessEnvelope? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
         guard let typeOnly = try? JSONDecoder().decode(ChessTypeOnly.self, from: data) else { return nil }

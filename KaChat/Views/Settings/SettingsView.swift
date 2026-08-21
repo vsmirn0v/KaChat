@@ -2287,6 +2287,9 @@ struct ConnectionStatusDetailView: View {
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @StateObject private var nodePool = NodePoolService.shared
+    // Node + latency moved off ChatService to stop 2s ticks re-rendering the whole app;
+    // this screen watches them directly so it still updates live.
+    @ObservedObject private var nodeInfo = NodeConnectionInfo.shared
     @Environment(\.dismiss) private var dismiss
 
     @State private var isReconnecting: Bool = false
@@ -2331,7 +2334,7 @@ struct ConnectionStatusDetailView: View {
                             .foregroundColor(.secondary)
                     }
 
-                    if let node = chatService.currentConnectedNode {
+                    if let node = nodeInfo.currentConnectedNode {
                         HStack {
                             Text("Connected Node")
                             Spacer()
@@ -2342,7 +2345,7 @@ struct ConnectionStatusDetailView: View {
                         }
                     }
 
-                    if let latency = chatService.currentNodeLatencyMs {
+                    if let latency = nodeInfo.currentNodeLatencyMs {
                         HStack {
                             Text("Latency")
                             Spacer()
@@ -2513,7 +2516,7 @@ struct ConnectionStatusDetailView: View {
                         ForEach(activeNodes) { record in
                             ConnectionNodeRow(
                                 record: record,
-                                isConnected: record.endpoint.url == chatService.currentConnectedNode
+                                isConnected: record.endpoint.url == nodeInfo.currentConnectedNode
                             )
                             .contentShape(Rectangle())
                             .onTapGesture {

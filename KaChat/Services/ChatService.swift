@@ -106,8 +106,18 @@ final class ChatService: ObservableObject {
     // Connection status properties
     @Published var isRpcSubscribed = false
     @Published var lastSuccessfulSyncDate: Date?
-    @Published var currentConnectedNode: String?
-    @Published var currentNodeLatencyMs: Int?
+    // Connection node + latency live on a DEDICATED observable, not @Published here: they update
+    // ~every 2s (latency EWMA) and are shown ONLY in the connection-detail screen, but as
+    // @Published on this shared @EnvironmentObject each tick re-rendered every observer,
+    // including the chat thread. NodeConnectionInfo.shared is watched only by that screen.
+    var currentConnectedNode: String? {
+        get { NodeConnectionInfo.shared.currentConnectedNode }
+        set { NodeConnectionInfo.shared.currentConnectedNode = newValue }
+    }
+    var currentNodeLatencyMs: Int? {
+        get { NodeConnectionInfo.shared.currentNodeLatencyMs }
+        set { NodeConnectionInfo.shared.currentNodeLatencyMs = newValue }
+    }
 
     struct QueuedUtxoNotification {
         let parsed: ParsedUtxosChangedNotification
@@ -692,4 +702,15 @@ final class ChatService: ObservableObject {
     let cloudKitImportMinInterval: TimeInterval = 10.0
     #endif
 
+}
+
+
+/// Node connection + ping latency, split out of ChatService so their frequent (~2s) updates
+/// re-render only the connection-detail screen instead of every ChatService observer.
+@MainActor
+final class NodeConnectionInfo: ObservableObject {
+    static let shared = NodeConnectionInfo()
+    @Published var currentConnectedNode: String?
+    @Published var currentNodeLatencyMs: Int?
+    private init() {}
 }
