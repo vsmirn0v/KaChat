@@ -427,7 +427,10 @@ struct Conversation: Identifiable, Equatable {
     var unreadCount: Int
 
     var lastMessage: ChatMessage? {
-        messages.max { $0.timestamp < $1.timestamp }
+        // "📤 Sent via another device" placeholders are hidden everywhere (they carry no
+        // readable content) — the chat-list preview must show the newest REAL message.
+        let visible = messages.filter { $0.content != "📤 Sent via another device" }
+        return (visible.isEmpty ? messages : visible).max { $0.timestamp < $1.timestamp }
     }
 
     init(id: UUID = UUID(), contact: Contact, messages: [ChatMessage] = [], unreadCount: Int = 0) {

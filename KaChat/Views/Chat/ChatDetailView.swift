@@ -199,7 +199,11 @@ struct ChatDetailView: View {
     }
 
     private var messages: [ChatMessage] {
-        normalizedMessages
+        // "📤 Sent via another device" placeholders never render: they carry no readable
+        // content (an outgoing tx from another device whose text hasn't synced), and showing
+        // them added noise without information. The records stay in the store, so when
+        // CloudKit later delivers the real text the message appears with content.
+        normalizedMessages.filter { $0.content != "📤 Sent via another device" }
     }
 
     /// Drives the toolbar's quick-access chess icon - nil hides it entirely. Reuses

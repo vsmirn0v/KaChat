@@ -1180,6 +1180,8 @@ struct ConversationRow: View {
     }
 
     private func formatPreview(_ content: String) -> String {
+        // Cross-device placeholders never surface anywhere (see ChatDetailView.messages).
+        if content == "📤 Sent via another device" { return "" }
         // `content.utf8.count` (not `.count`, which does a full Unicode grapheme-cluster scan)
         // - a chat's last message can be a multi-MB base64 photo/audio payload, and this cache
         // key has to be computed before the cache can even be checked. With `.count` (and the
