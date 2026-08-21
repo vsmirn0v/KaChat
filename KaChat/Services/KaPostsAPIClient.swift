@@ -704,16 +704,20 @@ final class KaPostsNotificationService {
 
     private func pollOnce() async {
         let settings = AppSettings.load()
-        guard settings.notificationsEnabled,
-              WalletManager.shared.currentWallet != nil,
+        guard WalletManager.shared.currentWallet != nil,
               let key = lastSeenKey else { return }
         // Child Mode removes KaPosts entirely - no notification pings for it either.
         guard !settings.childModeEnabled else { return }
-        // Remote-push mode: the push service delivers KaPosts pings (registered via
-        // kaposts_pubkey) - polling here would double-notify, mirroring the broadcast guard.
-        guard settings.notificationMode != .remotePush else { return }
         do {
             let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 50).notifications
+            // Single fetch, two consumers: the bell center ingests EVERY page (it has its own
+            // baseline and ignores the OS-ping gates below) — it used to run a second,
+            // duplicate 90s poll of this same endpoint in parallel.
+            await GlobalNotificationCenter.shared.ingestKaPostsNotifications(notifications)
+            // OS banner gates apply only from here down. Remote-push mode: the push service
+            // delivers KaPosts pings (registered via kaposts_pubkey) - local pings here would
+            // double-notify, mirroring the broadcast guard.
+            guard settings.notificationsEnabled, settings.notificationMode != .remotePush else { return }
             guard let newest = notifications.map(\.timestamp).max() else { return }
             guard let lastSeen = (UserDefaults.standard.object(forKey: key) as? NSNumber)?.int64Value else {
                 // First run for this wallet: baseline silently instead of replaying history.

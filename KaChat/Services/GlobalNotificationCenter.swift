@@ -7,8 +7,9 @@ import SwiftUI
 /// account-scoped, persisted, deduped by id, and capped; opening the list marks everything seen.
 ///
 /// Sources push in via `record(...)`:
-///  - KaPosts: this store runs its own lightweight poll of `get-notifications` (independent of
-///    the banner pinger and its per-type/remote-push gates - the center always lists activity).
+///  - KaPosts: fed by KaPostsNotificationService's single 60s poll via
+///    `ingestKaPostsNotifications` (independent of the banner pinger's per-type/remote-push
+///    gates - the center always lists activity).
 ///  - Group mentions: GroupChatService calls `recordGroupMentionIfNeeded` on incoming messages.
 ///  - Broadcasts: BroadcastService records live (session-gated) incoming channel messages.
 @MainActor
@@ -52,7 +53,6 @@ final class GlobalNotificationCenter: ObservableObject {
     static let sessionStartMs = Int64(Date().timeIntervalSince1970 * 1000)
 
     private let maxEntries = 100
-    private var pollTask: Task<Void, Never>?
 
     var unreadCount: Int {
         entries.filter { $0.timestamp > lastSeenAt }.count
@@ -60,7 +60,8 @@ final class GlobalNotificationCenter: ObservableObject {
 
     private init() {
         reload()
-        startKaPostsPolling()
+        // KaPosts rows arrive via ingestKaPostsNotifications, fed by KaPostsNotificationService's
+        // 60s poll — this class used to run its OWN 90s poll of the same endpoint in parallel.
     }
 
     // MARK: - Persistence (account-scoped)
@@ -142,75 +143,61 @@ final class GlobalNotificationCenter: ObservableObject {
 
     // MARK: - KaPosts poll
 
-    private func startKaPostsPolling() {
-        pollTask?.cancel()
-        pollTask = Task { [weak self] in
-            // First pass shortly after launch, then a slow steady poll.
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            while !Task.isCancelled {
-                await self?.pollKaPostsOnce()
-                try? await Task.sleep(nanoseconds: 90_000_000_000)
-            }
-        }
-    }
-
-    private func pollKaPostsOnce() async {
+    /// Feeds the bell center from a notifications page some OTHER poller already fetched
+    /// (KaPostsNotificationService's 60s loop) — one request, two consumers. Runs regardless
+    /// of the OS-ping gates so the bell fills even with notifications disabled.
+    func ingestKaPostsNotifications(_ notifications: [KaPostsAPIClient.KNotification]) async {
         guard WalletManager.shared.currentWallet != nil else { return }
         guard !AppSettings.load().childModeEnabled else { return }
-        do {
-            let notifications = try await KaPostsAPIClient.shared.fetchNotifications(limit: 50).notifications
-            guard let newest = notifications.map(\.timestamp).max() else { return }
-            let baseline = (UserDefaults.standard.object(forKey: kaPostsBaselineKey) as? NSNumber)?.int64Value
-            guard let lastSeen = baseline else {
-                // First run for this wallet: baseline silently, history never floods the center.
-                UserDefaults.standard.set(NSNumber(value: newest), forKey: kaPostsBaselineKey)
-                return
+        guard let newest = notifications.map(\.timestamp).max() else { return }
+        let baseline = (UserDefaults.standard.object(forKey: kaPostsBaselineKey) as? NSNumber)?.int64Value
+        guard let lastSeen = baseline else {
+            // First run for this wallet: baseline silently, history never floods the center.
+            UserDefaults.standard.set(NSNumber(value: newest), forKey: kaPostsBaselineKey)
+            return
+        }
+        UserDefaults.standard.set(NSNumber(value: max(newest, lastSeen)), forKey: kaPostsBaselineKey)
+        let myAddress = WalletManager.shared.currentWallet?.publicAddress
+        for notification in notifications where notification.timestamp > lastSeen {
+            guard let actorAddress = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
+                  actorAddress != myAddress,
+                  !KaPostsModerationStore.shared.isHidden(actorAddress) else { continue }
+            // Warm the KNS cache so displayName can use the actor's domain — a cold
+            // cache would fall back to the short address even when they own one.
+            if KNSService.shared.domainCache[actorAddress] == nil {
+                await KNSService.shared.refreshIfNeeded(for: [actorAddress])
             }
-            UserDefaults.standard.set(NSNumber(value: max(newest, lastSeen)), forKey: kaPostsBaselineKey)
-            let myAddress = WalletManager.shared.currentWallet?.publicAddress
-            for notification in notifications where notification.timestamp > lastSeen {
-                guard let actorAddress = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
-                      actorAddress != myAddress,
-                      !KaPostsModerationStore.shared.isHidden(actorAddress) else { continue }
-                // Warm the KNS cache so displayName can use the actor's domain — a cold
-                // cache would fall back to the short address even when they own one.
-                if KNSService.shared.domainCache[actorAddress] == nil {
-                    await KNSService.shared.refreshIfNeeded(for: [actorAddress])
-                }
-                let text = KaPostsAPIClient.stripMarker(notification.decodedContent ?? "")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let action: String
-                switch notification.contentType {
-                case "vote": action = notification.voteType == "downvote" ? "disliked your post" : "liked your post"
-                case "reply": action = "replied to your post"
-                case "quote": action = text.isEmpty ? "reposted your post" : "quoted your post"
-                case "follow": action = "followed you"
-                case "mention": action = "mentioned you in a post"
-                default: action = "interacted with your post"
-                }
-                // Per-kind tap target, matching the KaPosts notifications sheet: reply/quote-
-                // with-text open the reply itself; vote/mention open the containing post.
-                let targetTxId: String?
-                switch notification.contentType {
-                case "reply": targetTxId = notification.id
-                case "quote": targetTxId = text.isEmpty ? notification.contentId : notification.id
-                case "follow": targetTxId = nil
-                // A mention's acting content IS the post/comment mentioning you — fall back to
-                // the notification's own txid when contentId is empty, else the row has no target.
-                case "mention": targetTxId = (notification.contentId?.isEmpty == false) ? notification.contentId : notification.id
-                default: targetTxId = notification.contentId
-                }
-                record(
-                    id: "kaposts-\(notification.id)",
-                    source: .kaposts,
-                    title: "\(displayName(for: actorAddress)) \(action)",
-                    body: String(text.prefix(90)),
-                    timestamp: notification.timestamp,
-                    targetId: targetTxId
-                )
+            let text = KaPostsAPIClient.stripMarker(notification.decodedContent ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let action: String
+            switch notification.contentType {
+            case "vote": action = notification.voteType == "downvote" ? "disliked your post" : "liked your post"
+            case "reply": action = "replied to your post"
+            case "quote": action = text.isEmpty ? "reposted your post" : "quoted your post"
+            case "follow": action = "followed you"
+            case "mention": action = "mentioned you in a post"
+            default: action = "interacted with your post"
             }
-        } catch {
-            AppLog.log("[NotifCenter] KaPosts poll failed: %@", error.localizedDescription)
+            // Per-kind tap target, matching the KaPosts notifications sheet: reply/quote-
+            // with-text open the reply itself; vote/mention open the containing post.
+            let targetTxId: String?
+            switch notification.contentType {
+            case "reply": targetTxId = notification.id
+            case "quote": targetTxId = text.isEmpty ? notification.contentId : notification.id
+            case "follow": targetTxId = nil
+            // A mention's acting content IS the post/comment mentioning you — fall back to
+            // the notification's own txid when contentId is empty, else the row has no target.
+            case "mention": targetTxId = (notification.contentId?.isEmpty == false) ? notification.contentId : notification.id
+            default: targetTxId = notification.contentId
+            }
+            record(
+                id: "kaposts-\(notification.id)",
+                source: .kaposts,
+                title: "\(displayName(for: actorAddress)) \(action)",
+                body: String(text.prefix(90)),
+                timestamp: notification.timestamp,
+                targetId: targetTxId
+            )
         }
     }
 

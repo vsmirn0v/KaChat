@@ -43,8 +43,15 @@ struct KNSAvatarView: View {
     }
 
     /// Decoded cache so a base64 backup photo is turned into a UIImage once, not on every
-    /// body pass while scrolling.
-    private static let backupPhotoCache = NSCache<NSString, UIImage>()
+    /// body pass while scrolling. Keyed by CONTACT ADDRESS, not the base64 itself: the old
+    /// key allocated and hashed a multi-KB NSString from the photo blob on every body pass,
+    /// and the cache had no bounds. Cost-limited so hundreds of contacts can't grow it forever.
+    private static let backupPhotoCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 256
+        cache.totalCostLimit = 24 * 1024 * 1024
+        return cache
+    }()
     /// The cross-platform backup photo (base64 JPEG on the Contact), decoded lazily. Only the
     /// final fallback before the glyph, so it is evaluated only for contacts with no device or
     /// KNS photo.
@@ -52,10 +59,10 @@ struct KNSAvatarView: View {
         guard overrideImage == nil, let contactAddress,
               let base64 = ContactsManager.shared.getContact(byAddress: contactAddress)?.backupPhoto,
               !base64.isEmpty else { return nil }
-        let key = base64 as NSString
+        let key = contactAddress as NSString
         if let cached = Self.backupPhotoCache.object(forKey: key) { return cached }
         guard let data = Data(base64Encoded: base64), let image = UIImage(data: data) else { return nil }
-        Self.backupPhotoCache.setObject(image, forKey: key)
+        Self.backupPhotoCache.setObject(image, forKey: key, cost: data.count)
         return image
     }
 
