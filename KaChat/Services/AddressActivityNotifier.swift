@@ -329,6 +329,10 @@ final class AddressActivityNotifier: ObservableObject {
         UNUserNotificationCenter.current().add(
             UNNotificationRequest(identifier: "addr-activity-\(dedupeKey)", content: content, trigger: nil)
         )
+        // Also list it in the Profile notifications bell.
+        Task { @MainActor in
+            GlobalNotificationCenter.shared.record(id: "wallet-\(dedupeKey)", source: .wallet, title: content.title, body: content.body, timestamp: Int64(Date().timeIntervalSince1970 * 1000), targetId: nil)
+        }
     }
 
     private func postBalanceIncreasedNotification(address: String, delta: UInt64) {
@@ -340,13 +344,13 @@ final class AddressActivityNotifier: ObservableObject {
         content.userInfo = ["kind": kindKey(for: address)]
         applySoundPreference(to: content)
 
+        let balId = "addr-activity-bal-\(address.suffix(12))-\(UUID().uuidString)"
         UNUserNotificationCenter.current().add(
-            UNNotificationRequest(
-                identifier: "addr-activity-bal-\(address.suffix(12))-\(UUID().uuidString)",
-                content: content,
-                trigger: nil
-            )
+            UNNotificationRequest(identifier: balId, content: content, trigger: nil)
         )
+        Task { @MainActor in
+            GlobalNotificationCenter.shared.record(id: "wallet-\(balId)", source: .wallet, title: content.title, body: content.body, timestamp: Int64(Date().timeIntervalSince1970 * 1000), targetId: nil)
+        }
     }
 
     private func applySoundPreference(to content: UNMutableNotificationContent) {

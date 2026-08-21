@@ -18,13 +18,14 @@ final class GlobalNotificationCenter: ObservableObject {
 
     struct Entry: Identifiable, Codable, Equatable {
         enum Source: String, Codable {
-            case kaposts, group, broadcast
+            case kaposts, group, broadcast, wallet
 
             var label: String {
                 switch self {
                 case .kaposts: return "KaPosts"
                 case .group: return "Group"
                 case .broadcast: return "Broadcast"
+                case .wallet: return "Wallet"
                 }
             }
 
@@ -33,6 +34,7 @@ final class GlobalNotificationCenter: ObservableObject {
                 case .kaposts: return "megaphone"
                 case .group: return "person.3"
                 case .broadcast: return "dot.radiowaves.left.and.right"
+                case .wallet: return "arrow.down.circle"
                 }
             }
         }
