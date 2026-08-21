@@ -39,7 +39,7 @@
 "Always shown" = "همیشه نمایش داده می‌شود";
 "Amount" = "مبلغ";
 "Anyone who joins the same channel name can see and post messages there - there's no owner or invite." = "هر کسی که به همان نام کانال بپیوندد می‌تواند پیام‌ها را آنجا ببیند و ارسال کند - مالک یا دعوتی وجود ندارد.";
-"Anyone with your seed phrase can access your account. Never share it with anyone." = "هر کسی که seed phrase شما را داشته باشد می‌تواند به حسابتان دسترسی پیدا کند. هرگز آن را با کسی به اشتراک نگذارید.";
+"Anyone with your seed phrase can access your account. Never share it with anyone." = "هر کسی که عبارت بازیابی شما را داشته باشد می‌تواند به حسابتان دسترسی پیدا کند. هرگز آن را با کسی به اشتراک نگذارید.";
 "Archive" = "بایگانی";
 "Archived Chats" = "گفتگوهای بایگانی‌شده";
 "Asset ID" = "شناسه دارایی";
@@ -100,7 +100,7 @@
 "Clear Link" = "پاک کردن پیوند";
 "Clear connection pool?" = "مجموعه اتصالات پاک شود؟";
 "Close" = "بستن";
-"Cold Storage" = "ذخیره‌سازی سرد";
+"Cold Storage" = "ذخیره سرد";
 "Confirm" = "تأیید";
 "Connect Your Own Node" = "اتصال به گره (node) خودتان";
 "Connect to a Node" = "اتصال به یک گره";
@@ -123,7 +123,7 @@
 "Copy Link" = "کپی پیوند";
 "Copy Message" = "کپی پیام";
 "Copy Private Key Hex" = "کپی کلید خصوصی (Hex)";
-"Copy Seed Phrase" = "کپی seed phrase";
+"Copy Seed Phrase" = "کپی عبارت بازیابی";
 "Copy Transaction ID" = "کپی شناسه تراکنش";
 "Copy kpub" = "کپی kpub";
 "Copy to Clipboard" = "کپی در حافظه";
@@ -135,7 +135,7 @@
 "Couldn't Rename Group" = "تغییر نام گروه ممکن نشد";
 "Country" = "کشور";
 "Create Account" = "ایجاد حساب";
-"Create KNS Profile" = "ایجاد پروفایل KNS";
+"Create KNS Profile" = "ایجاد نمایه KNS";
 "Create New Account" = "ایجاد حساب جدید";
 "Create chat" = "ایجاد گفتگو";
 "Created" = "ایجاد شده";
@@ -181,7 +181,7 @@
 "Enter a node address you trust" = "آدرس گرهی که به آن اعتماد دارید را وارد کنید";
 "Enter a trusted node (host:port for plaintext, or grpcs://host for TLS-secured nodes like Kaspium's) and tap Save to always connect to it instead of automatic discovery. Doesn't affect the Indexer/KNS/REST API URLs above." = "یک گره مورد اعتماد وارد کنید (host:port برای متن ساده، یا grpcs://host برای گره‌های امن TLS مانند گره‌های Kaspium) و برای اتصال همیشگی به آن به‌جای کشف خودکار روی ذخیره ضربه بزنید. بر آدرس‌های URL نمایه‌ساز/KNS/REST API بالا تأثیری ندارد.";
 "Enter kpub" = "وارد کردن kpub";
-"Enter your 12 or 24 word seed phrase to restore your account. Separate each word with a space." = "seed phrase ۱۲ یا ۲۴ کلمه‌ای خود را برای بازیابی حسابتان وارد کنید. هر کلمه را با فاصله جدا کنید.";
+"Enter your 12 or 24 word seed phrase to restore your account. Separate each word with a space." = "عبارت بازیابی ۱۲ یا ۲۴ کلمه‌ای خود را برای بازیابی حسابتان وارد کنید. هر کلمه را با فاصله جدا کنید.";
 "Error" = "خطا";
 "Estimate fees while composing" = "تخمین کارمزد هنگام نوشتن";
 "Every member will see the new name." = "هر عضو نام جدید را خواهد دید.";
@@ -230,7 +230,7 @@
 "How KaChat Uses Kaspa" = "KaChat چگونه از Kaspa استفاده می‌کند";
 "I Agree" = "موافقم";
 "I already have a domain somewhere else" = "من قبلاً یک دامنه در جای دیگری دارم";
-"I have written down my seed phrase and stored it securely" = "seed phrase خود را یادداشت کرده و به صورت امن ذخیره کرده‌ام";
+"I have written down my seed phrase and stored it securely" = "عبارت بازیابی خود را یادداشت کرده و به صورت امن ذخیره کرده‌ام";
 "IP Address Book" = "دفترچه آدرس IP";
 "If claiming fails because the donation wallet is temporarily out of funds, please try again later." = "اگر دریافت به‌دلیل کمبود موقت موجودی کیف پول اهدا ناموفق شد، بعدا دوباره تلاش کنید.";
 "If the network is busy, Fast or Priority pays a higher fee to help this confirm sooner. Tap the fee amount to set a custom fee." = "اگر شبکه شلوغ باشد، گزینه سریع یا اولویت‌دار کارمزد بالاتری می‌پردازد تا کمک کند این سریع‌تر تأیید شود. برای تنظیم کارمزد سفارشی روی مبلغ کارمزد ضربه بزنید.";
@@ -240,7 +240,7 @@
 "Import Account" = "وارد کردن حساب";
 "Import CSV" = "وارد کردن CSV";
 "Import Chat History" = "وارد کردن تاریخچه گفتگو";
-"Import Cold Storage Account" = "وارد کردن حساب ذخیره‌سازی سرد";
+"Import Cold Storage Account" = "وارد کردن حساب ذخیره سرد";
 "Import Existing Account" = "وارد کردن حساب موجود";
 "Import Failed" = "وارد کردن ناموفق بود";
 "Import Your Account" = "وارد کردن حساب شما";
@@ -267,7 +267,7 @@
 "KNS API URL" = "آدرس KNS API";
 "KNS Domains" = "دامنه‌های KNS";
 "KNS Profile" = "KNS نمایه";
-"KNS Profile Pictures" = "تصاویر پروفایل KNS";
+"KNS Profile Pictures" = "تصاویر نمایه KNS";
 "KNS asset id is missing." = "شناسه دارایی KNS وجود ندارد.";
 "KNS domain id is missing." = "شناسه دامنه KNS وجود ندارد.";
 "KNS domain resolution service" = "سرویس تحلیل دامنه KNS";
@@ -342,7 +342,7 @@
 "Never send Kaspa you intend to spend to this address — it's for chatting fees only." = "هرگز کاسپایی را که قصد خرج کردن آن را دارید به این آدرس ارسال نکنید - این فقط برای کارمزد گفتگو است.";
 "New message" = "پیام جدید";
 "Next" = "بعدی";
-"No Cold Storage Accounts" = "هیچ حساب ذخیره‌سازی سردی وجود ندارد";
+"No Cold Storage Accounts" = "هیچ حساب ذخیره سردی وجود ندارد";
 "No Conversations Yet" = "هنوز گفتگویی وجود ندارد";
 "No Group Chats Yet" = "هنوز هیچ گفتگوی گروهی وجود ندارد";
 "No KNS profile changes detected." = "هیچ تغییر نمایه KNS شناسایی نشد.";
@@ -425,7 +425,7 @@
 "Private key unavailable." = "کلید خصوصی در دسترس نیست.";
 "Processing avatar..." = "در حال پردازش آواتار...";
 "Processing banner..." = "در حال پردازش بنر...";
-"Profile" = "پروفایل";
+"Profile" = "نمایه";
 "Profiled" = "بررسی شده";
 "Profiled, candidate, and suspect nodes. Showing first 20." = "گره‌های بررسی‌شده، کاندید و مشکوک. نمایش ۲۰ مورد اول.";
 "Promote pawn to:" = "ارتقای سرباز به:";
@@ -467,13 +467,13 @@
 "Remove" = "حذف";
 "Remove Avatar" = "آواتار را حذف کنید";
 "Remove Banner" = "حذف بنر";
-"Remove Cold Storage Account" = "حذف حساب ذخیره‌سازی سرد";
+"Remove Cold Storage Account" = "حذف حساب ذخیره سرد";
 "Remove Saved Account" = "حذف حساب ذخیره‌شده";
 "Remove from Device" = "حذف از دستگاه";
 "Rename" = "تغییر نام";
 "Rename Account" = "تغییر نام حساب";
 "Rename Address" = "تغییر نام آدرس";
-"Rename Cold Storage Account" = "تغییر نام حساب ذخیره‌سازی سرد";
+"Rename Cold Storage Account" = "تغییر نام حساب ذخیره سرد";
 "Rename Group" = "تغییر نام گروه";
 "Reply" = "پاسخ";
 "Request to communicate" = "درخواست ارتباط";
@@ -503,9 +503,9 @@
 "Search emoji" = "جستجوی ایموجی";
 "Secure messaging on Kaspa BlockDAG" = "پیام‌رسانی امن روی Kaspa BlockDAG";
 "Security Warning" = "هشدار امنیتی";
-"Seed Phrase" = "Seed Phrase";
-"Seed Phrase Length" = "طول Seed Phrase";
-"Seed phrase copied. Clipboard will clear in 30s." = "seed phrase کپی شد. حافظه در ۳۰ ثانیه پاک می‌شود.";
+"Seed Phrase" = "عبارت بازیابی";
+"Seed Phrase Length" = "طول عبارت بازیابی";
+"Seed phrase copied. Clipboard will clear in 30s." = "عبارت بازیابی کپی شد. حافظه در ۳۰ ثانیه پاک می‌شود.";
 "Select a chat" = "یک چت را انتخاب کنید";
 "Select mainnet for real transactions or testnet for testing" = "mainnet را برای تراکنش‌های واقعی یا testnet را برای آزمایش انتخاب کنید";
 "Select the currency you'd like prices displayed in." = "واحد پولی که می‌خواهید قیمت‌ها به آن نمایش داده شوند را انتخاب کنید.";
@@ -522,7 +522,7 @@
 "Send Kaspa" = "ارسال کاسپا";
 "Send Photo" = "ارسال عکس";
 "Send audio" = "ارسال صدا";
-"Send from Cold Storage" = "ارسال از ذخیره‌سازی سرد";
+"Send from Cold Storage" = "ارسال از ذخیره سرد";
 "Send message" = "ارسال پیام";
 "Sending less than 0.1 KAS may fail due to the network dust protection limit." = "ارسال کمتر از 0.1 KAS ممکن است به دلیل محدودیت حفاظت از غبار شبکه ناموفق باشد.";
 "Sending…" = "در حال ارسال…";
@@ -582,7 +582,7 @@
 "Tap a node to copy host:port." = "روی یک گره بزنید تا host:port کپی شود.";
 "Tap send to record" = "برای ضبط روی ارسال بزنید";
 "Tap to adjust. If the network is busy, a higher fee can help your transaction confirm faster." = "برای تنظیم ضربه بزنید. اگر شبکه شلوغ باشد، کارمزد بالاتر می‌تواند به تأیید سریع‌تر تراکنش شما کمک کند.";
-"Tap to reveal seed phrase" = "برای نمایش seed phrase بزنید";
+"Tap to reveal seed phrase" = "برای نمایش عبارت بازیابی بزنید";
 "This account will be removed from this device." = "این حساب از این دستگاه حذف خواهد شد.";
 "This can't be undone." = "این قابل بازگشت نیست.";
 "This contact will be linked after it is created. You still need to enter a Kaspa address or KNS domain." = "این مخاطب پس از ایجاد پیوند خواهد شد. همچنان باید یک آدرس Kaspa یا دامنه KNS وارد کنید.";
@@ -601,7 +601,7 @@
 "This removes the group and its messages from this device. This cannot be undone, and other members won't be notified." = "این گروه و پیام‌های آن را از این دستگاه حذف می‌کند. این قابل بازگشت نیست و سایر اعضا مطلع نخواهند شد.";
 "This signs out of your account, but keeps local wallet and message data on this device." = "این کار از حسابتان خارج می‌شود، اما داده‌های محلی کیف پول و پیام‌ها را در این دستگاه نگه می‌دارد.";
 "This welcome gift is a community-funded initiative." = "این هدیه خوش‌آمدگویی با حمایت جامعه تامین شده است.";
-"This will permanently delete your account from this device. Make sure you have backed up your seed phrase." = "این کار حسابتان را برای همیشه از این دستگاه حذف می‌کند. مطمئن شوید که از seed phrase خود نسخه پشتیبان تهیه کرده‌اید.";
+"This will permanently delete your account from this device. Make sure you have backed up your seed phrase." = "این کار حسابتان را برای همیشه از این دستگاه حذف می‌کند. مطمئن شوید که از عبارت بازیابی خود نسخه پشتیبان تهیه کرده‌اید.";
 "To (Primary Address)" = "به (آدرس اصلی)";
 "To chat with someone, press Create Chat and enter their Kaspa address or KNS domain. If you send a message, they will not see it unless you send a handshake first, or you both decide to message each other around the same time - doing the latter increases your privacy." = "برای گفتگو با کسی، روی ایجاد گفتگو ضربه بزنید و آدرس Kaspa یا دامنه KNS او را وارد کنید. اگر پیامی ارسال کنید، او آن را نخواهد دید مگر اینکه ابتدا یک دست‌دهی (handshake) ارسال کنید، یا هر دوی شما تقریباً همزمان تصمیم بگیرید به یکدیگر پیام دهید - گزینه دوم حریم خصوصی شما را افزایش می‌دهد.";
 "To receive notifications, please enable them in Settings." = "برای دریافت اعلان‌ها، لطفا آن‌ها را در تنظیمات فعال کنید.";
@@ -639,8 +639,8 @@
 "Verifying device..." = "در حال تایید دستگاه...";
 "Version" = "نسخه";
 "Vibration" = "لرزش";
-"View Profile" = "مشاهده پروفایل";
-"View Seed Phrase" = "مشاهده Seed Phrase";
+"View Profile" = "مشاهده نمایه";
+"View Seed Phrase" = "مشاهده عبارت بازیابی";
 "View in Explorer" = "مشاهده در کاوشگر";
 "Voice message" = "پیام صوتی";
 "Walk through setting up your domain, banner, avatar, and details step by step." = "شما را گام‌به‌گام در راه‌اندازی دامنه، بنر، آواتار و جزئیات خود راهنمایی می‌کند.";
@@ -664,11 +664,11 @@
 "Wipe account & messages & iCloud" = "پاک کردن حساب، پیام‌ها و iCloud";
 "Wipe and re-sync incoming messages" = "پاک کردن و همگام‌سازی مجدد پیام‌های ورودی";
 "Withdraw Kaspa" = "برداشت کاسپا";
-"Write Down Your Seed Phrase" = "Seed Phrase خود را یادداشت کنید";
+"Write Down Your Seed Phrase" = "عبارت بازیابی خود را یادداشت کنید";
 "X handle" = "دسته X";
-"You have now finished your KNS profile creation!" = "شما اکنون ایجاد پروفایل KNS خود را به پایان رساندید!";
-"You will be shown a seed phrase. This is the only way to recover your account. Write it down and store it securely." = "یک seed phrase به شما نمایش داده می‌شود. این تنها راه بازیابی حسابتان است. آن را یادداشت کرده و به صورت امن نگهداری کنید.";
-"Your public messaging identity. Fund it with a small amount to pay message fees and KNS profile creation fees - never send money here that you intend to spend." = "هویت پیام‌رسانی عمومی شما. آن را با مبلغ کمی شارژ کنید تا کارمزد پیام‌ها و کارمزد ایجاد پروفایل KNS پرداخت شود - هرگز پولی که قصد خرج کردنش را دارید به اینجا ارسال نکنید.";
+"You have now finished your KNS profile creation!" = "شما اکنون ایجاد نمایه KNS خود را به پایان رساندید!";
+"You will be shown a seed phrase. This is the only way to recover your account. Write it down and store it securely." = "یک عبارت بازیابی به شما نمایش داده می‌شود. این تنها راه بازیابی حسابتان است. آن را یادداشت کرده و به صورت امن نگهداری کنید.";
+"Your public messaging identity. Fund it with a small amount to pay message fees and KNS profile creation fees - never send money here that you intend to spend." = "هویت پیام‌رسانی عمومی شما. آن را با مبلغ کمی شارژ کنید تا کارمزد پیام‌ها و کارمزد ایجاد نمایه KNS پرداخت شود - هرگز پولی که قصد خرج کردنش را دارید به اینجا ارسال نکنید.";
 "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\(Int(latency))ms" = "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\(Int(latency))ms";
 "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\(exact) KAS" = "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\(exact) KAS";
 "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\(latency) ms" = "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\(latency) ms";
