@@ -1284,7 +1284,23 @@ final class GroupChatService: ObservableObject {
         let usesUnconfirmedInputs = spentUtxos.contains { $0.blockDaaScore == 0 }
 
         do {
-            let (txId, _) = try await NodePoolService.shared.submitTransaction(tx, allowOrphan: usesUnconfirmedInputs)
+            let txId: String
+            do {
+                let (t, _) = try await NodePoolService.shared.submitTransaction(tx, allowOrphan: usesUnconfirmedInputs)
+                txId = t
+            } catch {
+                // A hedged submit can land on a node that briefly lags the DAG tip and rejects a tx
+                // spending an input we believe is confirmed as an orphan ("...orphan is disallowed").
+                // Retry once tolerating orphan — the node parks it until the parent propagates
+                // (sub-second) — rather than surfacing kaspad's raw rejection with no recovery. This
+                // is the same recovery the 1:1/Android send paths use; the group path lacked it.
+                if !usesUnconfirmedInputs, Self.isOrphanRejection(error) {
+                    let (t, _) = try await NodePoolService.shared.submitTransaction(tx, allowOrphan: true)
+                    txId = t
+                } else {
+                    throw error
+                }
+            }
             chatService.reserveMessageOutpoints(spentUtxos)
             chatService.consumePendingUtxos(spentUtxos)
             if let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: address) {
@@ -1293,8 +1309,18 @@ final class GroupChatService: ObservableObject {
             return txId
         } catch {
             chatService.releaseMessageOutpoints()
+            // Never surface kaspad's raw "...orphan is disallowed" text — map it to a friendly,
+            // actionable message (the send can simply be retried once the parent settles).
+            if Self.isOrphanRejection(error) {
+                throw KasiaError.networkError("The network is still confirming your last message. Please try again in a moment.")
+            }
             throw error
         }
+    }
+
+    /// True when a submit was rejected as an orphan (parent not yet seen by the submitting node).
+    nonisolated static func isOrphanRejection(_ error: Error) -> Bool {
+        return error.localizedDescription.lowercased().contains("orphan")
     }
 
     // MARK: - Control message send (gctl_root / gctl_epoch)
