@@ -12,6 +12,7 @@ extension ChatService {
     func enterConversation(for address: String) {
         activeConversationAddress = address
         AppLog.log("[ChatService] Entered conversation for %@", String(address.suffix(12)))
+        startActiveChatPoll(for: address)
         loadReactions(for: address)
         // Fresh-address payment pools: lazily offer our pool once per contact, and top up theirs
         // if a previous addr_pool_request got lost (both no-ops when nothing to do).
@@ -102,8 +103,32 @@ extension ChatService {
         if let address = activeConversationAddress {
             ReadStatusSyncManager.shared.userLeftConversation(address)
         }
+        activeChatPollTask?.cancel()
+        activeChatPollTask = nil
         activeConversationAddress = nil
         AppLog.log("[ChatService] Left conversation")
+    }
+
+    /// While a 1:1 chat is open and the app is foregrounded, poll the indexer for new messages
+    /// from that contact every ~2s (mirrors Android's live-UI DM loop). Idempotent with the
+    /// utxosChanged push — both dedupe by txId; this just guarantees prompt delivery for the
+    /// chat you're looking at instead of waiting on a confirmation-gated notification.
+    private func startActiveChatPoll(for address: String) {
+        activeChatPollTask?.cancel()
+        activeChatPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.activeConversationAddress != address { return }
+                if UIApplication.shared.applicationState == .active,
+                   let wallet = WalletManager.shared.currentWallet,
+                   let privateKey = WalletManager.shared.getPrivateKey() {
+                    _ = await self.fetchContextualMessagesFromContact(
+                        contactAddress: address, myAddress: wallet.publicAddress, privateKey: privateKey
+                    )
+                }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
     }
 
     /// Fetch only handshakes (lightweight, needed to establish encryption keys)

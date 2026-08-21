@@ -278,6 +278,11 @@ final class ChatService: ObservableObject {
     let pollDelayAfterSync: TimeInterval = 60.0
 
     var pollTask: Task<Void, Never>?
+    /// Fast per-contact indexer poll for the CURRENTLY-OPEN 1:1 chat. iOS otherwise relies only
+    /// on the confirmation-gated utxosChanged push for live DMs (no foreground indexer poll at
+    /// all, unlike desktop's 5s and Android's 2s loops), which made new incoming messages in an
+    /// open chat lag. This gives the actively-viewed conversation ~2s delivery.
+    var activeChatPollTask: Task<Void, Never>?
     /// The one-shot 4-phase initial sync started by `startPolling`. Tracked so wallet transitions
     /// (import/switch/logout) can cancel it - otherwise the previous wallet's historical sync keeps
     /// running past the switch and writes its messages into the *new* wallet's store, leaking one
@@ -587,6 +592,8 @@ final class ChatService: ObservableObject {
         // untracked by stopPolling and would keep writing the old wallet's data after the switch.
         pollTask?.cancel()
         pollTask = nil
+        activeChatPollTask?.cancel()
+        activeChatPollTask = nil
         initialSyncTask?.cancel()
         initialSyncTask = nil
         messageSyncTask?.cancel()
