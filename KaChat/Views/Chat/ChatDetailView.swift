@@ -77,6 +77,7 @@ struct ChatDetailView: View {
     @State private var lastMessageSnapshotDigest: Int?
     @State private var snapshotRebuildTask: Task<Void, Never>?
     @State private var hasOutgoingHandshakeMessage = false
+    @State private var hasIncomingHandshakeMessage = false
     /// "Genuine" = a real message either side actually sent (contextual/audio/payment), not a
     /// handshake and not a failed send. Both flags true == the relationship is established and
     /// the handshake banner has nothing left to warn about.
@@ -198,12 +199,28 @@ struct ChatDetailView: View {
         chatService.conversations.first { $0.contact.address == contact.address }
     }
 
+    /// A chat with your own address — never gated by a handshake (it's you).
+    private var isSelfChat: Bool {
+        contact.address == WalletManager.shared.currentWallet?.publicAddress
+    }
+
+    /// A stranger sent a connect request you haven't accepted yet (no outgoing handshake, no genuine
+    /// reply, not declined). Until you accept, their non-handshake messages must stay hidden — the
+    /// sync-level gate Android/Desktop already have; iOS fetches them, so we gate at display.
+    private var awaitingMyAcceptance: Bool {
+        !isSelfChat && hasIncomingHandshakeMessage && !hasOutgoingHandshakeMessage && !hasGenuineOutgoingMessage && !isDeclined
+    }
+
     private var messages: [ChatMessage] {
         // "📤 Sent via another device" placeholders never render: they carry no readable
         // content (an outgoing tx from another device whose text hasn't synced), and showing
         // them added noise without information. The records stay in the store, so when
         // CloudKit later delivers the real text the message appears with content.
-        normalizedMessages.filter { $0.content != "📤 Sent via another device" }
+        let base = normalizedMessages.filter { $0.content != "📤 Sent via another device" }
+        // Before you accept a stranger's request, show only the "wants to connect" handshake (and
+        // anything you sent) — never their earlier messages.
+        guard awaitingMyAcceptance else { return base }
+        return base.filter { $0.isOutgoing || $0.messageType == .handshake }
     }
 
     /// Drives the toolbar's quick-access chess icon - nil hides it entirely. Reuses
@@ -292,6 +309,9 @@ struct ChatDetailView: View {
 
         hasOutgoingHandshakeMessage = deduped.contains {
             $0.messageType == .handshake && $0.isOutgoing && $0.deliveryStatus != .failed
+        }
+        hasIncomingHandshakeMessage = deduped.contains {
+            $0.messageType == .handshake && !$0.isOutgoing && $0.deliveryStatus != .failed
         }
         hasGenuineIncomingMessage = deduped.contains {
             !$0.isOutgoing && $0.messageType != .handshake && $0.deliveryStatus != .failed
