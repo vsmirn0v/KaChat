@@ -1347,16 +1347,29 @@ struct GroupChatRow: View {
         return Contact.generateDefaultAlias(from: address)
     }
 
+    private var groupPhotoImage: UIImage? {
+        guard let hex = groupChatService.groupPhotos[group.id], let data = Data(hexString: hex) else { return nil }
+        return UIImage(data: data)
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            Circle()
-                .fill(Color.accentColor.opacity(0.2))
-                .frame(width: 50, height: 50)
-                .overlay(
-                    Image(systemName: "person.3.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(.accentColor)
-                )
+            if let img = groupPhotoImage {
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 50, height: 50)
+                    .clipShape(Circle())
+            } else {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.2))
+                    .frame(width: 50, height: 50)
+                    .overlay(
+                        Image(systemName: "person.3.fill")
+                            .font(.system(size: 18))
+                            .foregroundColor(.accentColor)
+                    )
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {

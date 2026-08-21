@@ -2267,6 +2267,40 @@ struct GroupChatInfoView: View {
     @State private var memberToResend: GroupMember?
     @State private var memberToRemove: GroupMember?
     @State private var showResendAllConfirm = false
+    @State private var groupPhotoPickerItem: PhotosPickerItem?
+    @State private var groupPhotoError: String?
+
+    /// The admin-set group photo decoded to an image, or nil.
+    private var groupPhotoImage: UIImage? {
+        guard let hex = groupChatService.groupPhotos[group.id], let data = Data(hexString: hex) else { return nil }
+        return UIImage(data: data)
+    }
+
+    /// Circular group avatar (photo when set, else the name's initial), with an edit badge for admins.
+    private var groupHeaderAvatar: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if let img = groupPhotoImage {
+                    Image(uiImage: img).resizable().scaledToFill()
+                } else {
+                    ZStack {
+                        Circle().fill(Color.accentColor.opacity(0.2))
+                        Text(String(group.name.prefix(1)).uppercased())
+                            .font(.system(size: 32, weight: .semibold))
+                            .foregroundColor(.accentColor)
+                    }
+                }
+            }
+            .frame(width: 76, height: 76)
+            .clipShape(Circle())
+            if group.isAdmin {
+                Image(systemName: "pencil.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundColor(.accentColor)
+                    .background(Circle().fill(Color(.systemBackground)))
+            }
+        }
+    }
     var onDeleted: (() -> Void)?
 
     /// Re-broadcast the current group root to a single member (or all when address is nil), then
@@ -2319,16 +2353,22 @@ struct GroupChatInfoView: View {
                 // Group header: avatar + name at the very top, showing what the group currently is.
                 Section {
                     VStack(spacing: 8) {
-                        ZStack {
-                            Circle().fill(Color.accentColor.opacity(0.2)).frame(width: 76, height: 76)
-                            Text(String(group.name.prefix(1)).uppercased())
-                                .font(.system(size: 32, weight: .semibold))
-                                .foregroundColor(.accentColor)
+                        if group.isAdmin {
+                            PhotosPicker(selection: $groupPhotoPickerItem, matching: .images) { groupHeaderAvatar }
+                                .buttonStyle(.plain)
+                        } else {
+                            groupHeaderAvatar
                         }
                         Text(group.name)
                             .font(.title3).fontWeight(.semibold)
                         Text("\(group.members.count) members")
                             .font(.caption).foregroundColor(.secondary)
+                        if group.isAdmin && groupPhotoImage != nil {
+                            Button("Remove photo", role: .destructive) {
+                                Task { try? await groupChatService.setGroupPhoto(group.id, photoHex: "") }
+                            }
+                            .font(.caption)
+                        }
                     }
                     .frame(maxWidth: .infinity)
                     .listRowBackground(Color.clear)
@@ -2488,6 +2528,25 @@ struct GroupChatInfoView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Resend the group invite to every member? Use this if someone didn't receive the group.")
+            }
+            .alert("Group photo", isPresented: Binding(get: { groupPhotoError != nil }, set: { if !$0 { groupPhotoError = nil } })) {
+                Button("OK", role: .cancel) { groupPhotoError = nil }
+            } message: {
+                Text(groupPhotoError ?? "")
+            }
+            .onChange(of: groupPhotoPickerItem) { newItem in
+                guard let newItem else { return }
+                Task {
+                    do {
+                        guard let data = try await newItem.loadTransferable(type: Data.self),
+                              let image = UIImage(data: data) else { return }
+                        let jpeg = try ImagePrep.prepareJPEGForChatMessage(image, targetBytes: 10_000)
+                        try await groupChatService.setGroupPhoto(group.id, photoHex: jpeg.hexString)
+                    } catch {
+                        await MainActor.run { groupPhotoError = error.localizedDescription }
+                    }
+                    await MainActor.run { groupPhotoPickerItem = nil }
+                }
             }
             .alert("Rename Group", isPresented: $showRename) {
                 TextField("Group name", text: $renameText)

@@ -353,6 +353,51 @@ enum GroupCipher {
         return verify(sig, message: signingPayload, xOnlyPublicKey: signingPub)
     }
 
+    // MARK: - gctl_photo (admin-set group photo)
+    // A separate signed control type (like gctl_tombstone) so it never touches the gctl_root
+    // signature - older clients ignore an unknown control type. `photo` is hex of a compressed
+    // JPEG; "" clears the photo.
+    struct GroupPhotoPayload: Codable {
+        var type = "gctl_photo"
+        var v: UInt8 = 1
+        var groupId: String
+        var photo: String
+        var signingPub: String
+        var sig: String
+        enum CodingKeys: String, CodingKey {
+            case type, v
+            case groupId = "group_id"
+            case photo
+            case signingPub = "signing_pub"
+            case sig
+        }
+    }
+
+    static func buildPhotoSigningPayload(v: UInt8, groupId: Data, photo: Data) -> Data {
+        var payload = Data([v])
+        payload.append(Data("gctl_photo".utf8))
+        payload.append(groupId)
+        payload.append(photo)
+        return payload
+    }
+
+    static func buildSignedPhotoPayload(groupId: Data, photoHex: String, signingPub: Data, privateKey: Data) throws -> GroupPhotoPayload {
+        let photoBytes = Data(hexString: photoHex) ?? Data()
+        let signingPayload = buildPhotoSigningPayload(v: 1, groupId: groupId, photo: photoBytes)
+        let sig = try sign(signingPayload, privateKey: privateKey)
+        return GroupPhotoPayload(groupId: groupId.hexString, photo: photoHex, signingPub: signingPub.hexString, sig: sig.hexString)
+    }
+
+    // Verifies the signature. The caller must also check signing_pub is the group's known admin.
+    static func verifyPhotoPayload(_ payload: GroupPhotoPayload) -> Bool {
+        guard let groupId = Data(hexString: payload.groupId),
+              let signingPub = Data(hexString: payload.signingPub),
+              let sig = Data(hexString: payload.sig) else { return false }
+        let photoBytes = Data(hexString: payload.photo) ?? Data()
+        let signingPayload = buildPhotoSigningPayload(v: payload.v, groupId: groupId, photo: photoBytes)
+        return verify(sig, message: signingPayload, xOnlyPublicKey: signingPub)
+    }
+
     // MARK: - On-chain payload codecs
 
     struct ParsedGroupMessage {

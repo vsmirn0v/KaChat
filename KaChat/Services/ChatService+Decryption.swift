@@ -366,6 +366,8 @@ extension ChatService {
         // Decrypted plaintext message history (optional; older archives omit it). Lets history
         // survive an indexer prune - the importer stores these under a negative-epoch sentinel.
         let messages: [ChatHistoryArchiveGroupMessage]?
+        // Admin-set group photo (hex of a compressed JPEG); nil = none. Cross-platform field.
+        let photo: String?
     }
 
     struct ChatHistoryArchiveGroupMember: Codable {

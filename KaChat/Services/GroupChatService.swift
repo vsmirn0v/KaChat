@@ -101,6 +101,30 @@ final class GroupChatService: ObservableObject {
     @Published private(set) var groupMentionsOnlyNotifications: Set<String> = []
     private let groupMentionsOnlyNotificationsKey = "kachat_group_mentions_only"
 
+    // Admin-set group photos (groupId -> hex of a compressed JPEG), distributed via gctl_photo and
+    // persisted per wallet in UserDefaults (avoids a Core Data migration; photos aren't secret).
+    @Published private(set) var groupPhotos: [String: String] = [:]
+    private var groupPhotosDefaultsKey: String? {
+        guard let addr = WalletManager.shared.currentWallet?.publicAddress else { return nil }
+        return "kachat_group_photos_\(addr)"
+    }
+    private func loadGroupPhotos() {
+        guard let key = groupPhotosDefaultsKey, let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else { groupPhotos = [:]; return }
+        groupPhotos = decoded
+    }
+    private func persistGroupPhotos() {
+        guard let key = groupPhotosDefaultsKey else { return }
+        if let data = try? JSONEncoder().encode(groupPhotos) { UserDefaults.standard.set(data, forKey: key) }
+    }
+    /// Local-only photo update (also used when a gctl_photo arrives). hex == nil clears it.
+    func setLocalGroupPhoto(_ groupId: String, hex: String?) {
+        if let hex, !hex.isEmpty { groupPhotos[groupId] = hex } else { groupPhotos.removeValue(forKey: groupId) }
+        persistGroupPhotos()
+    }
+    /// Hex of the current photo for a group, or nil.
+    func groupPhotoHex(for groupId: String) -> String? { groupPhotos[groupId] }
+
     // nonisolated: pure constants/helpers with no actor state, referenced from the off-main
     // block-scan extractor (extractBlockScanHits).
     // `kchat:` migration: write the new root, still read the legacy `ciph_msg:` root (tail identical).
@@ -415,6 +439,7 @@ final class GroupChatService: ObservableObject {
         loadGroupHiddenMembers()
         loadGroupMutedMembers()
         loadGroupMentionsOnlyNotifications()
+        loadGroupPhotos()
         store.setCurrentWallet(walletAddress)
         groups = walletAddress == nil ? [] : store.allGroups()
         groupMessages.removeAll()
@@ -496,7 +521,8 @@ final class GroupChatService: ObservableObject {
                 members: group.members.map {
                     ChatHistoryArchiveGroupMember(address: $0.address, xOnlyPubKeyHex: $0.xOnlyPubKeyHex, isAdmin: $0.isAdmin)
                 },
-                messages: archivedMessages
+                messages: archivedMessages,
+                photo: groupPhotos[group.id]
             )
         }
     }
@@ -527,6 +553,9 @@ final class GroupChatService: ObservableObject {
                 currentEpoch: g.currentEpoch, createdAt: Date(), isAdmin: g.isAdmin
             )
             store.upsertGroup(group)
+
+            // Restore the admin-set group photo (if the archive carried one).
+            if let photo = g.photo, !photo.isEmpty { setLocalGroupPhoto(g.groupId, hex: photo) }
 
             // Restore decrypted message history under the negative-epoch sentinel, deduped by txId.
             for m in g.messages ?? [] {
@@ -685,6 +714,10 @@ final class GroupChatService: ObservableObject {
             do { try await sendRootControlMessage(group: group, bag: bag, to: member.address, privateKey: privateKey) }
             catch { sendErrors.append(error) }
         }
+        // Also re-push the group photo so anyone who missed it catches up.
+        if let hex = groupPhotos[groupId], !hex.isEmpty {
+            try? await distributeGroupPhoto(group: group, photoHex: hex, privateKey: privateKey, myAddress: wallet.publicAddress)
+        }
         if !sendErrors.isEmpty {
             throw KasiaError.networkError("\(sendErrors.count) invite(s) still could not be sent.")
         }
@@ -699,6 +732,28 @@ final class GroupChatService: ObservableObject {
         guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey() else { throw KasiaError.walletNotFound }
         guard address != wallet.publicAddress else { return }
         try await sendRootControlMessage(group: group, bag: bag, to: address, privateKey: privateKey)
+    }
+
+    /// Admin: set (photoHex = hex of a compressed JPEG) or clear (photoHex = "") the group photo,
+    /// then push it to every member via a signed gctl_photo control message.
+    func setGroupPhoto(_ groupId: String, photoHex: String) async throws {
+        guard let group = store.group(id: groupId), group.isAdmin else {
+            throw KasiaError.networkError("Only the group admin can change the group photo.")
+        }
+        guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey() else { throw KasiaError.walletNotFound }
+        await MainActor.run { setLocalGroupPhoto(groupId, hex: photoHex.isEmpty ? nil : photoHex) }
+        try await distributeGroupPhoto(group: group, photoHex: photoHex, privateKey: privateKey, myAddress: wallet.publicAddress)
+    }
+
+    /// Send the current group photo to every member (admin). Best-effort per member.
+    private func distributeGroupPhoto(group: GroupChat, photoHex: String, privateKey: Data, myAddress: String) async throws {
+        guard let gid = Data(hexString: group.id), let adminXOnlyPub = Data(hexString: group.adminXOnlyPubKeyHex) else { return }
+        let payload = try GroupCipher.buildSignedPhotoPayload(groupId: gid, photoHex: photoHex, signingPub: adminXOnlyPub, privateKey: privateKey)
+        let json = try JSONEncoder().encode(payload)
+        for member in group.members where member.address != myAddress {
+            guard let recipientPublicKey = KaspaAddress.publicKey(from: member.address) else { continue }
+            try? await sendControlPayload(json, to: recipientPublicKey, from: myAddress, privateKey: privateKey)
+        }
     }
 
     /// Deletes a group locally: its message history, Keychain-held secrets (root/seed/blinding
@@ -841,6 +896,10 @@ final class GroupChatService: ObservableObject {
             } catch {
                 sendErrors.append(error)
             }
+        }
+        // A newly-added member should also receive the current group photo (root doesn't carry it).
+        if let hex = groupPhotos[groupId], !hex.isEmpty {
+            try? await distributeGroupPhoto(group: group, photoHex: hex, privateKey: privateKey, myAddress: wallet.publicAddress)
         }
         if !sendErrors.isEmpty {
             AppLog.log("[GroupChatService] %d member(s) failed to receive epoch rotation for group %@",
@@ -1668,6 +1727,14 @@ final class GroupChatService: ObservableObject {
             if tomb.signingPub == myPub, GroupCipher.verifyTombstonePayload(tomb) {
                 recordGroupTombstone(tomb.groupId, published: true)
                 if store.group(id: tomb.groupId) != nil { deleteLocalGroupForTombstone(tomb.groupId) }
+            }
+            return
+        }
+        // An admin-set group photo — apply ONLY if signed by THIS group's known admin.
+        if let photo = try? JSONDecoder().decode(GroupCipher.GroupPhotoPayload.self, from: jsonData), photo.type == "gctl_photo" {
+            guard let group = store.group(id: photo.groupId) else { return }
+            if photo.signingPub == group.adminXOnlyPubKeyHex, GroupCipher.verifyPhotoPayload(photo) {
+                setLocalGroupPhoto(photo.groupId, hex: photo.photo.isEmpty ? nil : photo.photo)
             }
             return
         }
