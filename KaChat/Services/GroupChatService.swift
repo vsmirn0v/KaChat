@@ -709,10 +709,14 @@ final class GroupChatService: ObservableObject {
             throw KasiaError.walletNotFound
         }
 
+        let previousName = group.name
         group.name = newName
         store.upsertGroup(group)
         groups = store.allGroups()
         SharedDataManager.syncGroupsForExtension()
+        if previousName != newName {
+            insertGroupSystemLine(groupId, "You changed the group name to \"\(newName)\"")
+        }
 
         var sendErrors: [Error] = []
         for member in group.members where member.address != wallet.publicAddress {
@@ -769,7 +773,10 @@ final class GroupChatService: ObservableObject {
             throw KasiaError.networkError("Only the group admin can change the group photo.")
         }
         guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey() else { throw KasiaError.walletNotFound }
-        await MainActor.run { setLocalGroupPhoto(groupId, hex: photoHex.isEmpty ? nil : photoHex) }
+        await MainActor.run {
+            setLocalGroupPhoto(groupId, hex: photoHex.isEmpty ? nil : photoHex)
+            insertGroupSystemLine(groupId, photoHex.isEmpty ? "You removed the group photo" : "You changed the group photo")
+        }
         try await distributeGroupPhoto(group: group, photoHex: photoHex, privateKey: privateKey, myAddress: wallet.publicAddress)
     }
 
@@ -865,6 +872,13 @@ final class GroupChatService: ObservableObject {
         if let f = fallback, !f.isEmpty { return f }
         if let kns = KNSService.shared.profileCache[address]?.domainName, !kns.isEmpty { return kns }
         return Contact.generateDefaultAlias(from: address)
+    }
+
+    /// Insert one iMessage-style system line (photo/name change) into a group thread.
+    func insertGroupSystemLine(_ groupId: String, _ text: String) {
+        let t = Int64(Date().timeIntervalSince1970 * 1000)
+        store.insertImportedPlaintextMessage(txId: "sys_\(groupId.prefix(8))_\(t)_\(text.prefix(12))", groupId: groupId, senderAddress: Self.systemSender, senderIdHex: "", msgIdHex: "", content: text, blockTime: t, isOutgoing: false)
+        loadMessages(for: groupId)
     }
 
     /// Emit "X was added" / "Y was removed" lines for a roster change, stored as system messages.
@@ -1788,7 +1802,13 @@ final class GroupChatService: ObservableObject {
         if let photo = try? JSONDecoder().decode(GroupCipher.GroupPhotoPayload.self, from: jsonData), photo.type == "gctl_photo" {
             guard let group = store.group(id: photo.groupId) else { return }
             if photo.signingPub == group.adminXOnlyPubKeyHex, GroupCipher.verifyPhotoPayload(photo) {
-                setLocalGroupPhoto(photo.groupId, hex: photo.photo.isEmpty ? nil : photo.photo)
+                let newHex = photo.photo.isEmpty ? nil : photo.photo
+                let changed = groupPhotos[photo.groupId] != newHex
+                setLocalGroupPhoto(photo.groupId, hex: newHex)
+                if changed {
+                    let adminLabel = groupMemberLabel(group.adminAddress, fallback: nil)
+                    insertGroupSystemLine(photo.groupId, newHex == nil ? "\(adminLabel) removed the group photo" : "\(adminLabel) changed the group photo")
+                }
             }
             return
         }
@@ -1829,9 +1849,10 @@ final class GroupChatService: ObservableObject {
     }
 
     private func applyRootPayload(_ payload: GroupCipher.GroupRootPayload) {
-        // Roster we held BEFORE this root updates it — used to emit "X was added/removed" system
-        // lines on a key rotation. nil on a first-time join (no baseline → no false "added" storm).
-        let previousRosterForDiff = store.group(id: payload.groupId)?.members
+        // Roster + name we held BEFORE this root updates them — used to emit "X was added/removed"
+        // and "renamed" system lines. nil on a first-time join (no baseline → no false storm).
+        let previousGroupForDiff = store.group(id: payload.groupId)
+        let previousRosterForDiff = previousGroupForDiff?.members
         // device_id is persistent per device (spec) - preserve it across epoch-rotation
         // updates to an already-joined group; only a genuinely first-time join mints a new
         // one. msgCounter resets to 0 only when the epoch actually advances (spec: "update
@@ -1896,6 +1917,11 @@ final class GroupChatService: ObservableObject {
         }
         if let prev = previousRosterForDiff {
             insertMembershipSystemMessages(groupId: group.id, oldMembers: prev, newMembers: members)
+        }
+        // Rename line for members (the admin emits its own in renameGroup).
+        if let previous = previousGroupForDiff, previous.name != group.name {
+            let adminLabel = groupMemberLabel(group.adminAddress, fallback: nil)
+            insertGroupSystemLine(group.id, "\(adminLabel) changed the group name to \"\(group.name)\"")
         }
         loadMessages(for: group.id)
         updateScanningStateIfNeeded()

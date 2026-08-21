@@ -495,6 +495,24 @@ struct GroupChatDetailView: View {
             ToolbarItem(placement: .navigationBarLeading) {
                 ConnectionStatusIndicator()
             }
+            // Group photo above the name, like the 1:1 chat header shows the contact's avatar.
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 1) {
+                    Group {
+                        if let hex = groupChatService.groupPhotos[group.id], let data = Data(hexString: hex), let img = UIImage(data: data) {
+                            Image(uiImage: img).resizable().scaledToFill()
+                        } else {
+                            ZStack {
+                                Circle().fill(Color.accentColor.opacity(0.2))
+                                Image(systemName: "person.3.fill").font(.system(size: 11)).foregroundColor(.accentColor)
+                            }
+                        }
+                    }
+                    .frame(width: 28, height: 28)
+                    .clipShape(Circle())
+                    Text(group.name).font(.subheadline).fontWeight(.semibold).lineLimit(1)
+                }
+            }
             if !isSelectingMessages {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
