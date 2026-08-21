@@ -242,7 +242,12 @@ extension ChatService {
         let reconciledAddresses = Set(reconciled.map { $0.contact.address })
         let liveOnly = conversations.filter { !reconciledAddresses.contains($0.contact.address) }
 
-        conversations = (reconciled + liveOnly).sorted { ($0.lastMessage?.timestamp ?? .distantPast) < ($1.lastMessage?.timestamp ?? .distantPast) }
+        // Decorate-sort-undecorate: lastMessage walks the conversation's whole message array,
+        // and evaluating it inside the comparator re-ran that walk O(n log n) times per sort.
+        conversations = (reconciled + liveOnly)
+            .map { (key: $0.lastMessage?.timestamp ?? .distantPast, value: $0) }
+            .sorted { $0.key < $1.key }
+            .map(\.value)
         rebuildPendingOutgoingQueue()
         cleanupSuppressedPaymentMessages()
     }

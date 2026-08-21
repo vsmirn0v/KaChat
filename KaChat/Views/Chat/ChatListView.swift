@@ -850,11 +850,9 @@ struct ChatListView: View {
                 .filter { conversation in
                     chatService.isConversationVisibleInChatList(conversation, settings: settings)
                 }
-                .sorted { conv1, conv2 in
-                    let time1 = conv1.lastMessage?.timestamp ?? Date.distantPast
-                    let time2 = conv2.lastMessage?.timestamp ?? Date.distantPast
-                    return time1 > time2
-                }
+                .map { (key: $0.lastMessage?.timestamp ?? Date.distantPast, value: $0) }
+                .sorted { $0.key > $1.key }
+                .map(\.value)
             return
         }
 
@@ -864,11 +862,9 @@ struct ChatListView: View {
                 .filter { conversation in
                     chatService.isConversationVisibleInChatList(conversation, settings: settings)
                 }
-                .sorted { conv1, conv2 in
-                    let time1 = conv1.lastMessage?.timestamp ?? Date.distantPast
-                    let time2 = conv2.lastMessage?.timestamp ?? Date.distantPast
-                    return time1 > time2
-                }
+                .map { (key: $0.lastMessage?.timestamp ?? Date.distantPast, value: $0) }
+                .sorted { $0.key > $1.key }
+                .map(\.value)
             return
         }
 

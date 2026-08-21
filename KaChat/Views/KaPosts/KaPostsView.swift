@@ -476,6 +476,8 @@ struct KaPostsView: View {
             if let myAddress = WalletManager.shared.currentWallet?.publicAddress {
                 followStore.removeIfPresent(myAddress)
             }
+            // Restore the local follow set from the on-chain graph (survives reinstalls).
+            followStore.syncFromChain()
             await loadFeed()
             // Cold-start shared-post link: consume whatever arrived before this view existed.
             if let pending = KaPostsDeepLink.pendingPostTxId {
@@ -2999,6 +3001,13 @@ struct KaPostsView: View {
                 }
                 .navigationTitle("Post")
                 .navigationBarTitleDisplayMode(.inline)
+                // The main view's toast layer sits BEHIND this sheet — without a copy in here,
+                // a like/repost/reply made from an open thread showed no undo toast and no
+                // network confirmation, reading as dead buttons for the whole 5s undo window.
+                .overlay(alignment: .bottom) {
+                    toastOverlay
+                        .padding(.bottom, 70)
+                }
                 .sheet(isPresented: $showReplyFundingSheet) {
                     // Nested sheet on the thread sheet's own content - MainTabView's gift
                     // listener can't present while this detail sheet is up, so the funding
@@ -4486,6 +4495,48 @@ final class KaPostsFollowStore: ObservableObject {
         guard !address.isEmpty, following.contains(address) else { return }
         following.remove(address)
         UserDefaults.standard.set(Array(following), forKey: defaultsKey)
+    }
+
+    /// One-shot per session: rebuild this LOCAL set from the on-chain follow graph. Every
+    /// Follow button and the Following feed filter read the local set, and it lives only in
+    /// UserDefaults — so a reinstall/upgrade that cleared app data left users "following 0"
+    /// with Follow buttons beside people they already follow on-chain. Chain entries are only
+    /// ever ADDED (never removed), so a just-tapped local unfollow the indexer hasn't caught
+    /// up on can't be resurrected mid-session.
+    private var chainSyncStarted = false
+    func syncFromChain() {
+        guard !chainSyncStarted else { return }
+        chainSyncStarted = true
+        Task { @MainActor in
+            do {
+                let pubkey = try KaPostsAPIClient.shared.requesterPubkey()
+                var chain: Set<String> = []
+                var cursor: String? = nil
+                var pagesLeft = 10 // far beyond any real follow list
+                while pagesLeft > 0 {
+                    pagesLeft -= 1
+                    let result = try await KaPostsAPIClient.shared.fetchFollowList(
+                        ofPubkey: pubkey, followers: false, limit: 100, before: cursor
+                    )
+                    for user in result.users {
+                        if let address = KaPostsAPIClient.kaspaAddress(fromPubkey: user.userPublicKey) {
+                            chain.insert(address)
+                        }
+                    }
+                    guard result.pagination?.hasMore == true,
+                          let next = result.pagination?.nextCursor else { break }
+                    cursor = next
+                }
+                let myAddress = WalletManager.shared.currentWallet?.publicAddress
+                let merged = following.union(chain).subtracting([myAddress ?? ""])
+                if merged != following {
+                    following = merged
+                    UserDefaults.standard.set(Array(following), forKey: defaultsKey)
+                }
+            } catch {
+                chainSyncStarted = false // network miss — retry on the next KaPosts open
+            }
+        }
     }
 }
 

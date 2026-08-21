@@ -118,7 +118,6 @@
 		KFPOLICY000100010001 /* KaspaFeePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = KFPOLICY000100010002 /* KaspaFeePolicy.swift */; };
 		KNAV00010001000100000001 /* KNSAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KNAV000100010000000001 /* KNSAvatarView.swift */; };
 		KNSPROB0000000000000001 /* KNSCreateProfileFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */; };
-		KP0001B0000000000000001 /* KaPostsComingSoonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0001A0000000000000001 /* KaPostsComingSoonView.swift */; };
 		KP0002B0000000000000001 /* KaPostsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0002A0000000000000001 /* KaPostsView.swift */; };
 		KPAPI001B000000000000001 /* KaPostsAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = KPAPI001A000000000000001 /* KaPostsAPIClient.swift */; };
 		L10N000300000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = L10N000200000001 /* Localizable.strings */; };
@@ -329,7 +328,6 @@
 		KFPOLICY000100010002 /* KaspaFeePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaFeePolicy.swift; sourceTree = "<group>"; };
 		KNAV000100010000000001 /* KNSAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSAvatarView.swift; sourceTree = "<group>"; };
 		KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSCreateProfileFlowView.swift; sourceTree = "<group>"; };
-		KP0001A0000000000000001 /* KaPostsComingSoonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsComingSoonView.swift; sourceTree = "<group>"; };
 		KP0002A0000000000000001 /* KaPostsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsView.swift; sourceTree = "<group>"; };
 		KPAPI001A000000000000001 /* KaPostsAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsAPIClient.swift; sourceTree = "<group>"; };
 		L10N000100000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -777,7 +775,6 @@
 		KP0001G0000000000000001 /* KaPosts */ = {
 			isa = PBXGroup;
 			children = (
-				KP0001A0000000000000001 /* KaPostsComingSoonView.swift */,
 				KP0002A0000000000000001 /* KaPostsView.swift */,
 			);
 			path = KaPosts;
@@ -1108,7 +1105,6 @@
 				SWAP002B0000000000000001 /* ChangeNowAPIClient.swift in Sources */,
 				SWAP003B0000000000000001 /* SwapService.swift in Sources */,
 				SWAP004B0000000000000001 /* SwapView.swift in Sources */,
-				KP0001B0000000000000001 /* KaPostsComingSoonView.swift in Sources */,
 				KP0002B0000000000000001 /* KaPostsView.swift in Sources */,
 				CS0010B0000000000000001 /* MultiFrameQRViews.swift in Sources */,
 				4D3D20012F72000200000002 /* MessageTextRenderPlan.swift in Sources */,
