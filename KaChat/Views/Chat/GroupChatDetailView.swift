@@ -1927,6 +1927,66 @@ private struct GroupMessageBubbleRow: View {
         return GroupMentionCodec.decodeForDisplay(raw, members: group.members, resolveDisplayName: resolveDisplayName(for:))
     }
 
+    /// Members actually @mentioned in this message (their `@address` token is present in the raw text).
+    private var mentionedMembers: [GroupMember] {
+        let raw = replyQuote?.text ?? message.content
+        return group.members.filter { raw.contains("@\($0.address)") }
+    }
+
+    /// Label to show for a mention: the person's KNS domain (what the user asked to see), else the
+    /// friendly display name. Read from the synchronous KNS cache.
+    private func mentionLabel(for address: String) -> String {
+        if let domain = knsService.domainCache[address]?.explicitPrimaryDomain, !domain.isEmpty { return domain }
+        return resolveDisplayName(for: address)
+    }
+
+    /// Build the message text as an AttributedString where each @mention renders as the KNS domain,
+    /// accent-coloured and TAPPABLE (a `kachat-mention://<address>` link the bubble's OpenURLAction
+    /// resolves to a 1:1 chat). Mirrors `KaPostsView.linkified`, but opens a chat, not a profile.
+    private func mentionAttributedContent() -> AttributedString {
+        // Swap each @address → @label (longest address first for safety), like decodeForDisplay.
+        var display = replyQuote?.text ?? message.content
+        for m in group.members.sorted(by: { $0.address.count > $1.address.count }) {
+            let label = mentionLabel(for: m.address)
+            guard !label.isEmpty else { continue }
+            display = display.replacingOccurrences(of: "@\(m.address)", with: "@\(label)")
+        }
+        var attributed = AttributedString(display)
+        // Keep any plain URLs tappable too.
+        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+            let nsText = display as NSString
+            for match in detector.matches(in: display, options: [], range: NSRange(location: 0, length: nsText.length)) {
+                guard let url = match.url, let sr = Range(match.range, in: display) else { continue }
+                let startOffset = display.distance(from: display.startIndex, to: sr.lowerBound)
+                let length = display.distance(from: sr.lowerBound, to: sr.upperBound)
+                let start = attributed.index(attributed.startIndex, offsetByCharacters: startOffset)
+                let end = attributed.index(start, offsetByCharacters: length)
+                attributed[start..<end].link = url
+                attributed[start..<end].underlineStyle = .single
+            }
+        }
+        // Link each mention's @label run to its member address.
+        for m in group.members {
+            let label = mentionLabel(for: m.address)
+            guard !label.isEmpty else { continue }
+            let token = "@\(label)"
+            let enc = m.address.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? m.address
+            let url = URL(string: "kachat-mention://\(enc)")
+            var searchStart = display.startIndex
+            while let r = display.range(of: token, range: searchStart..<display.endIndex) {
+                let startOffset = display.distance(from: display.startIndex, to: r.lowerBound)
+                let length = display.distance(from: r.lowerBound, to: r.upperBound)
+                let start = attributed.index(attributed.startIndex, offsetByCharacters: startOffset)
+                let end = attributed.index(start, offsetByCharacters: length)
+                attributed[start..<end].foregroundColor = message.isOutgoing ? .white : .accentColor
+                attributed[start..<end].underlineStyle = .single
+                if let url { attributed[start..<end].link = url }
+                searchStart = r.upperBound
+            }
+        }
+        return attributed
+    }
+
     /// Parsed once per row - `nil` for a plain-text message, matching 1:1 chat's content-shape
     /// sniffing (`MediaFile.from`) rather than a stored message-type field.
     private var media: MediaFile? {
@@ -2031,7 +2091,22 @@ private struct GroupMessageBubbleRow: View {
                         LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayContent, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil)
                     } else {
                         Group {
-                            if MessageTextRenderPlan.requiresLinkTextView(displayContent) {
+                            if !mentionedMembers.isEmpty {
+                                // Clickable KNS-domain @mentions → open a 1:1 chat with that person.
+                                Text(mentionAttributedContent())
+                                    .font(.body)
+                                    .foregroundColor(message.isOutgoing ? .white : .primary)
+                                    .environment(\.openURL, OpenURLAction { url in
+                                        if url.scheme == "kachat-mention" {
+                                            let full = url.absoluteString
+                                            let enc = full.hasPrefix("kachat-mention://") ? String(full.dropFirst("kachat-mention://".count)) : (url.host ?? "")
+                                            let addr = enc.removingPercentEncoding ?? enc
+                                            if !addr.isEmpty { onOpenChat(addr) }
+                                            return .handled
+                                        }
+                                        return .systemAction
+                                    })
+                            } else if MessageTextRenderPlan.requiresLinkTextView(displayContent) {
                                 LinkifiedMessageTextView(
                                     text: displayContent,
                                     isOutgoing: message.isOutgoing,
