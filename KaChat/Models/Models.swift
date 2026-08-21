@@ -2594,6 +2594,9 @@ struct GroupBag: Codable, Sendable {
     var currentEpoch: UInt64
     var deviceId: String             // hex, 16 bytes
     var msgCounter: UInt64           // monotonic per (group_id, epoch, device_id)
+    /// Epoch for which this admin has published its self-addressed recovery invite (nil = none
+    /// yet). Drives the backfill so pre-existing admin groups become seed-recoverable.
+    var selfInviteEpoch: UInt64? = nil
 }
 
 /// Non-secret group metadata - the in-memory/view-facing model backed by GroupStore.

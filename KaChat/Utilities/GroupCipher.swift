@@ -222,6 +222,10 @@ enum GroupCipher {
         var members: [String]
         var name: String
         var sig: String
+        /// Present ONLY in the admin's self-addressed recovery copy — lets a seedless re-import
+        /// rebuild the group as admin. Not signed; authenticated by re-deriving group_id +
+        /// blinding_key from it (see GroupChatService.applyRootPayload). Members' copies omit it.
+        var groupSeed: String?
 
         enum CodingKeys: String, CodingKey {
             case type, v
@@ -231,6 +235,7 @@ enum GroupCipher {
             case blindingKey = "blinding_key"
             case adminSigningPub = "admin_signing_pub"
             case members, name, sig
+            case groupSeed = "group_seed"
         }
     }
 
@@ -260,7 +265,8 @@ enum GroupCipher {
         adminSigningPub: Data,
         members: [String],
         name: String,
-        adminPrivateKey: Data
+        adminPrivateKey: Data,
+        groupSeed: Data? = nil
     ) throws -> GroupRootPayload {
         let signingPayload = buildRootSigningPayload(
             v: 1, groupId: groupId, epoch: epoch,
@@ -275,7 +281,8 @@ enum GroupCipher {
             adminSigningPub: adminSigningPub.hexString,
             members: members,
             name: name,
-            sig: sig.hexString
+            sig: sig.hexString,
+            groupSeed: groupSeed?.hexString
         )
     }
 

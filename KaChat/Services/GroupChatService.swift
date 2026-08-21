@@ -579,6 +579,9 @@ final class GroupChatService: ObservableObject {
             AppLog.log("[GroupChatService] %d/%d member(s) failed to receive gctl_root for new group %@",
                        sendErrors.count, roster.count - 1, String(group.id.prefix(12)))
         }
+        // Self-addressed recovery copy (seed-carrying) so a seedless re-import finds this group.
+        // Best-effort: failure just leaves selfInviteEpoch unset and the sync backfill retries.
+        try? await sendSelfRootControlMessage(group: group, bag: bag, privateKey: privateKey)
 
         return group
     }
@@ -1148,6 +1151,31 @@ final class GroupChatService: ObservableObject {
         try await sendControlPayload(json, to: recipientPublicKey, from: wallet.publicAddress, privateKey: privateKey)
     }
 
+    /// Self-addressed recovery copy carrying the group seed (ECIES-encrypted to our own key, so
+    /// members never see it). A seedless re-import of this wallet rediscovers the group via the
+    /// by-recipient control scan and rebuilds it as admin. Marks selfInviteEpoch on the bag.
+    private func sendSelfRootControlMessage(group: GroupChat, bag: GroupBag, privateKey: Data) async throws {
+        guard let gid = Data(hexString: group.id),
+              let groupRootEpoch = Data(hexString: bag.groupRootEpoch),
+              let blindingKey = Data(hexString: bag.blindingKey),
+              let seedHex = bag.groupSeed, let groupSeed = Data(hexString: seedHex),
+              let adminXOnlyPub = Data(hexString: group.adminXOnlyPubKeyHex),
+              let wallet = WalletManager.shared.currentWallet,
+              let selfPublicKey = KaspaAddress.publicKey(from: wallet.publicAddress) else {
+            throw KasiaError.invalidAddress
+        }
+        let rootPayload = try GroupCipher.buildSignedRootPayload(
+            groupId: gid, epoch: bag.currentEpoch, groupRootEpoch: groupRootEpoch, blindingKey: blindingKey,
+            adminSigningPub: adminXOnlyPub, members: group.members.map { $0.address }, name: group.name,
+            adminPrivateKey: privateKey, groupSeed: groupSeed
+        )
+        let json = try JSONEncoder().encode(rootPayload)
+        try await sendControlPayload(json, to: selfPublicKey, from: wallet.publicAddress, privateKey: privateKey)
+        var updated = bag
+        updated.selfInviteEpoch = bag.currentEpoch
+        try? keychain.saveGroupBag(updated)
+    }
+
     private func sendEpochControlMessage(groupId: Data, epoch: UInt64, reason: GroupCipher.EpochChangeReason, to recipientAddress: String, adminPrivateKey: Data) async throws {
         guard let recipientPublicKey = KaspaAddress.publicKey(from: recipientAddress),
               let wallet = WalletManager.shared.currentWallet else {
@@ -1507,13 +1535,17 @@ final class GroupChatService: ObservableObject {
     }
 
     private func handleIncomingControlMessage(_ payloadString: String, senderAddress: String) {
-        guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey(),
-              wallet.publicAddress != senderAddress else { return }
+        guard let wallet = WalletManager.shared.currentWallet, let privateKey = WalletManager.shared.getPrivateKey() else { return }
+        // Normally we ignore our own echoed controls — EXCEPT the self-addressed recovery root
+        // (sender == us, carries group_seed), which is exactly how a seedless import rebuilds an
+        // admin group. Non-recovery self-echoes still short-circuit below.
+        let isSelfSent = wallet.publicAddress == senderAddress
         let hexPayload = String(payloadString.dropFirst(Self.gctlPrefix.count))
         guard let plaintext = try? KasiaCipher.decryptHex(hexPayload, privateKey: privateKey),
               let jsonData = plaintext.data(using: .utf8) else { return }
 
         if let rootPayload = try? JSONDecoder().decode(GroupCipher.GroupRootPayload.self, from: jsonData), rootPayload.type == "gctl_root" {
+            if isSelfSent && rootPayload.groupSeed == nil { return } // our own member-copy echo — ignore
             guard GroupCipher.verifyRootPayload(rootPayload) else { return }
             completeJoin(from: rootPayload)
         }
@@ -1548,14 +1580,28 @@ final class GroupChatService: ObservableObject {
         let existingBag = try? keychain.loadGroupBag(groupId: payload.groupId)
         let deviceId = existingBag?.deviceId ?? GroupCipher.generateDeviceId().hexString
         let preservedCounter = existingBag?.currentEpoch == payload.epoch ? (existingBag?.msgCounter ?? 0) : 0
+        // Admin self-recovery: a self-addressed root carries the group seed. Trust it ONLY if it
+        // re-derives the SIGNED group_id + blinding_key (that binding authenticates the otherwise
+        // unsigned seed). When valid, this is our own group and we hold admin secrets again.
+        var recoveredSeedHex: String? = nil
+        let myXOnlyPubHex: String? = WalletManager.shared.getPrivateKey().flatMap { try? schnorrXOnlyPublicKey(from: $0).hexString }
+        if let seedHex = payload.groupSeed, let seed = Data(hexString: seedHex),
+           let gid = Data(hexString: payload.groupId),
+           let myPub = myXOnlyPubHex, payload.adminSigningPub == myPub {
+            let derivedId = GroupCipher.deriveGroupId(groupSeed: seed).hexString
+            let derivedBlinding = GroupCipher.deriveBlindingKey(groupSeed: seed, groupId: gid).hexString
+            if derivedId == payload.groupId && derivedBlinding == payload.blindingKey { recoveredSeedHex = seedHex }
+        }
         let bag = GroupBag(
             groupId: payload.groupId,
-            groupSeed: existingBag?.groupSeed,
+            groupSeed: recoveredSeedHex ?? existingBag?.groupSeed,
             groupRootEpoch: payload.groupRootEpoch,
             blindingKey: payload.blindingKey,
             currentEpoch: payload.epoch,
             deviceId: deviceId,
-            msgCounter: preservedCounter
+            msgCounter: preservedCounter,
+            // A recovered admin group already has its recovery invite on chain for this epoch.
+            selfInviteEpoch: recoveredSeedHex != nil ? payload.epoch : existingBag?.selfInviteEpoch
         )
         try? keychain.saveGroupBag(bag)
 
@@ -1604,6 +1650,17 @@ final class GroupChatService: ObservableObject {
     func performCatchUpSync() async {
         guard hasActiveWallet else { return }
         guard let wallet = WalletManager.shared.currentWallet else { return }
+
+        // Backfill recovery invites for any admin group that lacks one for its current epoch —
+        // i.e. every group created before this feature existed. One-time per group per epoch;
+        // once on chain, a seedless import of this wallet rediscovers the group with no backup.
+        if let privateKey = WalletManager.shared.getPrivateKey() {
+            for group in groups where group.isAdmin {
+                guard let bag = try? keychain.loadGroupBag(groupId: group.id),
+                      bag.groupSeed != nil, bag.selfInviteEpoch != bag.currentEpoch else { continue }
+                try? await sendSelfRootControlMessage(group: group, bag: bag, privateKey: privateKey)
+            }
+        }
 
         await catchUpGroupControlByRecipient(recipientAddress: wallet.publicAddress)
 
