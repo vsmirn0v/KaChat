@@ -1480,6 +1480,12 @@ extension ChatService {
     ) async -> Bool {
         // Don't fetch/store this wallet's conversation history if it's no longer the active wallet.
         guard isActiveWallet(myAddress) else { return false }
+        // Self-chat ("Note to Self"): seed routing state + a contact for your own address (unless
+        // you deleted it) so your self→self notes get swept and there's an entry point in the list.
+        if !contactsManager.isAddressDeleted(myAddress) {
+            ensureRoutingState(for: myAddress, privateKey: privateKey)
+            _ = contactsManager.getOrCreateContact(address: myAddress)
+        }
         // Build contact set from routing states (preferred) + legacy aliases (fallback)
         let allContactAddresses = Array(Set(routingStates.keys).union(conversationAliases.keys))
         AppLog.log("%@", "[ChatService] Fetching contextual messages for \(allContactAddresses.count) contacts")
@@ -1630,7 +1636,8 @@ extension ChatService {
                     timestamp: Date(timeIntervalSince1970: TimeInterval((contextMsg.blockTime ?? 0) / 1000)),
                     blockTime: contextMsg.blockTime ?? 0,
                     acceptingBlock: contextMsg.acceptingBlock,
-                    isOutgoing: false,
+                    // Self-chat: a note you sent to yourself is outgoing on every device.
+                    isOutgoing: contactAddress == myAddress,
                     messageType: msgType
                 )
 
@@ -1665,6 +1672,10 @@ extension ChatService {
         nowMs: UInt64
     ) async -> Bool {
         guard !contactsManager.isAddressDeleted(contactAddress) else { return true }
+        // Self-chat: skip the outgoing scan. Self→self messages are already returned with real
+        // decrypted content by the INCOMING scan (marked outgoing there); the outgoing scan would
+        // only race in a "📤 Sent via another device" placeholder that hides the real note.
+        guard contactAddress != myAddress else { return true }
         let aliasSet = outgoingFetchAliases(for: contactAddress)
         guard !aliasSet.isEmpty else { return true }
         beginChatFetch(contactAddress)
@@ -1856,7 +1867,8 @@ extension ChatService {
                         timestamp: Date(timeIntervalSince1970: TimeInterval((contextMsg.blockTime ?? 0) / 1000)),
                         blockTime: contextMsg.blockTime ?? 0,
                         acceptingBlock: contextMsg.acceptingBlock,
-                        isOutgoing: false,
+                        // Self-chat: a note you sent to yourself is outgoing on every device.
+                        isOutgoing: contactAddress == myAddress,
                         messageType: .contextual
                     )
 
@@ -1877,8 +1889,10 @@ extension ChatService {
             }
         }
 
-        // Outgoing from us (use routing state aliases + legacy fallback)
-        let outAliases = outgoingFetchAliases(for: contactAddress)
+        // Outgoing from us (use routing state aliases + legacy fallback). Skipped for self-chat —
+        // the incoming scan above already returns self→self notes with real content marked
+        // outgoing, so the outgoing scan would only race in a hiding placeholder.
+        let outAliases = contactAddress == myAddress ? [] : outgoingFetchAliases(for: contactAddress)
         if !outAliases.isEmpty {
             for ourAlias in outAliases {
                 let syncObjectKey = contextualSyncObjectKey(
@@ -2077,7 +2091,8 @@ extension ChatService {
                         timestamp: Date(timeIntervalSince1970: TimeInterval((contextMsg.blockTime ?? 0) / 1000)),
                         blockTime: contextMsg.blockTime ?? 0,
                         acceptingBlock: contextMsg.acceptingBlock,
-                        isOutgoing: false,
+                        // Self-chat: a message you sent to yourself is outgoing on every device.
+                        isOutgoing: contactAddress == myAddress,
                         messageType: .contextual
                     )
 
