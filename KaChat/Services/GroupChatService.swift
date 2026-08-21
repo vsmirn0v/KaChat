@@ -717,6 +717,8 @@ final class GroupChatService: ObservableObject {
         if previousName != newName {
             insertGroupSystemLine(groupId, "You changed the group name to \"\(newName)\"")
         }
+        // Self-addressed root so the SAME account's OTHER devices pick up the new name.
+        try? await sendSelfRootControlMessage(group: group, bag: bag, privateKey: privateKey)
 
         var sendErrors: [Error] = []
         for member in group.members where member.address != wallet.publicAddress {
@@ -788,6 +790,10 @@ final class GroupChatService: ObservableObject {
         for member in group.members where member.address != myAddress {
             guard let recipientPublicKey = KaspaAddress.publicKey(from: member.address) else { continue }
             try? await sendControlPayload(json, to: recipientPublicKey, from: myAddress, privateKey: privateKey)
+        }
+        // Also send a self-addressed copy so the SAME account's OTHER devices sync the photo change.
+        if let selfPub = KaspaAddress.publicKey(from: myAddress) {
+            try? await sendControlPayload(json, to: selfPub, from: myAddress, privateKey: privateKey)
         }
     }
 
@@ -1806,8 +1812,9 @@ final class GroupChatService: ObservableObject {
                 let changed = groupPhotos[photo.groupId] != newHex
                 setLocalGroupPhoto(photo.groupId, hex: newHex)
                 if changed {
-                    let adminLabel = groupMemberLabel(group.adminAddress, fallback: nil)
-                    insertGroupSystemLine(photo.groupId, newHex == nil ? "\(adminLabel) removed the group photo" : "\(adminLabel) changed the group photo")
+                    // "You" on the admin's own other devices; the admin's name for regular members.
+                    let who = group.isAdmin ? "You" : groupMemberLabel(group.adminAddress, fallback: nil)
+                    insertGroupSystemLine(photo.groupId, newHex == nil ? "\(who) removed the group photo" : "\(who) changed the group photo")
                 }
             }
             return
@@ -1918,10 +1925,11 @@ final class GroupChatService: ObservableObject {
         if let prev = previousRosterForDiff {
             insertMembershipSystemMessages(groupId: group.id, oldMembers: prev, newMembers: members)
         }
-        // Rename line for members (the admin emits its own in renameGroup).
+        // Rename line for members (the admin emits its own in renameGroup); "You" on the admin's
+        // own other devices.
         if let previous = previousGroupForDiff, previous.name != group.name {
-            let adminLabel = groupMemberLabel(group.adminAddress, fallback: nil)
-            insertGroupSystemLine(group.id, "\(adminLabel) changed the group name to \"\(group.name)\"")
+            let who = group.isAdmin ? "You" : groupMemberLabel(group.adminAddress, fallback: nil)
+            insertGroupSystemLine(group.id, "\(who) changed the group name to \"\(group.name)\"")
         }
         loadMessages(for: group.id)
         updateScanningStateIfNeeded()

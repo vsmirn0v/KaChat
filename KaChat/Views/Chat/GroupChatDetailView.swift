@@ -2801,6 +2801,22 @@ private struct AddGroupMembersView: View {
     @State private var selectedAddresses: Set<String> = []
     @State private var isAdding = false
     @State private var resultMessage: String?
+    @State private var showAddConfirm = false
+
+    /// Estimated total fee for adding the selected members (each add rotates the group key).
+    private func addFeeSuffix() -> String {
+        let k = selectedAddresses.count
+        let myAddr = WalletManager.shared.currentWallet?.publicAddress
+        let finalOthers = group.members.filter { $0.address != myAddr }.count + k
+        let hasPhoto = groupChatService.groupPhotos[group.id] != nil
+        let controlTx = k * (2 * finalOthers + 1)
+        let photoTx = hasPhoto ? k * finalOthers : 0
+        let n = controlTx + photoTx
+        guard let kas = groupChatService.estimateGroupActionFeeKas(groupId: group.id, controlTx: controlTx, photoTx: photoTx) else {
+            return "\n\n(\(n) network transaction\(n == 1 ? "" : "s").)"
+        }
+        return "\n\nEstimated network fee ≈ \(kas) KAS across \(n) transaction\(n == 1 ? "" : "s")."
+    }
 
     /// Contacts not already in the group, filtered by the search box (name or address).
     private var candidates: [Contact] {
@@ -2885,11 +2901,17 @@ private struct AddGroupMembersView: View {
                     ProgressView()
                 } else {
                     Button(selectedAddresses.isEmpty ? "Add" : "Add (\(selectedAddresses.count))") {
-                        addSelected()
+                        showAddConfirm = true
                     }
                     .disabled(selectedAddresses.isEmpty)
                 }
             }
+        }
+        .alert("Add members", isPresented: $showAddConfirm) {
+            Button("Add") { addSelected() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Add \(selectedAddresses.count) member\(selectedAddresses.count == 1 ? "" : "s") to the group?\(addFeeSuffix())")
         }
         .alert("Add Members", isPresented: Binding(get: { resultMessage != nil }, set: { if !$0 { resultMessage = nil } })) {
             Button("OK", role: .cancel) { resultMessage = nil }
