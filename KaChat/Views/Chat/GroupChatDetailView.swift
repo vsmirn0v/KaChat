@@ -2266,6 +2266,7 @@ struct GroupChatInfoView: View {
     @State private var membersExpanded = false
     @State private var memberToResend: GroupMember?
     @State private var memberToRemove: GroupMember?
+    @State private var showResendAllConfirm = false
     var onDeleted: (() -> Void)?
 
     /// Re-broadcast the current group root to a single member (or all when address is nil), then
@@ -2315,6 +2316,24 @@ struct GroupChatInfoView: View {
     var body: some View {
         NavigationStack {
             Form {
+                // Group header: avatar + name at the very top, showing what the group currently is.
+                Section {
+                    VStack(spacing: 8) {
+                        ZStack {
+                            Circle().fill(Color.accentColor.opacity(0.2)).frame(width: 76, height: 76)
+                            Text(String(group.name.prefix(1)).uppercased())
+                                .font(.system(size: 32, weight: .semibold))
+                                .foregroundColor(.accentColor)
+                        }
+                        Text(group.name)
+                            .font(.title3).fontWeight(.semibold)
+                        Text("\(group.members.count) members")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                }
+
                 Section {
                     DisclosureGroup(isExpanded: $membersExpanded) {
                         ForEach(group.members) { member in
@@ -2341,7 +2360,7 @@ struct GroupChatInfoView: View {
                                         Image(systemName: "arrow.clockwise")
                                     }
                                     .buttonStyle(.borderless)
-                                    .tint(.blue)
+                                    .tint(.accentColor)
                                     Button { memberToRemove = member } label: {
                                         Image(systemName: "trash")
                                     }
@@ -2391,9 +2410,9 @@ struct GroupChatInfoView: View {
                             Label("Rename Group", systemImage: "pencil")
                         }
                         Button {
-                            resendInvites(to: nil)
+                            showResendAllConfirm = true
                         } label: {
-                            Label("Resend Invites", systemImage: "arrow.clockwise.circle")
+                            Label("Resend invites to all", systemImage: "arrow.clockwise")
                         }
                         Button {
                             showAddMembers = true
@@ -2463,6 +2482,12 @@ struct GroupChatInfoView: View {
                 Button("Cancel", role: .cancel) { memberToRemove = nil }
             } message: {
                 Text("Remove \(memberToRemove.map { displayName(for: $0.address) } ?? "this member") from the group chat? A fresh group key is issued to everyone who stays.")
+            }
+            .alert("Resend invites to all", isPresented: $showResendAllConfirm) {
+                Button("Send") { resendInvites(to: nil) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Resend the group invite to every member? Use this if someone didn't receive the group.")
             }
             .alert("Rename Group", isPresented: $showRename) {
                 TextField("Group name", text: $renameText)
