@@ -1362,7 +1362,31 @@ private enum PhotoRevealStore {
 /// to 1:1 ones instead of duplicating this (thumbnail caching, reveal-gating, share sheet) logic.
 struct LazyImageBubble: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    // Fixed size for the placeholder / "Show Photo" states (no image loaded yet). Once the image
+    // is loaded, the bubble takes the image's natural aspect ratio within these max bounds — so a
+    // tall screenshot shows tall and a wide photo shows wide, instead of a fixed letterboxed box.
     private static let thumbnailDisplaySize = CGSize(width: 220, height: 160)
+    private static let maxThumbnailWidth: CGFloat = 240
+    private static let maxThumbnailHeight: CGFloat = 320
+
+    /// The image's natural aspect ratio, fit within the max bounds (never upscaled past its own
+    /// pixels), so the bubble matches the picture instead of forcing a fixed rectangle.
+    private var thumbnailAspectSize: CGSize {
+        guard let img = thumbnailState?.image, img.size.width > 0, img.size.height > 0 else {
+            return Self.thumbnailDisplaySize
+        }
+        let aspect = img.size.width / img.size.height
+        var w = Self.maxThumbnailWidth
+        var h = w / aspect
+        if h > Self.maxThumbnailHeight { h = Self.maxThumbnailHeight; w = h * aspect }
+        w = min(w, img.size.width); h = min(h, img.size.height)
+        return CGSize(width: max(w, 80), height: max(h, 80))
+    }
+
+    /// Aspect size once the thumbnail is loaded, else the fixed placeholder size.
+    private var currentDisplaySize: CGSize {
+        (thumbnailState?.txId == txId) ? thumbnailAspectSize : Self.thumbnailDisplaySize
+    }
 
     let media: MediaFile
     let txId: String
@@ -1461,15 +1485,15 @@ struct LazyImageBubble: View {
         // swipe-to-reply drag. Attaching both tap counts directly to this same view lets SwiftUI
         // properly wait to see whether a second tap follows before firing the single-tap action.
         ZStack {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.secondarySystemBackground))
-
             if let thumbnailState, thumbnailState.txId == txId {
+                // Fill the aspect-sized frame exactly (frame already matches the image ratio), so
+                // there are no gray letterbox bars — the bubble is the shape of the picture.
                 Image(uiImage: thumbnailState.image)
                     .resizable()
-                    .scaledToFit()
-                    .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+                    .scaledToFill()
             } else {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.secondarySystemBackground))
                 placeholder
             }
 
@@ -1481,7 +1505,7 @@ struct LazyImageBubble: View {
                     .clipShape(Circle())
             }
         }
-        .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+        .frame(width: currentDisplaySize.width, height: currentDisplaySize.height)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
