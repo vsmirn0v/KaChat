@@ -149,7 +149,7 @@ final class GroupChatService: ObservableObject {
     func estimateGroupPhotoFeeKas(hexLength: Int, txCount: Int) -> String? {
         guard txCount > 0, let addr = WalletManager.shared.currentWallet?.publicAddress,
               let scriptPubKey = KaspaAddress.scriptPublicKey(from: addr) else { return nil }
-        let per = KaChatTransactionBuilder.estimateGroupPayloadFee(payload: Data(count: 2 * (hexLength + 300)), inputCount: 1, senderScriptPubKey: scriptPubKey)
+        let per = KasiaTransactionBuilder.estimateGroupPayloadFee(payload: Data(count: 2 * (hexLength + 300)), inputCount: 1, senderScriptPubKey: scriptPubKey)
         return String(format: "%.6f", Double(per * UInt64(txCount)) / 100_000_000.0)
     }
 
