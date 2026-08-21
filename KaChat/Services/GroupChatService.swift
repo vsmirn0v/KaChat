@@ -125,6 +125,25 @@ final class GroupChatService: ObservableObject {
     /// Hex of the current photo for a group, or nil.
     func groupPhotoHex(for groupId: String) -> String? { groupPhotos[groupId] }
 
+    /// Estimated total on-chain fee (KAS string) for a group action that sends `controlTx` small
+    /// control messages and `photoTx` (larger) gctl_photo messages. Pure mass computation (no
+    /// network), returning the policy fee this device actually pays. nil on failure.
+    func estimateGroupActionFeeKas(groupId: String, controlTx: Int, photoTx: Int) -> String? {
+        guard let addr = WalletManager.shared.currentWallet?.publicAddress,
+              let scriptPubKey = KaspaAddress.scriptPublicKey(from: addr) else { return nil }
+        var totalSompi: UInt64 = 0
+        if controlTx > 0 {
+            let per = KaChatTransactionBuilder.estimateGroupPayloadFee(payload: Data(count: 1600), inputCount: 1, senderScriptPubKey: scriptPubKey)
+            totalSompi += per * UInt64(controlTx)
+        }
+        if photoTx > 0 {
+            let photoBytes = 2 * ((groupPhotos[groupId]?.count ?? 0) + 300)   // gctl_photo wire ≈
+            let per = KaChatTransactionBuilder.estimateGroupPayloadFee(payload: Data(count: photoBytes), inputCount: 1, senderScriptPubKey: scriptPubKey)
+            totalSompi += per * UInt64(photoTx)
+        }
+        return String(format: "%.6f", Double(totalSompi) / 100_000_000.0)
+    }
+
     // nonisolated: pure constants/helpers with no actor state, referenced from the off-main
     // block-scan extractor (extractBlockScanHits).
     // `kchat:` migration: write the new root, still read the legacy `ciph_msg:` root (tail identical).

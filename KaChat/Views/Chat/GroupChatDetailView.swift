@@ -2327,6 +2327,19 @@ struct GroupChatInfoView: View {
 
     private var myAddress: String? { walletManager.currentWallet?.publicAddress }
 
+    /// Other members (excludes self) — the fan-out count for admin control sends.
+    private var otherMemberCount: Int { group.members.filter { $0.address != myAddress }.count }
+
+    /// A short " Estimated network fee ≈ X KAS across N transactions." line for a confirm dialog.
+    private func groupFeeSuffix(controlTx: Int, photoTx: Int = 0) -> String {
+        let n = controlTx + photoTx
+        let plural = n == 1 ? "" : "s"
+        guard let kas = groupChatService.estimateGroupActionFeeKas(groupId: group.id, controlTx: controlTx, photoTx: photoTx) else {
+            return "\n\n(\(n) network transaction\(plural).)"
+        }
+        return "\n\nEstimated network fee ≈ \(kas) KAS across \(n) transaction\(plural)."
+    }
+
     /// Same resolution 1:1/broadcast/the message list use (contact alias, then KNS domain, then
     /// a generated fallback) - not `member.displayName`, which is only a one-time snapshot from
     /// when the roster was built/received and never updated afterward (see `GroupChatDetailView.
@@ -2566,19 +2579,22 @@ struct GroupChatInfoView: View {
                 Button("Send") { if let m = memberToResend { resendInvites(to: m.address) }; memberToResend = nil }
                 Button("Cancel", role: .cancel) { memberToResend = nil }
             } message: {
-                Text("Resend the group invite to \(memberName(memberToResend))?")
+                Text("Resend the group invite to \(memberName(memberToResend))?\(groupFeeSuffix(controlTx: 1))")
             }
             .alert("Remove member", isPresented: isRemoveMemberPresented) {
                 Button("Yes", role: .destructive) { if let m = memberToRemove { removeMember(m) }; memberToRemove = nil }
                 Button("Cancel", role: .cancel) { memberToRemove = nil }
             } message: {
-                Text("Remove \(memberName(memberToRemove)) from the group chat? A fresh group key is issued to everyone who stays.")
+                let afterN = max(0, otherMemberCount - 1)
+                let hasPhoto = groupChatService.groupPhotos[group.id] != nil
+                Text("Remove \(memberName(memberToRemove)) from the group chat? A fresh group key is issued to everyone who stays.\(groupFeeSuffix(controlTx: 2 * afterN + 1, photoTx: hasPhoto ? afterN : 0))")
             }
             .alert("Resend invites to all", isPresented: $showResendAllConfirm) {
                 Button("Send") { resendInvites(to: nil) }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Resend the group invite to every member? Use this if someone didn't receive the group.")
+                let hasPhoto = groupChatService.groupPhotos[group.id] != nil
+                Text("Resend the group invite to every member? Use this if someone didn't receive the group.\(groupFeeSuffix(controlTx: otherMemberCount + 1, photoTx: hasPhoto ? otherMemberCount : 0))")
             }
     }
 
