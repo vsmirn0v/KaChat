@@ -2268,6 +2268,8 @@ struct GroupChatInfoView: View {
     @State private var memberToRemove: GroupMember?
     @State private var showResendAllConfirm = false
     @State private var groupPhotoPickerItem: PhotosPickerItem?
+    @State private var pendingPhotoHex: String?
+    @State private var showRemovePhotoConfirm = false
     @State private var groupPhotoError: String?
 
     /// The admin-set group photo decoded to an image, or nil.
@@ -2340,6 +2342,16 @@ struct GroupChatInfoView: View {
         return "\n\nEstimated network fee ≈ \(kas) KAS across \(n) transaction\(plural)."
     }
 
+    /// Fee suffix for setting a NEW photo (estimated from its own size, not the stored one).
+    private func groupPhotoFeeSuffix(hexLength: Int) -> String {
+        let n = otherMemberCount
+        let plural = n == 1 ? "" : "s"
+        guard n > 0, let kas = groupChatService.estimateGroupPhotoFeeKas(hexLength: hexLength, txCount: n) else {
+            return "\n\n(\(n) network transaction\(plural).)"
+        }
+        return "\n\nEstimated network fee ≈ \(kas) KAS across \(n) transaction\(plural)."
+    }
+
     /// Same resolution 1:1/broadcast/the message list use (contact alias, then KNS domain, then
     /// a generated fallback) - not `member.displayName`, which is only a one-time snapshot from
     /// when the roster was built/received and never updated afterward (see `GroupChatDetailView.
@@ -2377,7 +2389,7 @@ struct GroupChatInfoView: View {
                     .font(.caption).foregroundColor(.secondary)
                 if group.isAdmin && groupPhotoImage != nil {
                     Button("Remove photo", role: .destructive) {
-                        Task { try? await groupChatService.setGroupPhoto(group.id, photoHex: "") }
+                        showRemovePhotoConfirm = true
                     }
                     .font(.caption)
                 }
@@ -2405,7 +2417,8 @@ struct GroupChatInfoView: View {
                 guard let data = try await newItem.loadTransferable(type: Data.self),
                       let image = UIImage(data: data) else { return }
                 let jpeg = try ImagePrep.prepareJPEGForChatMessage(image, targetBytes: 10_000)
-                try await groupChatService.setGroupPhoto(group.id, photoHex: jpeg.hexString)
+                // Stash the compressed photo and confirm (with the estimated fee) before sending.
+                await MainActor.run { pendingPhotoHex = jpeg.hexString }
             } catch {
                 await MainActor.run { groupPhotoError = error.localizedDescription }
             }
@@ -2615,7 +2628,24 @@ struct GroupChatInfoView: View {
                 Button("Save") { saveRename() }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Every member will see the new name.")
+                Text("Every member will see the new name.\(groupFeeSuffix(controlTx: otherMemberCount + 1))")
+            }
+            .alert("Set group photo", isPresented: Binding(get: { pendingPhotoHex != nil }, set: { if !$0 { pendingPhotoHex = nil } })) {
+                Button("Send") {
+                    if let hex = pendingPhotoHex { Task { try? await groupChatService.setGroupPhoto(group.id, photoHex: hex) } }
+                    pendingPhotoHex = nil
+                }
+                Button("Cancel", role: .cancel) { pendingPhotoHex = nil }
+            } message: {
+                Text("Set this as the group photo for everyone?\(groupPhotoFeeSuffix(hexLength: pendingPhotoHex?.count ?? 0))")
+            }
+            .alert("Remove group photo", isPresented: $showRemovePhotoConfirm) {
+                Button("Remove", role: .destructive) {
+                    Task { try? await groupChatService.setGroupPhoto(group.id, photoHex: "") }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Remove the group photo for everyone?\(groupFeeSuffix(controlTx: otherMemberCount))")
             }
             .alert("Couldn't Rename Group", isPresented: isRenameErrorPresented) {
                 Button("OK", role: .cancel) {}

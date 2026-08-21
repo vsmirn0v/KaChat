@@ -34,6 +34,7 @@ struct AddContactView: View {
     @State private var membersExpanded = false
     @State private var contactsExpanded = false
     @State private var isCreatingGroup = false
+    @State private var showCreateGroupConfirm = false
     @State private var scanningGroupRowID: UUID?
     @State private var contactPickerRowID: UUID?
     /// The one member "card" currently expanded for editing (text field + Import/Paste/Scan +
@@ -221,7 +222,7 @@ struct AddContactView: View {
                     } else {
                         Button(isGroupMode ? "Create" : "Add") {
                             if isGroupMode {
-                                createGroupChat()
+                                showCreateGroupConfirm = true
                             } else {
                                 addContact()
                             }
@@ -229,6 +230,17 @@ struct AddContactView: View {
                         .disabled(isGroupMode ? !canCreateGroup : !canAdd)
                     }
                 }
+            }
+            .alert("Create group", isPresented: $showCreateGroupConfirm) {
+                Button("Create") { createGroupChat() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                let k = selectedMemberAddresses.count
+                let txCount = k + 1
+                let feeText = groupChatService.estimateGroupActionFeeKas(groupId: "", controlTx: txCount, photoTx: 0)
+                    .map { "\n\nEstimated network fee ≈ \($0) KAS across \(txCount) transactions." }
+                    ?? "\n\n(\(txCount) network transactions.)"
+                Text("Create \"\(groupName.trimmingCharacters(in: .whitespacesAndNewlines))\" and invite \(k) member\(k == 1 ? "" : "s")?\(feeText)")
             }
             .sheet(isPresented: $showQRScanner) {
                 QRScannerView { scannedCode in

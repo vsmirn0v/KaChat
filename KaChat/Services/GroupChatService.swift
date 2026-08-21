@@ -144,6 +144,15 @@ final class GroupChatService: ObservableObject {
         return String(format: "%.6f", Double(totalSompi) / 100_000_000.0)
     }
 
+    /// Estimated total fee (KAS string) for sending a NEW group photo of `hexLength` hex chars to
+    /// `txCount` members — used to confirm a photo change before the photo is stored.
+    func estimateGroupPhotoFeeKas(hexLength: Int, txCount: Int) -> String? {
+        guard txCount > 0, let addr = WalletManager.shared.currentWallet?.publicAddress,
+              let scriptPubKey = KaspaAddress.scriptPublicKey(from: addr) else { return nil }
+        let per = KaChatTransactionBuilder.estimateGroupPayloadFee(payload: Data(count: 2 * (hexLength + 300)), inputCount: 1, senderScriptPubKey: scriptPubKey)
+        return String(format: "%.6f", Double(per * UInt64(txCount)) / 100_000_000.0)
+    }
+
     // nonisolated: pure constants/helpers with no actor state, referenced from the off-main
     // block-scan extractor (extractBlockScanHits).
     // `kchat:` migration: write the new root, still read the legacy `ciph_msg:` root (tail identical).
