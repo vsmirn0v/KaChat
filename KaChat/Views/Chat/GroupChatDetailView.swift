@@ -2400,128 +2400,141 @@ struct GroupChatInfoView: View {
         }
     }
 
+    // The info screen is assembled in layers, each a separately type-checked expression:
+    // form -> sheets -> member alerts -> admin alerts -> navigation chrome. Keeping the whole
+    // Form + ~10 presentation modifiers in one `body` expression pushed Swift's type-checker
+    // past its budget ("unable to type-check this expression in reasonable time").
     var body: some View {
         NavigationStack {
-            Form {
-                // Group header: avatar + name at the very top, showing what the group currently is.
-                groupHeaderSection
-
-                Section {
-                    DisclosureGroup(isExpanded: $membersExpanded) {
-                        ForEach(group.members) { member in
-                            let memberLabel = displayName(for: member.address)
-                            HStack(spacing: 12) {
-                                KNSAvatarView(
-                                    avatarURLString: knsService.profileCache[member.address]?.avatarURL,
-                                    fallbackText: memberLabel,
-                                    size: 32,
-                                    contactAddress: member.address
-                                )
-                                Text(memberLabel)
-                                    .foregroundColor(.primary)
-                                Spacer()
-                                if member.isAdmin {
-                                    Text("Admin")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                // Admin-only per-member actions (visible buttons, each confirmed first),
-                                // matching Android/desktop. .borderless so each taps independently of the row.
-                                if group.isAdmin && member.address != myAddress {
-                                    Button { memberToResend = member } label: {
-                                        Image(systemName: "arrow.clockwise")
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .tint(.accentColor)
-                                    Button { memberToRemove = member } label: {
-                                        Image(systemName: "trash")
-                                    }
-                                    .buttonStyle(.borderless)
-                                    .tint(.red)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                profileContact = contactsManager.getContact(byAddress: member.address)
-                                    ?? contactsManager.getOrCreateContact(address: member.address)
-                            }
-                            .task {
-                                guard knsService.profileCache[member.address] == nil else { return }
-                                _ = await knsService.fetchProfile(for: member.address)
-                            }
-                        }
-                    } label: {
-                        Text("Members (\(group.members.count))")
+            infoFormWithAdminAlerts
+                .navigationTitle("Group Info")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Done") { dismiss() }
                     }
                 }
+        }
+    }
 
+    // MARK: Layer 1 - the Form
+
+    private var infoForm: some View {
+        Form {
+            // Group header: avatar + name at the very top, showing what the group currently is.
+            groupHeaderSection
+
+            Section {
+                DisclosureGroup(isExpanded: $membersExpanded) {
+                    ForEach(group.members) { member in
+                        memberRow(member)
+                    }
+                } label: {
+                    Text("Members (\(group.members.count))")
+                }
+            }
+
+            Section {
+                Button {
+                    showHiddenMembers = true
+                } label: {
+                    Label("Hidden Users", systemImage: "eye.slash")
+                }
+            }
+
+            Section {
+                Toggle("Only Notify if I'm Mentioned", isOn: mentionsOnlyBinding)
+            } footer: {
+                Text("When on, you'll only get notified about messages that @mention you - other messages still show up in the chat, just silently.")
+            }
+
+            if group.isAdmin {
                 Section {
                     Button {
-                        showHiddenMembers = true
+                        renameText = group.name
+                        renameError = nil
+                        showRename = true
                     } label: {
-                        Label("Hidden Users", systemImage: "eye.slash")
+                        Label("Rename Group", systemImage: "pencil")
                     }
-                }
-
-                Section {
-                    Toggle("Only Notify if I'm Mentioned", isOn: Binding(
-                        get: { groupChatService.mentionsOnlyNotifications(for: group.id) },
-                        set: { groupChatService.setMentionsOnlyNotifications($0, for: group.id) }
-                    ))
+                    Button {
+                        showResendAllConfirm = true
+                    } label: {
+                        Label("Resend invites to all", systemImage: "arrow.clockwise")
+                    }
+                    Button {
+                        showAddMembers = true
+                    } label: {
+                        Label("Add Members", systemImage: "person.badge.plus")
+                    }
                 } footer: {
-                    Text("When on, you'll only get notified about messages that @mention you - other messages still show up in the chat, just silently.")
-                }
-
-                if group.isAdmin {
-                    Section {
-                        Button {
-                            renameText = group.name
-                            renameError = nil
-                            showRename = true
-                        } label: {
-                            Label("Rename Group", systemImage: "pencil")
-                        }
-                        Button {
-                            showResendAllConfirm = true
-                        } label: {
-                            Label("Resend invites to all", systemImage: "arrow.clockwise")
-                        }
-                        Button {
-                            showAddMembers = true
-                        } label: {
-                            Label("Add Members", systemImage: "person.badge.plus")
-                        }
-                    } footer: {
-                        Text("Resends the group invite to every member (or swipe a single member to resend just theirs) - use this if someone didn't receive the group. Adding members rotates the group key, so new members see messages from when they join onward.")
-                    }
-                }
-
-                Section {
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Label("Delete Group", systemImage: "trash")
-                    }
+                    Text("Resends the group invite to every member (or swipe a single member to resend just theirs) - use this if someone didn't receive the group. Adding members rotates the group key, so new members see messages from when they join onward.")
                 }
             }
-            .navigationTitle("Group Info")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { dismiss() }
+
+            Section {
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Label("Delete Group", systemImage: "trash")
                 }
             }
-            .sheet(isPresented: Binding(
-                get: { profileContact != nil },
-                set: { if !$0 { profileContact = nil } }
-            )) {
+        }
+    }
+
+    /// One member row: avatar, name, Admin tag, and (for admins) resend/remove buttons.
+    private func memberRow(_ member: GroupMember) -> some View {
+        let memberLabel = displayName(for: member.address)
+        return HStack(spacing: 12) {
+            KNSAvatarView(
+                avatarURLString: knsService.profileCache[member.address]?.avatarURL,
+                fallbackText: memberLabel,
+                size: 32,
+                contactAddress: member.address
+            )
+            Text(memberLabel)
+                .foregroundColor(.primary)
+            Spacer()
+            if member.isAdmin {
+                Text("Admin")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            // Admin-only per-member actions (visible buttons, each confirmed first),
+            // matching Android/desktop. .borderless so each taps independently of the row.
+            if group.isAdmin && member.address != myAddress {
+                Button { memberToResend = member } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .tint(.accentColor)
+                Button { memberToRemove = member } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .tint(.red)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            profileContact = contactsManager.getContact(byAddress: member.address)
+                ?? contactsManager.getOrCreateContact(address: member.address)
+        }
+        .task {
+            guard knsService.profileCache[member.address] == nil else { return }
+            _ = await knsService.fetchProfile(for: member.address)
+        }
+    }
+
+    // MARK: Layer 2 - sheets
+
+    private var infoFormWithSheets: some View {
+        infoForm
+            .sheet(isPresented: isProfilePresented) {
                 if let contact = profileContact {
                     NavigationStack {
                         ChatInfoView(
-                            contact: Binding(
-                                get: { profileContact ?? contact },
-                                set: { profileContact = $0 }
-                            ),
+                            contact: profileContactBinding(fallback: contact),
                             title: "User Info",
                             showsNotificationSettings: false
                         )
@@ -2538,22 +2551,28 @@ struct GroupChatInfoView: View {
                     AddGroupMembersView(group: group)
                 }
             }
-            .alert("Resend Invites", isPresented: Binding(get: { resendMessage != nil }, set: { if !$0 { resendMessage = nil } })) {
+    }
+
+    // MARK: Layer 3 - member alerts
+
+    private var infoFormWithMemberAlerts: some View {
+        infoFormWithSheets
+            .alert("Resend Invites", isPresented: isResendMessagePresented) {
                 Button("OK", role: .cancel) { resendMessage = nil }
             } message: {
                 Text(resendMessage ?? "")
             }
-            .alert("Resend invite", isPresented: Binding(get: { memberToResend != nil }, set: { if !$0 { memberToResend = nil } })) {
+            .alert("Resend invite", isPresented: isResendMemberPresented) {
                 Button("Send") { if let m = memberToResend { resendInvites(to: m.address) }; memberToResend = nil }
                 Button("Cancel", role: .cancel) { memberToResend = nil }
             } message: {
-                Text("Resend the group invite to \(memberToResend.map { displayName(for: $0.address) } ?? "this member")?")
+                Text("Resend the group invite to \(memberName(memberToResend))?")
             }
             .alert("Remove member", isPresented: isRemoveMemberPresented) {
                 Button("Yes", role: .destructive) { if let m = memberToRemove { removeMember(m) }; memberToRemove = nil }
                 Button("Cancel", role: .cancel) { memberToRemove = nil }
             } message: {
-                Text("Remove \(memberToRemove.map { displayName(for: $0.address) } ?? "this member") from the group chat? A fresh group key is issued to everyone who stays.")
+                Text("Remove \(memberName(memberToRemove)) from the group chat? A fresh group key is issued to everyone who stays.")
             }
             .alert("Resend invites to all", isPresented: $showResendAllConfirm) {
                 Button("Send") { resendInvites(to: nil) }
@@ -2561,6 +2580,12 @@ struct GroupChatInfoView: View {
             } message: {
                 Text("Resend the group invite to every member? Use this if someone didn't receive the group.")
             }
+    }
+
+    // MARK: Layer 4 - admin alerts (photo, rename, delete)
+
+    private var infoFormWithAdminAlerts: some View {
+        infoFormWithMemberAlerts
             .alert("Group photo", isPresented: isGroupPhotoErrorPresented) {
                 Button("OK", role: .cancel) { groupPhotoError = nil }
             } message: {
@@ -2571,27 +2596,12 @@ struct GroupChatInfoView: View {
             }
             .alert("Rename Group", isPresented: $showRename) {
                 TextField("Group name", text: $renameText)
-                Button("Save") {
-                    let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    isRenaming = true
-                    Task {
-                        do {
-                            try await groupChatService.renameGroup(group.id, to: trimmed)
-                        } catch {
-                            renameError = error.localizedDescription
-                        }
-                        isRenaming = false
-                    }
-                }
+                Button("Save") { saveRename() }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Every member will see the new name.")
             }
-            .alert("Couldn't Rename Group", isPresented: Binding(
-                get: { renameError != nil },
-                set: { if !$0 { renameError = nil } }
-            )) {
+            .alert("Couldn't Rename Group", isPresented: isRenameErrorPresented) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(renameError ?? "")
@@ -2606,6 +2616,52 @@ struct GroupChatInfoView: View {
             } message: {
                 Text("This removes the group and its messages from this device. This cannot be undone, and other members won't be notified.")
             }
+    }
+
+    // MARK: Typed bindings + small helpers (kept out of the view expressions on purpose)
+
+    private var mentionsOnlyBinding: Binding<Bool> {
+        Binding(
+            get: { groupChatService.mentionsOnlyNotifications(for: group.id) },
+            set: { groupChatService.setMentionsOnlyNotifications($0, for: group.id) }
+        )
+    }
+
+    private var isProfilePresented: Binding<Bool> {
+        Binding(get: { profileContact != nil }, set: { if !$0 { profileContact = nil } })
+    }
+
+    private func profileContactBinding(fallback contact: Contact) -> Binding<Contact> {
+        Binding(get: { profileContact ?? contact }, set: { profileContact = $0 })
+    }
+
+    private var isResendMessagePresented: Binding<Bool> {
+        Binding(get: { resendMessage != nil }, set: { if !$0 { resendMessage = nil } })
+    }
+
+    private var isResendMemberPresented: Binding<Bool> {
+        Binding(get: { memberToResend != nil }, set: { if !$0 { memberToResend = nil } })
+    }
+
+    private var isRenameErrorPresented: Binding<Bool> {
+        Binding(get: { renameError != nil }, set: { if !$0 { renameError = nil } })
+    }
+
+    private func memberName(_ member: GroupMember?) -> String {
+        member.map { displayName(for: $0.address) } ?? "this member"
+    }
+
+    private func saveRename() {
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isRenaming = true
+        Task {
+            do {
+                try await groupChatService.renameGroup(group.id, to: trimmed)
+            } catch {
+                renameError = error.localizedDescription
+            }
+            isRenaming = false
         }
     }
 }
