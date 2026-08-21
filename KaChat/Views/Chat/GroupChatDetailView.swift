@@ -269,6 +269,16 @@ struct GroupChatDetailView: View {
                             case .daySeparator(let day):
                                 daySeparator(day)
                             case .message(let message):
+                                if message.senderAddress == GroupChatService.systemSender {
+                                    // iMessage-style membership line — centered, no bubble/avatar.
+                                    Text(message.content)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.center)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 4)
+                                        .id(message.id)
+                                } else {
                                 groupMessageRow(message)
                                     .id(message.id)
                                     .background(
@@ -303,6 +313,7 @@ struct GroupChatDetailView: View {
                                             }
                                         }
                                     }
+                                }
                             }
                         }
                         // Debounced rather than setting `isBottomAnchorVisible` directly, matching
@@ -2251,6 +2262,10 @@ struct GroupChatInfoView: View {
     @State private var isRenaming = false
     @State private var resendMessage: String?
     @State private var showAddMembers = false
+    // Members list is a collapsed-by-default dropdown; per-member actions confirm first.
+    @State private var membersExpanded = false
+    @State private var memberToResend: GroupMember?
+    @State private var memberToRemove: GroupMember?
     var onDeleted: (() -> Void)?
 
     /// Re-broadcast the current group root to a single member (or all when address is nil), then
@@ -2264,6 +2279,14 @@ struct GroupChatInfoView: View {
             } catch {
                 await MainActor.run { resendMessage = error.localizedDescription }
             }
+        }
+    }
+
+    /// Remove one member (admin), rotating the group key so they can't decrypt future messages.
+    private func removeMember(_ member: GroupMember) {
+        Task {
+            do { try await groupChatService.removeMember(member, from: group.id) }
+            catch { await MainActor.run { resendMessage = error.localizedDescription } }
         }
     }
 
@@ -2292,13 +2315,10 @@ struct GroupChatInfoView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Members (\(group.members.count))") {
-                    ForEach(group.members) { member in
-                        let memberLabel = displayName(for: member.address)
-                        Button {
-                            profileContact = contactsManager.getContact(byAddress: member.address)
-                                ?? contactsManager.getOrCreateContact(address: member.address)
-                        } label: {
+                Section {
+                    DisclosureGroup(isExpanded: $membersExpanded) {
+                        ForEach(group.members) { member in
+                            let memberLabel = displayName(for: member.address)
                             HStack(spacing: 12) {
                                 KNSAvatarView(
                                     avatarURLString: knsService.profileCache[member.address]?.avatarURL,
@@ -2314,20 +2334,33 @@ struct GroupChatInfoView: View {
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
-                            }
-                        }
-                        .task {
-                            guard knsService.profileCache[member.address] == nil else { return }
-                            _ = await knsService.fetchProfile(for: member.address)
-                        }
-                        .swipeActions(edge: .trailing) {
-                            if group.isAdmin && member.address != myAddress {
-                                Button { resendInvites(to: member.address) } label: {
-                                    Label("Resend", systemImage: "arrow.clockwise")
+                                // Admin-only per-member actions (visible buttons, each confirmed first),
+                                // matching Android/desktop. .borderless so each taps independently of the row.
+                                if group.isAdmin && member.address != myAddress {
+                                    Button { memberToResend = member } label: {
+                                        Image(systemName: "arrow.clockwise")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .tint(.blue)
+                                    Button { memberToRemove = member } label: {
+                                        Image(systemName: "trash")
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .tint(.red)
                                 }
-                                .tint(.blue)
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                profileContact = contactsManager.getContact(byAddress: member.address)
+                                    ?? contactsManager.getOrCreateContact(address: member.address)
+                            }
+                            .task {
+                                guard knsService.profileCache[member.address] == nil else { return }
+                                _ = await knsService.fetchProfile(for: member.address)
                             }
                         }
+                    } label: {
+                        Text("Members (\(group.members.count))")
                     }
                 }
 
@@ -2418,6 +2451,18 @@ struct GroupChatInfoView: View {
                 Button("OK", role: .cancel) { resendMessage = nil }
             } message: {
                 Text(resendMessage ?? "")
+            }
+            .alert("Resend invite", isPresented: Binding(get: { memberToResend != nil }, set: { if !$0 { memberToResend = nil } })) {
+                Button("Send") { if let m = memberToResend { resendInvites(to: m.address) }; memberToResend = nil }
+                Button("Cancel", role: .cancel) { memberToResend = nil }
+            } message: {
+                Text("Resend the group invite to \(memberToResend.map { displayName(for: $0.address) } ?? "this member")?")
+            }
+            .alert("Remove member", isPresented: Binding(get: { memberToRemove != nil }, set: { if !$0 { memberToRemove = nil } })) {
+                Button("Yes", role: .destructive) { if let m = memberToRemove { removeMember(m) }; memberToRemove = nil }
+                Button("Cancel", role: .cancel) { memberToRemove = nil }
+            } message: {
+                Text("Remove \(memberToRemove.map { displayName(for: $0.address) } ?? "this member") from the group chat? A fresh group key is issued to everyone who stays.")
             }
             .alert("Rename Group", isPresented: $showRename) {
                 TextField("Group name", text: $renameText)

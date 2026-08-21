@@ -473,6 +473,9 @@ final class GroupChatService: ObservableObject {
             let archivedMessages: [ChatHistoryArchiveGroupMessage] = Data(hexString: group.id).map { gid in
                 Self.decryptGroupRows(store.messageRows(forGroup: group.id), groupId: group.id, gid: gid, bag: bag).compactMap { m in
                     guard !m.txId.hasPrefix("pending_") else { return nil }
+                    // Membership system lines are re-derived from roster changes on each device —
+                    // don't ship them in the backup (they'd re-appear out of context on restore).
+                    guard m.senderAddress != GroupChatService.systemSender else { return nil }
                     return ChatHistoryArchiveGroupMessage(
                         msgIdHex: nil, txId: m.txId,
                         senderAddress: m.senderAddress, senderIdHex: m.senderIdHex.isEmpty ? nil : m.senderIdHex,
@@ -769,6 +772,35 @@ final class GroupChatService: ObservableObject {
         }
     }
 
+    /// Reserved sender for iMessage-style membership lines ("X was added/removed"). Stored as a
+    /// negative-epoch plaintext row; the group thread renders these centered, not as bubbles.
+    static let systemSender = "system"
+
+    /// Best display name for a membership line: contact alias → roster snapshot → KNS → fallback.
+    private func groupMemberLabel(_ address: String, fallback: String?) -> String {
+        if let contact = ContactsManager.shared.getContact(byAddress: address), !contact.alias.isEmpty { return contact.alias }
+        if let f = fallback, !f.isEmpty { return f }
+        if let kns = KNSService.shared.profileCache[address]?.domainName, !kns.isEmpty { return kns }
+        return Contact.generateDefaultAlias(from: address)
+    }
+
+    /// Emit "X was added" / "Y was removed" lines for a roster change, stored as system messages.
+    private func insertMembershipSystemMessages(groupId: String, oldMembers: [GroupMember], newMembers: [GroupMember]) {
+        let oldAddrs = Set(oldMembers.map { $0.address })
+        let newAddrs = Set(newMembers.map { $0.address })
+        var t = Int64(Date().timeIntervalSince1970 * 1000)
+        for m in newMembers where !oldAddrs.contains(m.address) {
+            let label = groupMemberLabel(m.address, fallback: m.displayName)
+            store.insertImportedPlaintextMessage(txId: "sys_\(groupId.prefix(8))_\(t)_add", groupId: groupId, senderAddress: Self.systemSender, senderIdHex: "", msgIdHex: "", content: "\(label) was added to the group chat", blockTime: t, isOutgoing: false)
+            t += 1
+        }
+        for m in oldMembers where !newAddrs.contains(m.address) {
+            let label = groupMemberLabel(m.address, fallback: m.displayName)
+            store.insertImportedPlaintextMessage(txId: "sys_\(groupId.prefix(8))_\(t)_rem", groupId: groupId, senderAddress: Self.systemSender, senderIdHex: "", msgIdHex: "", content: "\(label) was removed from the group chat", blockTime: t, isOutgoing: false)
+            t += 1
+        }
+    }
+
     private func rotateEpoch(groupId: String, reason: GroupCipher.EpochChangeReason, mutateRoster: (inout [GroupMember]) throws -> Void) async throws {
         guard var group = store.group(id: groupId), group.isAdmin else {
             throw KasiaError.networkError("Only the group admin can change membership.")
@@ -781,6 +813,7 @@ final class GroupChatService: ObservableObject {
             throw KasiaError.walletNotFound
         }
 
+        let previousRoster = group.members
         var roster = group.members
         try mutateRoster(&roster)
 
@@ -795,6 +828,10 @@ final class GroupChatService: ObservableObject {
         store.upsertGroup(group)
         groups = store.allGroups()
         SharedDataManager.syncGroupsForExtension()
+        // iMessage-style membership lines for the admin (other members get theirs when they
+        // receive the rotated root — see applyRootPayload).
+        insertMembershipSystemMessages(groupId: groupId, oldMembers: previousRoster, newMembers: roster)
+        loadMessages(for: groupId)
 
         var sendErrors: [Error] = []
         for member in roster where member.address != wallet.publicAddress {
@@ -1671,6 +1708,9 @@ final class GroupChatService: ObservableObject {
     }
 
     private func applyRootPayload(_ payload: GroupCipher.GroupRootPayload) {
+        // Roster we held BEFORE this root updates it — used to emit "X was added/removed" system
+        // lines on a key rotation. nil on a first-time join (no baseline → no false "added" storm).
+        let previousRosterForDiff = store.group(id: payload.groupId)?.members
         // device_id is persistent per device (spec) - preserve it across epoch-rotation
         // updates to an already-joined group; only a genuinely first-time join mints a new
         // one. msgCounter resets to 0 only when the epoch actually advances (spec: "update
@@ -1732,6 +1772,9 @@ final class GroupChatService: ObservableObject {
         SharedDataManager.syncGroupsForExtension()
         if groupMessages[group.id] == nil {
             groupMessages[group.id] = []
+        }
+        if let prev = previousRosterForDiff {
+            insertMembershipSystemMessages(groupId: group.id, oldMembers: prev, newMembers: members)
         }
         loadMessages(for: group.id)
         updateScanningStateIfNeeded()
