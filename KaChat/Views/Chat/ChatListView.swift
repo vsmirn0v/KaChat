@@ -532,7 +532,11 @@ struct ChatListView: View {
                 return true
             }
             return (groupChatService.groupMessages[group.id] ?? []).contains { message in
-                message.content.range(of: query, options: .caseInsensitive) != nil
+                // Skip media envelopes: a photo/voice message's content is a multi-KB base64
+                // blob, and substring-scanning those froze the search field on media-heavy
+                // histories (nobody is searching for base64 fragments).
+                message.content.utf8.count <= 4096 &&
+                    message.content.range(of: query, options: .caseInsensitive) != nil
             }
         }
     }
@@ -877,7 +881,9 @@ struct ChatListView: View {
                 return true
             }
             return conv.messages.contains { message in
-                message.content.range(of: query, options: .caseInsensitive) != nil
+                // Same media-envelope guard as the group search above.
+                message.content.utf8.count <= 4096 &&
+                    message.content.range(of: query, options: .caseInsensitive) != nil
             }
         }
     }

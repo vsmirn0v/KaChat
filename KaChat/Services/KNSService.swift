@@ -1268,9 +1268,22 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         profileCache = sanitized
     }
 
+    // Debounced + encoded off the main actor: this used to JSON-encode the ENTIRE cache
+    // (up to 512 profile records) synchronously on the main thread once per resolved
+    // avatar — a visible stutter every time a new name landed while scrolling a feed.
+    private var persistProfileCacheTask: Task<Void, Never>?
     private func persistProfileCache() {
-        guard let data = try? JSONEncoder().encode(profileCache) else { return }
-        UserDefaults.standard.set(data, forKey: profileCacheKey)
+        persistProfileCacheTask?.cancel()
+        persistProfileCacheTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 750_000_000)
+            guard let self, !Task.isCancelled else { return }
+            let snapshot = self.profileCache
+            let key = self.profileCacheKey
+            await Task.detached(priority: .utility) {
+                guard let data = try? JSONEncoder().encode(snapshot) else { return }
+                UserDefaults.standard.set(data, forKey: key)
+            }.value
+        }
     }
 }
 

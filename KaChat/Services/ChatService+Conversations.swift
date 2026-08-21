@@ -2476,11 +2476,16 @@ extension ChatService {
         } else {
             estimatedContent = trimmed
         }
-        let payload = try KasiaTransactionBuilder.buildContextualMessagePayload(
-            alias: alias,
-            message: estimatedContent,
-            recipientPublicKey: recipientPublicKey
-        )
+        // Detached: ECDH + AEAD payload building is pure CPU work, and this whole method runs
+        // on the main actor on a 200ms debounce while the user is TYPING — doing the crypto
+        // inline was measurable keystroke lag on older devices.
+        let payload = try await Task.detached(priority: .userInitiated) {
+            try KasiaTransactionBuilder.buildContextualMessagePayload(
+                alias: alias,
+                message: estimatedContent,
+                recipientPublicKey: recipientPublicKey
+            )
+        }.value
 
         // Use fallback method - doesn't require gRPC connection
         let utxos = try await fetchUtxosWithFallback(for: wallet.publicAddress)
@@ -2511,15 +2516,20 @@ extension ChatService {
                 : 0
         }
 
-        var messageTx = try KasiaTransactionBuilder.buildContextualMessageTx(
-            from: wallet.publicAddress,
-            to: contact.address,
-            alias: alias,
-            message: trimmed,
-            senderPrivateKey: privateKey,
-            recipientPublicKey: recipientPublicKey,
-            utxos: availableUtxos
-        )
+        // Detached for the same reason: this fully builds AND Schnorr-signs a transaction.
+        let walletAddress = wallet.publicAddress
+        let contactAddress = contact.address
+        var messageTx = try await Task.detached(priority: .userInitiated) {
+            try KasiaTransactionBuilder.buildContextualMessageTx(
+                from: walletAddress,
+                to: contactAddress,
+                alias: alias,
+                message: trimmed,
+                senderPrivateKey: privateKey,
+                recipientPublicKey: recipientPublicKey,
+                utxos: availableUtxos
+            )
+        }.value
         var messageFee = estimateFeeFromBuiltTx(messageTx, availableUtxos)
         let singleInputFeeSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
             payload: messageTx.payload,
