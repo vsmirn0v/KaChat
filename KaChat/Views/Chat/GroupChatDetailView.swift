@@ -2347,32 +2347,64 @@ struct GroupChatInfoView: View {
         Array(groupChatService.hiddenMemberAddresses(for: group.id))
     }
 
+    /// Header section: avatar (tappable PhotosPicker for admins), name, member count, remove-photo.
+    /// Extracted from `body` so the Form's big expression stays type-checkable.
+    private var groupHeaderSection: some View {
+        Section {
+            VStack(spacing: 8) {
+                if group.isAdmin {
+                    PhotosPicker(selection: $groupPhotoPickerItem, matching: .images) { groupHeaderAvatar }
+                        .buttonStyle(.plain)
+                } else {
+                    groupHeaderAvatar
+                }
+                Text(group.name)
+                    .font(.title3).fontWeight(.semibold)
+                Text("\(group.members.count) members")
+                    .font(.caption).foregroundColor(.secondary)
+                if group.isAdmin && groupPhotoImage != nil {
+                    Button("Remove photo", role: .destructive) {
+                        Task { try? await groupChatService.setGroupPhoto(group.id, photoHex: "") }
+                    }
+                    .font(.caption)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .listRowBackground(Color.clear)
+        }
+    }
+
+    /// Explicitly typed bindings keep the inline `Binding(get:set:)` closures out of the
+    /// modifier chain, which is what was pushing the type-checker past its budget.
+    private var isRemoveMemberPresented: Binding<Bool> {
+        Binding(get: { memberToRemove != nil }, set: { if !$0 { memberToRemove = nil } })
+    }
+
+    private var isGroupPhotoErrorPresented: Binding<Bool> {
+        Binding(get: { groupPhotoError != nil }, set: { if !$0 { groupPhotoError = nil } })
+    }
+
+    /// Admin picked a new group photo: shrink to a ~10 KB JPEG and broadcast it via gctl_photo.
+    private func handleGroupPhotoSelection(_ newItem: PhotosPickerItem?) {
+        guard let newItem else { return }
+        Task {
+            do {
+                guard let data = try await newItem.loadTransferable(type: Data.self),
+                      let image = UIImage(data: data) else { return }
+                let jpeg = try ImagePrep.prepareJPEGForChatMessage(image, targetBytes: 10_000)
+                try await groupChatService.setGroupPhoto(group.id, photoHex: jpeg.hexString)
+            } catch {
+                await MainActor.run { groupPhotoError = error.localizedDescription }
+            }
+            await MainActor.run { groupPhotoPickerItem = nil }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 // Group header: avatar + name at the very top, showing what the group currently is.
-                Section {
-                    VStack(spacing: 8) {
-                        if group.isAdmin {
-                            PhotosPicker(selection: $groupPhotoPickerItem, matching: .images) { groupHeaderAvatar }
-                                .buttonStyle(.plain)
-                        } else {
-                            groupHeaderAvatar
-                        }
-                        Text(group.name)
-                            .font(.title3).fontWeight(.semibold)
-                        Text("\(group.members.count) members")
-                            .font(.caption).foregroundColor(.secondary)
-                        if group.isAdmin && groupPhotoImage != nil {
-                            Button("Remove photo", role: .destructive) {
-                                Task { try? await groupChatService.setGroupPhoto(group.id, photoHex: "") }
-                            }
-                            .font(.caption)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .listRowBackground(Color.clear)
-                }
+                groupHeaderSection
 
                 Section {
                     DisclosureGroup(isExpanded: $membersExpanded) {
@@ -2517,7 +2549,7 @@ struct GroupChatInfoView: View {
             } message: {
                 Text("Resend the group invite to \(memberToResend.map { displayName(for: $0.address) } ?? "this member")?")
             }
-            .alert("Remove member", isPresented: Binding(get: { memberToRemove != nil }, set: { if !$0 { memberToRemove = nil } })) {
+            .alert("Remove member", isPresented: isRemoveMemberPresented) {
                 Button("Yes", role: .destructive) { if let m = memberToRemove { removeMember(m) }; memberToRemove = nil }
                 Button("Cancel", role: .cancel) { memberToRemove = nil }
             } message: {
@@ -2529,24 +2561,13 @@ struct GroupChatInfoView: View {
             } message: {
                 Text("Resend the group invite to every member? Use this if someone didn't receive the group.")
             }
-            .alert("Group photo", isPresented: Binding(get: { groupPhotoError != nil }, set: { if !$0 { groupPhotoError = nil } })) {
+            .alert("Group photo", isPresented: isGroupPhotoErrorPresented) {
                 Button("OK", role: .cancel) { groupPhotoError = nil }
             } message: {
                 Text(groupPhotoError ?? "")
             }
             .onChange(of: groupPhotoPickerItem) { newItem in
-                guard let newItem else { return }
-                Task {
-                    do {
-                        guard let data = try await newItem.loadTransferable(type: Data.self),
-                              let image = UIImage(data: data) else { return }
-                        let jpeg = try ImagePrep.prepareJPEGForChatMessage(image, targetBytes: 10_000)
-                        try await groupChatService.setGroupPhoto(group.id, photoHex: jpeg.hexString)
-                    } catch {
-                        await MainActor.run { groupPhotoError = error.localizedDescription }
-                    }
-                    await MainActor.run { groupPhotoPickerItem = nil }
-                }
+                handleGroupPhotoSelection(newItem)
             }
             .alert("Rename Group", isPresented: $showRename) {
                 TextField("Group name", text: $renameText)
