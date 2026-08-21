@@ -133,12 +133,12 @@ final class GroupChatService: ObservableObject {
               let scriptPubKey = KaspaAddress.scriptPublicKey(from: addr) else { return nil }
         var totalSompi: UInt64 = 0
         if controlTx > 0 {
-            let per = KaChatTransactionBuilder.estimateGroupPayloadFee(payload: Data(count: 1600), inputCount: 1, senderScriptPubKey: scriptPubKey)
+            let per = KasiaTransactionBuilder.estimateGroupPayloadFee(payload: Data(count: 1600), inputCount: 1, senderScriptPubKey: scriptPubKey)
             totalSompi += per * UInt64(controlTx)
         }
         if photoTx > 0 {
             let photoBytes = 2 * ((groupPhotos[groupId]?.count ?? 0) + 300)   // gctl_photo wire ≈
-            let per = KaChatTransactionBuilder.estimateGroupPayloadFee(payload: Data(count: photoBytes), inputCount: 1, senderScriptPubKey: scriptPubKey)
+            let per = KasiaTransactionBuilder.estimateGroupPayloadFee(payload: Data(count: photoBytes), inputCount: 1, senderScriptPubKey: scriptPubKey)
             totalSompi += per * UInt64(photoTx)
         }
         return String(format: "%.6f", Double(totalSompi) / 100_000_000.0)
