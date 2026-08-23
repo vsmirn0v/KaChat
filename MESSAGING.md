@@ -175,42 +175,28 @@ Same encryption as contextual messages, but attached to a value transfer.
 ```swift
 addressesToSubscribe = [
     myAddress,                    // Incoming payments, handshakes
-    contact1.selfStashAddress,    // Contact 1's messages (if realtime enabled)
-    contact2.selfStashAddress,    // Contact 2's messages (if realtime enabled)
+    contact1.selfStashAddress,    // Contact 1's messages
+    contact2.selfStashAddress,    // Contact 2's messages
     ...
 ]
 ```
-
-**Contact Exclusion:**
-
-> **⚠️ TODO:** This feature is currently broken and not working. Needs fix in a future update.
-
-- Contacts with `realtimeUpdatesDisabled = true` are excluded from subscription
-- Their messages/payments are fetched via periodic polling (60-second interval) instead
-- Reduces subscription load for noisy contacts
 
 When we detect:
 - **Our address + we're NOT spending** → Incoming payment/handshake
 - **Contact's address + contact IS spending** → Self-stash (message to us)
 - **Contact's address + WE are spending** → Outgoing payment to contact
 
-### Disabled Contacts Polling
+### Subscription Loss and Backstops
 
-For contacts with realtime updates disabled:
+The `utxosChanged` subscription is server-side state tied to the gRPC stream: a transparent
+reconnect silently drops it while the connection still answers pings. iOS re-sends the
+subscription whenever the connection generation changes (see `UtxoSubscriptionManager`) and
+runs a catch-up sync for the gap. Independently of that, every platform runs a foreground
+indexer poll over contacts as a backstop (desktop 5s, Android 2s, iOS 5s sequential sweep),
+plus a 60s fallback poll when the subscription is down and push is off. All paths dedupe by
+`txId` on insert.
 
-```swift
-// ChatService.startDisabledContactsPolling()
-private let disabledContactsPollingInterval: TimeInterval = 60
-
-// Polls only contacts with realtimeUpdatesDisabled = true
-// Fetches messages and payments via Kasia Indexer + REST API
-```
-
-**Spam Detection:**
-When a contact produces 20+ irrelevant TX notifications in 1 minute:
-1. Warning popup is shown to user
-2. User can "Disable" realtime for that contact or "Dismiss"
-3. Dismissed warnings are tracked per-session (reset on app restart)
+There is no per-contact "disable realtime" flag or spam detector on any platform.
 
 ## Fresh-Address Payment Pools
 

@@ -118,30 +118,29 @@ Payment detection logic:
 - Amount for incoming = sum of outputs to our address
 - Amount for outgoing = output amount to recipient (non-change output)
 
-### Per-Contact Realtime Updates
+### Live Message Delivery (1:1 chats)
 
-> **⚠️ TODO:** This feature is currently broken and not working as expected. Needs investigation and fix in a future update.
+Four independent, idempotent paths surface an incoming 1:1 message; all insert through
+`ChatService.addMessageToConversation`, which dedupes by `txId` at both the fetch and the
+conversation level, so overlap is harmless:
 
-Contacts can have realtime UTXO subscriptions disabled individually:
+1. **gRPC `utxosChanged` subscription** (`UtxoSubscriptionManager`) on own + contacts' addresses.
+   This is server-side state on the gRPC stream and dies with it. `GRPCStreamConnection` bumps
+   `connectionGeneration` on every connect; the manager records the generation at subscribe time
+   and re-sends `notifyUtxosChangedRequest` when it moved (15s health check +
+   `verifyPrimarySubscription()` right after foreground reconnect), then posts
+   `.rpcSubscriptionsRestored` so `ChatService` runs a catch-up sync for the dead window.
+2. **Open-chat poll** (`startActiveChatPoll`, ~2s) for the conversation on screen only.
+3. **Foreground contact sweep** (`startForegroundContactSweep`, 5s between sequential sweeps,
+   120ms between contacts, cap 40 prioritised by `lastMessageAt`, backs off to 60s on indexer
+   errors). Starts on app-active / wallet load, stops on background / wallet switch / logout.
+   Desktop polls at 5s and Android at 2s; this is the iOS equivalent.
+4. **Remote push** (`PushNotificationManager`) and the **60s fallback poll**
+   (`startFallbackPolling`), which runs only when the subscription is down and push is off.
 
-**Toggle in Chat Info:**
-- `Contact.realtimeUpdatesDisabled` flag (default: false)
-- When disabled, contact is excluded from UTXO subscription addresses
-- Messages/payments fetched via periodic polling (60s interval) instead
-
-**Spam Detection:**
-- Tracks irrelevant TX notifications per contact (sliding 1-minute window)
-- Threshold: 20+ irrelevant TXs in 1 minute triggers warning
-- `NoisyContactWarning` struct with contactAddress, alias, txCount
-- Warning popup in `MainTabView` with "Disable" and "Dismiss" options
-- Dismissed warnings are tracked per-session (resets on app restart)
-- "Disable" immediately disables realtime for that contact
-
-**Key Components:**
-- `ChatService.contactTxNotifications: [String: [Date]]` - tracks notification timestamps
-- `ChatService.dismissedSpamWarnings: Set<String>` - session-dismissed warnings
-- `ChatService.noisyContactWarning: NoisyContactWarning?` - published for UI binding
-- `ChatService.recordIrrelevantTxNotification(contactAddress:)` - records and checks threshold
+There is NO per-contact "realtime disabled" flag, spam detector, or per-contact 60s poll in the
+code (`realtimeUpdatesDisabled`, `noisyContactWarning`, `recordIrrelevantTxNotification` do not
+exist on any platform). Earlier docs described that feature; it was never built.
 
 ### gRPC Node Pool (POOLS_v2)
 
