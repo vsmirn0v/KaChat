@@ -15,6 +15,10 @@ struct SettingsView: View {
     // keep their own observation.
     @Environment(\.dismiss) private var dismiss
 
+    // Restore-from-backup state lives on this singleton (NOT view @State) so the restore Task
+    // survives any view teardown; this view only presents the blocking modal and observes.
+    @ObservedObject private var restoreCoordinator = BackupRestoreCoordinator.shared
+
     @State private var showSeedPhrase = false
     @State private var showDeleteConfirmation = false
     @State private var showWipeIncomingConfirmation = false
@@ -28,7 +32,6 @@ struct SettingsView: View {
     @State private var showChatHistoryShareSheet = false
     @State private var showChatHistoryImporter = false
     @State private var isPreparingChatHistoryExport = false
-    @State private var isImportingChatHistory = false
     @State private var showPhotoQualitySheet = false
 
     /// Mirrors the ACTIVE ACCOUNT's per-wallet Chats Privacy flag (fresh-address payment
@@ -124,6 +127,21 @@ struct SettingsView: View {
             ) { result in
                 Task {
                     await importChatHistoryArchive(result: result)
+                }
+            }
+            // Blocking restore modal: presented for the whole Settings stack (covers both the
+            // Nextcloud restore page and the local-file import) the moment a restore starts.
+            // The binding's setter is a no-op, so the ONLY way out is the modal's own buttons
+            // calling BackupRestoreCoordinator.dismiss(), which refuses while a restore runs.
+            .fullScreenCover(isPresented: Binding(
+                get: { restoreCoordinator.isPresentingModal },
+                set: { _ in }
+            )) {
+                ChatRestoreProgressModal()
+            }
+            .onChange(of: restoreCoordinator.phase) { phase in
+                if case .success = phase {
+                    refreshMessageStoreSize()
                 }
             }
             .confirmationDialog(
@@ -316,7 +334,7 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    .disabled(isPreparingChatHistoryExport || isImportingChatHistory)
+                    .disabled(isPreparingChatHistoryExport || restoreCoordinator.isRunning)
 
                     Button {
                         showChatHistoryImporter = true
@@ -324,12 +342,12 @@ struct SettingsView: View {
                         HStack {
                             Label("Import Chat History", systemImage: "square.and.arrow.down")
                             Spacer()
-                            if isImportingChatHistory {
+                            if restoreCoordinator.isRunning {
                                 ProgressView()
                             }
                         }
                     }
-                    .disabled(isPreparingChatHistoryExport || isImportingChatHistory)
+                    .disabled(isPreparingChatHistoryExport || restoreCoordinator.isRunning)
                 }
         }
         .navigationTitle("Chat History")
@@ -530,14 +548,14 @@ struct SettingsView: View {
         }
     }
 
+    /// Reads the picked archive, then hands it to `BackupRestoreCoordinator`, which runs the
+    /// import behind the blocking progress modal (result messaging happens there, not in toasts).
     private func importChatHistoryArchive(result: Result<URL, Error>) async {
         switch result {
         case .failure(let error):
             showToast("Failed to open archive: \(error.localizedDescription)", style: .error)
         case .success(let fileURL):
-            guard !isImportingChatHistory else { return }
-            isImportingChatHistory = true
-            defer { isImportingChatHistory = false }
+            guard !restoreCoordinator.isRunning else { return }
 
             let accessed = fileURL.startAccessingSecurityScopedResource()
             defer {
@@ -548,22 +566,10 @@ struct SettingsView: View {
 
             do {
                 let data = try Data(contentsOf: fileURL)
-                let summary = try await ChatService.shared.importChatHistoryArchive(data)
-                refreshMessageStoreSize()
-                if summary.filledSentContentCount > 0 {
-                    showToast(
-                        "Imported \(summary.messageCount) messages from \(summary.conversationCount) chats. Filled \(summary.filledSentContentCount) sent messages.",
-                        style: .success
-                    )
-                } else {
-                    showToast(
-                        "Imported \(summary.messageCount) messages from \(summary.conversationCount) chats.",
-                        style: .success
-                    )
-                }
+                restoreCoordinator.startLocalRestore(data: data)
             } catch {
-                AppLog.log("[Settings] Failed to import chat history: %@", error.localizedDescription)
-                showToast("Import failed: \(error.localizedDescription)", style: .error)
+                AppLog.log("[Settings] Failed to read chat history archive: %@", error.localizedDescription)
+                showToast("Failed to open archive: \(error.localizedDescription)", style: .error)
             }
         }
     }
@@ -3033,6 +3039,9 @@ private struct AllNodesRow: View {
 /// "From Nextcloud" flow (photos/videos sent as public share links).
 struct NextcloudSettingsView: View {
     @ObservedObject private var service = NextcloudService.shared
+    // Restore runs on this singleton behind the blocking modal (presented by SettingsView's
+    // fullScreenCover, which covers this pushed page too); this view only starts it.
+    @ObservedObject private var restoreCoordinator = BackupRestoreCoordinator.shared
 
     @State private var serverInput = ""
     @State private var usernameInput = ""
@@ -3043,7 +3052,6 @@ struct NextcloudSettingsView: View {
     @State private var showStartFolderPicker = false
     @State private var backupInfo: NextcloudFile?
     @State private var isBackingUp = false
-    @State private var isRestoring = false
     @State private var showRestoreConfirm = false
     @State private var showBackupFolderPicker = false
     @State private var backupStatusMessage: String?
@@ -3129,7 +3137,7 @@ struct NextcloudSettingsView: View {
                             if isBackingUp { ProgressView() }
                         }
                     }
-                    .disabled(isBackingUp || isRestoring)
+                    .disabled(isBackingUp || restoreCoordinator.isRunning)
 
                     Button {
                         showRestoreConfirm = true
@@ -3137,10 +3145,10 @@ struct NextcloudSettingsView: View {
                         HStack {
                             Label("Restore from Backup", systemImage: "arrow.down.doc")
                             Spacer()
-                            if isRestoring { ProgressView() }
+                            if restoreCoordinator.isRunning { ProgressView() }
                         }
                     }
-                    .disabled(isBackingUp || isRestoring || backupInfo == nil)
+                    .disabled(isBackingUp || restoreCoordinator.isRunning || backupInfo == nil)
 
                     if let backupInfo, let modified = backupInfo.modified {
                         HStack {
@@ -3243,7 +3251,13 @@ struct NextcloudSettingsView: View {
             }
         }
         .alert("Restore from Backup", isPresented: $showRestoreConfirm) {
-            Button("Restore") { restoreNow() }
+            Button("Restore") {
+                backupStatusMessage = nil
+                backupErrorMessage = nil
+                // Runs behind the blocking progress modal; the coordinator owns the Task, so
+                // nothing this view does (including being popped) can interrupt the restore.
+                restoreCoordinator.startNextcloudRestore()
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Messages from the server backup are merged into this device's chat history. Nothing is deleted.")
@@ -3274,23 +3288,6 @@ struct NextcloudSettingsView: View {
         }
     }
 
-    private func restoreNow() {
-        guard !isRestoring else { return }
-        isRestoring = true
-        backupStatusMessage = nil
-        backupErrorMessage = nil
-        Task {
-            do {
-                let data = try await NextcloudService.shared.downloadBackup()
-                let summary = try await ChatService.shared.importChatHistoryArchive(data)
-                backupStatusMessage = "Restored \(summary.messageCount) messages from \(summary.conversationCount) chats."
-            } catch {
-                backupErrorMessage = error.localizedDescription
-            }
-            isRestoring = false
-        }
-    }
-
     private func connect() {
         guard !isConnecting else { return }
         isConnecting = true
@@ -3308,5 +3305,154 @@ struct NextcloudSettingsView: View {
             }
             isConnecting = false
         }
+    }
+}
+
+// MARK: - Blocking restore progress modal
+
+/// Full-screen modal shown while a chat-history restore runs (Nextcloud backup download or a
+/// locally picked archive). Deliberately inescapable while running: SettingsView presents it via
+/// a fullScreenCover whose binding setter is a no-op, interactive dismissal is disabled, and no
+/// dismissing control is rendered until the restore reaches a terminal state. Interrupting a
+/// restore midway can corrupt local chat state, so the only exits are Done (after success) or
+/// Try Again / Close (after failure), all routed through BackupRestoreCoordinator.
+struct ChatRestoreProgressModal: View {
+    @ObservedObject private var coordinator = BackupRestoreCoordinator.shared
+
+    var body: some View {
+        ZStack {
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                switch coordinator.phase {
+                case .idle, .running:
+                    runningContent
+                case .success(let conversations, let messages, let filledSent):
+                    successContent(conversations: conversations, messages: messages, filledSent: filledSent)
+                case .failure(let message):
+                    failureContent(message: message)
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: 340)
+            .background(glassBackground(cornerRadius: 24))
+            .padding(.horizontal, 24)
+        }
+        .interactiveDismissDisabled(true)
+    }
+
+    @ViewBuilder
+    private var runningContent: some View {
+        Image(systemName: "arrow.down.doc")
+            .font(.system(size: 38, weight: .medium))
+            .foregroundColor(.accentColor)
+
+        Text("Restoring Backup")
+            .font(.title3.weight(.semibold))
+
+        VStack(spacing: 10) {
+            ProgressView(value: coordinator.fraction)
+                .progressViewStyle(.linear)
+                .tint(.accentColor)
+                .animation(.easeInOut(duration: 0.25), value: coordinator.fraction)
+
+            HStack {
+                Text(coordinator.stageText)
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 12)
+                Text("\(Int(coordinator.fraction * 100))%")
+                    .font(.footnote.monospacedDigit())
+                    .foregroundColor(.secondary)
+            }
+        }
+
+        Text("Please keep the app open. Leaving now could corrupt your chat history.")
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .multilineTextAlignment(.center)
+    }
+
+    @ViewBuilder
+    private func successContent(conversations: Int, messages: Int, filledSent: Int) -> some View {
+        Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: 44))
+            .foregroundColor(.green)
+
+        Text("Restore Complete")
+            .font(.title3.weight(.semibold))
+
+        Text(successMessage(conversations: conversations, messages: messages, filledSent: filledSent))
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+            .multilineTextAlignment(.center)
+
+        Button {
+            coordinator.dismiss()
+        } label: {
+            Text("Done")
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+    }
+
+    @ViewBuilder
+    private func failureContent(message: String) -> some View {
+        Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 44))
+            .foregroundColor(.orange)
+
+        Text("Restore Failed")
+            .font(.title3.weight(.semibold))
+
+        Text(message)
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+            .multilineTextAlignment(.center)
+
+        VStack(spacing: 10) {
+            Button {
+                coordinator.retry()
+            } label: {
+                Text("Try Again")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Button {
+                coordinator.dismiss()
+            } label: {
+                Text("Close")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+        }
+    }
+
+    private func successMessage(conversations: Int, messages: Int, filledSent: Int) -> String {
+        var text = "Restored \(messages) messages from \(conversations) chats."
+        if filledSent > 0 {
+            text += " Filled \(filledSent) sent messages."
+        }
+        return text
+    }
+
+    /// Same glass card treatment the app's other overlays use (see BroadcastChannelView).
+    private func glassBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.regularMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
     }
 }

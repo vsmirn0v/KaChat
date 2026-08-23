@@ -26,6 +26,16 @@ extension ChatService {
         let filledSentContentCount: Int
     }
 
+    /// Stage events emitted by `importChatHistoryArchive` so the restore progress modal can
+    /// show a determinate bar. `.importing` advances per conversation as the Core Data write
+    /// in `MessageStore.syncFromConversations` progresses (real work, not simulated).
+    enum ChatHistoryImportProgress {
+        case validating
+        case preparing
+        case importing(done: Int, total: Int)
+        case finalizing
+    }
+
     enum ChatHistoryArchiveError: LocalizedError {
         case encryptionKeyUnavailable
         case unsupportedVersion(Int)
@@ -127,10 +137,18 @@ extension ChatService {
         return fileURL
     }
 
-    func importChatHistoryArchive(_ data: Data) async throws -> ChatHistoryImportSummary {
+    /// `progress` (optional) receives stage events on the main actor; see
+    /// `ChatHistoryImportProgress`. Used by `BackupRestoreCoordinator` to drive the blocking
+    /// restore modal.
+    func importChatHistoryArchive(
+        _ data: Data,
+        progress: (@MainActor (ChatHistoryImportProgress) -> Void)? = nil
+    ) async throws -> ChatHistoryImportSummary {
         guard let key = messageEncryptionKey() else {
             throw ChatHistoryArchiveError.encryptionKeyUnavailable
         }
+
+        progress?(.validating)
 
         let archive: ChatHistoryArchive
         do {
@@ -143,6 +161,8 @@ extension ChatService {
         guard archive.schemaVersion == chatHistoryArchiveVersion else {
             throw ChatHistoryArchiveError.unsupportedVersion(archive.schemaVersion)
         }
+
+        progress?(.preparing)
 
         let existingBefore = await messageStore.fetchAllMessages(decryptionKey: key)
         let existingOutgoingPlaceholderTxIds = Set(
@@ -220,12 +240,23 @@ extension ChatService {
         ).count
 
         let retention = currentSettings.messageRetention
+        // Bridge the per-conversation hook (fires on the Core Data background queue) back
+        // to the main actor for the progress callback.
+        let onConversationProgress: (@Sendable (Int, Int) -> Void)? = progress.map { report in
+            { done, total in
+                Task { @MainActor in
+                    report(.importing(done: done, total: total))
+                }
+            }
+        }
         let didWrite = await messageStore.syncFromConversations(
             importedConversations,
             encryptionKey: key,
             retention: retention,
-            performMaintenance: false
+            performMaintenance: false,
+            onConversationProgress: onConversationProgress
         )
+        progress?(.finalizing)
         if didWrite {
             recordLocalSave()
         }

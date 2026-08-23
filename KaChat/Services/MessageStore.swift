@@ -966,12 +966,17 @@ final class MessageStore {
         touchCloudKitExportMarker(useViewContext: false)
     }
 
+    /// `onConversationProgress` (optional) fires after each conversation's records are staged
+    /// in the background context, as `(done, total)`. Invoked on the Core Data background
+    /// queue, so callers must hop to the main actor themselves. Drives the restore progress
+    /// modal's determinate bar during archive imports.
     @discardableResult
     func syncFromConversations(
         _ conversations: [Conversation],
         encryptionKey: SymmetricKey,
         retention: MessageRetention,
-        performMaintenance: Bool = true
+        performMaintenance: Bool = true,
+        onConversationProgress: (@Sendable (Int, Int) -> Void)? = nil
     ) async -> Bool {
         guard ensureStoreLoaded() else { return false }
         let walletAddr = currentWalletAddress
@@ -999,7 +1004,8 @@ final class MessageStore {
                 let batchTime = Date().timeIntervalSince(batchStart) * 1000
                 self.logInfo("[MessageStore] Batch fetch took %.0fms for %d messages", batchTime, allTxIds.count)
 
-                for conversation in conversations {
+                let totalConversations = conversations.count
+                for (conversationIndex, conversation) in conversations.enumerated() {
                     let conv = self.fetchOrCreateConversation(contactAddress: conversation.contact.address, walletAddress: walletAddr, in: context)
 
                     // Only update conversation if values differ
@@ -1098,6 +1104,8 @@ final class MessageStore {
 
                         currentTxIds.insert(message.txId)
                     }
+
+                    onConversationProgress?(conversationIndex + 1, totalConversations)
                 }
 
                 // Only save if there are actual changes

@@ -374,17 +374,47 @@ final class NextcloudService: ObservableObject {
     }
 
     /// Downloads the backup archive bytes. 404 -> `backupNotFound`.
-    func downloadBackup() async throws -> Data {
+    /// `progress` (optional) streams `(bytesReceived, totalBytesExpected)` as the body downloads;
+    /// `totalBytesExpected` is nil when the server omits Content-Length. It is invoked OFF the
+    /// main actor (the byte accumulation runs nonisolated so a large archive never stalls UI),
+    /// so callers must hop to the main actor themselves.
+    func downloadBackup(progress: (@Sendable (Int64, Int64?) -> Void)? = nil) async throws -> Data {
         guard let request = authenticatedFileRequest(for: "\(backupFolderPath)/\(Self.backupFileName)") else {
             throw NextcloudError.badCredentials
         }
-        let (data, response) = try await URLSession.shared.data(for: request)
+        return try await Self.performBackupDownload(request: request, progress: progress)
+    }
+
+    private nonisolated static func performBackupDownload(
+        request: URLRequest,
+        progress: (@Sendable (Int64, Int64?) -> Void)?
+    ) async throws -> Data {
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
         guard let http = response as? HTTPURLResponse else { throw NextcloudError.malformedResponse }
         if http.statusCode == 401 { throw NextcloudError.badCredentials }
         if http.statusCode == 404 { throw NextcloudError.backupNotFound }
-        guard (200..<300).contains(http.statusCode), !data.isEmpty else {
+        guard (200..<300).contains(http.statusCode) else {
             throw NextcloudError.httpError(http.statusCode)
         }
+
+        let expected: Int64? = http.expectedContentLength > 0 ? http.expectedContentLength : nil
+        var data = Data()
+        if let expected { data.reserveCapacity(Int(expected)) }
+        // Throttle progress to every 64KB so a big archive doesn't flood the main actor.
+        let reportStride: Int64 = 65_536
+        var lastReported: Int64 = 0
+        for try await byte in bytes {
+            data.append(byte)
+            if let progress {
+                let count = Int64(data.count)
+                if count - lastReported >= reportStride {
+                    lastReported = count
+                    progress(count, expected)
+                }
+            }
+        }
+        guard !data.isEmpty else { throw NextcloudError.httpError(http.statusCode) }
+        progress?(Int64(data.count), expected)
         return data
     }
 
@@ -647,5 +677,136 @@ private final class DavMultistatusParser: NSObject, XMLParserDelegate {
             size: currentLength,
             modified: currentModified
         ))
+    }
+}
+
+// MARK: - Backup restore coordinator (blocking progress modal)
+
+/// Owns a chat-history restore from tap to terminal state, independent of any view's lifetime.
+/// Interrupting a restore midway can leave local state partially written, so the Settings screens
+/// only OBSERVE this singleton: the restore `Task` is held here, never by a view, and view
+/// teardown can never cancel it. While `phase == .running` the Settings hierarchy presents a
+/// full-screen modal (`ChatRestoreProgressModal` in SettingsView.swift) that cannot be dismissed;
+/// the only exits are the modal's own Done / Try Again / Close buttons, which call back into
+/// `dismiss()` / `retry()` here, and `dismiss()` refuses to fire while a restore is running.
+@MainActor
+final class BackupRestoreCoordinator: ObservableObject {
+    static let shared = BackupRestoreCoordinator()
+    private init() {}
+
+    enum Phase: Equatable {
+        case idle
+        case running
+        case success(conversations: Int, messages: Int, filledSent: Int)
+        case failure(String)
+    }
+
+    enum Source {
+        /// kachat-backup.json downloaded from the connected Nextcloud server.
+        case nextcloud
+        /// An archive the user picked with the file importer (Settings > Chat History > Import).
+        case localArchive(Data)
+    }
+
+    @Published private(set) var phase: Phase = .idle
+    /// 0...1, monotonic. Stage weights: download 0-30% (real bytes when the server sends
+    /// Content-Length), validate/prepare 30-40%, Core Data import 40-90% (advances per
+    /// conversation inside MessageStore.syncFromConversations), finalize 90-100%.
+    @Published private(set) var fraction: Double = 0
+    @Published private(set) var stageText: String = ""
+
+    var isRunning: Bool { phase == .running }
+    var isPresentingModal: Bool { phase != .idle }
+
+    /// Kept so Try Again after a failure reruns the exact same restore.
+    private var lastSource: Source?
+    /// Held by the singleton (not a view) so navigation or sheet dismissal cannot cancel it.
+    private var restoreTask: Task<Void, Never>?
+
+    func startNextcloudRestore() { start(.nextcloud) }
+    func startLocalRestore(data: Data) { start(.localArchive(data)) }
+
+    /// Reruns the failed restore. Only valid from the failure state.
+    func retry() {
+        guard case .failure = phase, let lastSource else { return }
+        phase = .idle
+        start(lastSource)
+    }
+
+    /// Leaves the modal. Only honored from a terminal state; a running restore cannot be dismissed.
+    func dismiss() {
+        guard !isRunning else { return }
+        phase = .idle
+        fraction = 0
+        stageText = ""
+    }
+
+    private func start(_ source: Source) {
+        guard !isRunning else { return }
+        lastSource = source
+        fraction = 0
+        switch source {
+        case .nextcloud: stageText = "Downloading backup..."
+        case .localArchive: stageText = "Reading archive..."
+        }
+        phase = .running
+        restoreTask = Task { [weak self] in
+            await self?.run(source)
+        }
+    }
+
+    private func run(_ source: Source) async {
+        do {
+            let data: Data
+            switch source {
+            case .nextcloud:
+                data = try await NextcloudService.shared.downloadBackup { [weak self] received, expectedTotal in
+                    Task { @MainActor [weak self] in
+                        guard let self, let expectedTotal, expectedTotal > 0 else { return }
+                        let downloaded = min(1.0, Double(received) / Double(expectedTotal))
+                        self.advance(to: 0.30 * downloaded, stage: "Downloading backup...")
+                    }
+                }
+                advance(to: 0.30, stage: "Validating backup...")
+            case .localArchive(let archiveData):
+                data = archiveData
+                advance(to: 0.05, stage: "Validating backup...")
+            }
+
+            let summary = try await ChatService.shared.importChatHistoryArchive(data) { [weak self] event in
+                guard let self else { return }
+                switch event {
+                case .validating:
+                    self.advance(to: 0.32, stage: "Validating backup...")
+                case .preparing:
+                    self.advance(to: 0.36, stage: "Preparing messages...")
+                case .importing(let done, let total):
+                    let f = total > 0 ? Double(done) / Double(total) : 1.0
+                    self.advance(
+                        to: 0.40 + 0.50 * f,
+                        stage: "Restoring messages... \(done) of \(total) conversations"
+                    )
+                case .finalizing:
+                    self.advance(to: 0.92, stage: "Finishing up...")
+                }
+            }
+            fraction = 1.0
+            stageText = "Done"
+            // Retry is only offered after a failure; drop the retained archive bytes on success.
+            lastSource = nil
+            phase = .success(
+                conversations: summary.conversationCount,
+                messages: summary.messageCount,
+                filledSent: summary.filledSentContentCount
+            )
+        } catch {
+            phase = .failure(error.localizedDescription)
+        }
+    }
+
+    /// Monotonic progress: overlapping async reports can never move the bar backwards.
+    private func advance(to value: Double, stage: String) {
+        fraction = max(fraction, min(value, 1.0))
+        stageText = stage
     }
 }
