@@ -142,7 +142,7 @@ extension ChatService {
     /// restore modal.
     func importChatHistoryArchive(
         _ data: Data,
-        progress: (@MainActor (ChatHistoryImportProgress) -> Void)? = nil
+        progress: (@MainActor @Sendable (ChatHistoryImportProgress) -> Void)? = nil
     ) async throws -> ChatHistoryImportSummary {
         guard let key = messageEncryptionKey() else {
             throw ChatHistoryArchiveError.encryptionKeyUnavailable
@@ -243,7 +243,7 @@ extension ChatService {
         // Bridge the per-conversation hook (fires on the Core Data background queue) back
         // to the main actor for the progress callback.
         let onConversationProgress: (@Sendable (Int, Int) -> Void)? = progress.map { report in
-            { done, total in
+            { @Sendable done, total in
                 Task { @MainActor in
                     report(.importing(done: done, total: total))
                 }
