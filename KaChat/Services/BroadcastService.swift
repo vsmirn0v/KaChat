@@ -190,6 +190,10 @@ final class BroadcastService: ObservableObject {
 
     /// Per-channel indexer poll loops, running while that channel's screen is open.
     private var indexerPollTasks: [String: Task<Void, Never>] = [:]
+    /// Channels whose FULL indexer history (up to the 30-day window) was already paged in this
+    /// session — the deep backfill runs once per room per launch; the 8s poll then only needs
+    /// the newest page to stay fresh.
+    private var deepBackfilledChannels: Set<String> = []
     private static let indexerPollIntervalNanos: UInt64 = 8 * 1_000_000_000
 
     /// While a room is open, the KaChat broadcast indexer is polled every few seconds and new
@@ -216,9 +220,32 @@ final class BroadcastService: ObservableObject {
 
     private func fetchFromIndexerAndMerge(baseURL: String, channel: String) async {
         do {
-            let messages = try await BroadcastIndexerClient.fetchHistory(baseURL: baseURL, channel: channel)
+            var messages = try await BroadcastIndexerClient.fetchHistoryPage(baseURL: baseURL, channel: channel)
+            // One-shot deep backfill per room per session: page older history with `before`
+            // until the indexer runs out or we reach its 30-day window. Without this, rooms
+            // only ever showed the newest single page (200 rows) — busy rooms like
+            // #kachat-bugs never loaded anywhere near the 30 days the indexer holds.
+            if !deepBackfilledChannels.contains(channel) {
+                let cutoff = Int64(Date().timeIntervalSince1970 * 1000) - BroadcastStore.indexerRetentionMillis
+                var hasMore = messages.hasMore
+                var oldest = messages.messages.map(\.blockTime).min()
+                var pagesLeft = 50 // safety valve: 50 × 200 = 10k rows, far beyond any real room
+                while hasMore, let before = oldest, before > cutoff, pagesLeft > 0 {
+                    pagesLeft -= 1
+                    let page = try await BroadcastIndexerClient.fetchHistoryPage(
+                        baseURL: baseURL, channel: channel, before: before
+                    )
+                    guard !page.messages.isEmpty else { break }
+                    messages.messages.append(contentsOf: page.messages)
+                    hasMore = page.hasMore
+                    oldest = page.messages.map(\.blockTime).min()
+                }
+                // Marked done only after the pager finishes — a thrown page lands in the catch
+                // below and the next 8s poll retries the whole backfill.
+                deepBackfilledChannels.insert(channel)
+            }
             let hidden = store.hiddenSenderAddresses(forChannel: channel)
-            let visible = messages.filter { !hidden.contains($0.senderAddress) }
+            let visible = messages.messages.filter { !hidden.contains($0.senderAddress) }
 
             // Reactions never become visible message rows - route them to the per-channel
             // reactions index instead (newest-blockTime-wins per (target, reactor), so
@@ -1022,6 +1049,18 @@ enum BroadcastIndexerClient {
         limit: Int = 200,
         before: Int64? = nil
     ) async throws -> [IndexedBroadcast] {
+        try await fetchHistoryPage(baseURL: baseURL, channel: channel, limit: limit, before: before).messages
+    }
+
+    /// Same fetch, but keeps the server's `hasMore` so callers can page older history with
+    /// `before` — the plain fetchHistory silently discarded it, which is why rooms only ever
+    /// showed the newest single page.
+    static func fetchHistoryPage(
+        baseURL: String,
+        channel: String,
+        limit: Int = 200,
+        before: Int64? = nil
+    ) async throws -> (messages: [IndexedBroadcast], hasMore: Bool) {
         var trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasSuffix("/") { trimmed = String(trimmed.dropLast()) }
         var components = URLComponents(string: "\(trimmed)/get-broadcasts")
@@ -1041,6 +1080,7 @@ enum BroadcastIndexerClient {
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw ClientError.badResponse(http.statusCode)
         }
-        return try JSONDecoder().decode(HistoryResponse.self, from: data).messages
+        let decoded = try JSONDecoder().decode(HistoryResponse.self, from: data)
+        return (decoded.messages, decoded.hasMore ?? false)
     }
 }

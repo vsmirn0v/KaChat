@@ -42,6 +42,12 @@ final class BroadcastStore {
     /// of the per-channel setting - matches Android's `BroadcastRetention.MAX_MILLIS`.
     static let maxRetentionMillis: Int64 = 3 * 24 * 60 * 60 * 1000
 
+    /// Retention for the FEATURED, indexer-tracked rooms (#kaspa / #kachat-bugs): the KaChat
+    /// indexer holds 30 days of history for them, and the room should always show everything
+    /// the indexer holds — the old 3-day cap silently pruned days 4-30 locally even though the
+    /// backfill had fetched them.
+    static let indexerRetentionMillis: Int64 = 30 * 24 * 60 * 60 * 1000
+
     /// Default retention applied when a channel is first joined - a conservative starting point
     /// for a fresh install; users can raise it up to `maxRetentionMillis` via the retention sheet.
     static let defaultRetentionMillis: Int64 = 3 * 60 * 60 * 1000
@@ -537,10 +543,11 @@ final class BroadcastStore {
             let channelRequest = NSFetchRequest<CDBroadcastChannel>(entityName: CDBroadcastChannel.entityName)
             let channels = (try? context.fetch(channelRequest)) ?? []
             for channel in channels {
-                // Indexer-tracked channels have a FIXED 3-day retention (the gear is hidden
-                // for them in the UI; history lives on the indexer, the device keeps 3 days).
+                // Indexer-tracked channels keep the indexer's FULL 30-day window (the gear is
+                // hidden for them in the UI; the indexer serves 30 days and the room should
+                // always show all of it). Other channels keep the user setting, 3-day cap.
                 let retention = BroadcastService.featuredChannels.contains(channel.channelName)
-                    ? Self.maxRetentionMillis
+                    ? Self.indexerRetentionMillis
                     : min(channel.retentionMillis, Self.maxRetentionMillis)
                 let cutoff = nowMillis - retention
                 // Reactions age out on the same clock as their channel's messages - once the
