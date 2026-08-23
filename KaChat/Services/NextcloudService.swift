@@ -81,6 +81,7 @@ enum NextcloudError: LocalizedError {
     case httpError(Int)
     case malformedResponse
     case backupNotFound
+    case noActiveWallet
 
     var errorDescription: String? {
         switch self {
@@ -88,6 +89,8 @@ enum NextcloudError: LocalizedError {
             return "That doesn't look like a valid server URL."
         case .badCredentials:
             return "Nextcloud rejected the username or app password."
+        case .noActiveWallet:
+            return "Sign in to a KaChat account before connecting Nextcloud."
         case .httpError(let code):
             return "Nextcloud returned HTTP \(code)."
         case .malformedResponse:
@@ -102,8 +105,13 @@ enum NextcloudError: LocalizedError {
 /// "send from Nextcloud" flow): connect with an app password, browse files over WebDAV, and mint
 /// public `/s/TOKEN` share links via the OCS API — so chats carry a small link the recipient's
 /// link-preview feature renders, instead of pushing file bytes through the on-chain payload.
-/// Credentials live in the Keychain (`KeychainService.saveNextcloudCredentials`); the server URL
-/// and username aren't secrets but ride along in the same blob for simplicity.
+///
+/// Everything here is scoped to the ACTIVE WALLET ACCOUNT, matching desktop: credentials live in
+/// a per-wallet Keychain entry (`KeychainService.saveNextcloudCredentials(_:walletAddress:)`),
+/// the toggles and throttle stamp in per-wallet UserDefaults keys, and `setCurrentWallet` (called
+/// by WalletManager alongside MessageStore and friends) swaps the whole state on account
+/// switch/logout so one account's login never leaks into another. The server URL and username
+/// aren't secrets but ride along in the same credentials blob for simplicity.
 @MainActor
 final class NextcloudService: ObservableObject {
     static let shared = NextcloudService()
@@ -111,21 +119,34 @@ final class NextcloudService: ObservableObject {
     @Published private(set) var account: NextcloudAccount?
 
     /// "Automatic Backup" toggle (Settings > Storage > Nextcloud). When on, the chat archive
-    /// uploads on app-background, throttled to at most once per hour.
-    @Published var autoBackupEnabled: Bool {
-        didSet { UserDefaults.standard.set(autoBackupEnabled, forKey: Self.autoBackupKey) }
+    /// uploads on app-background, throttled to at most once per hour. Per wallet account.
+    @Published var autoBackupEnabled: Bool = false {
+        didSet { persistSetting(autoBackupEnabled, baseKey: Self.autoBackupKey) }
     }
 
     /// "Send Media via Nextcloud" toggle (Settings > Storage > Nextcloud). When on, photos and
     /// voice recordings sent in 1:1 chats upload to the connected server and the chat message
     /// is the public share link (the recipient's link-preview feature renders it as a native
     /// media bubble / audio card) instead of embedding the bytes in the on-chain payload.
-    @Published var mediaSendEnabled: Bool {
-        didSet { UserDefaults.standard.set(mediaSendEnabled, forKey: Self.mediaSendKey) }
+    /// Per wallet account.
+    @Published var mediaSendEnabled: Bool = false {
+        didSet { persistSetting(mediaSendEnabled, baseKey: Self.mediaSendKey) }
     }
+
+    /// The active wallet's address - every credential/settings read and write is scoped to it.
+    /// nil (signed out / no wallet yet) presents as disconnected and persists nothing.
+    private(set) var currentWalletAddress: String?
+    /// Cached per-wallet suffix (same 8-byte SHA256 hex as the Keychain entry and MessageStore's
+    /// zones) for the UserDefaults keys.
+    private var currentWalletHashSuffix: String?
+
+    /// The in-flight automatic backup, held so a wallet switch can cancel it - account A's
+    /// archive must never upload while account B is active.
+    private var autoBackupTask: Task<Void, Never>?
 
     // `nonisolated` so these constants are usable from nonisolated contexts (e.g. the default
     // argument of autoBackupIfDue) without a main-actor hop — they're immutable Sendable values.
+    // Base names only: the active wallet's hash suffix is appended via `scopedKey`.
     private nonisolated static let autoBackupKey = "kachat_nextcloud_auto_backup"
     private nonisolated static let mediaSendKey = "kachat_nextcloud_media_send"
     private nonisolated static let lastAutoBackupKey = "kachat_nextcloud_last_auto_backup"
@@ -136,11 +157,8 @@ final class NextcloudService: ObservableObject {
     private nonisolated static let autoBackupCatchUpInterval: TimeInterval = 86_400
 
     private init() {
-        autoBackupEnabled = UserDefaults.standard.bool(forKey: Self.autoBackupKey)
-        mediaSendEnabled = UserDefaults.standard.bool(forKey: Self.mediaSendKey)
-        if let data = try? KeychainService.shared.loadNextcloudCredentials() {
-            account = try? JSONDecoder().decode(NextcloudAccount.self, from: data)
-        }
+        // No credential load here: state stays empty until WalletManager reports the active
+        // wallet via setCurrentWallet (every login/switch path calls it).
         // Backgrounding is the natural "done chatting" moment — back up then, inside a
         // background task so iOS gives the upload time to finish.
         NotificationCenter.default.addObserver(
@@ -149,7 +167,7 @@ final class NextcloudService: ObservableObject {
             queue: .main
         ) { _ in
             Task { @MainActor in
-                await NextcloudService.shared.autoBackupIfDue()
+                NextcloudService.shared.scheduleAutoBackup()
             }
         }
         // Catch-up on launch/foreground: covers users who never background the app cleanly
@@ -161,8 +179,108 @@ final class NextcloudService: ObservableObject {
             queue: .main
         ) { _ in
             Task { @MainActor in
-                await NextcloudService.shared.autoBackupIfDue(minInterval: Self.autoBackupCatchUpInterval)
+                NextcloudService.shared.scheduleAutoBackup(minInterval: Self.autoBackupCatchUpInterval)
             }
+        }
+    }
+
+    // MARK: - Wallet scoping
+
+    /// Points the service at `walletAddress`'s stored Nextcloud state, or clears everything for
+    /// nil. Called by WalletManager on every wallet load, account switch, logout and delete -
+    /// the same hook MessageStore/BroadcastService/etc. use. Cancels any in-flight automatic
+    /// backup first, and drops the thumbnail cache so the picker never shows a previous
+    /// account's server content.
+    func setCurrentWallet(_ walletAddress: String?) {
+        guard walletAddress != currentWalletAddress else { return }
+
+        autoBackupTask?.cancel()
+        autoBackupTask = nil
+        thumbnailCache.removeAllObjects()
+
+        currentWalletAddress = walletAddress
+        currentWalletHashSuffix = walletAddress.map { KeychainService.walletHashSuffix($0) }
+
+        guard let walletAddress else {
+            account = nil
+            autoBackupEnabled = false
+            mediaSendEnabled = false
+            return
+        }
+
+        migrateLegacyGlobalStateIfNeeded(for: walletAddress)
+
+        if let data = try? KeychainService.shared.loadNextcloudCredentials(walletAddress: walletAddress) {
+            account = try? JSONDecoder().decode(NextcloudAccount.self, from: data)
+        } else {
+            account = nil
+        }
+        autoBackupEnabled = scopedKey(Self.autoBackupKey).map { UserDefaults.standard.bool(forKey: $0) } ?? false
+        mediaSendEnabled = scopedKey(Self.mediaSendKey).map { UserDefaults.standard.bool(forKey: $0) } ?? false
+    }
+
+    /// Deletes a wallet's stored Nextcloud login and settings outright - used when that account
+    /// is removed from this device entirely (WalletManager account deletion flows). Storage
+    /// only; the in-memory state is cleared by the setCurrentWallet(nil) that always follows.
+    func purgeStoredState(forWalletAddress walletAddress: String) {
+        try? KeychainService.shared.deleteNextcloudCredentials(walletAddress: walletAddress)
+        let suffix = KeychainService.walletHashSuffix(walletAddress)
+        for base in [Self.autoBackupKey, Self.mediaSendKey, Self.lastAutoBackupKey] {
+            UserDefaults.standard.removeObject(forKey: "\(base)_\(suffix)")
+        }
+    }
+
+    /// The active wallet's UserDefaults key for `base`, or nil when signed out (in which case
+    /// nothing is read or written).
+    private func scopedKey(_ base: String) -> String? {
+        guard let suffix = currentWalletHashSuffix else { return nil }
+        return "\(base)_\(suffix)"
+    }
+
+    private func persistSetting(_ value: Bool, baseKey: String) {
+        guard let key = scopedKey(baseKey) else { return }
+        UserDefaults.standard.set(value, forKey: key)
+    }
+
+    /// One-time migration off the pre-per-wallet storage: the single global Keychain blob and
+    /// the three global UserDefaults keys move to the active wallet's scoped entries - the
+    /// account that was actually using the login keeps it - then the global entries are deleted
+    /// so no other account ever sees them again.
+    private func migrateLegacyGlobalStateIfNeeded(for walletAddress: String) {
+        var migratedAnything = false
+        let defaults = UserDefaults.standard
+
+        if let legacyBlob = try? KeychainService.shared.loadLegacyNextcloudCredentials() {
+            let hasScoped = (try? KeychainService.shared.loadNextcloudCredentials(walletAddress: walletAddress)) != nil
+            if !hasScoped {
+                try? KeychainService.shared.saveNextcloudCredentials(legacyBlob, walletAddress: walletAddress)
+            }
+            try? KeychainService.shared.deleteLegacyNextcloudCredentials()
+            migratedAnything = true
+        }
+
+        for base in [Self.autoBackupKey, Self.mediaSendKey, Self.lastAutoBackupKey] {
+            guard let legacyValue = defaults.object(forKey: base), let scoped = scopedKey(base) else { continue }
+            if defaults.object(forKey: scoped) == nil {
+                defaults.set(legacyValue, forKey: scoped)
+            }
+            defaults.removeObject(forKey: base)
+            migratedAnything = true
+        }
+
+        if migratedAnything {
+            AppLog.log("%@", "[Nextcloud] Migrated the global Nextcloud login/settings to the active wallet's per-account storage")
+        }
+    }
+
+    // MARK: - Automatic backup
+
+    /// Runs `autoBackupIfDue` inside a service-owned task so `setCurrentWallet` can cancel it
+    /// mid-flight on an account switch.
+    private func scheduleAutoBackup(minInterval: TimeInterval = NextcloudService.autoBackupMinInterval) {
+        autoBackupTask?.cancel()
+        autoBackupTask = Task { [weak self] in
+            await self?.autoBackupIfDue(minInterval: minInterval)
         }
     }
 
@@ -170,8 +288,10 @@ final class NextcloudService: ObservableObject {
     /// last one (hourly for on-background, daily for the launch catch-up). Failures are silent
     /// by design (the next trigger retries); success stamps the throttle clock.
     func autoBackupIfDue(minInterval: TimeInterval = NextcloudService.autoBackupMinInterval) async {
-        guard autoBackupEnabled, isConnected else { return }
-        let last = UserDefaults.standard.double(forKey: Self.lastAutoBackupKey)
+        guard autoBackupEnabled, isConnected,
+              let walletAtStart = currentWalletAddress,
+              let lastBackupKey = scopedKey(Self.lastAutoBackupKey) else { return }
+        let last = UserDefaults.standard.double(forKey: lastBackupKey)
         guard Date().timeIntervalSince1970 - last >= minInterval else { return }
 
         let taskId = UIApplication.shared.beginBackgroundTask(withName: "nextcloud-auto-backup")
@@ -180,8 +300,12 @@ final class NextcloudService: ObservableObject {
         guard let fileURL = try? await ChatService.shared.exportChatHistoryArchive(),
               let data = try? Data(contentsOf: fileURL) else { return }
         try? FileManager.default.removeItem(at: fileURL)
-        if (try? await uploadBackup(data)) != nil {
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastAutoBackupKey)
+        // The export awaited: if the wallet switched meanwhile (or the switch cancelled this
+        // task), drop the upload - this archive belongs to the previous account.
+        guard !Task.isCancelled, currentWalletAddress == walletAtStart else { return }
+        if (try? await uploadBackup(data)) != nil,
+           !Task.isCancelled, currentWalletAddress == walletAtStart {
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastBackupKey)
         }
     }
 
@@ -205,6 +329,9 @@ final class NextcloudService: ObservableObject {
     /// then persists them. Throws `badCredentials` on a 401 so the connect screen can say exactly
     /// what's wrong.
     func connect(serverInput: String, username: String, appPassword: String) async throws {
+        guard let walletAddress = currentWalletAddress else {
+            throw NextcloudError.noActiveWallet
+        }
         guard let server = Self.normalizedServerURL(from: serverInput) else {
             throw NextcloudError.invalidServerURL
         }
@@ -232,12 +359,17 @@ final class NextcloudService: ObservableObject {
         }
 
         let encoded = try JSONEncoder().encode(candidate)
-        try KeychainService.shared.saveNextcloudCredentials(encoded)
+        try KeychainService.shared.saveNextcloudCredentials(encoded, walletAddress: walletAddress)
         account = candidate
     }
 
     func disconnect() {
-        try? KeychainService.shared.deleteNextcloudCredentials()
+        if let walletAddress = currentWalletAddress {
+            try? KeychainService.shared.deleteNextcloudCredentials(walletAddress: walletAddress)
+        }
+        // Belt and braces: if a legacy global blob somehow still exists, remove it too so
+        // disconnect can never appear to "come back" via migration.
+        try? KeychainService.shared.deleteLegacyNextcloudCredentials()
         account = nil
     }
 
@@ -246,9 +378,7 @@ final class NextcloudService: ObservableObject {
         guard var updated = account else { return }
         let clean = path?.trimmingCharacters(in: .whitespacesAndNewlines)
         updated.defaultFolder = (clean?.isEmpty ?? true) ? nil : clean
-        if let encoded = try? JSONEncoder().encode(updated) {
-            try? KeychainService.shared.saveNextcloudCredentials(encoded)
-        }
+        persistAccountBlob(updated)
         account = updated
     }
 
@@ -257,10 +387,14 @@ final class NextcloudService: ObservableObject {
         guard var updated = account else { return }
         let clean = path?.trimmingCharacters(in: .whitespacesAndNewlines)
         updated.backupFolder = (clean?.isEmpty ?? true) ? nil : clean
-        if let encoded = try? JSONEncoder().encode(updated) {
-            try? KeychainService.shared.saveNextcloudCredentials(encoded)
-        }
+        persistAccountBlob(updated)
         account = updated
+    }
+
+    private func persistAccountBlob(_ updated: NextcloudAccount) {
+        guard let walletAddress = currentWalletAddress,
+              let encoded = try? JSONEncoder().encode(updated) else { return }
+        try? KeychainService.shared.saveNextcloudCredentials(encoded, walletAddress: walletAddress)
     }
 
     /// The folder backups actually go to — the user's chosen folder, or "KaChat" by default.

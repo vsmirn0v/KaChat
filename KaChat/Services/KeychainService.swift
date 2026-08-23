@@ -103,17 +103,44 @@ final class KeychainService {
     }
 
     // MARK: - Nextcloud (server + app-password credentials, see NextcloudService)
+    //
+    // Scoped per wallet account: the key name carries the same SHA256(walletAddress).prefix(8)
+    // hex suffix MessageStore uses for its CloudKit zones and store files, so every account
+    // keeps its own Nextcloud login. Entries are device-local (never iCloud-keychain synced),
+    // matching the rest of the app's per-account storage.
 
-    func saveNextcloudCredentials(_ data: Data) throws {
-        _ = try save(data: data, forKey: .nextcloudCredentials)
+    func saveNextcloudCredentials(_ data: Data, walletAddress: String) throws {
+        try saveSensitiveDataRaw(data, keyName: Self.nextcloudKeyName(walletAddress: walletAddress))
     }
 
-    func loadNextcloudCredentials() throws -> Data? {
+    func loadNextcloudCredentials(walletAddress: String) throws -> Data? {
+        try loadSensitiveDataRaw(keyName: Self.nextcloudKeyName(walletAddress: walletAddress))
+    }
+
+    func deleteNextcloudCredentials(walletAddress: String) throws {
+        try deleteSensitiveDataRaw(keyName: Self.nextcloudKeyName(walletAddress: walletAddress))
+    }
+
+    /// The pre-4.0 single global entry every account shared. Kept only so NextcloudService can
+    /// migrate it into the active wallet's scoped entry once, then delete it.
+    func loadLegacyNextcloudCredentials() throws -> Data? {
         try load(forKey: .nextcloudCredentials)
     }
 
-    func deleteNextcloudCredentials() throws {
+    func deleteLegacyNextcloudCredentials() throws {
         try delete(forKey: .nextcloudCredentials)
+    }
+
+    /// "kachat_nextcloud_credentials_<hash>" - see `walletHashSuffix`.
+    private static func nextcloudKeyName(walletAddress: String) -> String {
+        "\(KeychainKey.nextcloudCredentials.rawValue)_\(walletHashSuffix(walletAddress))"
+    }
+
+    /// First 8 bytes of SHA256(walletAddress) as hex - the identical derivation
+    /// MessageStore.zoneNameForWallet uses, so all per-wallet storage shares one suffix scheme.
+    static func walletHashSuffix(_ walletAddress: String) -> String {
+        let hash = SHA256.hash(data: Data(walletAddress.utf8))
+        return hash.prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - Child Mode password record (device-specific, SE-wrapped)

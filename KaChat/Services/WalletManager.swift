@@ -205,6 +205,7 @@ final class WalletManager: ObservableObject {
                     ColdStorageManager.shared.setCurrentWallet(nil)
                     PortfolioManager.shared.setCurrentWallet(nil)
                     PortfolioViewModel.shared.setCurrentWallet(nil)
+                    NextcloudService.shared.setCurrentWallet(nil)
                     SharedDataManager.syncWalletAddressForExtension()
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
                     SharedDataManager.setPrivateKeyAvailable(false)
@@ -240,6 +241,7 @@ final class WalletManager: ObservableObject {
                 ColdStorageManager.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 PortfolioManager.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 PortfolioViewModel.shared.setCurrentWallet(canonicalWallet.publicAddress)
+                NextcloudService.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 await ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                 Task { _ = try? await refreshBalance() }
                 return
@@ -258,6 +260,7 @@ final class WalletManager: ObservableObject {
             ColdStorageManager.shared.setCurrentWallet(nil)
             PortfolioManager.shared.setCurrentWallet(nil)
             PortfolioViewModel.shared.setCurrentWallet(nil)
+            NextcloudService.shared.setCurrentWallet(nil)
             SharedDataManager.syncWalletAddressForExtension()
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
             SharedDataManager.setPrivateKeyAvailable(false)
@@ -380,6 +383,7 @@ final class WalletManager: ObservableObject {
         ColdStorageManager.shared.setCurrentWallet(wallet.publicAddress)
         PortfolioManager.shared.setCurrentWallet(wallet.publicAddress)
         PortfolioViewModel.shared.setCurrentWallet(wallet.publicAddress)
+        NextcloudService.shared.setCurrentWallet(wallet.publicAddress)
         SharedDataManager.syncWalletAddressForExtension()
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         SharedDataManager.setPrivateKeyAvailable(true)
@@ -443,6 +447,7 @@ final class WalletManager: ObservableObject {
         if let walletAddressToDelete {
             ChatListSnapshotStore.clear(walletAddress: walletAddressToDelete)
             ContactsManager.shared.deletePersistedContacts(forWalletAddress: walletAddressToDelete)
+            NextcloudService.shared.purgeStoredState(forWalletAddress: walletAddressToDelete)
         }
         ContactsManager.shared.setActiveWalletAddress(nil)
 
@@ -453,6 +458,7 @@ final class WalletManager: ObservableObject {
         ColdStorageManager.shared.setCurrentWallet(nil)
         PortfolioManager.shared.setCurrentWallet(nil)
         PortfolioViewModel.shared.setCurrentWallet(nil)
+        NextcloudService.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         SharedDataManager.setPrivateKeyAvailable(false)
@@ -480,6 +486,7 @@ final class WalletManager: ObservableObject {
         ColdStorageManager.shared.setCurrentWallet(nil)
         PortfolioManager.shared.setCurrentWallet(nil)
         PortfolioViewModel.shared.setCurrentWallet(nil)
+        NextcloudService.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
         NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         SharedDataManager.setPrivateKeyAvailable(false)
@@ -551,6 +558,7 @@ final class WalletManager: ObservableObject {
             if !isStoredAccount {
                 try? keychainService.deleteAccountSnapshot(publicAddress: account.publicAddress)
                 ContactsManager.shared.deletePersistedContacts(forWalletAddress: account.publicAddress)
+                NextcloudService.shared.purgeStoredState(forWalletAddress: account.publicAddress)
                 removeSavedAccountFromStorage(account)
                 return
             }
@@ -577,6 +585,7 @@ final class WalletManager: ObservableObject {
         PortfolioManager.shared.clearAllLocalData()
         PortfolioViewModel.shared.setCurrentWallet(account.publicAddress)
         PortfolioViewModel.shared.clearAllLocalData()
+        NextcloudService.shared.purgeStoredState(forWalletAddress: account.publicAddress)
 
         do {
             try keychainService.deleteAccountSnapshot(publicAddress: account.publicAddress)
@@ -599,6 +608,7 @@ final class WalletManager: ObservableObject {
         ColdStorageManager.shared.setCurrentWallet(nil)
         PortfolioManager.shared.setCurrentWallet(nil)
         PortfolioViewModel.shared.setCurrentWallet(nil)
+        NextcloudService.shared.setCurrentWallet(nil)
         ChatService.shared.resetForNewWallet(skipStoreClear: true)
         ContactsManager.shared.deleteAllContacts()
         ContactsManager.shared.setActiveWalletAddress(nil)
