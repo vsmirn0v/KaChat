@@ -233,6 +233,10 @@ struct KaPostsView: View {
     /// Post whose comment thread is open - the sheet looks the post up live by id, so new
     /// comments/likes appear immediately.
     @State private var detailTarget: PostDetailTarget?
+    /// Comment thread opened from WITHIN the poster-profile sheet. Separate from `detailTarget`
+    /// because the profile is itself a sheet: the thread must present from inside the profile's
+    /// own NavigationStack (a view can only present one sheet at a time), not the top-level presenter.
+    @State private var profileDetailTarget: PostDetailTarget?
     /// "View Post in Explorer" tapped: engagement screen first (likes/dislikes/reposts/quotes).
     @State private var engagementTarget: DraftPost?
     @State private var profileFollowListKind: KaPostsFollowListView.Kind?
@@ -2146,6 +2150,18 @@ struct KaPostsView: View {
         }
     }
 
+    /// Same as `openDetail`, but opens the thread from inside the poster-profile sheet (drives
+    /// `profileDetailTarget`, presented by the profile's own NavigationStack). Lets you comment on
+    /// a person's posts/replies straight from their profile.
+    private func openProfileDetail(_ post: DraftPost) {
+        replyText = ""
+        profileDetailTarget = PostDetailTarget(id: post.id)
+        Task {
+            await loadThreadReplies(for: post, reset: true)
+            await loadSelfThreadChain(rootId: post.id)
+        }
+    }
+
     // MARK: - My profile (side menu, X-style)
 
     /// X-style profile: KNS banner across the top, avatar overlapping it, name, following/followers
@@ -2498,7 +2514,7 @@ struct KaPostsView: View {
                                 avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
                                 isFollowing: followStore.isFollowing(post.posterAddress),
                                 commentCount: commentCount(of: post),
-                                onComment: nil,
+                                onComment: { openProfileDetail(post) },
                                 onMute: { moderationStore.mute(post.posterAddress) },
                                 onBlock: { moderationStore.block(post.posterAddress) },
                                 onBookmark: { toggleBookmark(post) },
@@ -2556,6 +2572,11 @@ struct KaPostsView: View {
                         }
                     )
                 }
+            }
+            // Comment thread for a post tapped on this profile — presented from the profile's OWN
+            // NavigationStack so it stacks above the profile sheet (top-level $detailTarget can't).
+            .sheet(item: $profileDetailTarget) { target in
+                postDetailSheet(postId: target.id)
             }
             .refreshable {
                 guard let pubkey = posterProfilePubkey else { return }
@@ -3016,7 +3037,9 @@ struct KaPostsView: View {
                 }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") { detailTarget = nil }
+                        // Clear whichever target presented this thread (feed = detailTarget,
+                        // profile = profileDetailTarget); nil-ing the other is a harmless no-op.
+                        Button("Done") { detailTarget = nil; profileDetailTarget = nil }
                     }
                 }
             }
