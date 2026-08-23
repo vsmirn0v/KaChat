@@ -74,7 +74,7 @@ struct Wallet: Codable, Equatable {
 /// A single derived spending-chain address as shown in Manage Addresses — always re-derived
 /// live from the seed + index rather than persisted, matching Android (only the index bounds
 /// are stored, never the address list itself).
-struct SpendingAddressEntry: Identifiable, Equatable {
+struct SpendingAddressEntry: Identifiable, Equatable, Codable {
     let index: Int
     let address: String
     let balanceSompi: UInt64

@@ -354,6 +354,16 @@ struct ManageAddressesView: View {
                                 Label("Set as Primary Address", systemImage: "star")
                             }
                         }
+                        // Hide straight from the row — same effect as unchecking it in Address
+                        // Visibility, without opening that sheet. Same guard as the checklist:
+                        // never the primary, never a funded address.
+                        if !entry.isCurrent && entry.balanceSompi == 0 {
+                            Button {
+                                hideAddress(entry)
+                            } label: {
+                                Label("Hide Address", systemImage: "eye.slash")
+                            }
+                        }
                     } label: {
                         Image(systemName: "ellipsis")
                             .font(.system(size: 18, weight: .bold))
@@ -368,6 +378,28 @@ struct ManageAddressesView: View {
             .padding(16)
         }
         .background(glassBackground(cornerRadius: 18))
+    }
+
+    /// Row-menu "Hide Address": flips the same per-wallet hidden flag the Address Visibility
+    /// checklist edits (so it shows unchecked there), updates the row in place, and refreshes
+    /// the persisted snapshot. setSpendingAddressHidden re-verifies primary/zero-balance
+    /// server-side and returns false if the address can't be hidden.
+    private func hideAddress(_ entry: SpendingAddressEntry) {
+        Task {
+            let ok = await walletManager.setSpendingAddressHidden(index: entry.index, hidden: true)
+            guard ok else {
+                showToast("This address can't be hidden.")
+                return
+            }
+            if let position = entries.firstIndex(where: { $0.id == entry.id }) {
+                var updated = entries[position]
+                updated.hidden = true
+                entries[position] = updated
+            }
+            walletManager.storeSpendingAddressListCache(entries)
+            Haptics.success()
+            showToast("Address hidden. Re-enable it in Address Visibility.")
+        }
     }
 
     /// Instant sync after the Address Visibility sheet closes: stamp the stored hidden
@@ -400,7 +432,14 @@ struct ManageAddressesView: View {
     }
 
     private func loadEntries() async {
-        isLoading = true
+        // Instant paint from the persisted snapshot of the last full load — the screen shows
+        // rows immediately (even with the network down) while the live refresh below replaces
+        // them. Only used when we have nothing on screen yet, so a live list never regresses.
+        if entries.isEmpty {
+            let cached = walletManager.cachedSpendingAddressList()
+            if !cached.isEmpty { entries = cached }
+        }
+        isLoading = entries.isEmpty
         let baseEntries = await walletManager.getSpendingAddressList()
 
         // Bounded concurrency, not fully serial and not unbounded: firing every zero-balance
@@ -438,6 +477,8 @@ struct ManageAddressesView: View {
         }
         entries = updatedEntries.sorted { $0.index < $1.index }
         isLoading = false
+        // Persist the freshly-loaded snapshot so the NEXT open paints instantly from cache.
+        walletManager.storeSpendingAddressListCache(entries)
 
         // Contains-domain tags, after the rows are already visible. refreshIfNeeded is the same
         // batched KNS lookup ContactsManager.fetchKNSDomainsForAllContacts uses: capped

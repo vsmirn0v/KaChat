@@ -856,11 +856,22 @@ struct ProfileView: View {
         HStack(spacing: 24) {
             Spacer()
             NavigationLink {
-                ChattingAddressQRView(
-                    address: walletManager.currentSpendingAddress() ?? wallet.publicAddress,
-                    balanceSompi: spendingAddressBalanceSompi,
-                    subtitle: "Only accept Kaspa you intend to use as money to this address."
-                )
+                // Never substitute the CHATTING address for the spending role — that was the
+                // "chatting balance under spending" flicker. If the spending address can't
+                // resolve this instant (locked keychain), show a retry note instead of the
+                // wrong address. (Rare now: derived addresses are persistently cached.)
+                if let spendingAddress = walletManager.currentSpendingAddress() {
+                    ChattingAddressQRView(
+                        address: spendingAddress,
+                        balanceSompi: spendingAddressBalanceSompi,
+                        subtitle: "Only accept Kaspa you intend to use as money to this address."
+                    )
+                } else {
+                    Text("Spending address is unlocking — go back and try again.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding()
+                }
             } label: {
                 VStack(spacing: 8) {
                     qrCircleIcon
@@ -997,7 +1008,12 @@ struct ProfileView: View {
     }
 
     private func loadSpendingAddressBalance() async {
-        guard let address = walletManager.currentSpendingAddress() else { return }
+        guard let address = walletManager.currentSpendingAddress() else {
+            // Unresolvable this instant — show "—" rather than leaving a stale number on screen.
+            spendingAddressBalanceSompi = nil
+            isLoadingSpendingBalance = false
+            return
+        }
         isLoadingSpendingBalance = true
         let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
         spendingAddressBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }

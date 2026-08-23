@@ -2455,13 +2455,31 @@ extension ChatService {
     /// Whether an address has ever appeared in a transaction, independent of its current
     /// balance (a swept-to-zero address still counts as used) — powers the "Used"/"Unused"
     /// badge in Manage Addresses. A single-item history lookup, not a balance check.
+    ///
+    /// "Used" is MONOTONIC and address-intrinsic: once true it can never become false again,
+    /// so positive answers are cached persistently and answered without a network round-trip
+    /// forever after. Negative ("unused") answers are NOT cached — an unused address can become
+    /// used at any moment. This is what makes Manage Addresses / Address Visibility (and cold
+    /// storage discovery, which shares this primitive) open instantly instead of re-deriving
+    /// used-ness over the network every time.
+    private static let usedAddressCacheKey = "kachat_used_addresses_v1"
     func hasSpendingAddressBeenUsed(_ address: String) async -> Bool {
+        let cached = UserDefaults.standard.array(forKey: Self.usedAddressCacheKey) as? [String] ?? []
+        if cached.contains(address) { return true }
         // Delegates to the already-proven paginated fetch (same resolve_previous_outpoints
         // value it uses elsewhere in the app) instead of a hand-rolled one-off request —
         // pageSize/maxTransactions of 1 makes this a single round-trip either way (the
         // paginator breaks immediately on an empty first page).
         let transactions = await fetchFullTransactionsPaginated(for: address, pageSize: 1, maxTransactions: 1)
-        return !transactions.isEmpty
+        let used = !transactions.isEmpty
+        if used {
+            var updated = UserDefaults.standard.array(forKey: Self.usedAddressCacheKey) as? [String] ?? []
+            if !updated.contains(address) {
+                updated.append(address)
+                UserDefaults.standard.set(updated, forKey: Self.usedAddressCacheKey)
+            }
+        }
+        return used
     }
 
     func estimateMessageFee(to contact: Contact, content: String, feeOverride: UInt64? = nil) async throws -> UInt64 {

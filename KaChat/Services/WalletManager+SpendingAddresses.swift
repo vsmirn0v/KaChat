@@ -129,6 +129,22 @@ extension WalletManager {
         }
     }
 
+    // Snapshot of the last fully-loaded Manage Addresses list, persisted per wallet so the
+    // screen can render INSTANTLY from cache while the live network refresh runs behind it.
+    // Balances in the snapshot may be stale for a moment — the refresh replaces them.
+    func cachedSpendingAddressList() -> [SpendingAddressEntry] {
+        guard let key = spendingDefaultsKey("entries_cache"),
+              let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([SpendingAddressEntry].self, from: data) else { return [] }
+        return decoded
+    }
+
+    func storeSpendingAddressListCache(_ entries: [SpendingAddressEntry]) {
+        guard let key = spendingDefaultsKey("entries_cache"),
+              let data = try? JSONEncoder().encode(entries) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
     private var spendingLabels: [Int: String] {
         get {
             guard let key = spendingDefaultsKey("labels"),
@@ -175,11 +191,38 @@ extension WalletManager {
 
     // MARK: - Derivation
 
+    /// Cache of derived spending ADDRESSES (never keys), persisted per wallet + network.
+    /// Two reasons:
+    /// 1. Correctness — `spendingPrivateKey(at:)` needs the seed from the keychain, which can
+    ///    transiently fail (cold launch / before protected data unlocks). Every caller that did
+    ///    `currentSpendingAddress() ?? wallet.publicAddress` then briefly showed the CHATTING
+    ///    address under the spending role until a later render resolved it — the "chatting
+    ///    balance shows under spending then reverts" flicker. Addresses are deterministic, so a
+    ///    cached value is always correct and never needs invalidation.
+    /// 2. Speed — skips Secure Enclave decrypt + PBKDF2 + 5 HMAC derivations per lookup.
+    private func spendingAddressCacheKey() -> String? {
+        guard let base = spendingDefaultsKey("derived_addresses") else { return nil }
+        return "\(base)_\(SettingsViewModel.loadSettings().networkType.rawValue)"
+    }
+
     func spendingAddress(at index: Int) -> String? {
+        guard index >= 0 else { return nil }
+        let cacheKey = spendingAddressCacheKey()
+        if let cacheKey,
+           let cached = UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String],
+           let address = cached[String(index)] {
+            return address
+        }
         guard let privateKey = spendingPrivateKey(at: index) else { return nil }
         guard let publicKeyData = try? deriveSchnorrPublicKey(from: privateKey) else { return nil }
         let network = SettingsViewModel.loadSettings().networkType
-        return KaspaAddress.fromPublicKey(publicKeyData, network: network).address
+        let address = KaspaAddress.fromPublicKey(publicKeyData, network: network).address
+        if let cacheKey {
+            var cached = (UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String]) ?? [:]
+            cached[String(index)] = address
+            UserDefaults.standard.set(cached, forKey: cacheKey)
+        }
+        return address
     }
 
     func spendingPrivateKey(at index: Int) -> Data? {
@@ -224,10 +267,22 @@ extension WalletManager {
 
     private func spendingAddress(at index: Int, changeKey: (key: Data, chainCode: Data)) -> String? {
         guard index >= 0 else { return nil }
+        let cacheKey = spendingAddressCacheKey()
+        if let cacheKey,
+           let cached = UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String],
+           let address = cached[String(index)] {
+            return address
+        }
         let privateKey = deriveChildKey(from: changeKey, index: UInt32(index)).key
         guard let publicKeyData = try? deriveSchnorrPublicKey(from: privateKey) else { return nil }
         let network = SettingsViewModel.loadSettings().networkType
-        return KaspaAddress.fromPublicKey(publicKeyData, network: network).address
+        let address = KaspaAddress.fromPublicKey(publicKeyData, network: network).address
+        if let cacheKey {
+            var cached = (UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String]) ?? [:]
+            cached[String(index)] = address
+            UserDefaults.standard.set(cached, forKey: cacheKey)
+        }
+        return address
     }
 
     // MARK: - Mutation
