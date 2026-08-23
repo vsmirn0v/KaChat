@@ -131,6 +131,122 @@ extension ChatService {
         }
     }
 
+    // MARK: - Foreground contact sweep (defense-in-depth for live 1:1 delivery)
+
+    /// Start the global foreground indexer sweep if it isn't already running. Mirrors desktop's
+    /// 5s / Android's 2s foreground polls: while the app is active, walk the most recently active
+    /// contacts one at a time calling `fetchContextualMessagesFromContact` (the same per-contact
+    /// fetch the utxosChanged push and the open-chat poll use), ~5s between full sweeps.
+    ///
+    /// This is a backstop for any silent failure of the utxosChanged subscription, not the primary
+    /// delivery path - so it is deliberately gentle: serial fetches with a short gap (never N
+    /// concurrent requests), the next sweep starts only after the previous one finishes, the
+    /// currently-open chat is skipped (`startActiveChatPoll` already covers it at 2s), nothing
+    /// runs while a full sync is in flight or before the initial sync has completed, and a failed
+    /// sweep doubles the interval (up to 60s) until a sweep succeeds again.
+    ///
+    /// Idempotent with every other fetch path: `fetchContextualMessagesFromContact` skips txIds
+    /// already in the store and `addMessageToConversation` re-checks by txId at insert.
+    func startForegroundContactSweep() {
+        if let task = foregroundSweepTask, !task.isCancelled { return }
+        guard WalletManager.shared.currentWallet != nil else { return }
+        AppLog.log("[ChatService] Foreground contact sweep started (%.0fs, cap %d)",
+                   foregroundSweepBaseInterval, foregroundSweepMaxContacts)
+        foregroundSweepTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var interval = self.foregroundSweepBaseInterval
+            while !Task.isCancelled {
+                let swept = await self.runForegroundContactSweep()
+                if Task.isCancelled { return }
+                switch swept {
+                case .failed:
+                    let next = min(interval * 2, self.foregroundSweepMaxInterval)
+                    if next != interval {
+                        AppLog.log("[ChatService] Foreground contact sweep backing off to %.0fs after indexer failure", next)
+                    }
+                    interval = next
+                case .succeeded:
+                    if interval != self.foregroundSweepBaseInterval {
+                        AppLog.log("[ChatService] Foreground contact sweep recovered - back to %.0fs", self.foregroundSweepBaseInterval)
+                    }
+                    interval = self.foregroundSweepBaseInterval
+                case .skipped:
+                    break  // gated out (inactive / syncing / not ready) - keep the current interval
+                }
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            }
+        }
+    }
+
+    /// Cancel the foreground sweep (app backgrounded, wallet switch/teardown, logout).
+    func stopForegroundContactSweep() {
+        guard let task = foregroundSweepTask else { return }
+        task.cancel()
+        foregroundSweepTask = nil
+        AppLog.log("[ChatService] Foreground contact sweep stopped")
+    }
+
+    enum ForegroundSweepOutcome {
+        case succeeded
+        case failed
+        case skipped
+    }
+
+    /// One serial pass over the sweep targets. Returns `.failed` on the first indexer error (the
+    /// rest of the pass is abandoned so an unreachable indexer costs one request per sweep, not
+    /// one per contact), `.skipped` when gating kept it from doing any work.
+    private func runForegroundContactSweep() async -> ForegroundSweepOutcome {
+        guard UIApplication.shared.applicationState == .active,
+              isConfigured,
+              hasCompletedInitialSync,
+              !isSyncInProgress,
+              let wallet = WalletManager.shared.currentWallet,
+              let privateKey = WalletManager.shared.getPrivateKey() else {
+            return .skipped
+        }
+        let myAddress = wallet.publicAddress
+        let targets = foregroundSweepTargets(excluding: activeConversationAddress)
+        guard !targets.isEmpty else { return .succeeded }
+
+        for address in targets {
+            if Task.isCancelled { return .skipped }
+            // Re-check live conditions per contact: the app may have gone inactive or the user
+            // may have opened this very chat mid-sweep (the open-chat poll owns it from then on).
+            guard UIApplication.shared.applicationState == .active else { return .skipped }
+            guard isActiveWallet(myAddress) else { return .skipped }
+            if activeConversationAddress == address { continue }
+            let result = await fetchContextualMessagesFromContact(
+                contactAddress: address, myAddress: myAddress, privateKey: privateKey
+            )
+            if case .failure = result { return .failed }
+            // Gentle pacing between contacts so a sweep is a trickle, not a burst.
+            try? await Task.sleep(nanoseconds: 120_000_000)
+        }
+        return .succeeded
+    }
+
+    /// Sweep target rule: active contacts that already have an incoming alias (no alias = no
+    /// handshake yet = nothing to fetch, and `fetchContextualMessagesFromContact` would return
+    /// early anyway), minus the currently-open chat, ordered by most recent activity
+    /// (`Contact.lastMessageAt` desc, then newest-added first), capped at
+    /// `foregroundSweepMaxContacts`. With hundreds of contacts the long tail is still served by
+    /// the push, the app-active catch-up sync and the fallback poll - the sweep just keeps the
+    /// conversations you actually use fresh.
+    private func foregroundSweepTargets(excluding openAddress: String?) -> [String] {
+        let candidates = contactsManager.activeContacts.filter { contact in
+            contact.address != openAddress && !incomingAliases(for: contact.address).isEmpty
+        }
+        let ordered = candidates.sorted { a, b in
+            switch (a.lastMessageAt, b.lastMessageAt) {
+            case let (la?, lb?) where la != lb: return la > lb
+            case (.some, .none): return true
+            case (.none, .some): return false
+            default: return a.addedAt > b.addedAt
+            }
+        }
+        return ordered.prefix(foregroundSweepMaxContacts).map { $0.address }
+    }
+
     /// Fetch only handshakes (lightweight, needed to establish encryption keys)
     /// Call this before CloudKit sync so we have aliases ready
     /// NOTE: Assumes configureAPIIfNeeded() was already called by startup flow

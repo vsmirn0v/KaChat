@@ -117,6 +117,8 @@ struct KaChatApp: App {
             // Persist any debounced message draft immediately so it survives termination.
             ChatService.shared.flushPendingDraftSave()
             KaPostsNotificationService.shared.stop()
+            // No indexer sweeping while backgrounded - the push / background fetch paths own that.
+            ChatService.shared.stopForegroundContactSweep()
             // Schedule background fetch when app goes to background
             if settingsViewModel.settings.backgroundFetchEnabled {
                 BackgroundTaskManager.shared.scheduleBackgroundFetch()
@@ -150,6 +152,10 @@ struct KaChatApp: App {
             // KaPosts social pings (likes/replies/quotes on your posts) - local-notification
             // poller, chat-style. Runs only while the app is active.
             KaPostsNotificationService.shared.start()
+            // Foreground 1:1 indexer sweep (defense-in-depth next to the utxosChanged push and the
+            // app-active catch-up sync below). No-op when no wallet is loaded yet - startPolling()
+            // starts it once the wallet/store are ready.
+            ChatService.shared.startForegroundContactSweep()
 
             // Keep the Share Extension's data sources fresh on activation too - previously
             // contacts synced only on .background, so a fresh install that had never

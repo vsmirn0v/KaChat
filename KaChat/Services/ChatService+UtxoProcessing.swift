@@ -1646,6 +1646,7 @@ extension ChatService {
     func stopPolling() {
         pollTask?.cancel()
         pollTask = nil
+        stopForegroundContactSweep()
         // The initial 4-phase sync task and the debounced message-store writer are not otherwise
         // tracked here; cancel them too so a wallet switch/logout can't leave the previous wallet's
         // sync running and writing into the next wallet's store.

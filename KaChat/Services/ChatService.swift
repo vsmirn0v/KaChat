@@ -283,6 +283,20 @@ final class ChatService: ObservableObject {
     /// all, unlike desktop's 5s and Android's 2s loops), which made new incoming messages in an
     /// open chat lag. This gives the actively-viewed conversation ~2s delivery.
     var activeChatPollTask: Task<Void, Never>?
+    /// Foreground defense-in-depth indexer sweep over ALL active contacts (desktop polls every
+    /// 5s, Android every 2s; iOS otherwise trusts the utxosChanged push alone for closed chats).
+    /// Serial per-contact `fetchContextualMessagesFromContact` calls, ~5s between sweeps, backs
+    /// off on indexer failure. Runs only while the app is active; cancelled on background,
+    /// wallet switch/teardown and logout. Owned by `startForegroundContactSweep()`.
+    var foregroundSweepTask: Task<Void, Never>?
+    /// Interval between full foreground sweeps; doubled (up to 60s) after a failed sweep so an
+    /// unreachable indexer is never hammered in a tight loop, reset to 5s on the next success.
+    let foregroundSweepBaseInterval: TimeInterval = 5.0
+    let foregroundSweepMaxInterval: TimeInterval = 60.0
+    /// Per-sweep contact cap: the most recently active contacts (by `Contact.lastMessageAt`)
+    /// that already have an incoming alias. Beyond this the push + catch-up sync still cover
+    /// everyone; the sweep is a fast path, not the only path.
+    let foregroundSweepMaxContacts = 40
     /// The one-shot 4-phase initial sync started by `startPolling`. Tracked so wallet transitions
     /// (import/switch/logout) can cancel it - otherwise the previous wallet's historical sync keeps
     /// running past the switch and writes its messages into the *new* wallet's store, leaking one
@@ -594,6 +608,7 @@ final class ChatService: ObservableObject {
         pollTask = nil
         activeChatPollTask?.cancel()
         activeChatPollTask = nil
+        stopForegroundContactSweep()
         initialSyncTask?.cancel()
         initialSyncTask = nil
         messageSyncTask?.cancel()

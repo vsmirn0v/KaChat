@@ -325,6 +325,11 @@ extension ChatService {
         startPollingWhenStoreReadyTask?.cancel()
         startPollingWhenStoreReadyTask = nil
 
+        // Wallet loaded + store ready: make sure the foreground contact sweep is running (no-op
+        // if it already is). It self-gates on app-active and on the initial sync having finished,
+        // so starting it here is safe on every startPolling() call, including tab re-entry.
+        startForegroundContactSweep()
+
         // If initial sync already completed (e.g. Mac Catalyst window reopen),
         // just ensure subscription/polling is running — skip the heavy 4-phase sync.
         if hasCompletedInitialSync {
