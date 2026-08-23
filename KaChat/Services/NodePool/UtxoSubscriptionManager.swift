@@ -35,6 +35,13 @@ final class UtxoSubscriptionManager: ObservableObject {
     private var primaryConnection: GRPCStreamConnection?
     private var standbyConnection: GRPCStreamConnection?
     private var primaryHandlerId: UUID?
+    /// `GRPCStreamConnection.connectionGeneration` of the primary at the moment our
+    /// notifyUtxosChanged request was accepted. A stream drop + transparent self-reconnect
+    /// (sleep/wake, network blip, `reconnectDisconnected` on foreground) leaves `isConnected`
+    /// true and getInfo pings passing while the node-side subscription is GONE - utxosChanged
+    /// has no natural heartbeat, so nothing else can tell. The health check compares the live
+    /// generation against this and re-sends the subscription when they differ.
+    private var primaryConnectionGeneration: Int?
 
     /// Whether a consumer (e.g. broadcast channel scanning) currently wants block-added
     /// notifications. Piggybacks on the primary UTXO subscription connection rather than
@@ -204,6 +211,7 @@ final class UtxoSubscriptionManager: ObservableObject {
         primaryConnection = nil
         standbyConnection = nil
         primaryHandlerId = nil
+        primaryConnectionGeneration = nil
         primaryFailures = 0
         failoverAttempts = 0
         lastFailoverAttemptAt = nil
@@ -225,6 +233,7 @@ final class UtxoSubscriptionManager: ObservableObject {
         primaryConnection = nil
         standbyConnection = nil
         primaryHandlerId = nil
+        primaryConnectionGeneration = nil
         subscribedAddresses = []
         primaryEndpoint = nil
         standbyEndpoint = nil
@@ -366,7 +375,36 @@ final class UtxoSubscriptionManager: ObservableObject {
             try await conn.connect()
         }
 
+        // Read the generation BEFORE sending: if the stream flips between the request and the
+        // health check, the next tick sees a newer generation and re-arms (never the reverse).
+        let generationAtSubscribe = await conn.connectionGeneration
+
         // Subscribe request
+        try await sendNotifyUtxosChanged(on: conn)
+
+        // Add notification handler to connection
+        let handlerId = await conn.addNotificationHandler { [weak self] type, data in
+            Task { @MainActor in
+                self?.handleNotification(type, data: data)
+            }
+        }
+
+        if isPrimary {
+            primaryConnection = conn
+            primaryHandlerId = handlerId
+            primaryConnectionGeneration = generationAtSubscribe
+            if wantsBlockAdded {
+                await sendNotifyBlockAdded(on: conn)
+            }
+        } else {
+            standbyConnection = conn
+        }
+    }
+
+    /// Send the notifyUtxosChanged request for `subscribedAddresses` on `conn` and validate
+    /// the response. Used both for the initial subscribe and for re-arming a subscription the
+    /// node silently dropped when the underlying stream reconnected.
+    private func sendNotifyUtxosChanged(on conn: GRPCStreamConnection) async throws {
         var msg = Protowire_KaspadMessage()
         var req = Protowire_NotifyUtxosChangedRequestMessage()
         req.addresses = subscribedAddresses
@@ -384,23 +422,6 @@ final class UtxoSubscriptionManager: ObservableObject {
 
         if subResponse.hasError && !subResponse.error.message.isEmpty {
             throw KasiaError.networkError(subResponse.error.message)
-        }
-
-        // Add notification handler to connection
-        let handlerId = await conn.addNotificationHandler { [weak self] type, data in
-            Task { @MainActor in
-                self?.handleNotification(type, data: data)
-            }
-        }
-
-        if isPrimary {
-            primaryConnection = conn
-            primaryHandlerId = handlerId
-            if wantsBlockAdded {
-                await sendNotifyBlockAdded(on: conn)
-            }
-        } else {
-            standbyConnection = conn
         }
     }
 
@@ -468,6 +489,12 @@ final class UtxoSubscriptionManager: ObservableObject {
             return
         }
 
+        // A ping that succeeds on a stream that was transparently re-established since we
+        // subscribed is the silent-loss case: the node forgot our utxosChanged subscription
+        // with the old stream, and this is the ONLY signal we have (no heartbeat exists for
+        // utxosChanged). Re-arm it on the same connection before anything else.
+        await resubscribeIfPrimaryReconnected(conn: conn, endpoint: endpoint)
+
         // The ping above only proves the connection still answers requests - it says nothing
         // about whether the node is still actually pushing block-added notifications on it. Kaspa
         // produces a block roughly every second, so total silence for this long while we still
@@ -478,6 +505,44 @@ final class UtxoSubscriptionManager: ObservableObject {
                 AppLog.log("[UtxoSub] Block-added notifications stale (%.0fs) - re-registering", staleness)
                 await sendNotifyBlockAdded(on: conn)
             }
+        }
+    }
+
+    /// Re-arm the utxosChanged subscription if the primary stream was re-established since we
+    /// subscribed (see `primaryConnectionGeneration`). Safe to call any time: no-op unless we're
+    /// `.subscribed` and the generation moved. Called from the 15s health check and eagerly from
+    /// `NodePoolService.reconnectStaleConnections()` on app foreground, so a subscription lost
+    /// while backgrounded is restored immediately rather than up to a health tick later.
+    func verifyPrimarySubscription() async {
+        guard state == .subscribed, let endpoint = primaryEndpoint, let conn = primaryConnection else { return }
+        guard await conn.isConnected else { return }
+        await resubscribeIfPrimaryReconnected(conn: conn, endpoint: endpoint)
+    }
+
+    private func resubscribeIfPrimaryReconnected(conn: GRPCStreamConnection, endpoint: Endpoint) async {
+        guard state == .subscribed else { return }
+        let liveGeneration = await conn.connectionGeneration
+        guard let subscribedGeneration = primaryConnectionGeneration, liveGeneration != subscribedGeneration else {
+            return
+        }
+
+        AppLog.log("[UtxoSub] Primary %@ reconnected underneath us (gen %d -> %d) - re-sending utxosChanged subscription for %d addresses",
+                   endpoint.key, subscribedGeneration, liveGeneration, subscribedAddresses.count)
+        do {
+            // The notification handler registered in subscribeOn() survives the reconnect (it's
+            // keyed on the GRPCStreamConnection, not the stream), so only the request is re-sent.
+            try await sendNotifyUtxosChanged(on: conn)
+            primaryConnectionGeneration = liveGeneration
+            if wantsBlockAdded {
+                await sendNotifyBlockAdded(on: conn)
+            }
+            AppLog.log("[UtxoSub] utxosChanged subscription re-armed on %@", endpoint.key)
+            // Anything that confirmed during the dead window never reached us - let ChatService
+            // run its catch-up sync (observer of this name; honors push-reliability debounce).
+            NotificationCenter.default.post(name: .rpcSubscriptionsRestored, object: nil)
+        } catch {
+            AppLog.log("[UtxoSub] Re-arming subscription on %@ failed: %@ - failing over", endpoint.key, error.localizedDescription)
+            await handlePrimaryFailure()
         }
     }
 

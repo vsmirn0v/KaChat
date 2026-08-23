@@ -167,6 +167,13 @@ actor GRPCStreamConnection {
     /// Connection timestamp
     private var connectedAt: Date?
 
+    /// Bumped on every successful (re)connect. A gRPC stream's server-side notification
+    /// subscriptions (notifyUtxosChanged / notifyBlockAdded) die with the stream - they are
+    /// NOT carried over when this connection transparently self-reconnects (`scheduleAutoReconnect`,
+    /// `GRPCConnectionPool.reconnectDisconnected`). Subscribers record the generation they
+    /// subscribed on and compare against this to know the subscription must be re-sent.
+    private(set) var connectionGeneration: Int = 0
+
     /// Last activity timestamp (for idle connection pruning)
     private(set) var lastActivityAt: Date = Date()
 
@@ -240,6 +247,7 @@ actor GRPCStreamConnection {
 
             state = .connected
             connectedAt = Date()
+            connectionGeneration += 1
             lastActivityAt = Date()
             circuitBreaker.reset()
             reconnectAttempts = 0

@@ -972,6 +972,10 @@ final class NodePoolService: ObservableObject {
     /// lazily, one at a time, whenever something happens to pick that exact endpoint for a request.
     func reconnectStaleConnections() async {
         await connectionPool.reconnectDisconnected()
+        // Reconnecting the primary stream does NOT bring the node-side utxosChanged
+        // subscription back with it - re-arm it now if the primary was re-established,
+        // instead of waiting for the subscription manager's next health tick.
+        await subscriptionManager?.verifyPrimarySubscription()
     }
 
     /// Clear discovered nodes and restart pool discovery/connection.
