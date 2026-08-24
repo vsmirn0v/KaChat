@@ -797,6 +797,7 @@ struct DiagnosticsSettingsPage: View {
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
+    @State private var verboseAPILogging = AppSettings.load().verboseAPILogging
 
     var body: some View {
         Form {
@@ -826,6 +827,24 @@ struct DiagnosticsSettingsPage: View {
                     .padding(.vertical, 4)
                 }
                 .disabled(isPreparingDiagnostics)
+            }
+            Section {
+                Toggle("Verbose API Logging", isOn: $verboseAPILogging)
+                    .onChange(of: verboseAPILogging) { newValue in
+                        var settings = AppSettings.load()
+                        guard settings.verboseAPILogging != newValue else { return }
+                        settings.verboseAPILogging = newValue
+                        AppSettings.save(settings)
+                        // AppSettings.save posts .settingsDidChange WITH the settings object,
+                        // which the app's long-lived SettingsViewModel deliberately ignores
+                        // (it assumes object-bearing posts came from its own saveSettings).
+                        // Follow up with a nil-object post - the account-switch signal - so
+                        // that instance reloads from disk and its next save can't stomp this
+                        // flag with a stale in-memory copy.
+                        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
+                    }
+            } footer: {
+                Text("Logs every indexer request with full connection and timing detail. Leave off for normal use: failed and slow requests are always logged, and heavy logging can cause iOS to drop the app's log messages.")
             }
         }
         .navigationTitle("Diagnostics")

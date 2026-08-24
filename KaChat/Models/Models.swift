@@ -1772,6 +1772,15 @@ struct AppSettings: Codable {
     // Swap (ChangeNOW)
     var swapDisclaimerAgreed: Bool
 
+    // Diagnostics
+    /// Settings > Diagnostics > "Verbose API Logging" (default OFF): restores the per-request
+    /// [KasiaAPI] success log lines (full URL, connection kind, IP, timing breakdown). While
+    /// off, the API client only logs failures and slow requests plus a once-a-minute rollup.
+    /// The unified logging system rate-limits and eventually quarantines processes that log
+    /// too much, which was silencing the log lines that actually matter (see KasiaAPIClient's
+    /// APIRequestLogGate).
+    var verboseAPILogging: Bool
+
     // Connection settings
     var indexerURL: String
     /// K social-network indexer powering KaPosts (reusing the already-running public K indexer).
@@ -1953,6 +1962,7 @@ struct AppSettings: Codable {
         case biometricAccountLoginEnabled
         case biometricSpendingKeyEnabled
         case swapDisclaimerAgreed
+        case verboseAPILogging
         case indexerURL
         case kaPostIndexerURL
         case broadcastIndexerURL
@@ -2015,6 +2025,7 @@ struct AppSettings: Codable {
         biometricAccountLoginEnabled: Bool = false,
         biometricSpendingKeyEnabled: Bool = true,
         swapDisclaimerAgreed: Bool = false,
+        verboseAPILogging: Bool = false,
         indexerURL: String,
         kaPostIndexerURL: String = AppSettings.defaultKaPostIndexerURL,
         broadcastIndexerURL: String = AppSettings.defaultBroadcastIndexerURL,
@@ -2067,6 +2078,7 @@ struct AppSettings: Codable {
         self.biometricAccountLoginEnabled = biometricAccountLoginEnabled
         self.biometricSpendingKeyEnabled = biometricSpendingKeyEnabled
         self.swapDisclaimerAgreed = swapDisclaimerAgreed
+        self.verboseAPILogging = verboseAPILogging
         self.indexerURL = indexerURL
         self.kaPostIndexerURL = kaPostIndexerURL
         self.broadcastIndexerURL = broadcastIndexerURL
@@ -2154,6 +2166,7 @@ struct AppSettings: Codable {
         biometricAccountLoginEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricAccountLoginEnabled) ?? false
         biometricSpendingKeyEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSpendingKeyEnabled) ?? true
         swapDisclaimerAgreed = try container.decodeIfPresent(Bool.self, forKey: .swapDisclaimerAgreed) ?? false
+        verboseAPILogging = try container.decodeIfPresent(Bool.self, forKey: .verboseAPILogging) ?? false
 
         // Handle migration from old settings
         if let customIndexer = try container.decodeIfPresent(String.self, forKey: .customIndexerURL), !customIndexer.isEmpty {
@@ -2251,6 +2264,7 @@ struct AppSettings: Codable {
         try container.encode(biometricAccountLoginEnabled, forKey: .biometricAccountLoginEnabled)
         try container.encode(biometricSpendingKeyEnabled, forKey: .biometricSpendingKeyEnabled)
         try container.encode(swapDisclaimerAgreed, forKey: .swapDisclaimerAgreed)
+        try container.encode(verboseAPILogging, forKey: .verboseAPILogging)
         try container.encode(indexerURL, forKey: .indexerURL)
         try container.encode(kaPostIndexerURL, forKey: .kaPostIndexerURL)
         try container.encode(broadcastIndexerURL, forKey: .broadcastIndexerURL)
