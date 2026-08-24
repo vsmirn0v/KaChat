@@ -615,6 +615,16 @@ struct ColdStorageDetailView: View {
                     } label: {
                         Label("Show QR Code", systemImage: "qrcode")
                     }
+                    // Hide straight from the row - same effect as unchecking it in Address
+                    // Visibility, without opening that sheet. Same guard as the checklist:
+                    // never a funded address (cold storage has no primary-address concept).
+                    if entry.balanceSompi == 0 {
+                        Button {
+                            hideAddress(entry)
+                        } label: {
+                            Label("Hide Address", systemImage: "eye.slash")
+                        }
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 18, weight: .bold))
@@ -627,6 +637,27 @@ struct ColdStorageDetailView: View {
             .padding(16)
         }
         .background(glassBackground(cornerRadius: 18))
+    }
+
+    /// Row-menu "Hide Address": flips the same per-account hidden flag the Address Visibility
+    /// checklist edits (so it shows unchecked there) and updates the row in place.
+    /// setAddressHidden re-verifies the live balance server-side and returns false if the
+    /// address can't be hidden. Mirrors Manage Addresses' hideAddress.
+    private func hideAddress(_ entry: ColdStorageAddressEntry) {
+        Task {
+            let ok = await manager.setAddressHidden(account: currentAccount, index: entry.index, hidden: true)
+            guard ok else {
+                showToast("This address can't be hidden.")
+                return
+            }
+            if let position = entries.firstIndex(where: { $0.id == entry.id }) {
+                var updated = entries[position]
+                updated.hidden = true
+                entries[position] = updated
+            }
+            Haptics.success()
+            showToast("Address hidden. Re-enable it in Address Visibility.")
+        }
     }
 
     private func loadEntries() async {

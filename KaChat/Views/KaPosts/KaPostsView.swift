@@ -2378,7 +2378,7 @@ struct KaPostsView: View {
     }
 
     /// Full X-style profile for a tapped poster - banner, avatar, name, Follow +
-    /// Send A Chat, live follower/following counts, bio, then their on-chain feed. Mirrors
+    /// Chat, live follower/following counts, bio, then their on-chain feed. Mirrors
     /// myProfileSheet; engagement runs through the same handlers (mutatePost covers this feed).
     private func posterProfileSheet(for target: PosterProfileTarget) -> some View {
         let address = target.address
@@ -2417,7 +2417,7 @@ struct KaPostsView: View {
                     .padding(.top, -38)
 
                     VStack(alignment: .leading, spacing: 6) {
-                        // Name with the actions in a single tidy row: name - Follow - Send A Chat.
+                        // Name with the actions in a single tidy row: name - Follow - Chat.
                         HStack(spacing: 8) {
                             Text(posterDisplayName(address))
                                 .font(.title3.weight(.bold))
@@ -2440,7 +2440,7 @@ struct KaPostsView: View {
                                 Haptics.impact(.light)
                                 startChat(with: address)
                             } label: {
-                                Label("Send A Chat", systemImage: "bubble.left.and.bubble.right")
+                                Label("Chat", systemImage: "bubble.left.and.bubble.right")
                                     .font(.caption.weight(.bold))
                             }
                             .buttonStyle(.bordered)
