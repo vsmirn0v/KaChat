@@ -30,11 +30,12 @@ struct ManageAddressesView: View {
     /// Addresses that own at least one KNS domain (cached assets-by-owner lookup) - drives the
     /// "Contains domain" row tag and promotes those rows into the funded group in the sort.
     @State private var domainOwningAddresses: Set<String> = []
-    /// Addresses in an ACTIVE live payment pool (Chats Payment Privacy). They carry the
-    /// "Chat privacy address" tag and can't be hidden while actively offered - the user should
-    /// always see which addresses are held ready for contacts to pay into. When an offer
-    /// reverts (our revoke, the contact's revoke, a superseding re-offer, or funding), the
-    /// address leaves this set and its row is a normal address again: tag gone, hideable.
+    /// Addresses in an ACTIVE live payment pool (Chats Payment Privacy). These rows live on
+    /// the Chat Privacy tab (read-only) instead of the main Addresses list, and can't be
+    /// hidden while actively offered - the user should always see which addresses are held
+    /// ready for contacts to pay into. When an offer reverts (our revoke, the contact's
+    /// revoke, a superseding re-offer, or funding), the address leaves this set and its row
+    /// moves back to the main list as a normal address again: hideable, recyclable.
     @State private var reservedPoolAddresses: Set<String> = []
     /// Zero-balance addresses whose used/unused probe has NOT confirmed an answer - either
     /// still in flight this load, or failed (network/rate limit). Their badge shows a neutral
@@ -46,6 +47,16 @@ struct ManageAddressesView: View {
     /// The bulk show/hide checklist (toolbar top-right).
     @State private var showVisibilityManager = false
 
+    /// Top-of-screen tab switch, same segmented-picker treatment as the address-details
+    /// screen's History/UTXOs/KNS Domains tabs. "Addresses" is the normal spending-address
+    /// list; "Chat Privacy" is the read-only view of addresses actively offered to contacts
+    /// as Chats Payment Privacy pool reservations.
+    private enum ManageTab: String, CaseIterable {
+        case addresses = "Addresses"
+        case chatPrivacy = "Chat Privacy"
+    }
+    @State private var selectedTab: ManageTab = .addresses
+
     /// Authoritative primary index, read live from WalletManager rather than the rows'
     /// snapshotted `isCurrent` flags - a payment send can rotate the primary while this
     /// screen's entries are stale, and every isCurrent-dependent decision here (the star,
@@ -55,12 +66,24 @@ struct ManageAddressesView: View {
         walletManager.currentSpendingAddressIndex
     }
 
+    /// Rows for the main Addresses tab: not hidden, and not currently offered to a contact
+    /// as an ACTIVE payment-pool reservation - those live on the Chat Privacy tab instead.
+    /// A reverted reservation (revoke, superseding re-offer, or funding-and-revert) leaves
+    /// `reservedPoolAddresses` and automatically reappears here as a normal row.
     private var visibleEntries: [SpendingAddressEntry] {
-        entries.filter { !$0.hidden }
+        entries.filter { !$0.hidden && !reservedPoolAddresses.contains($0.address) }
     }
 
     private var hiddenCount: Int {
         entries.filter { $0.hidden }.count
+    }
+
+    /// Rows for the Chat Privacy tab: every address in an ACTIVE live payment pool,
+    /// regardless of hidden flag (loadEntries un-hides them anyway). Read-only.
+    private var chatPrivacyEntries: [SpendingAddressEntry] {
+        entries
+            .filter { reservedPoolAddresses.contains($0.address) }
+            .sorted { $0.index < $1.index }
     }
 
     /// Primary always first regardless of its own balance/index. After that: addresses that
@@ -86,77 +109,70 @@ struct ManageAddressesView: View {
     }
 
     var body: some View {
-        List {
-            chattingAddressWarningCard
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+        VStack(spacing: 0) {
+            Picker("", selection: $selectedTab) {
+                ForEach(ManageTab.allCases, id: \.self) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
 
-            if isLoading && entries.isEmpty {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
+            List {
+                if selectedTab == .addresses {
+                    addressesTabContent
+                } else {
+                    chatPrivacyTabContent
                 }
-                .padding(.top, 20)
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            } else if visibleEntries.isEmpty {
-                emptyState
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            } else {
-                // Hiding moved to the bulk Address Visibility screen (toolbar checklist) -
-                // the old swipe-to-hide is gone.
-                ForEach(sortedEntries) { entry in
-                    addressRow(entry)
-                        .padding(.vertical, 6)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                }
+            }
+            .listStyle(.plain)
+            .refreshable {
+                await loadEntries()
             }
         }
-        .listStyle(.plain)
         .safeAreaInset(edge: .bottom) {
-            Menu {
-                Button {
-                    generateNew()
-                } label: {
-                    Label("Generate New Spending Address", systemImage: "plus.circle")
-                }
-                Button {
-                    discoverAddresses()
-                } label: {
-                    Label("Discover Addresses", systemImage: "magnifyingglass")
-                }
-                Button {
-                    showConsolidateConfirm = true
-                } label: {
-                    Label("Send All Kaspa To Primary Spend Address", systemImage: "arrow.up.to.line")
-                }
-            } label: {
-                Group {
-                    if isGenerating || isDiscovering || isConsolidating {
-                        ProgressView()
-                            .tint(.black)
-                    } else {
-                        Text("Address Actions")
-                            .font(.subheadline)
-                            .fontWeight(.bold)
+            // The action menu belongs to the Addresses tab only - the Chat Privacy tab is
+            // purely a viewer, so Generate/Discover/Consolidate disappear entirely there.
+            if selectedTab == .addresses {
+                Menu {
+                    Button {
+                        generateNew()
+                    } label: {
+                        Label("Generate New Spending Address", systemImage: "plus.circle")
                     }
+                    Button {
+                        discoverAddresses()
+                    } label: {
+                        Label("Discover Addresses", systemImage: "magnifyingglass")
+                    }
+                    Button {
+                        showConsolidateConfirm = true
+                    } label: {
+                        Label("Send All Kaspa To Primary Spend Address", systemImage: "arrow.up.to.line")
+                    }
+                } label: {
+                    Group {
+                        if isGenerating || isDiscovering || isConsolidating {
+                            ProgressView()
+                                .tint(.black)
+                        } else {
+                            Text("Address Actions")
+                                .font(.subheadline)
+                                .fontWeight(.bold)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .foregroundColor(.black)
+                    .background(Capsule().fill(Color.accentColor))
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .foregroundColor(.black)
-                .background(Capsule().fill(Color.accentColor))
+                .tint(.accentColor)
+                .padding(.horizontal)
+                .padding(.bottom, 16)
+                .disabled(isGenerating || isDiscovering || isConsolidating)
             }
-            .tint(.accentColor)
-            .padding(.horizontal)
-            .padding(.bottom, 16)
-            .disabled(isGenerating || isDiscovering || isConsolidating)
         }
         .navigationTitle("Manage Addresses")
         .navigationBarTitleDisplayMode(.inline)
@@ -180,9 +196,6 @@ struct ManageAddressesView: View {
             Task { await loadEntries() }
         }) {
             SpendingAddressVisibilityView()
-        }
-        .refreshable {
-            await loadEntries()
         }
         .task {
             await loadEntries()
@@ -271,6 +284,149 @@ struct ManageAddressesView: View {
         }
     }
 
+    /// The original Manage Addresses list, unchanged - minus rows actively offered to a
+    /// contact as payment-pool reservations, which now live on the Chat Privacy tab.
+    @ViewBuilder
+    private var addressesTabContent: some View {
+        chattingAddressWarningCard
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+
+        if isLoading && entries.isEmpty {
+            HStack {
+                Spacer()
+                ProgressView()
+                Spacer()
+            }
+            .padding(.top, 20)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        } else if visibleEntries.isEmpty {
+            emptyState
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+        } else {
+            // Hiding moved to the bulk Address Visibility screen (toolbar checklist) -
+            // the old swipe-to-hide is gone.
+            ForEach(sortedEntries) { entry in
+                addressRow(entry)
+                    .padding(.vertical, 6)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+        }
+    }
+
+    /// Read-only viewer for addresses currently offered to contacts in LIVE Chats Payment
+    /// Privacy pools. Rows expose only Copy Address and Show QR Code - no rename, hide,
+    /// set-primary, or history navigation; the offer lifecycle (revoke/supersede/fund)
+    /// manages these rows, not the user.
+    @ViewBuilder
+    private var chatPrivacyTabContent: some View {
+        if isLoading && entries.isEmpty {
+            HStack {
+                Spacer()
+                ProgressView()
+                Spacer()
+            }
+            .padding(.top, 20)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        } else if chatPrivacyEntries.isEmpty {
+            chatPrivacyEmptyState
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+        } else {
+            ForEach(chatPrivacyEntries) { entry in
+                chatPrivacyRow(entry)
+                    .padding(.vertical, 6)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+        }
+    }
+
+    private var chatPrivacyEmptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "lock.shield")
+                .font(.system(size: 40))
+                .foregroundColor(.secondary)
+            Text("No Chat Privacy Addresses")
+                .font(.headline)
+            Text("When you chat with someone while Chats Payment Privacy is on, the fresh addresses offered to them appear here.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
+    /// Same card styling as the main list's rows (glass card, caption label, monospaced
+    /// address), but read-only: the only menu items are Copy Address and Show QR Code,
+    /// and the row doesn't navigate anywhere. Balance shows only once funds arrive, so a
+    /// funded-but-still-active offer displays what came in.
+    private func chatPrivacyRow(_ entry: SpendingAddressEntry) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text("Address #\(entry.index)")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                    if let label = entry.label, !label.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Text(label)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Text(entry.shortAddress)
+                    .font(.system(.subheadline, design: .monospaced))
+                    .foregroundColor(.primary)
+                if entry.balanceSompi > 0 {
+                    Text("\(formatKasExact(entry.balanceSompi)) KAS")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                }
+            }
+
+            Spacer()
+
+            Menu {
+                Button {
+                    UIPasteboard.general.string = entry.address
+                    Haptics.success()
+                    showToast("Address copied to clipboard.")
+                } label: {
+                    Label("Copy Address", systemImage: "doc.on.doc")
+                }
+                Button {
+                    qrTarget = entry
+                } label: {
+                    Label("Show QR Code", systemImage: "qrcode")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .bold))
+                    .rotationEffect(.degrees(90))
+                    .foregroundColor(.secondary)
+                    .frame(width: 24, height: 24)
+            }
+            .tint(.accentColor)
+        }
+        .padding(16)
+        .background(glassBackground(cornerRadius: 18))
+    }
+
     /// Matches the address rows below font-for-font (small secondary label, monospaced primary
     /// value) rather than a bold title - it used to read as a bigger, more prominent card than
     /// the rest of the list even though it's just one more address among equals here.
@@ -353,9 +509,6 @@ struct ManageAddressesView: View {
                             .foregroundColor(isUsed ? .orange : (usedUnknown ? .secondary : .green))
                         if domainOwningAddresses.contains(entry.address) {
                             ContainsDomainTag()
-                        }
-                        if reservedPoolAddresses.contains(entry.address) {
-                            ChatPrivacyAddressTag()
                         }
                     }
                 }
@@ -784,23 +937,6 @@ struct ManageAddressesView: View {
 struct ContainsDomainTag: View {
     var body: some View {
         Text("Contains domain")
-            .font(.caption2)
-            .fontWeight(.semibold)
-            .foregroundColor(.accentColor)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
-    }
-}
-
-/// Capsule badge for spending-address rows currently offered to a contact in a LIVE Chats
-/// Payment Privacy pool - held ready for that contact to pay into, so the row stays visible
-/// and can't be hidden while the offer is active. Drops when the offer reverts (revoke,
-/// superseding re-offer, or funding). Same capsule treatment as ContainsDomainTag,
-/// accent-tinted like the app's other inline badges.
-struct ChatPrivacyAddressTag: View {
-    var body: some View {
-        Text("Chat privacy address")
             .font(.caption2)
             .fontWeight(.semibold)
             .foregroundColor(.accentColor)
@@ -2348,9 +2484,11 @@ private struct HiddenSpendingAddressesView: View {
 /// checked = shown on the Manage Addresses list. Built for wallets with a hundred-plus revealed
 /// addresses: tap through as many rows as you like in one sitting. Each row also shows whether
 /// the address has ever been used on-chain (balance counts as used; swept-to-zero addresses are
-/// checked against history lazily). The primary address, any address holding a balance, and any
-/// address offered to a contact as a payment-pool reservation can't be hidden - the same rules
-/// WalletManager.setSpendingAddressHidden enforces server-side.
+/// checked against history lazily). The primary address and any address holding a balance can't
+/// be hidden - the same rules WalletManager.setSpendingAddressHidden enforces server-side.
+/// Addresses actively offered to contacts as payment-pool reservations don't appear here at
+/// all: the checklist mirrors the main Addresses list, and those rows live on the Chat
+/// Privacy tab (they can't be hidden or unhidden while the offer is live anyway).
 private struct SpendingAddressVisibilityView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var chatService: ChatService
@@ -2359,7 +2497,8 @@ private struct SpendingAddressVisibilityView: View {
     @State private var entries: [SpendingAddressEntry] = []
     @State private var isLoading = true
     /// Addresses currently offered to contacts as Chats Payment Privacy pool reservations -
-    /// their rows are locked visible, with the same tag Manage Addresses shows.
+    /// excluded from this checklist entirely (they live on Manage Addresses' Chat Privacy
+    /// tab and can't be hidden or unhidden while the offer is live).
     @State private var reservedAddresses: Set<String> = []
     /// Lazily-filled history results for zero-balance addresses (address -> ever used).
     @State private var usedByAddress: [String: Bool] = [:]
@@ -2370,10 +2509,13 @@ private struct SpendingAddressVisibilityView: View {
 
     /// The rows for the current page, by raw index order. Revealed indices come from the
     /// loaded entries; anything beyond derives its address fresh (unrevealed = unchecked).
+    /// Active payment-pool reservations are excluded outright: this checklist reflects the
+    /// MAIN list's row set, and those addresses live on Manage Addresses' Chat Privacy tab
+    /// instead - they can't be hidden or unhidden anyway while the offer is live.
     private var pageEntries: [SpendingAddressEntry] {
         let byIndex = Dictionary(uniqueKeysWithValues: entries.map { ($0.index, $0) })
         let start = page * pageSize
-        return (start..<(start + pageSize)).compactMap { index in
+        return (start..<(start + pageSize)).compactMap { index -> SpendingAddressEntry? in
             if let existing = byIndex[index] { return existing }
             guard let address = walletManager.spendingAddress(at: index) else { return nil }
             return SpendingAddressEntry(
@@ -2381,6 +2523,7 @@ private struct SpendingAddressVisibilityView: View {
                 isCurrent: false, everUsed: false, label: nil, hidden: true
             )
         }
+        .filter { !reservedAddresses.contains($0.address) }
     }
 
     var body: some View {
@@ -2447,9 +2590,10 @@ private struct SpendingAddressVisibilityView: View {
         let funded = entry.balanceSompi > 0
         // Live primary check - the pointer can rotate (post-send) while this sheet is open,
         // and the lock must follow the authoritative index, not the row's snapshotted flag.
+        // (Payment-pool reservations never reach this row builder - pageEntries excludes
+        // them - but toggle() still guards against them as a backstop.)
         let isPrimary = entry.index == walletManager.currentSpendingAddressIndex
-        let reserved = reservedAddresses.contains(entry.address)
-        let locked = isPrimary || funded || reserved
+        let locked = isPrimary || funded
         let visible = !entry.hidden
         return HStack(spacing: 10) {
             Image(systemName: visible ? "checkmark.circle.fill" : "circle")
@@ -2465,14 +2609,6 @@ private struct SpendingAddressVisibilityView: View {
                         Text("Primary")
                             .font(.caption2.weight(.bold))
                             .foregroundColor(.accentColor)
-                    }
-                    if reserved {
-                        // Same wording as Manage Addresses' capsule tag, in this compact
-                        // list's inline text style (matching the "Primary" marker above).
-                        Text("Chat privacy address")
-                            .font(.caption2.weight(.bold))
-                            .foregroundColor(.accentColor)
-                            .lineLimit(1)
                     }
                     if let label = entry.label, !label.trimmingCharacters(in: .whitespaces).isEmpty {
                         Text(label)
@@ -2514,8 +2650,8 @@ private struct SpendingAddressVisibilityView: View {
 
     private func load() async {
         // Same legacy repair + ACTIVE offered set Manage Addresses' loadEntries performs, so
-        // this sheet locks and tags live-pool rows even when opened before that screen
-        // reloads; reverted reservations toggle like any other row.
+        // this sheet excludes live-pool rows even when opened before that screen reloads;
+        // reverted reservations reappear and toggle like any other row.
         walletManager.unhideOfferedReservationsIfNeeded()
         if let wallet = walletManager.currentWallet {
             reservedAddresses = Set(PaymentPoolStore.shared.activeOfferedReservationAddresses(wallet: wallet.publicAddress))
