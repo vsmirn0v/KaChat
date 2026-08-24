@@ -294,29 +294,36 @@ extension ChatService {
         let privateKey = WalletManager.shared.getPrivateKey()
 
         AppLog.log("[ChatService] Fetching incoming handshakes (since=%llu)...", incomingSince)
-        // Fetch incoming handshakes
-        guard let incoming = await retryUntilSuccess(
+        // Phase-isolated like fetchNewMessages: a failed bootstrap phase is logged and skipped,
+        // the remaining phases still run, and Phase 4's full sync re-covers whatever was missed
+        // (the failed phase's cursor never advanced).
+        let incoming: [HandshakeResponse]
+        if let fetched = await retryUntilSuccess(
             label: "fetch incoming handshakes (bootstrap)",
             operation: { [self] in try await fetchIncomingHandshakes(for: wallet.publicAddress, blockTime: incomingSince) }
-        ) else {
-            AppLog.log("[ChatService] Failed to fetch incoming handshakes")
-            return
+        ) {
+            incoming = fetched
+            advanceSyncCursor(for: incomingHandshakeKey, maxBlockTime: fetched.compactMap { $0.blockTime }.max())
+            AppLog.log("[ChatService] Fetched %d incoming handshakes", fetched.count)
+        } else {
+            incoming = []
+            AppLog.log("[ChatService] Failed to fetch incoming handshakes - continuing bootstrap")
         }
-        advanceSyncCursor(for: incomingHandshakeKey, maxBlockTime: incoming.compactMap { $0.blockTime }.max())
-        AppLog.log("[ChatService] Fetched %d incoming handshakes", incoming.count)
 
         AppLog.log("[ChatService] Fetching outgoing handshakes...")
 
-
-        guard let outgoing = await retryUntilSuccess(
+        let outgoing: [HandshakeResponse]
+        if let fetched = await retryUntilSuccess(
             label: "fetch outgoing handshakes (bootstrap)",
             operation: { [self] in try await fetchOutgoingHandshakes(for: wallet.publicAddress, blockTime: outgoingSince) }
-        ) else {
-            AppLog.log("[ChatService] Failed to fetch outgoing handshakes")
-            return
+        ) {
+            outgoing = fetched
+            advanceSyncCursor(for: outgoingHandshakeKey, maxBlockTime: fetched.compactMap { $0.blockTime }.max())
+            AppLog.log("[ChatService] Fetched %d outgoing handshakes", fetched.count)
+        } else {
+            outgoing = []
+            AppLog.log("[ChatService] Failed to fetch outgoing handshakes - continuing bootstrap")
         }
-        advanceSyncCursor(for: outgoingHandshakeKey, maxBlockTime: outgoing.compactMap { $0.blockTime }.max())
-        AppLog.log("[ChatService] Fetched %d outgoing handshakes", outgoing.count)
 
         AppLog.log("[ChatService] Handshake bootstrap: %d incoming, %d outgoing", incoming.count, outgoing.count)
 
@@ -326,10 +333,14 @@ extension ChatService {
         await processHandshakes(outgoing, isOutgoing: true, myAddress: wallet.publicAddress, privateKey: privateKey)
         AppLog.log("[ChatService] Handshakes processed")
 
-        // Fetch saved handshakes from self-stash
+        // Fetch saved handshakes from self-stash. Short retry budget: this recovery scan always
+        // re-reads from block_time 0, so there is nothing to lose by giving up quickly, and the
+        // ~60s default budget would delay Phase 2-4 (and thus the foreground sweep, gated on
+        // hasCompletedInitialSync) by a minute while the endpoint is down.
         AppLog.log("[ChatService] Fetching saved handshakes from self-stash...")
         _ = await retryUntilSuccess(
             label: "fetch saved handshakes (bootstrap)",
+            maxAttempts: Self.syncPhaseMaxRetryAttempts,
             operation: { [self] in try await fetchSavedHandshakes(myAddress: wallet.publicAddress, privateKey: privateKey) }
         )
         AppLog.log("[ChatService] Self-stash fetch complete")
@@ -410,54 +421,90 @@ extension ChatService {
             nowMs: nowMs
         )
 
-        guard let incoming = await retryUntilSuccess(
-            label: "fetch incoming handshakes",
-            operation: { [self] in try await fetchIncomingHandshakes(for: wallet.publicAddress, blockTime: incomingHandshakeSince) }
-        ) else {
-            return
-        }
-        advanceSyncCursor(for: incomingHandshakeKey, maxBlockTime: incoming.compactMap { $0.blockTime }.max())
+        // PHASE ISOLATION: every fetch phase below is independent. A phase that exhausts its
+        // (short) retry budget is logged and SKIPPED for this cycle only - its per-object cursor
+        // simply doesn't advance, so the next cycle re-covers the missed window - and all the
+        // phases behind it still run. One persistently failing endpoint (seen live: the indexer
+        // 500ing /self-stash/by-owner mid-pagination) must never starve contextual message
+        // delivery; the old guard-return coupling here is exactly why new messages only appeared
+        // on pull-to-refresh while the saved-handshake fetch was failing. `allPhasesSucceeded`
+        // stays false when any cursor-bearing phase failed, so endSyncBlockTime never advances
+        // the global lastPollTime fallback cursor past an unfetched window.
+        var allPhasesSucceeded = true
 
-        guard let outgoing = await retryUntilSuccess(
-            label: "fetch outgoing handshakes",
-            operation: { [self] in try await fetchOutgoingHandshakes(for: wallet.publicAddress, blockTime: outgoingHandshakeSince) }
-        ) else {
-            return
+        let incoming: [HandshakeResponse]
+        if let fetched = await retryUntilSuccess(
+            label: "fetch incoming handshakes",
+            maxAttempts: Self.syncPhaseMaxRetryAttempts,
+            operation: { [self] in try await fetchIncomingHandshakes(for: wallet.publicAddress, blockTime: incomingHandshakeSince) }
+        ) {
+            incoming = fetched
+            advanceSyncCursor(for: incomingHandshakeKey, maxBlockTime: fetched.compactMap { $0.blockTime }.max())
+        } else {
+            incoming = []
+            allPhasesSucceeded = false
+            AppLog.log("%@", "[ChatService] Incoming handshake phase skipped this cycle - continuing with remaining phases")
         }
-        advanceSyncCursor(for: outgoingHandshakeKey, maxBlockTime: outgoing.compactMap { $0.blockTime }.max())
+
+        let outgoing: [HandshakeResponse]
+        if let fetched = await retryUntilSuccess(
+            label: "fetch outgoing handshakes",
+            maxAttempts: Self.syncPhaseMaxRetryAttempts,
+            operation: { [self] in try await fetchOutgoingHandshakes(for: wallet.publicAddress, blockTime: outgoingHandshakeSince) }
+        ) {
+            outgoing = fetched
+            advanceSyncCursor(for: outgoingHandshakeKey, maxBlockTime: fetched.compactMap { $0.blockTime }.max())
+        } else {
+            outgoing = []
+            allPhasesSucceeded = false
+            AppLog.log("%@", "[ChatService] Outgoing handshake phase skipped this cycle - continuing with remaining phases")
+        }
 
         var inPayments: [PaymentResponse] = []
         var outPayments: [PaymentResponse] = []
         // Fetch payments only on full fetch AND when not using UTXO subscription
         // (or on initial sync when lastPaymentFetchTime is 0)
         let shouldFetchPayments = activeAddress == nil && (!isUtxoSubscribed || lastPaymentFetchTime == 0)
+        var paymentsPhaseSucceeded = true
         if shouldFetchPayments {
             AppLog.log("[ChatService] === FETCHING PAYMENTS (full fetch, utxoSubscribed=%d) ===", isUtxoSubscribed ? 1 : 0)
-            guard let incomingPayments = await retryUntilSuccess(
+            if let incomingPayments = await retryUntilSuccess(
                 label: "fetch incoming payments",
+                maxAttempts: Self.syncPhaseMaxRetryAttempts,
                 operation: { [self] in try await fetchIncomingPayments(for: wallet.publicAddress, blockTime: messageSince) }
-            ) else {
-                return
+            ) {
+                inPayments = incomingPayments
+            } else {
+                paymentsPhaseSucceeded = false
+                allPhasesSucceeded = false
+                AppLog.log("%@", "[ChatService] Incoming payment phase skipped this cycle - continuing with remaining phases")
             }
-            inPayments = incomingPayments
 
-            guard let outgoingPayments = await retryUntilSuccess(
+            if let outgoingPayments = await retryUntilSuccess(
                 label: "fetch outgoing payments",
+                maxAttempts: Self.syncPhaseMaxRetryAttempts,
                 operation: { [self] in try await fetchOutgoingPayments(for: wallet.publicAddress, blockTime: messageSince) }
-            ) else {
-                return
+            ) {
+                outPayments = outgoingPayments
+            } else {
+                paymentsPhaseSucceeded = false
+                allPhasesSucceeded = false
+                AppLog.log("%@", "[ChatService] Outgoing payment phase skipped this cycle - continuing with remaining phases")
             }
-            outPayments = outgoingPayments
             AppLog.log("[ChatService] === PAYMENT FETCH COMPLETE: in=%d, out=%d ===", inPayments.count, outPayments.count)
 
-            // Update last payment fetch time for UTXO subscription
-            if !inPayments.isEmpty || !outPayments.isEmpty {
-                let maxInTime = inPayments.compactMap { $0.blockTime }.max() ?? 0
-                let maxOutTime = outPayments.compactMap { $0.blockTime }.max() ?? 0
-                lastPaymentFetchTime = max(maxInTime, maxOutTime, lastPaymentFetchTime)
-            } else if lastPaymentFetchTime == 0 {
-                // Set to current time if no payments found on initial sync
-                lastPaymentFetchTime = fallbackSince > 0 ? fallbackSince : UInt64(Date().timeIntervalSince1970 * 1000)
+            // Update last payment fetch time for UTXO subscription - only when BOTH payment
+            // fetches actually succeeded. Advancing this cursor (or setting the initial-sync
+            // baseline) off a failed fetch would permanently skip the unfetched window.
+            if paymentsPhaseSucceeded {
+                if !inPayments.isEmpty || !outPayments.isEmpty {
+                    let maxInTime = inPayments.compactMap { $0.blockTime }.max() ?? 0
+                    let maxOutTime = outPayments.compactMap { $0.blockTime }.max() ?? 0
+                    lastPaymentFetchTime = max(maxInTime, maxOutTime, lastPaymentFetchTime)
+                } else if lastPaymentFetchTime == 0 {
+                    // Set to current time if no payments found on initial sync
+                    lastPaymentFetchTime = fallbackSince > 0 ? fallbackSince : UInt64(Date().timeIntervalSince1970 * 1000)
+                }
             }
         } else if activeAddress != nil {
             AppLog.log("[ChatService] Skipping payment fetch - active conversation only")
@@ -502,12 +549,18 @@ extension ChatService {
             await processPayments(outPayments, isOutgoing: true, myAddress: wallet.publicAddress, privateKey: privateKey)
         }
 
-        // Fetch saved handshakes from self-stash to get our aliases for outgoing messages
-        guard let _ = await retryUntilSuccess(
+        // Fetch saved handshakes from self-stash to get our aliases for outgoing messages.
+        // This is a self-healing RECOVERY scan, not a prerequisite for new-message delivery:
+        // it always re-reads the self-stash from block_time 0 (no cursor to corrupt), so a
+        // failed attempt loses nothing - the next cycle scans the exact same range. It must
+        // never bail out of the sync: when the indexer persistently 5xxes this one endpoint,
+        // the contextual-message phases below still have to run.
+        if await retryUntilSuccess(
             label: "fetch saved handshakes",
+            maxAttempts: Self.syncPhaseMaxRetryAttempts,
             operation: { [self] in try await fetchSavedHandshakes(myAddress: wallet.publicAddress, privateKey: privateKey) }
-        ) else {
-            return
+        ) == nil {
+            AppLog.log("%@", "[ChatService] Saved-handshake phase skipped this cycle - continuing to contextual messages")
         }
 
         // Reclassify misidentified handshakes:
@@ -539,8 +592,8 @@ extension ChatService {
                 fallbackSince: fallbackSince,
                 nowMs: nowMs
             )
-            guard completed else { return }
-            activeFetchSucceeded = true
+            activeFetchSucceeded = completed
+            if !completed { allPhasesSucceeded = false }
         } else {
             let completed = await fetchContextualMessages(
                 myAddress: wallet.publicAddress,
@@ -548,7 +601,14 @@ extension ChatService {
                 fallbackSince: fallbackSince,
                 nowMs: nowMs
             )
-            guard completed else { return }
+            if !completed { allPhasesSucceeded = false }
+        }
+
+        // A contextual pass can come back false because the wallet changed mid-fetch; never
+        // persist this run's aliases/cursors into the new wallet's state in that case.
+        guard isActiveWallet(wallet.publicAddress) else {
+            AppLog.log("%@", "[ChatService] Wallet changed mid-sync - skipping finalization for \(wallet.publicAddress.suffix(10))")
+            return
         }
 
         await retryIncomingWarningResolutionsOnSync(
@@ -563,14 +623,21 @@ extension ChatService {
         saveConversationIds()
         saveRoutingStates()
 
-        // Update last successful sync date for connection status
-        lastSuccessfulSyncDate = Date()
-        if isFullFetch {
-            await apiClient.recordIndexerSyncSuccess()
+        // Cycle-level success (advances the global lastPollTime fallback cursor via
+        // endSyncBlockTime and drives connection status) requires every cursor-bearing phase to
+        // have succeeded. The saved-handshake recovery scan is deliberately excluded: it always
+        // re-scans from block_time 0, so skipping it has zero cursor cost and must not make an
+        // otherwise-healthy cycle look failed while one indexer endpoint is broken.
+        if allPhasesSucceeded {
+            // Update last successful sync date for connection status
+            lastSuccessfulSyncDate = Date()
+            if isFullFetch {
+                await apiClient.recordIndexerSyncSuccess()
+            }
         }
 
-        syncSucceeded = true
-        AppLog.log("%@", "[ChatService] Fetch complete. Total conversations: \(conversations.count), lastPollTime updated to: \(lastPollTime)")
+        syncSucceeded = allPhasesSucceeded
+        AppLog.log("%@", "[ChatService] Fetch complete (allPhases=\(allPhasesSucceeded ? "ok" : "partial")). Total conversations: \(conversations.count), lastPollTime updated to: \(lastPollTime)")
     }
 
     func getConversation(for contact: Contact) -> Conversation? {

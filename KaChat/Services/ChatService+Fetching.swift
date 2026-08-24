@@ -1400,6 +1400,23 @@ extension ChatService {
         }
     }
 
+    /// Per-phase retry budget for fetches running INSIDE a sync cycle. `fetchNewMessages`
+    /// holds `isSyncInProgress` (which gates the foreground contact sweep) and, via
+    /// `maybeRunCatchUpSync`, `catchUpSyncInFlight` for the whole cycle INCLUDING every retry
+    /// backoff sleep - so a phase burning the default 8-attempt budget (~60s of sleeps) on a
+    /// persistently failing endpoint starves the sweep for a minute per cycle, every cycle.
+    /// 3 attempts = initial try + 1s + 2s backoff: enough to absorb a transient blip, cheap
+    /// enough (~3s) that a broken endpoint barely delays the cycle. The cycle cadence itself
+    /// (catch-up syncs, fallback poll, sweep) is the real retry loop for persistent failures;
+    /// un-advanced per-object cursors mean nothing is lost by giving up early. Chosen over
+    /// releasing `isSyncInProgress` across backoff sleeps (the flag also drives Core Data
+    /// write batching and resubscription deferral, so toggling it mid-cycle would change save
+    /// semantics) and over exempting the sweep from the gate (which would let the sweep and
+    /// the full contextual fetch hit the indexer concurrently in the healthy case too).
+    /// Bootstrap handshake fetches keep the default 8: nothing else can deliver until they
+    /// succeed, and the sweep is gated off until the initial sync finishes anyway.
+    static let syncPhaseMaxRetryAttempts = 3
+
     /// Retry with exponential backoff, bounded by `maxAttempts` (~75s of trying at the
     /// defaults). This must NOT retry forever: `fetchNewMessages` holds `isSyncInProgress`
     /// (and, via `maybeRunCatchUpSync`, `catchUpSyncInFlight`) across these calls, and both
@@ -1408,9 +1425,10 @@ extension ChatService {
     /// unbounded retry on a persistently failing endpoint (indexer 5xx on one query, DPI,
     /// decode error) therefore used to wedge those flags permanently, starving all live
     /// message delivery except the open-chat poll - exactly the "messages only appear when I
-    /// open the chat" failure. Giving up returns nil; every caller already handles nil by
-    /// bailing out of the sync, whose defer clears the flags, and the fallback poll / sweep /
-    /// next catch-up simply try again later with un-advanced cursors.
+    /// open the chat" failure. Giving up returns nil; callers treat nil as "skip this phase
+    /// for this cycle" (see `fetchNewMessages`) - the phase's cursor doesn't advance and the
+    /// remaining phases still run, so the fallback poll / sweep / next catch-up simply retry
+    /// the missed window later. Sync-cycle phases pass `syncPhaseMaxRetryAttempts`.
     func retryUntilSuccess<T>(
         label: String,
         initialDelayNs: UInt64 = 1_000_000_000,
@@ -1523,11 +1541,14 @@ extension ChatService {
                 nowMs: nowMs
             )
         }
-        guard incomingSucceeded else { return false }
+        // Phase isolation: a failed incoming pass (some contact exhausted its retry budget)
+        // must not starve the outgoing pass - each alias advances only its own cursor, so
+        // running the rest is always safe. Only bail if the wallet changed mid-fetch.
+        guard isActiveWallet(myAddress) else { return false }
 
         // Fetch OUTGOING messages (from us to contacts)
         let allOutgoingAddresses = Array(Set(routingStates.keys).union(ourAliases.keys))
-        return await fetchContactsConcurrently(
+        let outgoingSucceeded = await fetchContactsConcurrently(
             allOutgoingAddresses,
             limit: Self.contextualFetchConcurrencyLimit
         ) { [self] contactAddress in
@@ -1539,12 +1560,14 @@ extension ChatService {
                 nowMs: nowMs
             )
         }
+        return incomingSucceeded && outgoingSucceeded
     }
 
     /// Runs `operation` over `addresses` with at most `limit` running concurrently, starting the
-    /// next one as soon as a slot frees up. Returns `false` if any operation returned `false`
-    /// (matches `retryUntilSuccess`'s cancellation signal - it otherwise retries indefinitely
-    /// rather than truly failing).
+    /// next one as soon as a slot frees up. Every address is still attempted even after one
+    /// fails; the return value is `false` if ANY operation returned `false` (retry budget
+    /// exhausted, cancellation, or wallet switch), so the caller can withhold cycle-level
+    /// success without any contact starving another.
     private func fetchContactsConcurrently(
         _ addresses: [String],
         limit: Int,
@@ -1573,7 +1596,9 @@ extension ChatService {
     }
 
     /// Fetches incoming contextual messages for a single contact across all its known incoming
-    /// aliases. Returns `false` only when the fetch was cancelled (see `retryUntilSuccess`).
+    /// aliases. Returns `false` when any alias's fetch exhausted its retry budget or was
+    /// cancelled, or the wallet changed mid-fetch; a failed alias is skipped (its cursor stays
+    /// put) and the remaining aliases are still fetched.
     private func fetchIncomingContextualMessages(
         contactAddress: String,
         myAddress: String,
@@ -1609,6 +1634,7 @@ extension ChatService {
             defer { endContextualFetch(fetchKey) }
             guard let messages = await retryUntilSuccess(
                 label: "fetch incoming contextual messages from \(contactAddress.suffix(10))",
+                maxAttempts: Self.syncPhaseMaxRetryAttempts,
                 operation: { [apiClient] in
                     do {
                         return try await apiClient.getContextualMessagesBySender(
@@ -1626,7 +1652,7 @@ extension ChatService {
                 }
             ) else {
                 contactSuccess = false
-                return false
+                continue  // Skip this alias for this cycle; still try the contact's other aliases.
             }
             advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
 
@@ -1676,11 +1702,13 @@ extension ChatService {
                 }
             }
         }
-        return true
+        return contactSuccess
     }
 
     /// Fetches outgoing contextual messages for a single contact across all its known outgoing
-    /// aliases. Returns `false` only when the fetch was cancelled (see `retryUntilSuccess`).
+    /// aliases. Returns `false` when any alias's fetch exhausted its retry budget or was
+    /// cancelled; a failed alias is skipped (its cursor stays put) and the remaining aliases
+    /// are still fetched.
     private func fetchOutgoingContextualMessages(
         contactAddress: String,
         myAddress: String,
@@ -1720,6 +1748,7 @@ extension ChatService {
             defer { endContextualFetch(fetchKey) }
             guard let messages = await retryUntilSuccess(
                 label: "fetch outgoing contextual messages to \(contactAddress.suffix(10))",
+                maxAttempts: Self.syncPhaseMaxRetryAttempts,
                 operation: { [apiClient] in
                     do {
                         return try await apiClient.getContextualMessagesBySender(
@@ -1737,7 +1766,7 @@ extension ChatService {
                 }
             ) else {
                 contactSuccess = false
-                return false
+                continue  // Skip this alias for this cycle; still try the contact's other aliases.
             }
             advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
 
@@ -1792,7 +1821,7 @@ extension ChatService {
                 }
             }
         }
-        return true
+        return contactSuccess
     }
 
     func fetchContextualMessagesForActive(
@@ -1841,6 +1870,7 @@ extension ChatService {
                 defer { endContextualFetch(fetchKey) }
                 guard let messages = await retryUntilSuccess(
                     label: "fetch incoming contextual messages (active) from \(contactAddress.suffix(10))",
+                    maxAttempts: Self.syncPhaseMaxRetryAttempts,
                     operation: { [apiClient] in
                         do {
                             return try await apiClient.getContextualMessagesBySender(
@@ -1858,7 +1888,7 @@ extension ChatService {
                     }
             ) else {
                 contactSuccess = false
-                return false
+                continue  // Skip this alias for this cycle; still try the remaining aliases.
                 }
                 if !forceExactBlockTime {
                     advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
@@ -1938,6 +1968,7 @@ extension ChatService {
                 defer { endContextualFetch(fetchKey) }
                 guard let messages = await retryUntilSuccess(
                     label: "fetch outgoing contextual messages (active) to \(contactAddress.suffix(10))",
+                    maxAttempts: Self.syncPhaseMaxRetryAttempts,
                     operation: { [apiClient] in
                         do {
                             return try await apiClient.getContextualMessagesBySender(
@@ -1955,7 +1986,7 @@ extension ChatService {
                     }
             ) else {
                 contactSuccess = false
-                return false
+                continue  // Skip this alias for this cycle; still try the remaining aliases.
                 }
                 if !forceExactBlockTime {
                     advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
@@ -1997,7 +2028,7 @@ extension ChatService {
             }
         }
 
-        return true
+        return contactSuccess
     }
 
     /// Fetch contextual messages with polling (triggered by UTXO notification)
