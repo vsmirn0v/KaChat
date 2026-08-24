@@ -37,6 +37,11 @@ struct ChatListView: View {
     @State private var avatarPrefetchTask: Task<Void, Never>?
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .all
     @State private var showBulkDeleteConfirmation = false
+    /// Row-level delete targets from the long-press context menu - separate from the Select-mode
+    /// bulk selection state so a context-menu delete never touches (or is blocked by) edit mode.
+    /// Confirmed via their own alerts below, which reuse `deleteConversations`/`deleteGroups`.
+    @State private var rowDeleteContact: Contact?
+    @State private var rowDeleteGroup: GroupChat?
     @State private var editMode: EditMode = .inactive
     @State private var selectedContactIDs: Set<UUID> = []
     @State private var selectedGroupIDs: Set<String> = []
@@ -186,7 +191,44 @@ struct ChatListView: View {
                 Text(bulkDeleteAlertMessage)
             }
 
-        return withAlerts
+        // Row context-menu deletes confirm through their own alerts (same destructive-confirm
+        // pattern and wording as the bulk alert above, singular) - staged as separate variables
+        // for the same type-checker reason as the rest of this chain.
+        let withRowDeleteAlert = withAlerts
+            .alert(
+                "Delete Chat?",
+                isPresented: Binding(
+                    get: { rowDeleteContact != nil },
+                    set: { if !$0 { rowDeleteContact = nil } }
+                ),
+                presenting: rowDeleteContact
+            ) { contact in
+                Button("Delete", role: .destructive) {
+                    deleteConversations([contact])
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("This permanently deletes every message in this chat, including from iCloud, so it's removed from your other devices too. This cannot be undone.")
+            }
+
+        let withGroupRowDeleteAlert = withRowDeleteAlert
+            .alert(
+                "Delete Group?",
+                isPresented: Binding(
+                    get: { rowDeleteGroup != nil },
+                    set: { if !$0 { rowDeleteGroup = nil } }
+                ),
+                presenting: rowDeleteGroup
+            ) { group in
+                Button("Delete", role: .destructive) {
+                    deleteGroups([group])
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("This removes this group and its messages from this device. This cannot be undone, and other members won't be notified.")
+            }
+
+        return withGroupRowDeleteAlert
             .environment(\EnvironmentValues.editMode, $editMode)
     }
 
@@ -564,6 +606,9 @@ struct ChatListView: View {
                         GroupChatRow(group: group)
                     }
                     .buttonStyle(ChatRowPressStyle())
+                    .contextMenu {
+                        groupRowMenu(for: group)
+                    }
                     .tag(group.id)
                     .listRowBackground(
                         shouldUseSplitLayout && selectedGroup?.id == group.id
@@ -640,6 +685,9 @@ struct ChatListView: View {
                         ConversationRow(conversation: conversation)
                     }
                     .buttonStyle(ChatRowPressStyle())
+                    .contextMenu {
+                        conversationRowMenu(for: conversation)
+                    }
                     .tag(conversation.contact.id)
                     .listRowBackground(
                         shouldUseSplitLayout && selectedContact?.address == conversation.contact.address
@@ -908,8 +956,64 @@ struct ChatListView: View {
             : "This removes each selected group and its messages from this device. This cannot be undone, and other members won't be notified."
     }
 
-    /// Bulk multi-select delete (Select mode is the only delete path now that row swipes are
-    /// gone) - per-contact cleanup with one resubscribe and toast at the end.
+    /// Long-press context menu for a 1:1 conversation row. Read/Unread show contextually (the
+    /// relevant one only, matching Mail) and reuse the exact same service calls as the Select-mode
+    /// bulk bar; Delete routes through its own confirmation alert, which then reuses
+    /// `deleteConversations`. Empty while Select mode is active - the bulk bar owns actions there.
+    @ViewBuilder
+    private func conversationRowMenu(for conversation: Conversation) -> some View {
+        if editMode != .active {
+            if conversation.unreadCount > 0 {
+                Button {
+                    Task {
+                        await chatService.markConversationAsRead(conversation)
+                    }
+                } label: {
+                    Label("Mark as Read", systemImage: "envelope.open")
+                }
+            } else {
+                Button {
+                    chatService.markConversationAsUnread(conversation)
+                } label: {
+                    Label("Mark as Unread", systemImage: "envelope.badge")
+                }
+            }
+            Button(role: .destructive) {
+                rowDeleteContact = conversation.contact
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    /// Group-row counterpart to `conversationRowMenu` - same three actions on the group's own
+    /// `groupLastReadAt` badge mechanism and delete flow.
+    @ViewBuilder
+    private func groupRowMenu(for group: GroupChat) -> some View {
+        if editMode != .active {
+            if groupChatService.unreadCount(for: group) > 0 {
+                Button {
+                    groupChatService.markGroupAsRead(group.id)
+                } label: {
+                    Label("Mark as Read", systemImage: "envelope.open")
+                }
+            } else {
+                Button {
+                    groupChatService.markGroupAsUnread(group.id)
+                } label: {
+                    Label("Mark as Unread", systemImage: "envelope.badge")
+                }
+            }
+            Button(role: .destructive) {
+                rowDeleteGroup = group
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    /// Shared delete path for both Select-mode bulk deletes and single-row context-menu deletes
+    /// (row swipes are gone) - per-contact cleanup with one resubscribe and toast at the end.
     private func deleteConversations(_ contacts: [Contact]) {
         guard !contacts.isEmpty else { return }
         for contact in contacts {

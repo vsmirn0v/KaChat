@@ -115,8 +115,13 @@ struct ChessGameView: View {
             return
         }
         summary = ChessGameService.summarize(gameId: gameId, in: messages, myAddress: myAddress, contactAddress: contact.address)
+        // Cross-device "Sent via another device" placeholders are hidden from every display
+        // surface (see `ChatMessage.isSentPlaceholder`) - the dedup in `messages` only drops a
+        // placeholder when its real twin (same txId) is present, so an unresolved one would
+        // otherwise render here as a literal placeholder bubble.
         let nonChessMessages: [ChatMessage] = messages.filter { message in
-            ChessCodec.parseAny(MessageReplyCodec.unwrappedText(message.content)) == nil
+            !message.isSentPlaceholder &&
+                ChessCodec.parseAny(MessageReplyCodec.unwrappedText(message.content)) == nil
         }
         chatMessages = nonChessMessages.sorted { $0.timestamp < $1.timestamp }
     }
