@@ -1523,21 +1523,7 @@ struct ChatDetailView: View {
             if isDeclined {
                 EmptyView()
             } else if inputMode == .message && pendingPhotoImage == nil && messageText.isEmpty {
-                HStack(spacing: 8) {
-                    // One-tap shortcut into payment mode - same switchMode(.payment) path as the
-                    // "+" menu's Send Kaspa entry (which stays available too). Lives only in this
-                    // empty-message-mode branch, so it follows exactly the same visibility rules
-                    // as the "+" button and is hidden while already in payment mode, where the
-                    // existing "Send message" quick action covers the exit.
-                    composerQuickActionButton(
-                        title: "Send KAS",
-                        icon: "KaspaLogo",
-                        isAssetImage: true
-                    ) {
-                        switchMode(.payment)
-                    }
-                    composerPlusMenu
-                }
+                composerPlusMenu
             } else if shouldShowComposerQuickActions {
                 composerQuickActions
             } else if shouldShowAudioModeSwitchActions {
@@ -2066,6 +2052,22 @@ struct ChatDetailView: View {
                         .buttonStyle(.plain)
                         .padding(.leading, 6)
                         .accessibilityLabel(Text("Record Voice Message"))
+
+                        // Third inline shortcut: jump straight into payment mode - the same
+                        // switchMode(.payment) path as the "+" menu's Send Kaspa entry, which
+                        // stays available too. In payment mode the whole input row is replaced
+                        // by paymentField, so this icon disappears with the rest of the bubble.
+                        Button {
+                            switchMode(.payment)
+                        } label: {
+                            Image("KaspaLogo")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.leading, 6)
+                        .accessibilityLabel(Text("Send KAS"))
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
