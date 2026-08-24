@@ -30,6 +30,10 @@ struct ManageAddressesView: View {
     /// Addresses that own at least one KNS domain (cached assets-by-owner lookup) - drives the
     /// "Contains domain" row tag and promotes those rows into the funded group in the sort.
     @State private var domainOwningAddresses: Set<String> = []
+    /// Addresses currently offered to contacts as payment-pool reservations (Chats Payment
+    /// Privacy). They carry the "Chat privacy address" tag and can't be hidden while reserved -
+    /// the user should always see which addresses are held ready for contacts to pay into.
+    @State private var reservedPoolAddresses: Set<String> = []
     /// Zero-balance addresses whose used/unused probe has NOT confirmed an answer - either
     /// still in flight this load, or failed (network/rate limit). Their badge shows a neutral
     /// "Checking" state instead of a possibly-wrong "Unused", and Generate refuses to recycle
@@ -348,6 +352,9 @@ struct ManageAddressesView: View {
                         if domainOwningAddresses.contains(entry.address) {
                             ContainsDomainTag()
                         }
+                        if reservedPoolAddresses.contains(entry.address) {
+                            ChatPrivacyAddressTag()
+                        }
                     }
                 }
 
@@ -385,9 +392,10 @@ struct ManageAddressesView: View {
                         // Hide straight from the row — same effect as unchecking it in Address
                         // Visibility, without opening that sheet. Same guard as the checklist
                         // (against the LIVE primary index, so a just-rotated old primary is
-                        // hideable immediately): never the primary, never a funded address.
-                        // setSpendingAddressHidden re-enforces both server-side regardless.
-                        if !isPrimary && entry.balanceSompi == 0 {
+                        // hideable immediately): never the primary, never a funded address,
+                        // never an address offered to a contact as a payment-pool reservation.
+                        // setSpendingAddressHidden re-enforces all three server-side regardless.
+                        if !isPrimary && entry.balanceSompi == 0 && !reservedPoolAddresses.contains(entry.address) {
                             Button {
                                 hideAddress(entry)
                             } label: {
@@ -418,7 +426,11 @@ struct ManageAddressesView: View {
         Task {
             let ok = await walletManager.setSpendingAddressHidden(index: entry.index, hidden: true)
             guard ok else {
-                showToast("This address can't be hidden.")
+                if reservedPoolAddresses.contains(entry.address) {
+                    showToast("This address is offered to a contact for private payments and stays visible.")
+                } else {
+                    showToast("This address can't be hidden.")
+                }
                 return
             }
             if let position = entries.firstIndex(where: { $0.id == entry.id }) {
@@ -462,6 +474,13 @@ struct ManageAddressesView: View {
     }
 
     private func loadEntries() async {
+        // Legacy repair first: reservations offered under the old born-hidden design get
+        // un-hidden so outstanding pools are on this screen without re-offering. Then keep the
+        // reserved set current - it drives the "Chat privacy address" tag and the hide guard.
+        walletManager.unhideOfferedReservationsIfNeeded()
+        if let wallet = walletManager.currentWallet {
+            reservedPoolAddresses = Set(PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress))
+        }
         // Instant paint from the persisted snapshot of the last full load — the screen shows
         // rows immediately (even with the network down) while the live refresh below replaces
         // them. Only used when we have nothing on screen yet, so a live list never regresses.
@@ -755,6 +774,22 @@ struct ManageAddressesView: View {
 struct ContainsDomainTag: View {
     var body: some View {
         Text("Contains domain")
+            .font(.caption2)
+            .fontWeight(.semibold)
+            .foregroundColor(.accentColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+    }
+}
+
+/// Capsule badge for spending-address rows currently offered to a contact as a Chats Payment
+/// Privacy pool reservation - held ready for that contact to pay into, so the row stays
+/// visible and can't be hidden while reserved. Same capsule treatment as ContainsDomainTag,
+/// accent-tinted like the app's other inline badges.
+struct ChatPrivacyAddressTag: View {
+    var body: some View {
+        Text("Chat privacy address")
             .font(.caption2)
             .fontWeight(.semibold)
             .foregroundColor(.accentColor)
@@ -2302,8 +2337,9 @@ private struct HiddenSpendingAddressesView: View {
 /// checked = shown on the Manage Addresses list. Built for wallets with a hundred-plus revealed
 /// addresses: tap through as many rows as you like in one sitting. Each row also shows whether
 /// the address has ever been used on-chain (balance counts as used; swept-to-zero addresses are
-/// checked against history lazily). The primary address and any address holding a balance can't
-/// be hidden - the same rule WalletManager.setSpendingAddressHidden enforces server-side.
+/// checked against history lazily). The primary address, any address holding a balance, and any
+/// address offered to a contact as a payment-pool reservation can't be hidden - the same rules
+/// WalletManager.setSpendingAddressHidden enforces server-side.
 private struct SpendingAddressVisibilityView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var chatService: ChatService
@@ -2311,6 +2347,9 @@ private struct SpendingAddressVisibilityView: View {
 
     @State private var entries: [SpendingAddressEntry] = []
     @State private var isLoading = true
+    /// Addresses currently offered to contacts as Chats Payment Privacy pool reservations -
+    /// their rows are locked visible, with the same tag Manage Addresses shows.
+    @State private var reservedAddresses: Set<String> = []
     /// Lazily-filled history results for zero-balance addresses (address -> ever used).
     @State private var usedByAddress: [String: Bool] = [:]
     /// Pager: 50 addresses per page, endless - pages past the revealed set derive future
@@ -2398,7 +2437,8 @@ private struct SpendingAddressVisibilityView: View {
         // Live primary check - the pointer can rotate (post-send) while this sheet is open,
         // and the lock must follow the authoritative index, not the row's snapshotted flag.
         let isPrimary = entry.index == walletManager.currentSpendingAddressIndex
-        let locked = isPrimary || funded
+        let reserved = reservedAddresses.contains(entry.address)
+        let locked = isPrimary || funded || reserved
         let visible = !entry.hidden
         return HStack(spacing: 10) {
             Image(systemName: visible ? "checkmark.circle.fill" : "circle")
@@ -2414,6 +2454,14 @@ private struct SpendingAddressVisibilityView: View {
                         Text("Primary")
                             .font(.caption2.weight(.bold))
                             .foregroundColor(.accentColor)
+                    }
+                    if reserved {
+                        // Same wording as Manage Addresses' capsule tag, in this compact
+                        // list's inline text style (matching the "Primary" marker above).
+                        Text("Chat privacy address")
+                            .font(.caption2.weight(.bold))
+                            .foregroundColor(.accentColor)
+                            .lineLimit(1)
                     }
                     if let label = entry.label, !label.trimmingCharacters(in: .whitespaces).isEmpty {
                         Text(label)
@@ -2454,6 +2502,12 @@ private struct SpendingAddressVisibilityView: View {
     }
 
     private func load() async {
+        // Same legacy repair + reserved set Manage Addresses' loadEntries performs, so this
+        // sheet locks and tags reserved rows even when opened before that screen reloads.
+        walletManager.unhideOfferedReservationsIfNeeded()
+        if let wallet = walletManager.currentWallet {
+            reservedAddresses = Set(PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress))
+        }
         entries = await walletManager.getSpendingAddressList()
         isLoading = false
     }
@@ -2469,9 +2523,12 @@ private struct SpendingAddressVisibilityView: View {
     }
 
     private func toggle(_ entry: SpendingAddressEntry) {
-        // Locked rows (primary / funded) don't toggle - mirrors the server-side guard,
-        // against the LIVE primary index (the pointer can rotate while the sheet is open).
-        guard entry.index != walletManager.currentSpendingAddressIndex, entry.balanceSompi == 0 else { return }
+        // Locked rows (primary / funded / payment-pool reserved) don't toggle - mirrors the
+        // server-side guard, against the LIVE primary index (the pointer can rotate while the
+        // sheet is open).
+        guard entry.index != walletManager.currentSpendingAddressIndex,
+              entry.balanceSompi == 0,
+              !reservedAddresses.contains(entry.address) else { return }
         Task {
             let revealedMax = entries.map(\.index).max() ?? -1
             if entry.index > revealedMax {

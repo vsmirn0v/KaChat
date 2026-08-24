@@ -223,6 +223,9 @@ final class WalletManager: ObservableObject {
                 }
                 self.currentWallet = updated
                 migrateSpendingBoundsIfNeeded()
+                // Legacy payment-pool reservations were born hidden; they are visible product
+                // surface now, so surface any outstanding ones without waiting for a re-offer.
+                unhideOfferedReservationsIfNeeded()
                 isBalanceRefreshing = true
                 ContactsManager.shared.setActiveWalletAddress(canonicalWallet.publicAddress)
                 ChatService.shared.loadChatListSnapshot(for: canonicalWallet.publicAddress)

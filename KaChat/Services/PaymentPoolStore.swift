@@ -302,8 +302,9 @@ final class PaymentPoolStore {
         save(current, for: walletAddress)
     }
 
-    /// The spending-chain index of one of our reservations, by address — used to unhide the
-    /// address (pool reservations are born hidden) once a payment_notice marks it funded.
+    /// The spending-chain index of one of our reservations, by address — used to keep offered
+    /// and funded reservation addresses visible in Manage Addresses (including repairing state
+    /// left hidden by the old born-hidden design).
     func reservationIndex(for address: String, wallet walletAddress: String) -> Int? {
         state(for: walletAddress).myReservations.values
             .flatMap { $0 }

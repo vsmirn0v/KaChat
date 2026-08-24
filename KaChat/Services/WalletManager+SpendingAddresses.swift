@@ -406,11 +406,17 @@ extension WalletManager {
     }
 
     /// Hides a spending address from the main Manage Addresses list. Refused (returns false)
-    /// for the current primary address or one with a nonzero balance - re-enforced here
-    /// server-side regardless of what the UI already checked.
+    /// for the current primary address, one with a nonzero balance, or one actively offered to
+    /// a contact as a payment-pool reservation (those stay visible so the user always sees
+    /// which addresses are held ready for contacts to pay into) - re-enforced here server-side
+    /// regardless of what the UI already checked.
     func setSpendingAddressHidden(index: Int, hidden: Bool) async -> Bool {
         guard index != currentSpendingAddressIndex else { return false }
         if hidden, let address = spendingAddress(at: index) {
+            if let walletAddress = currentWallet?.publicAddress,
+               PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: walletAddress).contains(address) {
+                return false
+            }
             let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
             let balance = utxos.reduce(UInt64(0)) { $0 + $1.amount }
             guard balance == 0 else { return false }
@@ -432,13 +438,39 @@ extension WalletManager {
         hiddenSpendingIndices
     }
 
-    /// Marks freshly reserved payment-pool indices hidden WITHOUT the funded-balance network
-    /// guard — they were just derived and cannot hold funds yet. Pool reservations are internal
-    /// plumbing; the payment_notice handler unhides one the moment it receives money.
-    func hideFreshReservedIndices(_ indices: [Int]) {
+    /// Removes payment-pool reservation indices from the hidden set, bypassing the async
+    /// balance path (unhiding needs no network guard). Reservations are born VISIBLE - fresh
+    /// indices start past the all-time max and were never hidden - so for new offers this is a
+    /// no-op; it matters for reservations recorded under the old born-hidden design (before
+    /// the product change that surfaces them in Manage Addresses) that get (re-)offered now.
+    func unhideReservedIndices(_ indices: [Int]) {
         var current = hiddenSpendingIndices
-        for index in indices where index != currentSpendingAddressIndex { current.insert(index) }
+        let before = current.count
+        for index in indices { current.remove(index) }
+        guard current.count != before else { return }
         hiddenSpendingIndices = current
+    }
+
+    /// One-shot repair for the old born-hidden payment-pool design: any address currently
+    /// offered to a contact that is still sitting in the hidden set becomes visible, so users
+    /// with outstanding pools see them in Manage Addresses without re-offering. Cheap set
+    /// intersection - safe to call on every Manage Addresses load and on wallet load.
+    func unhideOfferedReservationsIfNeeded() {
+        guard let walletAddress = currentWallet?.publicAddress else { return }
+        let offered = PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: walletAddress)
+        guard !offered.isEmpty else { return }
+        var hidden = hiddenSpendingIndices
+        var unhidden = 0
+        for address in offered {
+            if let index = PaymentPoolStore.shared.reservationIndex(for: address, wallet: walletAddress),
+               hidden.contains(index) {
+                hidden.remove(index)
+                unhidden += 1
+            }
+        }
+        guard unhidden > 0 else { return }
+        hiddenSpendingIndices = hidden
+        AppLog.log("[WalletManager] Un-hid %d offered payment-pool addresses (legacy born-hidden migration)", unhidden)
     }
 
     func setSpendingAddressLabel(index: Int, label: String) {

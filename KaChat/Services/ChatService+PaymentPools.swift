@@ -96,9 +96,10 @@ extension ChatService {
                 AppLog.log("[ChatService] Pool offer aborted - could not reserve fresh spending addresses")
                 return
             }
-            // Pool reservations are internal plumbing: born HIDDEN so each offer batch doesn't
-            // flood Manage Addresses with 5 fresh "Unused" rows; unhidden the moment one is funded.
-            WalletManager.shared.hideFreshReservedIndices(fresh.map { $0.index })
+            // Pool reservations are born VISIBLE: they appear in Manage Addresses immediately,
+            // tagged as chat privacy addresses, so the user can see exactly which addresses are
+            // held ready for contacts to pay into. (They used to be born hidden - see
+            // WalletManager.unhideOfferedReservationsIfNeeded for the migration of old state.)
             let entries = fresh.map {
                 PaymentPoolStore.ReservedAddress(address: $0.address, index: $0.index, offered: false, funded: nil)
             }
@@ -115,6 +116,10 @@ extension ChatService {
         try await sendInvisiblePoolEnvelope(to: contact, payload: payload)
 
         store.markReservationsOffered(pending.map(\.address), for: contact.address, wallet: walletAddress)
+        // Offered addresses are always visible in Manage Addresses. Fresh indices were never
+        // hidden; this covers reservations recorded under the old born-hidden design whose
+        // send failed back then and only now succeeded.
+        WalletManager.shared.unhideReservedIndices(pending.map(\.index))
         store.markPoolOffered(to: contact.address, wallet: walletAddress)
         store.recordPoolOfferServed(to: contact.address, wallet: walletAddress)
         store.clearPoolRevocation(for: contact.address, wallet: walletAddress)
@@ -498,8 +503,9 @@ extension ChatService {
         // isn't one of our reservations for this contact).
         if let wallet = WalletManager.shared.currentWallet {
             PaymentPoolStore.shared.markReservationFunded(content.address, for: contactAddress, wallet: wallet.publicAddress)
-            // The reserved address now holds money — funded addresses are always visible
-            // (reservations are born hidden, see hideFreshReservedIndices).
+            // The reserved address now holds money — funded addresses are always visible.
+            // Reservations are born visible now, so this is normally a no-op; it still
+            // repairs any legacy reservation left hidden by the old born-hidden design.
             if let index = PaymentPoolStore.shared.reservationIndex(for: content.address, wallet: wallet.publicAddress) {
                 Task { _ = await WalletManager.shared.setSpendingAddressHidden(index: index, hidden: false) }
             }
