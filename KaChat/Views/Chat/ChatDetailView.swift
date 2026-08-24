@@ -1573,17 +1573,8 @@ struct ChatDetailView: View {
                     Label("Send Audio Message", systemImage: "mic.circle.fill")
                 }
             }
-            Button {
-                switchMode(.payment)
-            } label: {
-                Label {
-                    Text("Send Kaspa")
-                } icon: {
-                    Image("KaspaLogo")
-                        .resizable()
-                        .scaledToFit()
-                }
-            }
+            // Send Kaspa left this menu: the Kaspa logo inside the input bubble is the
+            // one entry point to payment mode now.
             Button {
                 startChessGame()
             } label: {
