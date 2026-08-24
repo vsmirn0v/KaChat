@@ -1751,7 +1751,7 @@ extension ChatService {
                 // Outgoing messages are encrypted for the recipient, we can't decrypt them
                 // Check if we have this message stored locally with content
                 let existingMessage = await findLocalMessage(txId: contextMsg.txId)
-                let content = existingMessage?.content ?? "📤 Sent via another device"
+                let content = existingMessage?.content ?? ChatMessage.sentViaOtherDevicePlaceholder
                 let msgType = existingMessage?.messageType ?? messageType(for: content)
 
                 let message = ChatMessage(
@@ -1958,7 +1958,7 @@ extension ChatService {
 
                 for contextMsg in sortedMessages {
                     let existingMessage = await findLocalMessage(txId: contextMsg.txId)
-                    let content = existingMessage?.content ?? "📤 Sent via another device"
+                    let content = existingMessage?.content ?? ChatMessage.sentViaOtherDevicePlaceholder
 
                     let message = ChatMessage(
                         txId: contextMsg.txId,
@@ -2457,7 +2457,7 @@ extension ChatService {
 
         // Check if message already exists with content (not placeholder)
         if let existingMsg = await findLocalMessage(txId: txId),
-           existingMsg.content != "📤 Sent via another device" {
+           !existingMsg.isSentPlaceholder {
             AppLog.log("[ChatService] Outgoing push already exists with content: %@", txId)
             return true
         }
@@ -2480,7 +2480,7 @@ extension ChatService {
 
             // Check if CloudKit delivered the content
             if let cloudKitMsg = await findLocalMessage(txId: txId),
-               cloudKitMsg.content != "📤 Sent via another device" {
+               !cloudKitMsg.isSentPlaceholder {
                 AppLog.log("[ChatService] Outgoing push resolved via CloudKit: %@", txId)
                 return true
             }
@@ -2520,7 +2520,7 @@ extension ChatService {
                 txId: txId,
                 senderAddress: sender,
                 receiverAddress: contactAddress,
-                content: "📤 Sent via another device",
+                content: ChatMessage.sentViaOtherDevicePlaceholder,
                 timestamp: Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000),
                 blockTime: UInt64(timestamp),
                 acceptingBlock: nil,
@@ -2576,7 +2576,7 @@ extension ChatService {
 
             // Check if content arrived
             if let msg = await findLocalMessage(txId: txId),
-               msg.content != "📤 Sent via another device" {
+               !msg.isSentPlaceholder {
                 AppLog.log("[ChatService] CloudKit retry successful for outgoing: %@", txId)
                 return
             }
@@ -2586,7 +2586,7 @@ extension ChatService {
             await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
 
             if let msg = await findLocalMessage(txId: txId),
-               msg.content == "📤 Sent via another device" {
+               msg.isSentPlaceholder {
                 AppLog.log("[ChatService] Outgoing message %@ still awaiting CloudKit sync", txId)
             }
         }

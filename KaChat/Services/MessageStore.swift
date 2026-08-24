@@ -1047,7 +1047,7 @@ final class MessageStore {
                                 record.acceptingBlock != message.acceptingBlock
                         }
 
-                        let isPlaceholder = message.content == "📤 Sent via another device"
+                        let isPlaceholder = message.isSentPlaceholder
                         let existingHasContent = record.contentEncrypted != nil
                         let shouldForceOutgoingContent = message.isOutgoing && !isPlaceholder
 
@@ -1822,7 +1822,7 @@ final class MessageStore {
             let isNewRecord = record.messageId == nil
 
             // Check if record needs updating (diff-only for existing records)
-            let isPlaceholder = message.content == "📤 Sent via another device"
+            let isPlaceholder = message.isSentPlaceholder
             let existingHasContent = record.contentEncrypted != nil
             let shouldForceOutgoingContent = message.isOutgoing && !isPlaceholder
             let needsUpdate = isNewRecord ||
@@ -2797,7 +2797,7 @@ final class MessageStore {
                 content = "[Encrypted message]"
             }
         } else {
-            content = "📤 Sent via another device"
+            content = ChatMessage.sentViaOtherDevicePlaceholder
         }
         let messageType = ChatMessage.MessageType(rawValue: record.messageType ?? "contextual") ?? .contextual
         let deliveryStatus = ChatMessage.DeliveryStatus(rawValue: record.deliveryStatus ?? "sent") ?? .sent

@@ -146,7 +146,7 @@ extension ChatService {
         guard !messages.isEmpty || !meta.isEmpty else { return }
 
         // Debug: count messages with/without content
-        let withContent = messages.filter { $0.message.content != "📤 Sent via another device" }.count
+        let withContent = messages.filter { !$0.message.isSentPlaceholder }.count
         let placeholder = messages.count - withContent
         AppLog.log("[ChatService] loadMessagesFromStore: %d messages (%d with content, %d placeholder)",
               messages.count, withContent, placeholder)
@@ -388,7 +388,7 @@ extension ChatService {
     }
 
     nonisolated static func isPlaceholderContent(_ content: String) -> Bool {
-        content == "📤 Sent via another device" || content == "[Encrypted message]"
+        ChatMessage.isSentPlaceholder(content) || content == "[Encrypted message]"
     }
 
     nonisolated static func dedupeMessages(_ messages: [ChatMessage]) -> [ChatMessage] {

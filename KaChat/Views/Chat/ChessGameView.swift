@@ -91,7 +91,7 @@ struct ChessGameView: View {
     }
 
     private func isPlaceholderContent(_ content: String) -> Bool {
-        content == "📤 Sent via another device" || content == "[Encrypted message]"
+        ChatService.isPlaceholderContent(content)
     }
 
     /// Cheap-relative-to-a-full-replay digest driving `.task(id:)` below - still O(N), but just a

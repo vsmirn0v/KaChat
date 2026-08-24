@@ -343,6 +343,26 @@ struct ChatMessage: Codable, Identifiable, Equatable {
     let messageType: MessageType
     let deliveryStatus: DeliveryStatus
 
+    /// Exact content of the cross-device fill-in slot created when this wallet's own outgoing
+    /// message is discovered on-chain by a device that cannot decrypt it (own sends are encrypted
+    /// for the recipient). The row keeps the message's place in the store and in backup archives
+    /// until CloudKit or an archive restore delivers the real text (see
+    /// `ChatService.preferMessage`), but it must NEVER be visible anywhere in the UI - every
+    /// display surface filters with `isSentPlaceholder`. Single source of truth for the literal;
+    /// do not duplicate the string.
+    static let sentViaOtherDevicePlaceholder = "📤 Sent via another device"
+
+    /// True if `content` is exactly the cross-device placeholder above. Use this (or the
+    /// instance property) everywhere the placeholder is created, matched, or hidden.
+    static func isSentPlaceholder(_ content: String) -> Bool {
+        content == sentViaOtherDevicePlaceholder
+    }
+
+    /// See `ChatMessage.isSentPlaceholder(_:)`.
+    var isSentPlaceholder: Bool {
+        Self.isSentPlaceholder(content)
+    }
+
     enum MessageType: String, Codable {
         case handshake
         case contextual
@@ -427,10 +447,11 @@ struct Conversation: Identifiable, Equatable {
     var unreadCount: Int
 
     var lastMessage: ChatMessage? {
-        // "📤 Sent via another device" placeholders are hidden everywhere (they carry no
-        // readable content) — the chat-list preview must show the newest REAL message.
-        let visible = messages.filter { $0.content != "📤 Sent via another device" }
-        return (visible.isEmpty ? messages : visible).max { $0.timestamp < $1.timestamp }
+        // Cross-device placeholders are hidden everywhere (see ChatMessage.isSentPlaceholder),
+        // so the chat-list preview shows the newest REAL message. A conversation whose only
+        // messages are placeholders reports nil, exactly like a conversation with no messages,
+        // so the row renders its normal empty state instead of leaking the placeholder.
+        return messages.filter { !$0.isSentPlaceholder }.max { $0.timestamp < $1.timestamp }
     }
 
     init(id: UUID = UUID(), contact: Contact, messages: [ChatMessage] = [], unreadCount: Int = 0) {

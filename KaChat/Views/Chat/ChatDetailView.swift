@@ -216,7 +216,7 @@ struct ChatDetailView: View {
         // content (an outgoing tx from another device whose text hasn't synced), and showing
         // them added noise without information. The records stay in the store, so when
         // CloudKit later delivers the real text the message appears with content.
-        let base = normalizedMessages.filter { $0.content != "📤 Sent via another device" }
+        let base = normalizedMessages.filter { !$0.isSentPlaceholder }
         // Before you accept a stranger's request, show only the "wants to connect" handshake (and
         // anything you sent) — never their earlier messages.
         guard awaitingMyAcceptance else { return base }
@@ -362,7 +362,7 @@ struct ChatDetailView: View {
     }
 
     private func isPlaceholderContent(_ content: String) -> Bool {
-        content == "📤 Sent via another device" || content == "[Encrypted message]"
+        ChatService.isPlaceholderContent(content)
     }
 
     private var isDeclined: Bool {
