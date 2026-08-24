@@ -305,6 +305,14 @@ final class ChatService: ObservableObject {
     /// that already have an incoming alias. Beyond this the push + catch-up sync still cover
     /// everyone; the sweep is a fast path, not the only path.
     let foregroundSweepMaxContacts = 40
+    /// Group-chat backstop riding on the sweep loop. Live group delivery is the blockAdded
+    /// block-scan (GroupChatService), whose only recovery is a catch-up on scenePhase .active -
+    /// while the app SITS open, a block missed during a brief stream gap stayed missing until
+    /// the next background/foreground cycle. The sweep loop runs a cursor-based
+    /// `GroupChatService.performCatchUpSync()` at most once per this interval as the group
+    /// equivalent of the 1:1 contact sweep.
+    var lastForegroundGroupCatchUpAt: Date?
+    let foregroundGroupCatchUpInterval: TimeInterval = 60.0
     /// The one-shot 4-phase initial sync started by `startPolling`. Tracked so wallet transitions
     /// (import/switch/logout) can cancel it - otherwise the previous wallet's historical sync keeps
     /// running past the switch and writes its messages into the *new* wallet's store, leaking one
@@ -546,7 +554,16 @@ final class ChatService: ObservableObject {
         ) { [weak self] _ in
             AppLog.log("[ChatService] RPC subscriptions restored - syncing to catch any missed messages")
             Task { @MainActor in
-                await self?.maybeRunCatchUpSync(trigger: .rpcSubscriptionsRestored)
+                // force: this notification only fires when the utxosChanged subscription was
+                // just found dead and re-armed - i.e. there WAS a window with no UTXO
+                // notifications. Push reliability is scored by correlating APNs receipts
+                // against UTXO-notified messages, so during that same dead window there were
+                // no observations and no way to accumulate misses: a stale "reliable" state
+                // cannot be trusted here. Skipping this catch-up on the push-reliable
+                // debounce is exactly the dead-subscription + wrongly-reliable-push hole
+                // that leaves the missed window's messages invisible until the user opens
+                // the chat.
+                await self?.maybeRunCatchUpSync(trigger: .rpcSubscriptionsRestored, force: true)
             }
         }
 

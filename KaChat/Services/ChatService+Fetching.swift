@@ -1400,10 +1400,22 @@ extension ChatService {
         }
     }
 
+    /// Retry with exponential backoff, bounded by `maxAttempts` (~75s of trying at the
+    /// defaults). This must NOT retry forever: `fetchNewMessages` holds `isSyncInProgress`
+    /// (and, via `maybeRunCatchUpSync`, `catchUpSyncInFlight`) across these calls, and both
+    /// flags gate every other delivery backstop - the foreground contact sweep skips while a
+    /// sync is "in progress" and future catch-up syncs skip while one is "in flight". An
+    /// unbounded retry on a persistently failing endpoint (indexer 5xx on one query, DPI,
+    /// decode error) therefore used to wedge those flags permanently, starving all live
+    /// message delivery except the open-chat poll - exactly the "messages only appear when I
+    /// open the chat" failure. Giving up returns nil; every caller already handles nil by
+    /// bailing out of the sync, whose defer clears the flags, and the fallback poll / sweep /
+    /// next catch-up simply try again later with un-advanced cursors.
     func retryUntilSuccess<T>(
         label: String,
         initialDelayNs: UInt64 = 1_000_000_000,
         maxDelayNs: UInt64 = 15_000_000_000,
+        maxAttempts: Int = 8,
         operation: @escaping () async throws -> T
     ) async -> T? {
         var attempt = 0
@@ -1414,6 +1426,11 @@ extension ChatService {
                 return try await operation()
             } catch {
                 attempt += 1
+                if attempt >= maxAttempts {
+                    AppLog.log("[ChatService] %@ failed (attempt %d): %@. Giving up until the next sync",
+                          label, attempt, error.localizedDescription)
+                    return nil
+                }
                 let delaySeconds = Double(delay) / 1_000_000_000.0
                 AppLog.log("[ChatService] %@ failed (attempt %d): %@. Retrying in %.1fs",
                       label, attempt, error.localizedDescription, delaySeconds)

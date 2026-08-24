@@ -155,6 +155,10 @@ extension ChatService {
         foregroundSweepTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var interval = self.foregroundSweepBaseInterval
+            // Seed the group-catch-up clock: scenePhase .active just ran its own
+            // GroupChatService.performCatchUpSync(), so the ride-along below should first
+            // fire an interval from now, not duplicate that round trip immediately.
+            self.lastForegroundGroupCatchUpAt = Date()
             while !Task.isCancelled {
                 let swept = await self.runForegroundContactSweep()
                 if Task.isCancelled { return }
@@ -172,6 +176,18 @@ extension ChatService {
                     interval = self.foregroundSweepBaseInterval
                 case .skipped:
                     break  // gated out (inactive / syncing / not ready) - keep the current interval
+                }
+                // Group-chat backstop (see `lastForegroundGroupCatchUpAt`): groups have no
+                // per-contact sweep equivalent - their live path is the blockAdded block-scan,
+                // and a block missed during a stream gap only got recovered on the next
+                // app-foreground catch-up. Run the cursor-based group catch-up at most once a
+                // minute while the app is active so an open app converges on missed group
+                // messages without needing a background/foreground cycle.
+                if UIApplication.shared.applicationState == .active,
+                   WalletManager.shared.currentWallet != nil,
+                   self.lastForegroundGroupCatchUpAt.map({ Date().timeIntervalSince($0) >= self.foregroundGroupCatchUpInterval }) ?? true {
+                    self.lastForegroundGroupCatchUpAt = Date()
+                    await GroupChatService.shared.performCatchUpSync()
                 }
                 try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             }

@@ -2412,7 +2412,11 @@ struct ConnectionStatusDetailView: View {
                     Text("Connection Status")
                 }
 
-                // Pool Statistics Section
+                // Pool Statistics Section - only meaningful under automatic node
+                // selection, where the gRPC pool is actually picking nodes. When the
+                // user is pinned to the default or a custom node, the registry holds
+                // just that one node and pool health/counters are noise, so hide them.
+                if isAutomaticNodeSelection {
                 Section {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -2462,30 +2466,34 @@ struct ConnectionStatusDetailView: View {
                 } header: {
                     Text("Pool Status")
                 }
+                }
 
-                // Pool Management Section
+                // Actions Section (pool refresh/clear only apply in automatic mode;
+                // Reconnect is useful in every mode)
                 Section {
-                    Button {
-                        Task {
-                            await nodePool.refreshPool()
-                        }
-                    } label: {
-                        HStack {
-                            Text("Refresh Pool")
-                            Spacer()
-                            if nodePool.isRefreshing {
-                                ProgressView()
+                    if isAutomaticNodeSelection {
+                        Button {
+                            Task {
+                                await nodePool.refreshPool()
+                            }
+                        } label: {
+                            HStack {
+                                Text("Refresh Pool")
+                                Spacer()
+                                if nodePool.isRefreshing {
+                                    ProgressView()
+                                }
                             }
                         }
-                    }
-                    .disabled(nodePool.isRefreshing || isReconnecting)
+                        .disabled(nodePool.isRefreshing || isReconnecting)
 
-                    Button(role: .destructive) {
-                        showClearPoolConfirm = true
-                    } label: {
-                        Text("Clear Connection Pool")
+                        Button(role: .destructive) {
+                            showClearPoolConfirm = true
+                        } label: {
+                            Text("Clear Connection Pool")
+                        }
+                        .disabled(nodePool.isRefreshing || isReconnecting)
                     }
-                    .disabled(nodePool.isRefreshing || isReconnecting)
 
                     Button {
                         Task {
@@ -2511,6 +2519,9 @@ struct ConnectionStatusDetailView: View {
 
                 KaspaNodeQuickAccessSections(onToast: showToast)
 
+                // Node lists only make sense when the pool is discovering nodes;
+                // in pinned mode there is nothing here but the pinned node itself.
+                if isAutomaticNodeSelection {
                 // Active Nodes Section
                 Section {
                     let activeNodes = nodeRecords.filter { $0.state == .active }
@@ -2580,6 +2591,7 @@ struct ConnectionStatusDetailView: View {
                 } footer: {
                     Text("All discovered nodes sorted by state and latency. Nodes are deduplicated by host:port.")
                 }
+                }
         }
         .alert("Clear connection pool?", isPresented: $showClearPoolConfirm) {
             Button("Clear", role: .destructive) {
@@ -2607,6 +2619,16 @@ struct ConnectionStatusDetailView: View {
                 await refreshNodeRecordsContinuously()
             }
         }
+    }
+
+    /// True when node selection is Automatic Scan (empty trusted node address), i.e. the
+    /// gRPC node pool is actually discovering and picking nodes. A non-empty address
+    /// (default recommended node, a saved entry, or free-text custom) pins the app to
+    /// that single node via NodeRegistry.setTrustedNode, so pool status is meaningless.
+    private var isAutomaticNodeSelection: Bool {
+        settingsViewModel.settings.trustedNodeAddress
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
     }
 
     private var poolHealthDescription: String {
