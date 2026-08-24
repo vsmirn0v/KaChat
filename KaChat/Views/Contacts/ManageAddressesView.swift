@@ -30,9 +30,11 @@ struct ManageAddressesView: View {
     /// Addresses that own at least one KNS domain (cached assets-by-owner lookup) - drives the
     /// "Contains domain" row tag and promotes those rows into the funded group in the sort.
     @State private var domainOwningAddresses: Set<String> = []
-    /// Addresses currently offered to contacts as payment-pool reservations (Chats Payment
-    /// Privacy). They carry the "Chat privacy address" tag and can't be hidden while reserved -
-    /// the user should always see which addresses are held ready for contacts to pay into.
+    /// Addresses in an ACTIVE live payment pool (Chats Payment Privacy). They carry the
+    /// "Chat privacy address" tag and can't be hidden while actively offered - the user should
+    /// always see which addresses are held ready for contacts to pay into. When an offer
+    /// reverts (our revoke, the contact's revoke, a superseding re-offer, or funding), the
+    /// address leaves this set and its row is a normal address again: tag gone, hideable.
     @State private var reservedPoolAddresses: Set<String> = []
     /// Zero-balance addresses whose used/unused probe has NOT confirmed an answer - either
     /// still in flight this load, or failed (network/rate limit). Their badge shows a neutral
@@ -476,10 +478,11 @@ struct ManageAddressesView: View {
     private func loadEntries() async {
         // Legacy repair first: reservations offered under the old born-hidden design get
         // un-hidden so outstanding pools are on this screen without re-offering. Then keep the
-        // reserved set current - it drives the "Chat privacy address" tag and the hide guard.
+        // ACTIVE offered set current - it drives the "Chat privacy address" tag and the hide
+        // guard; reverted reservations are plain rows here.
         walletManager.unhideOfferedReservationsIfNeeded()
         if let wallet = walletManager.currentWallet {
-            reservedPoolAddresses = Set(PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress))
+            reservedPoolAddresses = Set(PaymentPoolStore.shared.activeOfferedReservationAddresses(wallet: wallet.publicAddress))
         }
         // Instant paint from the persisted snapshot of the last full load — the screen shows
         // rows immediately (even with the network down) while the live refresh below replaces
@@ -586,9 +589,11 @@ struct ManageAddressesView: View {
             // when the budget runs out or a probe fails do we fall through to deriving past
             // the all-time max, which is provably fresh by construction and needs no network
             // at all. A background reload reconciles afterwards.
+            // ACTIVE offers only - a reverted (revoked/superseded/funded-and-swept) and
+            // re-hidden reservation is a legitimate recycle candidate again.
             let reserved: Set<String> = {
                 guard let wallet = walletManager.currentWallet else { return [] }
-                return Set(PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress))
+                return Set(PaymentPoolStore.shared.activeOfferedReservationAddresses(wallet: wallet.publicAddress))
             }()
             let primaryIndex = walletManager.currentSpendingAddressIndex
             let candidates = entries
@@ -783,9 +788,10 @@ struct ContainsDomainTag: View {
     }
 }
 
-/// Capsule badge for spending-address rows currently offered to a contact as a Chats Payment
-/// Privacy pool reservation - held ready for that contact to pay into, so the row stays
-/// visible and can't be hidden while reserved. Same capsule treatment as ContainsDomainTag,
+/// Capsule badge for spending-address rows currently offered to a contact in a LIVE Chats
+/// Payment Privacy pool - held ready for that contact to pay into, so the row stays visible
+/// and can't be hidden while the offer is active. Drops when the offer reverts (revoke,
+/// superseding re-offer, or funding). Same capsule treatment as ContainsDomainTag,
 /// accent-tinted like the app's other inline badges.
 struct ChatPrivacyAddressTag: View {
     var body: some View {
@@ -2502,11 +2508,12 @@ private struct SpendingAddressVisibilityView: View {
     }
 
     private func load() async {
-        // Same legacy repair + reserved set Manage Addresses' loadEntries performs, so this
-        // sheet locks and tags reserved rows even when opened before that screen reloads.
+        // Same legacy repair + ACTIVE offered set Manage Addresses' loadEntries performs, so
+        // this sheet locks and tags live-pool rows even when opened before that screen
+        // reloads; reverted reservations toggle like any other row.
         walletManager.unhideOfferedReservationsIfNeeded()
         if let wallet = walletManager.currentWallet {
-            reservedAddresses = Set(PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress))
+            reservedAddresses = Set(PaymentPoolStore.shared.activeOfferedReservationAddresses(wallet: wallet.publicAddress))
         }
         entries = await walletManager.getSpendingAddressList()
         isLoading = false

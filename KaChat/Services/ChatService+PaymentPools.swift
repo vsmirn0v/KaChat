@@ -115,10 +115,12 @@ extension ChatService {
 
         try await sendInvisiblePoolEnvelope(to: contact, payload: payload)
 
-        store.markReservationsOffered(pending.map(\.address), for: contact.address, wallet: walletAddress)
-        // Offered addresses are always visible in Manage Addresses. Fresh indices were never
-        // hidden; this covers reservations recorded under the old born-hidden design whose
-        // send failed back then and only now succeeded.
+        // replace-ness propagates: a replace batch supersedes any other still-active offer to
+        // this contact (those revert to normal rows), an append top-up only activates its own.
+        store.markReservationsOffered(pending.map(\.address), for: contact.address, wallet: walletAddress, replace: replace)
+        // Actively offered addresses are always visible in Manage Addresses. Fresh indices
+        // were never hidden; this covers reservations recorded under the old born-hidden
+        // design whose send failed back then and only now succeeded.
         WalletManager.shared.unhideReservedIndices(pending.map(\.index))
         store.markPoolOffered(to: contact.address, wallet: walletAddress)
         store.recordPoolOfferServed(to: contact.address, wallet: walletAddress)
@@ -468,6 +470,12 @@ extension ChatService {
         // moment the empty pool is stored. No reciprocity on a revoke.
         if content.replace == true && accepted.isEmpty {
             store.mergeTheirPool(addresses: [], replace: true, for: contactAddress, wallet: walletAddress)
+            // The contact signalled pool disinterest (Chats Privacy off on their side): our
+            // offers to them leave the ACTIVE set too - their Manage Addresses rows revert to
+            // normal, untagged, hideable addresses. Protocol state (offered marker, watch set,
+            // payment_notice rendering) is untouched: a payment racing this revoke, or a
+            // straggler send into the old pool, still lands and renders.
+            store.markOffersInactive(for: contactAddress, wallet: walletAddress)
             AppLog.log("[ChatService] Pool REVOKED by %@ - cleared stored pool", String(contactAddress.suffix(10)))
             return
         }

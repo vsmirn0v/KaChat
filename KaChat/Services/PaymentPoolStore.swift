@@ -57,10 +57,19 @@ final class PaymentPoolStore {
         let address: String
         let index: Int
         /// True once the addr_pool envelope carrying this address was actually submitted.
+        /// HISTORICAL - never cleared: offered-ever addresses stay watched and payment_notice
+        /// renderable forever (a payment racing any kind of revoke must still land and render).
         var offered: Bool
         /// True once a payment_notice from the contact named this address as a payment
         /// destination - optional so states persisted before this field decode fine.
         var funded: Bool?
+        /// True while this address is part of the contact's CURRENT live pool - the set that
+        /// drives the "Chat privacy address" tag and the can't-hide lock. Cleared (reverted)
+        /// when: we revoke via the Chats Privacy toggle, the contact revokes at us, a
+        /// replace:true re-offer supersedes it, or a payment_notice marks it funded. Distinct
+        /// from `offered` (historical, above). Optional for decode compat: nil (pre-split
+        /// state) is interpreted as offered && !funded && contact-not-revoked-by-us.
+        var activeOffer: Bool?
     }
 
     struct TheirPoolAddress: Codable, Equatable {
@@ -161,14 +170,23 @@ final class PaymentPoolStore {
         (state(for: walletAddress).myReservations[contactAddress] ?? []).filter { !$0.offered }
     }
 
-    /// Flips the given reservations to offered once their addr_pool envelope was submitted.
-    func markReservationsOffered(_ addresses: [String], for contactAddress: String, wallet walletAddress: String) {
+    /// Flips the given reservations to offered (historical) and ACTIVE once their addr_pool
+    /// envelope was submitted. `replace: true` means the envelope carried replace semantics -
+    /// the batch IS the contact's whole live pool now, so any other reservation for this
+    /// contact still flagged active is superseded and reverts to a normal address (its
+    /// historical `offered` flag is untouched: it stays watched and notice-renderable).
+    func markReservationsOffered(_ addresses: [String], for contactAddress: String, wallet walletAddress: String, replace: Bool) {
         guard !addresses.isEmpty else { return }
         var current = state(for: walletAddress)
         guard var entries = current.myReservations[contactAddress] else { return }
         let target = Set(addresses)
-        for index in entries.indices where target.contains(entries[index].address) {
-            entries[index].offered = true
+        for index in entries.indices {
+            if target.contains(entries[index].address) {
+                entries[index].offered = true
+                entries[index].activeOffer = true
+            } else if replace {
+                entries[index].activeOffer = false
+            }
         }
         current.myReservations[contactAddress] = entries
         save(current, for: walletAddress)
@@ -222,14 +240,34 @@ final class PaymentPoolStore {
 
     /// Records a successful revoke: the contact no longer holds our pool, so the offered marker
     /// clears too - that's what lets the normal lazy offer re-fire after the toggle comes back
-    /// on. The reservations themselves are untouched: still reserved for this contact only,
-    /// still watched (a payment racing the revoke must land and render).
+    /// on. The reservations themselves stay recorded and historically offered (still reserved
+    /// for this contact only, still watched - a payment racing the revoke must land and
+    /// render), but they leave the ACTIVE set: their rows revert to normal, hideable,
+    /// untagged addresses until a re-offer reactivates them.
     func markPoolRevoked(for contactAddress: String, wallet walletAddress: String) {
         var current = state(for: walletAddress)
         var revoked = current.revokedContacts ?? []
         revoked.insert(contactAddress)
         current.revokedContacts = revoked
         current.offeredContacts.remove(contactAddress)
+        if var entries = current.myReservations[contactAddress] {
+            for index in entries.indices { entries[index].activeOffer = false }
+            current.myReservations[contactAddress] = entries
+        }
+        save(current, for: walletAddress)
+    }
+
+    /// The contact revoked at us (incoming empty replace:true addr_pool): our offers to them
+    /// leave the ACTIVE set - tag and hide-lock drop - without touching any protocol state
+    /// (offered marker, revokedContacts, throttles), so the normal offer lifecycle is
+    /// unaffected. Historical `offered` stays set: the addresses remain watched and a
+    /// payment_notice naming one still renders.
+    func markOffersInactive(for contactAddress: String, wallet walletAddress: String) {
+        var current = state(for: walletAddress)
+        guard var entries = current.myReservations[contactAddress],
+              entries.contains(where: { $0.activeOffer != false }) else { return }
+        for index in entries.indices { entries[index].activeOffer = false }
+        current.myReservations[contactAddress] = entries
         save(current, for: walletAddress)
     }
 
@@ -298,6 +336,9 @@ final class PaymentPoolStore {
               let index = entries.firstIndex(where: { $0.address == address }) else { return }
         guard entries[index].funded != true else { return }
         entries[index].funded = true
+        // Consumed: the address leaves the ACTIVE offered set - the row is governed by the
+        // funded rule from here (un-hideable via its balance, no longer tagged as an offer).
+        entries[index].activeOffer = false
         current.myReservations[contactAddress] = entries
         save(current, for: walletAddress)
     }
@@ -312,13 +353,35 @@ final class PaymentPoolStore {
             .index
     }
 
-    /// Every reserved-and-offered address across all contacts - these belong in the UTXO
-    /// subscription watched set so incoming pool payments are noticed promptly.
+    /// HISTORICAL: every address ever reserved-and-offered, across all contacts, regardless of
+    /// later revokes/supersedes/funding. This is the watch-and-render mapping: it belongs in
+    /// the UTXO subscription watched set (a payment racing any revoke must be noticed) and in
+    /// AddressActivityNotifier's pool-suppression set (those receives notify through the
+    /// chat's payment_notice, never as a generic wallet notification). Never shrinks. UI
+    /// tagging/locking uses `activeOfferedReservationAddresses` instead.
     func allOfferedReservationAddresses(wallet walletAddress: String) -> [String] {
         state(for: walletAddress).myReservations.values
             .flatMap { $0 }
             .filter(\.offered)
             .map(\.address)
+    }
+
+    /// ACTIVE: only the addresses currently offered in a live pool - this narrower set drives
+    /// the "Chat privacy address" tag, the Address Visibility lock, the row-menu Hide
+    /// suppression, the persistence-layer hide refusal, and Generate's recycling exclusion.
+    /// An address leaves it when we revoke (Chats Privacy off), the contact revokes at us, a
+    /// replace:true re-offer supersedes it, or it gets funded - after which its row is a
+    /// normal address again. Entries persisted before the active/historical split (activeOffer
+    /// == nil) fall back to offered && never funded && contact not revoked by us, which is
+    /// exactly what "active" meant then.
+    func activeOfferedReservationAddresses(wallet walletAddress: String) -> [String] {
+        let current = state(for: walletAddress)
+        let revoked = current.revokedContacts ?? []
+        return current.myReservations.flatMap { contactAddress, entries in
+            entries
+                .filter { $0.activeOffer ?? ($0.offered && $0.funded != true && !revoked.contains(contactAddress)) }
+                .map(\.address)
+        }
     }
 
     /// True if `address` is reserved (for ANY contact) by this wallet - used both for the
