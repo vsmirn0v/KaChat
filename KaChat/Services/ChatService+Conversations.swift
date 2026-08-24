@@ -2653,51 +2653,76 @@ extension ChatService {
 
     /// Whether an address has ever appeared in a transaction, independent of its current
     /// balance (a swept-to-zero address still counts as used) — powers the "Used"/"Unused"
-    /// badge in Manage Addresses. A single-item history lookup, not a balance check.
+    /// badge in Manage Addresses. A transaction-count lookup, not a balance check.
     ///
     /// "Used" is MONOTONIC and address-intrinsic: once true it can never become false again,
     /// so positive answers are cached persistently and answered without a network round-trip
-    /// forever after. Negative ("unused") answers are NOT cached — an unused address can become
-    /// used at any moment. This is what makes Manage Addresses / Address Visibility (and cold
+    /// forever after. Negative ("unused") answers are cached ONLY for this process's lifetime
+    /// (`sessionUnusedAddresses`) — an unused address can become used at any moment, but only
+    /// via our own sends or an external deposit, and a deposit means a nonzero balance, which
+    /// every list load short-circuits to "used" before consulting any cache. Never persisted
+    /// across launches. This is what makes Manage Addresses / Address Visibility (and cold
     /// storage discovery, which shares this primitive) open instantly instead of re-deriving
     /// used-ness over the network every time.
     private static let usedAddressCacheKey = "kachat_used_addresses_v1"
+    /// Session-only memory of CONFIRMED-unused probe results. In-memory by design: it must
+    /// die with the process so a stale "unused" can never survive into a later launch.
+    private static var sessionUnusedAddresses: Set<String> = []
     func hasSpendingAddressBeenUsed(_ address: String) async -> Bool {
         await spendingAddressUsedState(address) ?? false
     }
 
-    /// Tri-state variant of `hasSpendingAddressBeenUsed`: `true` = confirmed used (cached or a
-    /// successful history lookup found a transaction), `false` = CONFIRMED unused (the REST
-    /// probe succeeded and the history is genuinely empty), `nil` = the probe FAILED (network
-    /// error, non-2xx, decode failure) so used-ness is unknown right now. Callers that make
-    /// decisions off "unused" (the Generate recyclers, the Used/Unused badge) must treat `nil`
-    /// as "don't know" - never as "unused" - so a rate-limited or offline probe can't recycle
-    /// or mislabel an address that actually has history. A single one-item request either way.
-    func spendingAddressUsedState(_ address: String) async -> Bool? {
+    /// Cache-only, synchronous view of used-ness: `true` = persistently confirmed used,
+    /// `false` = confirmed unused earlier THIS session, `nil` = no cached answer (a network
+    /// probe is needed). Lets list loads label rows on the first frame without a round-trip.
+    func cachedSpendingAddressUsedState(_ address: String) -> Bool? {
         let cached = UserDefaults.standard.array(forKey: Self.usedAddressCacheKey) as? [String] ?? []
         if cached.contains(address) { return true }
-        guard let url = kaspaRestURL(
-            path: "/addresses/\(address)/full-transactions",
-            queryItems: [
-                URLQueryItem(name: "limit", value: "1"),
-                URLQueryItem(name: "offset", value: "0"),
-                URLQueryItem(name: "resolve_previous_outpoints", value: "light")
-            ]
-        ) else { return nil }
+        if Self.sessionUnusedAddresses.contains(address) { return false }
+        return nil
+    }
+
+    /// Marks an address confirmed-used without a probe — e.g. it holds a balance right now,
+    /// which proves history. "Used" is monotonic, so persisting this is always safe and makes
+    /// every future launch answer instantly even after the balance is swept back to zero.
+    func markSpendingAddressUsed(_ address: String) {
+        Self.sessionUnusedAddresses.remove(address)
+        var updated = UserDefaults.standard.array(forKey: Self.usedAddressCacheKey) as? [String] ?? []
+        guard !updated.contains(address) else { return }
+        updated.append(address)
+        UserDefaults.standard.set(updated, forKey: Self.usedAddressCacheKey)
+    }
+
+    /// Tri-state variant of `hasSpendingAddressBeenUsed`: `true` = confirmed used (cached or a
+    /// successful count lookup found history), `false` = CONFIRMED unused (the REST probe
+    /// succeeded and the count is genuinely zero), `nil` = the probe FAILED (network error,
+    /// non-2xx, decode failure) so used-ness is unknown right now. Callers that make
+    /// decisions off "unused" (the Generate recyclers, the Used/Unused badge) must treat `nil`
+    /// as "don't know" - never as "unused" - so a rate-limited or offline probe can't recycle
+    /// or mislabel an address that actually has history.
+    ///
+    /// The network probe is `GET /addresses/{address}/transactions-count` — a one-integer JSON
+    /// body ({"total": N}, ~14 bytes) instead of the old `full-transactions?limit=1&
+    /// resolve_previous_outpoints=light`, which made the server assemble (and us download and
+    /// decode) an entire transaction with resolved outpoints just to answer a yes/no question.
+    /// A short per-request timeout keeps a hung host from pinning a sweep's concurrency slot.
+    func spendingAddressUsedState(_ address: String) async -> Bool? {
+        if let cached = cachedSpendingAddressUsedState(address) { return cached }
+        guard let url = kaspaRestURL(path: "/addresses/\(address)/transactions-count") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
                 return nil
             }
-            let transactions = try JSONDecoder().decode([KaspaFullTransactionResponse].self, from: data)
-            let used = !transactions.isEmpty
+            let count = try JSONDecoder().decode(KaspaAddressTransactionsCountResponse.self, from: data)
+            let used = count.total > 0
             if used {
-                var updated = UserDefaults.standard.array(forKey: Self.usedAddressCacheKey) as? [String] ?? []
-                if !updated.contains(address) {
-                    updated.append(address)
-                    UserDefaults.standard.set(updated, forKey: Self.usedAddressCacheKey)
-                }
+                markSpendingAddressUsed(address)
+            } else {
+                Self.sessionUnusedAddresses.insert(address)
             }
             return used
         } catch {
@@ -3867,4 +3892,11 @@ extension ChatService {
 
     /// Check the Kasia indexer for a handshake matching the given txId
     /// Used as fallback when the Kaspa REST API doesn't return the transaction payload
+}
+
+/// Response of `GET /addresses/{address}/transactions-count` on the Kaspa REST API — the
+/// one-integer body backing `spendingAddressUsedState`. Extra fields (e.g. `limit_exceeded`
+/// on newer servers) are ignored by the decoder.
+private struct KaspaAddressTransactionsCountResponse: Decodable {
+    let total: Int
 }

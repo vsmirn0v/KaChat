@@ -30,8 +30,12 @@ struct ManageAddressesView: View {
     /// Addresses that own at least one KNS domain (cached assets-by-owner lookup) - drives the
     /// "Contains domain" row tag and promotes those rows into the funded group in the sort.
     @State private var domainOwningAddresses: Set<String> = []
-    /// Zero-balance addresses whose used/unused history probe FAILED on the last load - their
-    /// badge shows a neutral "Checking" state instead of a possibly-wrong "Unused".
+    /// Zero-balance addresses whose used/unused probe has NOT confirmed an answer - either
+    /// still in flight this load, or failed (network/rate limit). Their badge shows a neutral
+    /// "Checking" state instead of a possibly-wrong "Unused", and Generate refuses to recycle
+    /// them without a targeted probe. Seeded with every unprobed row at the start of a load
+    /// and shrunk per-row the moment each probe lands, so low rows resolve within a second
+    /// or two of the screen opening instead of when the whole sweep ends.
     @State private var unknownUsedAddresses: Set<String> = []
     /// The bulk show/hide checklist (toolbar top-right).
     @State private var showVisibilityManager = false
@@ -468,22 +472,46 @@ struct ManageAddressesView: View {
         isLoading = entries.isEmpty
         let baseEntries = await walletManager.getSpendingAddressList()
 
+        // Resolve everything answerable WITHOUT a network probe before the rows paint:
+        // funded rows are used by definition (a balance proves history - persist that, it's
+        // monotonic), and zero-balance rows take a cached answer when one exists (persistent
+        // used cache, or this session's confirmed-unused memory). Only rows with no cached
+        // answer go on the probe list; a failed earlier probe keeps its last known everUsed
+        // (from the cached snapshot / previous load) instead of resetting to false.
+        let previousUsed = Dictionary(entries.map { ($0.address, $0.everUsed) }, uniquingKeysWith: { first, _ in first })
+        var toProbe: [SpendingAddressEntry] = []
+        var merged = baseEntries.map { entry -> SpendingAddressEntry in
+            var updated = entry
+            if entry.balanceSompi > 0 {
+                updated.everUsed = true
+                chatService.markSpendingAddressUsed(entry.address)
+            } else if let cached = chatService.cachedSpendingAddressUsedState(entry.address) {
+                updated.everUsed = cached
+            } else {
+                updated.everUsed = previousUsed[entry.address] ?? false
+                toProbe.append(entry)
+            }
+            return updated
+        }
+        merged.sort { $0.index < $1.index }
+        entries = merged
+        // Every not-yet-confirmed row shows "Checking" from the first frame and clears the
+        // moment its OWN probe lands below - not when the whole sweep ends.
+        unknownUsedAddresses = Set(toProbe.map(\.address))
+        isLoading = false
+
+        // Lowest indices first: they are the Generate-recycling candidates, so they should be
+        // the first badges to resolve (within a second or two of the screen opening).
+        //
         // Bounded concurrency, not fully serial and not unbounded: firing every zero-balance
         // address's request at once risked the REST host/CDN rate-limiting the burst and
-        // returning a degraded response that isn't a clean empty result, which read as every
-        // address being "used" - but one-at-a-time made load time scale linearly with how many
-        // zero-balance addresses existed, which was the main thing making this screen feel slow
-        // to open. A small concurrency cap keeps each in-flight batch small (same per-request
-        // isolation the old comment cared about) while cutting wall-clock time roughly
-        // proportional to the cap.
-        let concurrencyLimit = 4
-        let toCheck = baseEntries.filter { $0.balanceSompi == 0 }
-        // Tri-state per address: true/false = confirmed by a successful probe, nil = the probe
-        // failed (network/rate-limit) - those rows show a neutral badge, never "Unused".
-        var usedByAddress: [String: Bool] = [:]
-        var failedProbes: Set<String> = []
-
-        var pending = toCheck.makeIterator()
+        // returning a degraded response that isn't a clean empty result - but one-at-a-time
+        // made load time scale linearly with how many zero-balance addresses existed. The cap
+        // is 8 now that each probe is a one-integer transactions-count response instead of a
+        // full resolved transaction, so even a full in-flight batch is tiny on the wire.
+        toProbe.sort { $0.index < $1.index }
+        let concurrencyLimit = 8
+        var pending = toProbe.makeIterator()
         await withTaskGroup(of: (String, Bool?).self) { group in
             for _ in 0..<concurrencyLimit {
                 guard let entry = pending.next() else { break }
@@ -491,34 +519,20 @@ struct ManageAddressesView: View {
             }
             while let (address, used) = await group.next() {
                 if let used {
-                    usedByAddress[address] = used
-                } else {
-                    failedProbes.insert(address)
+                    if let position = entries.firstIndex(where: { $0.address == address }) {
+                        entries[position].everUsed = used
+                    }
+                    unknownUsedAddresses.remove(address)
+                    AppLog.log("[ManageAddresses] everUsed check address=%@ used=%@", address, used ? "true" : "false")
                 }
+                // A failed probe stays in unknownUsedAddresses: the badge keeps showing
+                // "Checking" (never a possibly-wrong "Unused") and pull to refresh retries.
                 if let entry = pending.next() {
                     group.addTask { (entry.address, await self.chatService.spendingAddressUsedState(entry.address)) }
                 }
             }
         }
 
-        // A failed probe keeps the last known everUsed (from the cached snapshot / previous
-        // load) instead of silently resetting the row to base's default false.
-        let previousUsed = Dictionary(entries.map { ($0.address, $0.everUsed) }, uniquingKeysWith: { first, _ in first })
-        let updatedEntries = baseEntries.map { entry -> SpendingAddressEntry in
-            var updated = entry
-            if let used = usedByAddress[entry.address] {
-                updated.everUsed = used
-                AppLog.log("[ManageAddresses] everUsed check address=%@ index=%d used=%@", entry.address, entry.index, used ? "true" : "false")
-            } else if failedProbes.contains(entry.address), let previous = previousUsed[entry.address] {
-                updated.everUsed = previous
-            }
-            return updated
-        }
-        entries = updatedEntries.sorted { $0.index < $1.index }
-        unknownUsedAddresses = failedProbes.filter { address in
-            !(entries.first(where: { $0.address == address })?.everUsed ?? false)
-        }
-        isLoading = false
         // Persist the freshly-loaded snapshot so the NEXT open paints instantly from cache.
         walletManager.storeSpendingAddressListCache(entries)
 
@@ -545,27 +559,58 @@ struct ManageAddressesView: View {
             //
             // Fast path (Android parity): pick from the rows this screen already live-loaded
             // instead of re-fetching the list and re-probing history per press - recycling
-            // trusts only a this-load confirmed-unused row, and everything else falls through
-            // to deriving past the all-time max, which is provably fresh by construction and
-            // needs no network at all. A background reload reconciles afterwards.
+            // trusts only a session-confirmed-unused row. A candidate whose probe hasn't
+            // resolved yet (still "Checking") gets ONE targeted probe of just that row,
+            // walking up to the next candidate when it turns out used, under a short overall
+            // budget so the press never feels slow - this is what makes Generate reliably
+            // yield the LOWEST unused index instead of skipping unresolved low rows. Only
+            // when the budget runs out or a probe fails do we fall through to deriving past
+            // the all-time max, which is provably fresh by construction and needs no network
+            // at all. A background reload reconciles afterwards.
             let reserved: Set<String> = {
                 guard let wallet = walletManager.currentWallet else { return [] }
                 return Set(PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress))
             }()
             let primaryIndex = walletManager.currentSpendingAddressIndex
-            let candidate = entries
+            let candidates = entries
                 .sorted { $0.index < $1.index }
-                .first { entry in
+                .filter { entry in
                     entry.hidden
                         && entry.index != primaryIndex
                         && entry.balanceSompi == 0
                         && !entry.everUsed
-                        && !unknownUsedAddresses.contains(entry.address)
                         && !reserved.contains(entry.address)
                 }
+            var chosen: Int?
+            let probeDeadline = Date().addingTimeInterval(2.0)
+            for candidate in candidates {
+                // Re-check against LIVE row state: the background sweep may have resolved
+                // this row (either way) while an earlier iteration's probe was in flight.
+                let live = entries.first(where: { $0.address == candidate.address }) ?? candidate
+                if live.everUsed || live.balanceSompi > 0 || !live.hidden { continue }
+                if !unknownUsedAddresses.contains(candidate.address) {
+                    // Confirmed unused this session - the true lowest recyclable row.
+                    chosen = candidate.index
+                    break
+                }
+                // Unresolved: one targeted probe of just this row, bounded by what's left
+                // of the press's overall budget.
+                guard let used = await timedUsedProbe(candidate.address, deadline: probeDeadline) else {
+                    break // budget spent or probe failed - the derive-past-max path is always safe
+                }
+                if let position = entries.firstIndex(where: { $0.address == candidate.address }) {
+                    entries[position].everUsed = used
+                }
+                unknownUsedAddresses.remove(candidate.address)
+                if !used {
+                    chosen = candidate.index
+                    break
+                }
+                // Confirmed used: keep walking to the next-lowest candidate.
+            }
             let index: Int
-            if let candidate {
-                index = candidate.index
+            if let chosen {
+                index = chosen
                 _ = await walletManager.setSpendingAddressHidden(index: index, hidden: false)
                 if let i = entries.firstIndex(where: { $0.index == index }) {
                     entries[i].hidden = false
@@ -593,6 +638,26 @@ struct ManageAddressesView: View {
             // here never scheduled a dismissal, so the success toast lingered indefinitely.
             showToast("Spending address #\(index) is ready.")
             Task { await loadEntries() }
+        }
+    }
+
+    /// One used-state probe raced against Generate's overall deadline. Returns the probe's
+    /// tri-state answer, collapsed to `nil` for BOTH "probe failed" and "deadline hit" -
+    /// Generate treats the two identically (don't recycle, fall back to derive-past-max).
+    /// Returns immediately without a request when the budget is already gone.
+    private func timedUsedProbe(_ address: String, deadline: Date) async -> Bool? {
+        let remaining = deadline.timeIntervalSinceNow
+        guard remaining > 0.05 else { return nil }
+        let service = chatService
+        return await withTaskGroup(of: Bool?.self) { group in
+            group.addTask { await service.spendingAddressUsedState(address) }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
         }
     }
 
