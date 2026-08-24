@@ -2715,6 +2715,12 @@ extension ChatService {
         let isUserViewing = activeConversationAddress == contactAddress &&
             UIApplication.shared.applicationState == .active
 
+        // Floor the per-contact read cursor at the wallet-import moment: anything mined before
+        // the wallet first landed on this device is backfilled history (seed re-import initial
+        // sync, forced from-genesis contact sync, catch-up after an archive restore), not new
+        // mail - it must land read and must not notify. 0 for pre-existing wallets (no gating).
+        let importBaselineMs = walletImportBaselineMs(for: WalletManager.shared.currentWallet?.publicAddress)
+
         if let index = conversations.firstIndex(where: { $0.contact.address == contactAddress }) {
             updateConversation(at: index) { conversation in
                 if !conversation.messages.contains(where: { $0.txId == message.txId }) {
@@ -2723,10 +2729,11 @@ extension ChatService {
                     if !message.isOutgoing {
                         if isUserViewing {
                             conversation.unreadCount = 0
-                        } else if Int64(message.blockTime) > (readCursorByAddress[contactAddress] ?? 0) {
-                            // Only bump for messages newer than the persisted read cursor - a
-                            // re-fetched already-read message (initial full re-sync) must not
-                            // resurrect unread. See `readCursorByAddress`.
+                        } else if Int64(message.blockTime) > max(readCursorByAddress[contactAddress] ?? 0, importBaselineMs) {
+                            // Only bump for messages newer than the persisted read cursor (floored
+                            // at the wallet-import baseline) - a re-fetched already-read message
+                            // (initial full re-sync) or pre-import history must not resurrect
+                            // unread. See `readCursorByAddress` / `walletImportBaselineMs`.
                             conversation.unreadCount += 1
                         }
                     }
@@ -2741,7 +2748,7 @@ extension ChatService {
             isNewMessage = true
             isNewConversation = true
             if !message.isOutgoing {
-                let isAlreadyRead = Int64(message.blockTime) <= (readCursorByAddress[contactAddress] ?? 0)
+                let isAlreadyRead = Int64(message.blockTime) <= max(readCursorByAddress[contactAddress] ?? 0, importBaselineMs)
                 conversation.unreadCount = (isUserViewing || isAlreadyRead) ? 0 : 1
             }
             conversations.append(conversation)
@@ -2775,7 +2782,9 @@ extension ChatService {
         // Only suppress when the app is actively in the foreground AND the user is viewing that conversation.
         let isViewingConversation = activeConversationAddress == contactAddress &&
             UIApplication.shared.applicationState == .active
-        if isNewMessage && !message.isOutgoing && !isViewingConversation {
+        // Backfilled pre-import history never notifies either - restoring is not receiving.
+        let isBackfilledHistory = message.blockTime > 0 && Int64(message.blockTime) <= importBaselineMs
+        if isNewMessage && !message.isOutgoing && !isViewingConversation && !isBackfilledHistory {
             sendLocalNotification(for: message, from: contact)
         }
     }

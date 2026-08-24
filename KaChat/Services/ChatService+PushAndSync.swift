@@ -164,6 +164,22 @@ extension ChatService {
 
         progress?(.preparing)
 
+        // Restored history is history, not new mail: the shared cross-platform archive carries
+        // each conversation's unreadCount from the exporting device, but restoring must never
+        // mint unread badges here. Keep only whatever unread state THIS device already has -
+        // conversations the restore introduces land with unread 0.
+        let existingMeta = await messageStore.fetchConversationMeta()
+        var existingUnreadByAddress: [String: Int] = [:]
+        for (address, meta) in existingMeta {
+            existingUnreadByAddress[address] = max(0, meta.unreadCount)
+        }
+        for conversation in conversations {
+            existingUnreadByAddress[conversation.contact.address] = max(
+                existingUnreadByAddress[conversation.contact.address] ?? 0,
+                conversation.unreadCount
+            )
+        }
+
         let existingBefore = await messageStore.fetchAllMessages(decryptionKey: key)
         let existingOutgoingPlaceholderTxIds = Set(
             existingBefore.compactMap { stored -> String? in
@@ -212,11 +228,12 @@ extension ChatService {
                 }
             }
 
+            // Never adopt the archive's unreadCount (see existingUnreadByAddress above).
             let archived = Conversation(
                 id: archivedConversation.conversationId ?? UUID(),
                 contact: contact,
                 messages: importedMessages,
-                unreadCount: max(0, archivedConversation.unreadCount)
+                unreadCount: existingUnreadByAddress[contactAddress] ?? 0
             )
 
             if var existing = importedByAddress[contactAddress] {

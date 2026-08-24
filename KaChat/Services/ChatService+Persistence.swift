@@ -943,6 +943,36 @@ extension ChatService {
         }
     }
 
+    // MARK: - Wallet import baseline
+
+    private func walletImportBaselineKey(for address: String) -> String {
+        "kachat_wallet_import_baseline_\(address.lowercased())"
+    }
+
+    /// Stamps "now" as the import moment for a wallet that is NEW to this device. Called by
+    /// `WalletManager.importWallet` inside its `isNewWallet` branch only, so a same-account
+    /// re-login or a saved-account switch never moves an existing baseline forward (messages
+    /// that arrived while logged out must still land unread there). Keyed per wallet address,
+    /// so it survives wallet switches and `resetForNewWallet`'s fixed-key cleanup.
+    func recordWalletImportBaseline(address: String) {
+        guard !address.isEmpty else { return }
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        userDefaults.set(nowMs, forKey: walletImportBaselineKey(for: address))
+        cachedWalletImportBaseline = (address, nowMs)
+    }
+
+    /// The import baseline (ms) for `address`, or 0 when none was ever recorded - wallets that
+    /// predate the baseline get 0, which disables the backfill gating entirely.
+    func walletImportBaselineMs(for address: String?) -> Int64 {
+        guard let address, !address.isEmpty else { return 0 }
+        if let cached = cachedWalletImportBaseline, cached.address == address {
+            return cached.blockTimeMs
+        }
+        let stored = Int64(userDefaults.integer(forKey: walletImportBaselineKey(for: address)))
+        cachedWalletImportBaseline = (address, stored)
+        return stored
+    }
+
     func clearSyncObjectCursors() {
         syncObjectCursors = [:]
         syncObjectCursorsDirty = false

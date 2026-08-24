@@ -75,6 +75,14 @@ final class ChatService: ObservableObject {
     /// existing behavior. Cleared on wallet switch.
     var readCursorByAddress: [String: Int64] = [:]
 
+    /// Cache for the persisted per-wallet import baseline (ms since epoch) - the moment the
+    /// wallet first landed on this device. Everything mined before it is history a re-import or
+    /// backfill fetches, not new mail, so `addMessageToConversation` treats it as a floor on the
+    /// per-contact read cursor (no unread badges, no local notifications for backfilled history).
+    /// 0 / absent for wallets imported before this existed, which disables the gate entirely and
+    /// preserves their old behavior. See `recordWalletImportBaseline` / `walletImportBaselineMs`.
+    var cachedWalletImportBaseline: (address: String, blockTimeMs: Int64)?
+
     enum ContactFetchResult {
         case success(added: Bool)
         case failure

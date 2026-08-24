@@ -579,6 +579,7 @@ final class GroupChatService: ObservableObject {
     /// as well as member ones. Mints a fresh deviceId per group so this device's sends can't
     /// collide with msg_ids the exporting device already used; never downgrades a newer epoch.
     func importArchiveGroups(_ archiveGroups: [ChatHistoryArchiveGroup]) {
+        var seededReadMarkers = false
         for g in archiveGroups {
             // Never resurrect a group you deleted (tombstoned) - same rule as the on-chain path.
             if isGroupTombstoned(g.groupId) { continue }
@@ -614,6 +615,20 @@ final class GroupChatService: ObservableObject {
                     content: m.content, blockTime: Int64(m.blockTime), isOutgoing: m.isOutgoing
                 )
             }
+
+            // Restored history is history, not new mail: without a read marker this group would
+            // count every restored (and immediately catch-up-fetched) message as unread, plus
+            // the "never opened" minimum badge for member groups. Seed the marker at the restore
+            // moment - but only when this device has none, so a live device's genuine unread
+            // state is left alone.
+            if groupLastReadAt[g.groupId] == nil {
+                groupLastReadAt[g.groupId] = Date()
+                seededReadMarkers = true
+            }
+        }
+        if seededReadMarkers {
+            saveGroupLastReadAt()
+            ChatService.shared.scheduleBadgeUpdate()
         }
         groups = store.allGroups()
     }

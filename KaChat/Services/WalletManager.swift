@@ -392,6 +392,10 @@ final class WalletManager: ObservableObject {
         // This ensures lastPollTime=0 so all historical messages are fetched
         if isNewWallet {
             AppLog.log("%@", "[WalletManager] Importing new wallet, resetting chat and contacts data")
+            // Stamp the import moment BEFORE any sync starts: everything mined earlier is
+            // history the initial sync backfills, and it must land read and silent (no unread
+            // badges, no notifications). See ChatService.walletImportBaselineMs.
+            ChatService.shared.recordWalletImportBaseline(address: wallet.publicAddress)
             // Pass skipStoreClear=true since the new wallet's store is already empty
             ChatService.shared.resetForNewWallet(skipStoreClear: true)
             ContactsManager.shared.deleteAllContacts()
