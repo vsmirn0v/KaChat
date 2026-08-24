@@ -1523,7 +1523,21 @@ struct ChatDetailView: View {
             if isDeclined {
                 EmptyView()
             } else if inputMode == .message && pendingPhotoImage == nil && messageText.isEmpty {
-                composerPlusMenu
+                HStack(spacing: 8) {
+                    // One-tap shortcut into payment mode - same switchMode(.payment) path as the
+                    // "+" menu's Send Kaspa entry (which stays available too). Lives only in this
+                    // empty-message-mode branch, so it follows exactly the same visibility rules
+                    // as the "+" button and is hidden while already in payment mode, where the
+                    // existing "Send message" quick action covers the exit.
+                    composerQuickActionButton(
+                        title: "Send KAS",
+                        icon: "KaspaLogo",
+                        isAssetImage: true
+                    ) {
+                        switchMode(.payment)
+                    }
+                    composerPlusMenu
+                }
             } else if shouldShowComposerQuickActions {
                 composerQuickActions
             } else if shouldShowAudioModeSwitchActions {
