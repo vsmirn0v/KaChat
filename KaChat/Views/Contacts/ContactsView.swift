@@ -30,11 +30,9 @@ struct ProfileView: View {
     @State private var knsPrimaryDomain: String?
     @State private var knsProfileInfo: KNSAddressProfileInfo?
     @State private var showMoreProfileInfo = false
-    @State private var showChattingAddressOptions = false
     @State private var showWithdrawSheet = false
     @State private var spendingAddressBalanceSompi: UInt64?
     @State private var isLoadingSpendingBalance = false
-    @State private var showSpendingAddressOptions = false
     @State private var showSpendingAddressWithdraw = false
     @State private var showAvatarPreview = false
     @State private var showKNSEditor = false
@@ -905,106 +903,117 @@ struct ProfileView: View {
             .background(Circle().fill(Color.accentColor))
     }
 
-    // MARK: - Address dropdown rows (Chatting Address / Spending Address)
+    // MARK: - Address action rows (Chatting Address / Spending Address)
 
+    /// Two single-line glass cards, one per address role. Each shows the role title, the
+    /// (shortened, monospaced) address and its balance on the left, and three compact icon
+    /// buttons on the right: Copy, Send, Manage. Replaces the old expanding dropdowns that
+    /// hid the same three actions behind a chevron tap.
     private func addressDropdownsSection(_ wallet: Wallet) -> some View {
         VStack(spacing: 12) {
-            chattingAddressDropdown(wallet)
-            spendingAddressRow()
+            addressActionRow(
+                title: "Chatting Address",
+                address: wallet.publicAddress,
+                balanceText: wallet.balanceSompi.map { "\(formatKaspaExact($0)) KAS" },
+                onSend: { showWithdrawSheet = true }
+            ) {
+                ChattingAddressManageView(address: wallet.publicAddress)
+            }
+            addressActionRow(
+                title: "Spending Address",
+                address: walletManager.currentSpendingAddress(),
+                balanceText: spendingAddressBalanceSompi.map { "\(formatKaspaExact($0)) KAS" },
+                isLoadingBalance: isLoadingSpendingBalance,
+                onSend: { showSpendingAddressWithdraw = true }
+            ) {
+                ManageAddressesView()
+            }
         }
     }
 
-    private func spendingAddressRow() -> some View {
-        VStack(spacing: 0) {
-            Button {
-                Haptics.impact(.light)
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showSpendingAddressOptions.toggle()
+    /// One compact address card. `address` is optional because the current spending address
+    /// can be momentarily unresolvable while the keychain unlocks; in that state the Copy and
+    /// Send actions are inert guards rather than the wrong address.
+    private func addressActionRow<Destination: View>(
+        title: String,
+        address: String?,
+        balanceText: String?,
+        isLoadingBalance: Bool = false,
+        onSend: @escaping () -> Void,
+        @ViewBuilder manageDestination: @escaping () -> Destination
+    ) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                if let address {
+                    Text("\(address.prefix(12))…\(address.suffix(6))")
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text("Address unlocking...")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
                 }
-            } label: {
-                HStack {
-                    Text("Spending Address")
-                        .font(.body)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.primary)
-                    Spacer()
-                    if isLoadingSpendingBalance {
-                        ProgressView().scaleEffect(0.75)
-                    } else {
-                        Text(spendingAddressBalanceSompi.map { "\(formatKaspaExact($0)) KAS" } ?? "—")
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.accentColor)
-                    }
-                    Image(systemName: showSpendingAddressOptions ? "chevron.up" : "chevron.down")
+                if isLoadingBalance {
+                    ProgressView()
+                        .scaleEffect(0.6, anchor: .leading)
+                        .frame(height: 14, alignment: .leading)
+                } else if let balanceText {
+                    Text(balanceText)
                         .font(.caption)
+                        .fontWeight(.semibold)
                         .foregroundColor(.accentColor)
+                        .lineLimit(1)
                 }
-                .padding(16)
-                .contentShape(Rectangle())
+            }
+            Spacer(minLength: 8)
+            addressRowIconButton(icon: "doc.on.doc", label: "Copy") {
+                guard let address else { return }
+                UIPasteboard.general.string = address
+                Haptics.success()
+                showToast("Address copied to clipboard.")
+            }
+            addressRowIconButton(icon: "arrow.up.circle.fill", label: "Send") {
+                guard address != nil else { return }
+                onSend()
+            }
+            NavigationLink {
+                manageDestination()
+            } label: {
+                addressRowIconLabel(icon: "gearshape", label: "Manage")
             }
             .buttonStyle(.plain)
-
-            if showSpendingAddressOptions {
-                Divider()
-                    .padding(.leading, 16)
-                Button {
-                    guard let address = walletManager.currentSpendingAddress() else { return }
-                    UIPasteboard.general.string = address
-                    Haptics.success()
-                    showToast("Address copied to clipboard.")
-                } label: {
-                    HStack {
-                        Text("Copy Address")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "doc.on.doc")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Divider()
-                    .padding(.leading, 16)
-                Button {
-                    showSpendingAddressWithdraw = true
-                } label: {
-                    HStack {
-                        Text("Send Kaspa")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Divider()
-                    .padding(.leading, 16)
-                NavigationLink {
-                    ManageAddressesView()
-                } label: {
-                    HStack {
-                        Text("Manage Addresses")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .background(glassBackground(cornerRadius: 18))
+    }
+
+    private func addressRowIconButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            addressRowIconLabel(icon: icon, label: label)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func addressRowIconLabel(icon: String, label: String) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(.accentColor)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(.regularMaterial))
+                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .contentShape(Rectangle())
     }
 
     private func loadSpendingAddressBalance() async {
@@ -1018,94 +1027,6 @@ struct ProfileView: View {
         let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
         spendingAddressBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
         isLoadingSpendingBalance = false
-    }
-
-    private func chattingAddressDropdown(_ wallet: Wallet) -> some View {
-        VStack(spacing: 0) {
-            Button {
-                Haptics.impact(.light)
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showChattingAddressOptions.toggle()
-                }
-            } label: {
-                HStack {
-                    Text("Chatting Address")
-                        .font(.body)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.primary)
-                    Spacer()
-                    Text(wallet.balanceSompi.map { "\(formatKaspaExact($0)) KAS" } ?? "—")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.accentColor)
-                    Image(systemName: showChattingAddressOptions ? "chevron.up" : "chevron.down")
-                        .font(.caption)
-                        .foregroundColor(.accentColor)
-                }
-                .padding(16)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if showChattingAddressOptions {
-                Divider()
-                    .padding(.leading, 16)
-                Button {
-                    UIPasteboard.general.string = wallet.publicAddress
-                    Haptics.success()
-                    showToast("Address copied to clipboard.")
-                } label: {
-                    HStack {
-                        Text("Copy Address")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "doc.on.doc")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Divider()
-                    .padding(.leading, 16)
-                Button {
-                    showWithdrawSheet = true
-                } label: {
-                    HStack {
-                        Text("Send Kaspa")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Divider()
-                    .padding(.leading, 16)
-                NavigationLink {
-                    ChattingAddressManageView(address: wallet.publicAddress)
-                } label: {
-                    HStack {
-                        Text("Manage Address")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .background(glassBackground(cornerRadius: 18))
     }
 
     private func glassBackground(cornerRadius: CGFloat) -> some View {
