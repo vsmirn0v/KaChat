@@ -638,6 +638,11 @@ struct ManageAddressesView: View {
                 _ = await walletManager.setSpendingAddressHidden(index: index, hidden: false)
                 if let i = entries.firstIndex(where: { $0.index == index }) {
                     entries[i].hidden = false
+                    // A recycled reverted reservation is now a personal address: never
+                    // re-offer it to its original contact on a privacy re-enable.
+                    if let wallet = walletManager.currentWallet {
+                        PaymentPoolStore.shared.markReclaimed(address: entries[i].address, wallet: wallet.publicAddress)
+                    }
                 }
             } else {
                 await walletManager.generateNextSpendingAddress()

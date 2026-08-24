@@ -337,6 +337,9 @@ extension WalletManager {
             let usedState = await ChatService.shared.spendingAddressUsedState(entry.address)
             if usedState == false {
                 _ = await setSpendingAddressHidden(index: entry.index, hidden: false)
+                if let wallet = currentWallet {
+                    PaymentPoolStore.shared.markReclaimed(address: entry.address, wallet: wallet.publicAddress)
+                }
                 return entry.index
             }
         }

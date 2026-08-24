@@ -70,6 +70,11 @@ final class PaymentPoolStore {
         /// from `offered` (historical, above). Optional for decode compat: nil (pre-split
         /// state) is interpreted as offered && !funded && contact-not-revoked-by-us.
         var activeOffer: Bool?
+        /// True once Generate reclaimed this reverted reservation as a personal fresh address.
+        /// Reclaimed entries are never re-offered to their original contact on a privacy
+        /// re-enable (the address is no longer promised to anyone); the entry itself stays,
+        /// so watching and payment_notice rendering keep covering it.
+        var reclaimed: Bool?
     }
 
     struct TheirPoolAddress: Codable, Equatable {
@@ -202,7 +207,25 @@ final class PaymentPoolStore {
     /// indices per cycle - the contact discarded these on revoke, they're still reserved for
     /// this contact alone, and never-funded means re-offering them creates no address reuse.
     func reofferableReservations(for contactAddress: String, wallet walletAddress: String) -> [ReservedAddress] {
-        (state(for: walletAddress).myReservations[contactAddress] ?? []).filter { $0.funded != true }
+        (state(for: walletAddress).myReservations[contactAddress] ?? []).filter { $0.funded != true && $0.reclaimed != true }
+    }
+
+    /// Generate recycled a reverted reservation for personal use: mark it reclaimed so no
+    /// re-offer path ever hands it back to its original contact. No-op for addresses that
+    /// were never reservations.
+    func markReclaimed(address: String, wallet walletAddress: String) {
+        var s = state(for: walletAddress)
+        var changed = false
+        for (contact, entries) in s.myReservations {
+            var updated = entries
+            for i in updated.indices where updated[i].address == address && updated[i].reclaimed != true {
+                updated[i].reclaimed = true
+                updated[i].activeOffer = false
+                changed = true
+            }
+            if changed { s.myReservations[contact] = updated }
+        }
+        if changed { save(s, for: walletAddress) }
     }
 
     // MARK: - Revocation lifecycle (Chats Privacy toggle)
