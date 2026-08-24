@@ -542,13 +542,57 @@ struct ManageAddressesView: View {
             // A sequence, not a single answer: each press yields the lowest HIDDEN unused
             // index (un-hiding it), and extends the chain past the all-time max once no
             // hidden unused index remains - so repeat presses keep producing new rows.
-            let index = await walletManager.lowestUnusedSpendingAddress()
-            await loadEntries()
+            //
+            // Fast path (Android parity): pick from the rows this screen already live-loaded
+            // instead of re-fetching the list and re-probing history per press - recycling
+            // trusts only a this-load confirmed-unused row, and everything else falls through
+            // to deriving past the all-time max, which is provably fresh by construction and
+            // needs no network at all. A background reload reconciles afterwards.
+            let reserved: Set<String> = {
+                guard let wallet = walletManager.currentWallet else { return [] }
+                return Set(PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress))
+            }()
+            let primaryIndex = walletManager.currentSpendingAddressIndex
+            let candidate = entries
+                .sorted { $0.index < $1.index }
+                .first { entry in
+                    entry.hidden
+                        && entry.index != primaryIndex
+                        && entry.balanceSompi == 0
+                        && !entry.everUsed
+                        && !unknownUsedAddresses.contains(entry.address)
+                        && !reserved.contains(entry.address)
+                }
+            let index: Int
+            if let candidate {
+                index = candidate.index
+                _ = await walletManager.setSpendingAddressHidden(index: index, hidden: false)
+                if let i = entries.firstIndex(where: { $0.index == index }) {
+                    entries[i].hidden = false
+                }
+            } else {
+                await walletManager.generateNextSpendingAddress()
+                index = walletManager.maxSpendingAddressIndex
+                _ = await walletManager.setSpendingAddressHidden(index: index, hidden: false)
+                if let address = walletManager.spendingAddress(at: index) {
+                    entries.append(SpendingAddressEntry(
+                        index: index,
+                        address: address,
+                        balanceSompi: 0,
+                        isCurrent: false,
+                        everUsed: false,
+                        label: nil,
+                        hidden: false
+                    ))
+                    entries.sort { $0.index < $1.index }
+                }
+            }
             isGenerating = false
             // showToast auto-dismisses on the standard timer and replaces (never stacks or
             // extends) any toast a rapid earlier press put up. The old direct assignment
             // here never scheduled a dismissal, so the success toast lingered indefinitely.
             showToast("Spending address #\(index) is ready.")
+            Task { await loadEntries() }
         }
     }
 
