@@ -298,25 +298,72 @@ extension ChatService {
     /// the same payment (same `pendingTxId`) reuses the address already consumed for it instead
     /// of burning another.
     ///
+    /// CROSS-DEVICE DOUBLE-PAY PROTECTION: the pool's `used` flags are device-local, so when
+    /// the same seed runs on two devices, a payment sent from device A never marks the address
+    /// used on device B - B's next payment would land on the very address the pool feature
+    /// exists to keep fresh. Before consuming a candidate, this probes its on-chain history
+    /// (uncached transactions-count fetch, see `addressHasOnChainHistory`); an address with
+    /// ANY history is marked used locally (the skip persists) and the walk moves to the next
+    /// unused one. Only a genuinely failed probe (network error, unknown) consumes the
+    /// candidate anyway - a rare reuse beats failing the payment or silently leaking it to
+    /// the chatting address. The walk is bounded by the stored pool itself (at most
+    /// `PaymentPoolStore.maxStoredPoolSize` entries, typically `offerBatchSize`); every probe
+    /// is a one-integer body with an 8s timeout, and the first failure ends the probing.
+    /// If every pool address turns out used, the payment falls back to the chatting address
+    /// and the existing low-water `addr_pool_request` path asks the contact for more.
+    ///
+    /// async because of the probes; callers already run inside the serialized outgoing-tx
+    /// queue (`enqueueOutgoingTxOperation`), so the awaits cannot race another payment onto
+    /// the same pool slot.
+    ///
     /// Deliberately NOT gated on the sender's Chats Payment Privacy toggle: the RECIPIENT'S
     /// privacy governs the destination - if they shared fresh addresses, money arrives on one
     /// no matter the sender's setting. The sender's toggle only governs the FUNDING side
     /// (see `paymentFundingSourceAddress`).
-    func poolPaymentDestination(for contact: Contact, pendingTxId: String) -> String {
+    func poolPaymentDestination(for contact: Contact, pendingTxId: String) async -> String {
         let store = PaymentPoolStore.shared
         if let remembered = store.paymentDestination(forPendingTxId: pendingTxId) {
             return remembered
         }
         guard let wallet = WalletManager.shared.currentWallet else { return contact.address }
-        guard let poolAddress = store.nextUnusedPoolAddress(for: contact.address, wallet: wallet.publicAddress),
-              KaspaAddress.publicKey(from: poolAddress) != nil else {
-            return contact.address
+        let walletAddress = wallet.publicAddress
+
+        // Addresses another device already paid, discovered by the probes below. If any were
+        // skipped, the pool may have silently run low - run the (throttled, low-water-gated)
+        // top-up request on the way out, since the normal post-send request in
+        // `handlePoolPaymentSubmitted` never fires for a chatting-address fallback.
+        var skippedUsedElsewhere = 0
+        defer {
+            if skippedUsedElsewhere > 0 {
+                maybeRequestMorePoolAddresses(from: contact)
+            }
         }
-        store.markPoolAddressUsed(poolAddress, for: contact.address, wallet: wallet.publicAddress)
-        store.rememberPaymentDestination(poolAddress, pendingTxId: pendingTxId)
-        AppLog.log("[ChatService] Payment to %@ will use fresh pool address %@",
-                   String(contact.address.suffix(10)), String(poolAddress.suffix(10)))
-        return poolAddress
+
+        // Each iteration either consumes the head unused address (returns) or marks it used
+        // (persisted) and re-reads, so the loop is bounded by the stored pool size.
+        while let poolAddress = store.nextUnusedPoolAddress(for: contact.address, wallet: walletAddress) {
+            guard KaspaAddress.publicKey(from: poolAddress) != nil else {
+                // Undecodable pool entry: same chatting-address fallback as before.
+                return contact.address
+            }
+            if await addressHasOnChainHistory(poolAddress) == true {
+                // Another device (or a straggler payment) already used this address - burn it
+                // locally so no future send here picks it either, and walk on.
+                store.markPoolAddressUsed(poolAddress, for: contact.address, wallet: walletAddress)
+                skippedUsedElsewhere += 1
+                AppLog.log("[ChatService] Pool address %@ for %@ already has chain history (used by another device?) - skipping",
+                           String(poolAddress.suffix(10)), String(contact.address.suffix(10)))
+                continue
+            }
+            // Probe said clean (false) or could not answer (nil - proceed as today rather
+            // than fail the payment): consume this address.
+            store.markPoolAddressUsed(poolAddress, for: contact.address, wallet: walletAddress)
+            store.rememberPaymentDestination(poolAddress, pendingTxId: pendingTxId)
+            AppLog.log("[ChatService] Payment to %@ will use fresh pool address %@",
+                       String(contact.address.suffix(10)), String(poolAddress.suffix(10)))
+            return poolAddress
+        }
+        return contact.address
     }
 
     /// True when the NEXT payment to this contact would go to a fresh pool address - drives the

@@ -2169,9 +2169,11 @@ extension ChatService {
         // Fresh-address payment pools: pay a fresh address from the contact's stored pool when
         // one is available (chain observers can't link the payment to their chat identity),
         // falling back to the chatting address when no pool exists. Consumed at selection and
-        // remembered per pending id so retries reuse the same destination. See
+        // remembered per pending id so retries reuse the same destination. async: it probes
+        // each candidate's on-chain history first, so a pool address already paid by another
+        // device running the same seed is skipped instead of reused. See
         // `ChatService+PaymentPools.swift` / MESSAGING.md.
-        let destinationAddress = poolPaymentDestination(for: contact, pendingTxId: activePendingTxId)
+        let destinationAddress = await poolPaymentDestination(for: contact, pendingTxId: activePendingTxId)
 
         do {
             let rpcManager = NodePoolService.shared
@@ -2725,6 +2727,32 @@ extension ChatService {
                 Self.sessionUnusedAddresses.insert(address)
             }
             return used
+        } catch {
+            return nil
+        }
+    }
+
+    /// Uncached on-chain history probe for an address that is NOT one of our own - a contact's
+    /// pool address (cross-device double-pay protection in `poolPaymentDestination`). Same
+    /// one-integer transactions-count fetch as `spendingAddressUsedState`, but it deliberately
+    /// bypasses BOTH used-address caches: those are keyed by bare address and exist for THIS
+    /// wallet's own spending chain (Manage Addresses badges, Generate recycling, cold storage
+    /// discovery), so recording a foreign contact address in them would pollute lookups that
+    /// assume every entry is ours. `true` = the address has on-chain history, `false` =
+    /// confirmed empty, `nil` = the probe failed (network error, non-2xx, decode failure) so
+    /// history is unknown right now.
+    func addressHasOnChainHistory(_ address: String) async -> Bool? {
+        guard let url = kaspaRestURL(path: "/addresses/\(address)/transactions-count") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                return nil
+            }
+            let count = try JSONDecoder().decode(KaspaAddressTransactionsCountResponse.self, from: data)
+            return count.total > 0
         } catch {
             return nil
         }
