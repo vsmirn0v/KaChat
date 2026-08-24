@@ -1598,10 +1598,10 @@ struct ChatDetailView: View {
             }
         } label: {
             Image(systemName: "plus")
-                .font(.title3)
+                .font(.body)
                 .foregroundColor(.accentColor)
-                .frame(width: 44, height: 44)
-                .background(glassBackground(cornerRadius: 14))
+                .frame(width: 36, height: 36)
+                .background(glassBackground(cornerRadius: 12))
         }
         .tint(.accentColor)
         .accessibilityLabel(Text("More options"))
@@ -2032,7 +2032,7 @@ struct ChatDetailView: View {
                             takePhoto()
                         } label: {
                             Image(systemName: "camera")
-                                .font(.body)
+                                .font(.title3)
                                 .foregroundColor(.secondary)
                         }
                         .buttonStyle(.plain)
@@ -2046,7 +2046,7 @@ struct ChatDetailView: View {
                             startRecording()
                         } label: {
                             Image(systemName: "mic")
-                                .font(.body)
+                                .font(.title3)
                                 .foregroundColor(.secondary)
                         }
                         .buttonStyle(.plain)
@@ -2063,7 +2063,7 @@ struct ChatDetailView: View {
                             Image("KaspaLogo")
                                 .resizable()
                                 .scaledToFit()
-                                .frame(width: 20, height: 20)
+                                .frame(width: 24, height: 24)
                         }
                         .buttonStyle(.plain)
                         .padding(.leading, 6)
