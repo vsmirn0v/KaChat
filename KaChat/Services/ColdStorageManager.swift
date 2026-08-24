@@ -283,7 +283,9 @@ final class ColdStorageManager: ObservableObject {
     func setAddressHidden(account: ColdStorageAccount, index: Int, hidden: Bool) async -> Bool {
         if hidden {
             guard let address = address(for: account, at: index) else { return false }
-            let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
+            // Fail CLOSED: hiding requires a live zero-balance confirmation. A network error
+            // must refuse the hide, not read as an empty balance.
+            guard let utxos = try? await NodePoolService.shared.getUtxosByAddresses([address]) else { return false }
             let balance = utxos.reduce(UInt64(0)) { $0 + $1.amount }
             guard balance == 0 else { return false }
         }
