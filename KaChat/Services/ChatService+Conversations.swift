@@ -2663,22 +2663,46 @@ extension ChatService {
     /// used-ness over the network every time.
     private static let usedAddressCacheKey = "kachat_used_addresses_v1"
     func hasSpendingAddressBeenUsed(_ address: String) async -> Bool {
+        await spendingAddressUsedState(address) ?? false
+    }
+
+    /// Tri-state variant of `hasSpendingAddressBeenUsed`: `true` = confirmed used (cached or a
+    /// successful history lookup found a transaction), `false` = CONFIRMED unused (the REST
+    /// probe succeeded and the history is genuinely empty), `nil` = the probe FAILED (network
+    /// error, non-2xx, decode failure) so used-ness is unknown right now. Callers that make
+    /// decisions off "unused" (the Generate recyclers, the Used/Unused badge) must treat `nil`
+    /// as "don't know" - never as "unused" - so a rate-limited or offline probe can't recycle
+    /// or mislabel an address that actually has history. A single one-item request either way.
+    func spendingAddressUsedState(_ address: String) async -> Bool? {
         let cached = UserDefaults.standard.array(forKey: Self.usedAddressCacheKey) as? [String] ?? []
         if cached.contains(address) { return true }
-        // Delegates to the already-proven paginated fetch (same resolve_previous_outpoints
-        // value it uses elsewhere in the app) instead of a hand-rolled one-off request —
-        // pageSize/maxTransactions of 1 makes this a single round-trip either way (the
-        // paginator breaks immediately on an empty first page).
-        let transactions = await fetchFullTransactionsPaginated(for: address, pageSize: 1, maxTransactions: 1)
-        let used = !transactions.isEmpty
-        if used {
-            var updated = UserDefaults.standard.array(forKey: Self.usedAddressCacheKey) as? [String] ?? []
-            if !updated.contains(address) {
-                updated.append(address)
-                UserDefaults.standard.set(updated, forKey: Self.usedAddressCacheKey)
+        guard let url = kaspaRestURL(
+            path: "/addresses/\(address)/full-transactions",
+            queryItems: [
+                URLQueryItem(name: "limit", value: "1"),
+                URLQueryItem(name: "offset", value: "0"),
+                URLQueryItem(name: "resolve_previous_outpoints", value: "light")
+            ]
+        ) else { return nil }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                return nil
             }
+            let transactions = try JSONDecoder().decode([KaspaFullTransactionResponse].self, from: data)
+            let used = !transactions.isEmpty
+            if used {
+                var updated = UserDefaults.standard.array(forKey: Self.usedAddressCacheKey) as? [String] ?? []
+                if !updated.contains(address) {
+                    updated.append(address)
+                    UserDefaults.standard.set(updated, forKey: Self.usedAddressCacheKey)
+                }
+            }
+            return used
+        } catch {
+            return nil
         }
-        return used
     }
 
     func estimateMessageFee(to contact: Contact, content: String, feeOverride: UInt64? = nil) async throws -> UInt64 {

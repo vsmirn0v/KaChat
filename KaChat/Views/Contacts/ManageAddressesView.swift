@@ -30,8 +30,20 @@ struct ManageAddressesView: View {
     /// Addresses that own at least one KNS domain (cached assets-by-owner lookup) - drives the
     /// "Contains domain" row tag and promotes those rows into the funded group in the sort.
     @State private var domainOwningAddresses: Set<String> = []
+    /// Zero-balance addresses whose used/unused history probe FAILED on the last load - their
+    /// badge shows a neutral "Checking" state instead of a possibly-wrong "Unused".
+    @State private var unknownUsedAddresses: Set<String> = []
     /// The bulk show/hide checklist (toolbar top-right).
     @State private var showVisibilityManager = false
+
+    /// Authoritative primary index, read live from WalletManager rather than the rows'
+    /// snapshotted `isCurrent` flags - a payment send can rotate the primary while this
+    /// screen's entries are stale, and every isCurrent-dependent decision here (the star,
+    /// the sort, Set as Primary / Hide menu items) must follow the rotation immediately.
+    /// WalletManager republishes `currentWallet` on rotation, so this recomputes right away.
+    private var primaryIndex: Int {
+        walletManager.currentSpendingAddressIndex
+    }
 
     private var visibleEntries: [SpendingAddressEntry] {
         entries.filter { !$0.hidden }
@@ -47,9 +59,9 @@ struct ManageAddressesView: View {
     /// freshly-generated address (highest index, unfunded) lands immediately under the last
     /// active address rather than mixed in with them.
     private var sortedEntries: [SpendingAddressEntry] {
-        let primary = visibleEntries.filter { $0.isCurrent }
+        let primary = visibleEntries.filter { $0.index == primaryIndex }
         let rest = visibleEntries
-            .filter { !$0.isCurrent }
+            .filter { $0.index != primaryIndex }
             .sorted { lhs, rhs in
                 if (lhs.balanceSompi > 0) != (rhs.balanceSompi > 0) {
                     return lhs.balanceSompi > 0
@@ -175,6 +187,13 @@ struct ManageAddressesView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ownAddressUtxoActivity)) { _ in
             Task { await loadEntries() }
         }
+        // Primary pointer rotated (post-send rotation or Set as Primary elsewhere) - the rows
+        // already read the live primary index for the star and menu guards, so they update the
+        // moment WalletManager republishes; this reload refreshes balances and the persisted
+        // snapshot so the old primary's row is consistent (and hideable) right away.
+        .onReceive(NotificationCenter.default.publisher(for: .spendingPrimaryChanged)) { _ in
+            Task { await loadEntries() }
+        }
         .toast(message: toastMessage)
         .alert(
             "Something Went Wrong",
@@ -284,6 +303,11 @@ struct ManageAddressesView: View {
 
     private func addressRow(_ entry: SpendingAddressEntry) -> some View {
         let isUsed = entry.everUsed || entry.balanceSompi > 0
+        // Live, not the row's snapshotted isCurrent - see primaryIndex.
+        let isPrimary = entry.index == primaryIndex
+        // The history probe for this address failed on the last load: used-ness is unknown,
+        // and claiming "Unused" could invite address reuse. Pull to refresh re-checks.
+        let usedUnknown = !isUsed && unknownUsedAddresses.contains(entry.address)
 
         return ZStack {
             NavigationLink {
@@ -300,7 +324,7 @@ struct ManageAddressesView: View {
                             .font(.caption)
                             .fontWeight(.medium)
                             .foregroundColor(.secondary)
-                        if entry.isCurrent {
+                        if isPrimary {
                             Image(systemName: "star.fill")
                                 .font(.caption2)
                                 .foregroundColor(.accentColor)
@@ -313,10 +337,10 @@ struct ManageAddressesView: View {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                     HStack(spacing: 6) {
-                        Text(isUsed ? "Used" : "Unused")
+                        Text(isUsed ? "Used" : (usedUnknown ? "Checking" : "Unused"))
                             .font(.caption)
                             .fontWeight(.semibold)
-                            .foregroundColor(isUsed ? .orange : .green)
+                            .foregroundColor(isUsed ? .orange : (usedUnknown ? .secondary : .green))
                         if domainOwningAddresses.contains(entry.address) {
                             ContainsDomainTag()
                         }
@@ -347,7 +371,7 @@ struct ManageAddressesView: View {
                         } label: {
                             Label("Show QR Code", systemImage: "qrcode")
                         }
-                        if !entry.isCurrent {
+                        if !isPrimary {
                             Button {
                                 setPrimary(entry)
                             } label: {
@@ -355,9 +379,11 @@ struct ManageAddressesView: View {
                             }
                         }
                         // Hide straight from the row — same effect as unchecking it in Address
-                        // Visibility, without opening that sheet. Same guard as the checklist:
-                        // never the primary, never a funded address.
-                        if !entry.isCurrent && entry.balanceSompi == 0 {
+                        // Visibility, without opening that sheet. Same guard as the checklist
+                        // (against the LIVE primary index, so a just-rotated old primary is
+                        // hideable immediately): never the primary, never a funded address.
+                        // setSpendingAddressHidden re-enforces both server-side regardless.
+                        if !isPrimary && entry.balanceSompi == 0 {
                             Button {
                                 hideAddress(entry)
                             } label: {
@@ -452,30 +478,46 @@ struct ManageAddressesView: View {
         // proportional to the cap.
         let concurrencyLimit = 4
         let toCheck = baseEntries.filter { $0.balanceSompi == 0 }
+        // Tri-state per address: true/false = confirmed by a successful probe, nil = the probe
+        // failed (network/rate-limit) - those rows show a neutral badge, never "Unused".
         var usedByAddress: [String: Bool] = [:]
+        var failedProbes: Set<String> = []
 
         var pending = toCheck.makeIterator()
-        await withTaskGroup(of: (String, Bool).self) { group in
+        await withTaskGroup(of: (String, Bool?).self) { group in
             for _ in 0..<concurrencyLimit {
                 guard let entry = pending.next() else { break }
-                group.addTask { (entry.address, await self.chatService.hasSpendingAddressBeenUsed(entry.address)) }
+                group.addTask { (entry.address, await self.chatService.spendingAddressUsedState(entry.address)) }
             }
             while let (address, used) = await group.next() {
-                usedByAddress[address] = used
+                if let used {
+                    usedByAddress[address] = used
+                } else {
+                    failedProbes.insert(address)
+                }
                 if let entry = pending.next() {
-                    group.addTask { (entry.address, await self.chatService.hasSpendingAddressBeenUsed(entry.address)) }
+                    group.addTask { (entry.address, await self.chatService.spendingAddressUsedState(entry.address)) }
                 }
             }
         }
 
+        // A failed probe keeps the last known everUsed (from the cached snapshot / previous
+        // load) instead of silently resetting the row to base's default false.
+        let previousUsed = Dictionary(entries.map { ($0.address, $0.everUsed) }, uniquingKeysWith: { first, _ in first })
         let updatedEntries = baseEntries.map { entry -> SpendingAddressEntry in
-            guard let used = usedByAddress[entry.address] else { return entry }
             var updated = entry
-            updated.everUsed = used
-            AppLog.log("[ManageAddresses] everUsed check address=%@ index=%d used=%@", entry.address, entry.index, used ? "true" : "false")
+            if let used = usedByAddress[entry.address] {
+                updated.everUsed = used
+                AppLog.log("[ManageAddresses] everUsed check address=%@ index=%d used=%@", entry.address, entry.index, used ? "true" : "false")
+            } else if failedProbes.contains(entry.address), let previous = previousUsed[entry.address] {
+                updated.everUsed = previous
+            }
             return updated
         }
         entries = updatedEntries.sorted { $0.index < $1.index }
+        unknownUsedAddresses = failedProbes.filter { address in
+            !(entries.first(where: { $0.address == address })?.everUsed ?? false)
+        }
         isLoading = false
         // Persist the freshly-loaded snapshot so the NEXT open paints instantly from cache.
         walletManager.storeSpendingAddressListCache(entries)
@@ -497,13 +539,16 @@ struct ManageAddressesView: View {
         guard !isGenerating else { return }
         isGenerating = true
         Task {
-            // Recycling-aware: reuses the lowest truly-unused index (unhiding it if needed)
-            // instead of forever growing the chain; extends only when everything is spoken for.
+            // A sequence, not a single answer: each press yields the lowest HIDDEN unused
+            // index (un-hiding it), and extends the chain past the all-time max once no
+            // hidden unused index remains - so repeat presses keep producing new rows.
             let index = await walletManager.lowestUnusedSpendingAddress()
             await loadEntries()
             isGenerating = false
-            toastMessage = "Spending address #\(index) is ready."
-            toastToken = UUID()
+            // showToast auto-dismisses on the standard timer and replaces (never stacks or
+            // extends) any toast a rapid earlier press put up. The old direct assignment
+            // here never scheduled a dismissal, so the success toast lingered indefinitely.
+            showToast("Spending address #\(index) is ready.")
         }
     }
 
@@ -554,7 +599,7 @@ struct ManageAddressesView: View {
     /// on its own. From this point on, outgoing payments to contacts and KNS profile/domain
     /// fees are funded from the newly-selected address.
     private func setPrimary(_ entry: SpendingAddressEntry) {
-        guard !entry.isCurrent, switchingPrimaryIndex == nil else { return }
+        guard entry.index != primaryIndex, switchingPrimaryIndex == nil else { return }
         switchingPrimaryIndex = entry.index
         errorMessage = nil
         Task {
@@ -2241,7 +2286,10 @@ private struct SpendingAddressVisibilityView: View {
 
     private func row(_ entry: SpendingAddressEntry) -> some View {
         let funded = entry.balanceSompi > 0
-        let locked = entry.isCurrent || funded
+        // Live primary check - the pointer can rotate (post-send) while this sheet is open,
+        // and the lock must follow the authoritative index, not the row's snapshotted flag.
+        let isPrimary = entry.index == walletManager.currentSpendingAddressIndex
+        let locked = isPrimary || funded
         let visible = !entry.hidden
         return HStack(spacing: 10) {
             Image(systemName: visible ? "checkmark.circle.fill" : "circle")
@@ -2253,7 +2301,7 @@ private struct SpendingAddressVisibilityView: View {
                     Text("#\(entry.index)")
                         .font(.subheadline.weight(.bold))
                         .monospacedDigit()
-                    if entry.isCurrent {
+                    if isPrimary {
                         Text("Primary")
                             .font(.caption2.weight(.bold))
                             .foregroundColor(.accentColor)
@@ -2302,14 +2350,19 @@ private struct SpendingAddressVisibilityView: View {
     }
 
     /// One history lookup per zero-balance address, cached for the session of this sheet.
+    /// A failed probe stores nothing, so the row keeps its neutral "…" badge (never a
+    /// possibly-wrong "Unused") and the next appearance of the row retries.
     private func ensureUsedLoaded(_ entry: SpendingAddressEntry, funded: Bool) async {
         guard !funded, usedByAddress[entry.address] == nil else { return }
-        usedByAddress[entry.address] = await chatService.hasSpendingAddressBeenUsed(entry.address)
+        if let used = await chatService.spendingAddressUsedState(entry.address) {
+            usedByAddress[entry.address] = used
+        }
     }
 
     private func toggle(_ entry: SpendingAddressEntry) {
-        // Locked rows (primary / funded) don't toggle - mirrors the server-side guard.
-        guard !entry.isCurrent, entry.balanceSompi == 0 else { return }
+        // Locked rows (primary / funded) don't toggle - mirrors the server-side guard,
+        // against the LIVE primary index (the pointer can rotate while the sheet is open).
+        guard entry.index != walletManager.currentSpendingAddressIndex, entry.balanceSompi == 0 else { return }
         Task {
             let revealedMax = entries.map(\.index).max() ?? -1
             if entry.index > revealedMax {

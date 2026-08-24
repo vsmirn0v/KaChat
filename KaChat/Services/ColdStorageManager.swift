@@ -221,17 +221,25 @@ final class ColdStorageManager: ObservableObject {
         saveAccounts()
     }
 
-    /// "Generate More Addresses", recycling-aware (mirrors
-    /// WalletManager.lowestUnusedSpendingAddress): returns the LOWEST index that is truly
-    /// unused - zero balance and no on-chain history. A hidden unused index is un-hidden and
-    /// reused rather than growing the chain; only when every derived index is spoken for does
-    /// the chain extend by one. Returns the chosen index.
+    /// "Generate More Addresses" - a SEQUENCE, not a single answer (mirrors
+    /// WalletManager.lowestUnusedSpendingAddress): every press yields the NEXT fresh address,
+    /// forever. The chosen index is the lowest one that is truly unused (zero balance, no
+    /// on-chain history) AND currently hidden - i.e. not already sitting in the visible list.
+    /// Recycling un-hides it. An index that is already visible is never picked (that was the
+    /// old stall: the lowest unused index, once revealed, satisfied every check again on the
+    /// next press, so Generate kept returning the same row). When no hidden unused index
+    /// remains, the chain extends by one past the all-time max, which is always safe. A probe
+    /// failure (used-ness unknown) skips that index rather than recycling it. Returns the
+    /// chosen index.
     func lowestUnusedAddress(for account: ColdStorageAccount) async -> Int {
         let entries = await getAddressList(for: account)
         for entry in entries {
+            guard entry.hidden else { continue } // already visible - the user has it; move on
             if entry.balanceSompi > 0 { continue }
-            let used = await ChatService.shared.hasSpendingAddressBeenUsed(entry.address)
-            if !used {
+            // Recycle only on a CONFIRMED-unused probe; nil (probe failed) skips the index -
+            // extending the chain below is always safe, recycling an unknown one is not.
+            let usedState = await ChatService.shared.spendingAddressUsedState(entry.address)
+            if usedState == false {
                 setAddressHidden(accountId: account.id, index: entry.index, hidden: false, balanceSompi: 0)
                 return entry.index
             }

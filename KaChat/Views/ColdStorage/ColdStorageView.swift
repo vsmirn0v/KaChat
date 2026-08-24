@@ -312,6 +312,9 @@ struct ColdStorageDetailView: View {
     /// Addresses that own at least one KNS domain (cached assets-by-owner lookup) - drives the
     /// "Contains domain" row tag and promotes those rows into the funded group in the sort.
     @State private var domainOwningAddresses: Set<String> = []
+    /// Zero-balance addresses whose used/unused history probe FAILED on the last load - their
+    /// badge shows a neutral "Checking" state instead of a possibly-wrong "Unused".
+    @State private var unknownUsedAddresses: Set<String> = []
 
     private var currentAccount: ColdStorageAccount {
         manager.accounts.first { $0.id == account.id } ?? account
@@ -562,6 +565,9 @@ struct ColdStorageDetailView: View {
 
     private func addressRow(_ entry: ColdStorageAddressEntry) -> some View {
         let isUsed = entry.everUsed || entry.balanceSompi > 0
+        // The history probe for this address failed on the last load: used-ness is unknown,
+        // and claiming "Unused" could invite address reuse. Pull to refresh re-checks.
+        let usedUnknown = !isUsed && unknownUsedAddresses.contains(entry.address)
 
         return ZStack {
             NavigationLink {
@@ -584,10 +590,10 @@ struct ColdStorageDetailView: View {
                         .font(.subheadline)
                         .fontWeight(.semibold)
                     HStack(spacing: 6) {
-                        Text(isUsed ? "Used" : "Unused")
+                        Text(isUsed ? "Used" : (usedUnknown ? "Checking" : "Unused"))
                             .font(.caption)
                             .fontWeight(.semibold)
-                            .foregroundColor(isUsed ? .orange : .green)
+                            .foregroundColor(isUsed ? .orange : (usedUnknown ? .secondary : .green))
                         if domainOwningAddresses.contains(entry.address) {
                             ContainsDomainTag()
                         }
@@ -686,11 +692,19 @@ struct ColdStorageDetailView: View {
         // than once per address: mutating the published array on every single result was
         // re-rendering that row mid-backfill, which — if its "..." menu happened to be open at
         // that moment — visibly flickered/dismissed the open menu.
+        // Tri-state per address: true/false = confirmed by a successful probe, nil = the probe
+        // failed (network/rate-limit) - those rows keep their previous badge state and show a
+        // neutral "Checking" instead of a possibly-wrong "Unused".
         var updates: [String: Bool] = [:]
+        var failedProbes: Set<String> = []
         for entry in baseEntries where entry.balanceSompi == 0 {
-            let used = await ChatService.shared.hasSpendingAddressBeenUsed(entry.address)
+            let used = await ChatService.shared.spendingAddressUsedState(entry.address)
             guard loadToken == token else { return }
-            updates[entry.address] = used
+            if let used {
+                updates[entry.address] = used
+            } else {
+                failedProbes.insert(entry.address)
+            }
         }
         guard loadToken == token else { return }
         if !updates.isEmpty {
@@ -699,6 +713,9 @@ struct ColdStorageDetailView: View {
                     entries[idx].everUsed = used
                 }
             }
+        }
+        unknownUsedAddresses = failedProbes.filter { address in
+            !(entries.first(where: { $0.address == address })?.everUsed ?? false)
         }
 
         // Contains-domain tags, after the rows are already visible. refreshIfNeeded is the same
@@ -2382,9 +2399,13 @@ private struct ColdStorageAddressVisibilityView: View {
     }
 
     /// One history lookup per zero-balance address, cached for the session of this sheet.
+    /// A failed probe stores nothing, so the row keeps its neutral "…" badge (never a
+    /// possibly-wrong "Unused") and the next appearance of the row retries.
     private func ensureUsedLoaded(_ entry: ColdStorageAddressEntry, funded: Bool) async {
         guard !funded, usedByAddress[entry.address] == nil else { return }
-        usedByAddress[entry.address] = await ChatService.shared.hasSpendingAddressBeenUsed(entry.address)
+        if let used = await ChatService.shared.spendingAddressUsedState(entry.address) {
+            usedByAddress[entry.address] = used
+        }
     }
 
     private func toggle(_ entry: ColdStorageAddressEntry) {

@@ -291,8 +291,15 @@ extension WalletManager {
     /// Also extends `maxSpendingAddressIndex` if this index hasn't been revealed yet.
     func setActiveSpendingAddress(_ index: Int) async {
         guard index >= 0 else { return }
+        let changed = index != currentSpendingAddressIndex
         let newMax = index > maxSpendingAddressIndex ? index : nil
         await updateSpendingBounds(index: index, maxIndex: newMax)
+        // Let open screens (Manage Addresses) refresh which row is primary immediately -
+        // a payment send rotates the primary through here, and without this the old primary's
+        // row kept its stale star (and hid its Hide action) until the next full reload.
+        if changed {
+            NotificationCenter.default.post(name: .spendingPrimaryChanged, object: nil)
+        }
     }
 
     /// Reveals a new, never-used spending address slot (extends `maxSpendingAddressIndex` by
@@ -301,11 +308,16 @@ extension WalletManager {
         await updateSpendingBounds(maxIndex: maxSpendingAddressIndex + 1)
     }
 
-    /// "Generate New Spending Address", recycling-aware: returns the LOWEST index that is truly
-    /// unused - zero balance, no on-chain history, not the primary, and never offered to a
-    /// contact as a payment-pool reservation (a contact may still pay into those). A hidden
-    /// unused index is un-hidden and reused rather than growing the chain; only when every
-    /// revealed index is spoken for does the chain extend by one. Returns the chosen index.
+    /// "Generate New Spending Address" - a SEQUENCE, not a single answer: every press yields
+    /// the NEXT fresh address, forever. The chosen index is the lowest one that is truly
+    /// unused (zero balance, no on-chain history, not the primary, never offered to a contact
+    /// as a payment-pool reservation) AND currently hidden - i.e. not already sitting in the
+    /// Manage Addresses list. Recycling un-hides it. An index that is already visible is never
+    /// picked (that was the old stall: the lowest unused index, once revealed, satisfied every
+    /// check again on the next press, so Generate kept returning the same row and appeared to
+    /// stop working). When no hidden unused index remains, the chain extends by one past the
+    /// all-time max, which is always safe. A probe failure (used-ness unknown) skips that
+    /// index rather than recycling it. Returns the chosen index.
     func lowestUnusedSpendingAddress() async -> Int {
         let entries = await getSpendingAddressList().sorted { $0.index < $1.index }
         let reserved: Set<String> = {
@@ -313,11 +325,14 @@ extension WalletManager {
             return Set(PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress))
         }()
         for entry in entries {
+            guard entry.hidden else { continue } // already visible - the user has it; move on
             if entry.isCurrent { continue }
             if entry.balanceSompi > 0 { continue }
             if reserved.contains(entry.address) { continue }
-            let used = await ChatService.shared.hasSpendingAddressBeenUsed(entry.address)
-            if !used {
+            // Recycle only on a CONFIRMED-unused probe; nil (probe failed) skips the index -
+            // extending the chain below is always safe, recycling an unknown one is not.
+            let usedState = await ChatService.shared.spendingAddressUsedState(entry.address)
+            if usedState == false {
                 _ = await setSpendingAddressHidden(index: entry.index, hidden: false)
                 return entry.index
             }
@@ -501,4 +516,13 @@ extension WalletManager {
         await updateSpendingBounds(maxIndex: highestFound)
         return revealed
     }
+}
+
+extension Notification.Name {
+    /// Posted after the primary spending address pointer changes - a manual "Set as Primary"
+    /// or the automatic post-send rotation (`ChatService.sendPaymentInternal` calling
+    /// `setActiveSpendingAddress` with the fresh change index). Open screens that render an
+    /// `isCurrent` star or gate actions on "not the primary" reload on it so the old primary
+    /// row becomes hideable right away.
+    static let spendingPrimaryChanged = Notification.Name("spendingPrimaryChanged")
 }
