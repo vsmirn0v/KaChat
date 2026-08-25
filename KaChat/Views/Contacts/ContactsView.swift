@@ -948,36 +948,42 @@ struct ProfileView: View {
         @ViewBuilder manageDestination: @escaping () -> Destination
     ) -> some View {
         HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                if address == nil {
-                    Text("Address unlocking...")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-                if isLoadingBalance {
-                    ProgressView()
-                        .scaleEffect(0.6, anchor: .leading)
-                        .frame(height: 14, alignment: .leading)
-                } else if let balanceText {
-                    Text(balanceText)
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.accentColor)
-                        .lineLimit(1)
-                }
-            }
-            Spacer(minLength: 8)
-            addressRowIconButton(icon: "doc.on.doc", label: "Copy") {
+            // The title + balance block IS the copy affordance: tapping it copies the
+            // address, replacing the old dedicated Copy button.
+            Button {
                 guard let address else { return }
                 UIPasteboard.general.string = address
                 Haptics.success()
                 showToast("Address copied to clipboard.")
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    if address == nil {
+                        Text("Address unlocking...")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    if isLoadingBalance {
+                        ProgressView()
+                            .scaleEffect(0.6, anchor: .leading)
+                            .frame(height: 14, alignment: .leading)
+                    } else if let balanceText {
+                        Text(balanceText)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.accentColor)
+                            .lineLimit(1)
+                    }
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Copy \(title) address"))
+            Spacer(minLength: 8)
             addressRowIconButton(icon: "arrow.up.circle.fill", label: "Send") {
                 guard address != nil else { return }
                 onSend()
