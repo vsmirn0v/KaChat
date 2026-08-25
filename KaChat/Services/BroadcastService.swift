@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 import UserNotifications
 
 /// KaChat 2.0 Broadcast feature: public, unencrypted, many-to-many channels.
@@ -288,6 +289,14 @@ final class BroadcastService: ObservableObject {
             // Best-effort on top of live scanning - the loop just tries again next tick.
             AppLog.log("%@", "[Broadcast] Indexer fetch failed for #\(channel): \(error.localizedDescription)")
         }
+    }
+
+    /// True while this channel's room screen is open (the acquire/release refcount) - the
+    /// notification policy's "currently open conversation": banners for a room the user is
+    /// looking at are suppressed (here for scan-driven local banners, and in
+    /// `AppDelegate.willPresent` for remote pushes), everything else fires even in-app.
+    func isViewing(channel: String) -> Bool {
+        liveViewRefCounts[BroadcastChannelName.normalize(channel)] != nil
     }
 
     /// Call when a broadcast channel screen disappears; pairs with `acquire`.
@@ -984,6 +993,13 @@ final class BroadcastService: ObservableObject {
         // watched_broadcast_channels) - skip the scan-driven local banner in remote-push mode
         // so one message can't notify twice, mirroring sendLocalNotification's chat guard.
         if Self.featuredChannels.contains(channel), settings.notificationMode == .remotePush {
+            return
+        }
+        // Foreground policy: in-app banners fire everywhere (chat list, other chats) EXCEPT the
+        // room currently on screen - same rule as 1:1's active conversation and groups'
+        // activeGroupId. The refcount alone isn't enough: the screen stays "open" while the app
+        // is backgrounded, and then the banner SHOULD fire.
+        if isViewing(channel: channel), UIApplication.shared.applicationState == .active {
             return
         }
 

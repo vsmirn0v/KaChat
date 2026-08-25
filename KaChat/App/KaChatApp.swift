@@ -616,8 +616,21 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             // already existed for the read-state auto-mark but was never consulted here.
             let isActiveGroup = threadId.hasPrefix("group:") &&
                 GroupChatService.shared.activeGroupId == String(threadId.dropFirst("group:".count))
+            // Broadcasts follow the same one-rule policy: suppressed only while THAT room's
+            // screen is open (thread id "broadcast:<channel>" on local banners and pushes alike).
+            let isActiveBroadcast = threadId.hasPrefix("broadcast:") &&
+                BroadcastService.shared.isViewing(channel: String(threadId.dropFirst("broadcast:".count)))
+            // A group push whose txId the main app ALREADY posted a local banner for (foreground
+            // block-scan/catch-up ingest won the race) must not banner twice. Local banners carry
+            // no "tx_id" in userInfo, so they can never suppress themselves here.
+            if threadId.hasPrefix("group:"), let pushTxId = userInfo["tx_id"] as? String,
+               (UserDefaults(suiteName: "group.com.kachat.app")?
+                    .stringArray(forKey: GroupChatService.localPostedTxIdsKey) ?? []).contains(pushTxId) {
+                completionHandler([])
+                return
+            }
 
-            if sender == ourAddress || ((isActiveConversation || isActiveGroup) && UIApplication.shared.applicationState == .active) {
+            if sender == ourAddress || ((isActiveConversation || isActiveGroup || isActiveBroadcast) && UIApplication.shared.applicationState == .active) {
                 completionHandler([])
             } else if !settings.shouldDeliverIncomingNotification(for: contact) {
                 completionHandler([])

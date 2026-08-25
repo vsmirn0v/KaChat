@@ -1439,10 +1439,37 @@ struct GroupChatRow: View {
     let group: GroupChat
     @EnvironmentObject var groupChatService: GroupChatService
     @EnvironmentObject var contactsManager: ContactsManager
+    @EnvironmentObject var walletManager: WalletManager
     @ObservedObject private var knsService = KNSService.shared
 
     private var lastMessage: GroupMessage? {
         groupChatService.groupMessages[group.id]?.max { $0.timestamp < $1.timestamp }
+    }
+
+    /// Group mirror of ConversationRow.reactionPreviewText: a reaction newer than the last
+    /// message becomes the row's preview ("Alice reacted to a message") - reactions never
+    /// become messages (they render as a corner pill), so without this the row would keep
+    /// showing an older message as if nothing happened. `nil` when the newest activity is a
+    /// regular message.
+    private var reactionPreviewText: String? {
+        guard let byTarget = groupChatService.reactionsByGroupId[group.id], !byTarget.isEmpty else { return nil }
+        var newest: (snapshot: GroupStore.ReactionSnapshot, targetIsMine: Bool)?
+        for (targetTxId, snapshots) in byTarget {
+            guard let candidate = snapshots.max(by: { $0.blockTime < $1.blockTime }) else { continue }
+            if newest == nil || candidate.blockTime > newest!.snapshot.blockTime {
+                let targetIsMine = groupChatService.groupMessages[group.id]?
+                    .first(where: { $0.txId == targetTxId })?.isOutgoing == true
+                newest = (candidate, targetIsMine)
+            }
+        }
+        guard let newest else { return nil }
+        let reactionDate = Date(timeIntervalSince1970: TimeInterval(newest.snapshot.blockTime) / 1000.0)
+        if let lastMessage, lastMessage.timestamp >= reactionDate { return nil }
+        if newest.snapshot.reactorAddress == walletManager.currentWallet?.publicAddress {
+            return newest.targetIsMine ? "You reacted to your message" : "You reacted to a message"
+        }
+        let name = resolveDisplayName(for: newest.snapshot.reactorAddress)
+        return newest.targetIsMine ? "\(name) reacted to your message" : "\(name) reacted to a message"
     }
 
     /// Same resolution as `GroupChatDetailView.displayName(for:)`.
@@ -1496,7 +1523,12 @@ struct GroupChatRow: View {
                 }
 
                 HStack {
-                    if let lastMessage {
+                    if let reactionPreview = reactionPreviewText {
+                        Text(reactionPreview)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    } else if let lastMessage {
                         Text(GroupMentionCodec.decodeForDisplay(MessageReplyCodec.previewText(for: lastMessage.content), members: group.members, resolveDisplayName: resolveDisplayName(for:)))
                             .font(.subheadline)
                             .foregroundColor(.secondary)

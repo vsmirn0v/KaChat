@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftUI
 import UIKit
@@ -584,7 +585,12 @@ final class NextcloudService: ObservableObject {
         defer { syncInFlight = false }
 
         do {
-            let data = try await downloadBackup()
+            // Envelope-aware: decrypts a v1 encrypted backup, passes legacy plaintext through.
+            // A failed decrypt throws into the silent catch below - the done flag stays unset
+            // and nothing is imported or uploaded.
+            let data = try BackupEnvelope.decryptIfEnveloped(
+                try await downloadBackup(), key: backupEncryptionKey(), walletAddress: walletAtStart
+            )
             guard !Task.isCancelled, currentWalletAddress == walletAtStart,
                   !BackupRestoreCoordinator.shared.isRunning,
                   !IncomingResyncCoordinator.shared.isRunning else { return }
@@ -800,16 +806,33 @@ final class NextcloudService: ObservableObject {
     /// instead of cross-pollinating archives.
     func runBackup() async throws {
         let walletAtStart = currentWalletAddress
+        // Encryption key up front: writers ALWAYS encrypt (see BackupEnvelope), so if the
+        // identity key is unavailable the backup is skipped rather than uploaded readable.
+        guard let walletAddress = walletAtStart, let key = backupEncryptionKey() else {
+            throw BackupEnvelope.EnvelopeError.keyUnavailable
+        }
         let existing: Data?
         do {
-            existing = try await downloadBackup()
+            // A failed decrypt (wrong seed's file, corrupt envelope) throws HERE - before the
+            // merge and before any PUT - so the server copy is never overwritten.
+            existing = try BackupEnvelope.decryptIfEnveloped(
+                try await downloadBackup(), key: key, walletAddress: walletAddress
+            )
         } catch NextcloudError.backupNotFound {
             existing = nil
         }
         guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
         let merged = try await ChatService.shared.buildBackupArchiveData(mergingRemote: existing)
         guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
-        try await uploadBackup(merged)
+        try await uploadBackup(try BackupEnvelope.encrypt(merged, key: key, walletAddress: walletAddress))
+    }
+
+    /// The active wallet's backup envelope key, derived from the chatting/identity address's
+    /// raw private key (`WalletManager.getPrivateKey()` - the same key the wallet already
+    /// holds; never re-derived from the seed here). Nil when no wallet key is loadable.
+    fileprivate func backupEncryptionKey() -> SymmetricKey? {
+        guard let identityKey = WalletManager.shared.getPrivateKey() else { return nil }
+        return BackupEnvelope.key(identityPrivateKey: identityKey)
     }
 
     /// Uploads the archive to `<backup folder>/kachat-backup.json`, creating the folder first
@@ -1160,6 +1183,98 @@ private final class DavMultistatusParser: NSObject, XMLParserDelegate {
     }
 }
 
+// MARK: - Encrypted backup envelope (v1)
+
+/// At-rest encryption for the shared Nextcloud `kachat-backup.json` - the exact cross-platform
+/// format specified in MESSAGING.md ("Encrypted Backup Envelope (v1)"). AES-256-GCM via
+/// CryptoKit; the key is SHA-256(identity private key raw 32 bytes || "kachat-backup-v1"), so
+/// any device holding the seed derives the same key and nothing else can read the archive.
+/// Writers ALWAYS encrypt; readers detect the envelope and fall back to legacy plaintext
+/// parsing, so old backups stay restorable indefinitely. iCloud/CloudKit is untouched.
+enum BackupEnvelope {
+    struct Envelope: Codable {
+        let kachatEncryptedBackup: Int
+        let cipher: String
+        let nonce: String
+        let ciphertext: String
+        let walletHint: String?
+    }
+
+    enum EnvelopeError: LocalizedError {
+        case decryptFailed
+        case keyUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .decryptFailed:
+                return "Could not decrypt the backup. It may belong to a different account."
+            case .keyUnavailable:
+                return "The wallet key needed to encrypt the backup is not available."
+            }
+        }
+    }
+
+    /// key = SHA-256(identity_private_key_bytes || UTF8("kachat-backup-v1")) - the identity key
+    /// is the chatting address's raw 32-byte private key (`WalletManager.getPrivateKey()`).
+    static func key(identityPrivateKey: Data) -> SymmetricKey {
+        var material = identityPrivateKey
+        material.append(Data("kachat-backup-v1".utf8))
+        return SymmetricKey(data: Data(SHA256.hash(data: material)))
+    }
+
+    /// First 8 bytes of SHA-256(walletAddress) as hex - identical to
+    /// `KeychainService.walletHashSuffix`, restated here so this codec stays self-contained.
+    static func walletHint(for walletAddress: String) -> String {
+        SHA256.hash(data: Data(walletAddress.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Wraps the plaintext archive in the v1 envelope: fresh random 12-byte nonce per write,
+    /// ciphertext carries the 16-byte GCM tag appended, both base64.
+    static func encrypt(_ plaintext: Data, key: SymmetricKey, walletAddress: String) throws -> Data {
+        let sealed = try AES.GCM.seal(plaintext, using: key, nonce: AES.GCM.Nonce())
+        let envelope = Envelope(
+            kachatEncryptedBackup: 1,
+            cipher: "aes-256-gcm",
+            nonce: Data(sealed.nonce).base64EncodedString(),
+            ciphertext: (sealed.ciphertext + sealed.tag).base64EncodedString(),
+            walletHint: walletHint(for: walletAddress)
+        )
+        return try JSONEncoder().encode(envelope)
+    }
+
+    /// Detects the v1 envelope. The literal-marker scan keeps legacy multi-MB archives cheap
+    /// (no full JSON decode attempt); a legacy archive that happens to CONTAIN the marker text
+    /// inside a message simply fails the decode and is treated as plaintext.
+    static func parse(_ data: Data) -> Envelope? {
+        guard data.range(of: Data("\"kachatEncryptedBackup\"".utf8)) != nil,
+              let envelope = try? JSONDecoder().decode(Envelope.self, from: data),
+              envelope.kachatEncryptedBackup == 1 else { return nil }
+        return envelope
+    }
+
+    /// Envelope-aware read: legacy plaintext passes through untouched; a v1 envelope is
+    /// decrypted (after a cheap walletHint check that skips a foreign wallet's file without
+    /// attempting the decrypt). Any failure throws `decryptFailed` - callers abort BEFORE any
+    /// upload, so a wrong-seed or corrupt file can never overwrite the server copy.
+    static func decryptIfEnveloped(_ data: Data, key: SymmetricKey?, walletAddress: String?) throws -> Data {
+        guard let envelope = parse(data) else { return data }
+        if let hint = envelope.walletHint, let walletAddress, hint != walletHint(for: walletAddress) {
+            throw EnvelopeError.decryptFailed
+        }
+        guard let key,
+              envelope.cipher == "aes-256-gcm",
+              let nonceData = Data(base64Encoded: envelope.nonce),
+              let combined = Data(base64Encoded: envelope.ciphertext),
+              combined.count > 16,
+              let nonce = try? AES.GCM.Nonce(data: nonceData),
+              let sealed = try? AES.GCM.SealedBox(nonce: nonce, ciphertext: combined.dropLast(16), tag: combined.suffix(16)),
+              let plaintext = try? AES.GCM.open(sealed, using: key) else {
+            throw EnvelopeError.decryptFailed
+        }
+        return plaintext
+    }
+}
+
 // MARK: - Backup restore coordinator (blocking progress modal)
 
 /// Owns a chat-history restore from tap to terminal state, independent of any view's lifetime.
@@ -1253,7 +1368,17 @@ final class BackupRestoreCoordinator: ObservableObject {
                 advance(to: 0.05, stage: "Validating backup...")
             }
 
-            let summary = try await ChatService.shared.importChatHistoryArchive(data) { [weak self] event in
+            // Envelope-aware for BOTH sources: the Nextcloud file is encrypted at rest (see
+            // BackupEnvelope), and a locally picked file may be a hand-copied server backup.
+            // Legacy plaintext archives pass through untouched. A failed decrypt lands in the
+            // catch below with the clear "different account" message.
+            let archive = try BackupEnvelope.decryptIfEnveloped(
+                data,
+                key: NextcloudService.shared.backupEncryptionKey(),
+                walletAddress: WalletManager.shared.currentWallet?.publicAddress
+            )
+
+            let summary = try await ChatService.shared.importChatHistoryArchive(archive) { [weak self] event in
                 guard let self else { return }
                 switch event {
                 case .validating:
