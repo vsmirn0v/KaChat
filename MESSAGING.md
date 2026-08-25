@@ -225,6 +225,11 @@ read the archive.
 **Plaintext** is the existing ChatHistoryArchive JSON, schema unchanged, including
 `desktopState` and any foreign keys.
 
+**Phantom rows**: a message whose `txId` is blank or carries a provisional `pending_` id
+never reached the chain; exporters MUST NOT emit such rows, and mergers MUST drop them when
+encountered in an existing file (they can never be connected to their delivered selves and
+otherwise live in the union forever).
+
 **Readers**: if the parsed top level has `kachatEncryptedBackup == 1`, decrypt then parse;
 otherwise treat as a legacy plaintext archive and parse as-is. Legacy files stay restorable
 indefinitely; writers ALWAYS encrypt. Merge-on-upload becomes download, decrypt (if

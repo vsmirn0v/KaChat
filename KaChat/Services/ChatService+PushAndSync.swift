@@ -1564,6 +1564,17 @@ extension ChatService {
 
                 for messageElement in jsonArray(conversation, "messages") {
                     guard let message = messageElement as? [String: Any] else { continue }
+                    // Phantom scrub (matches Android): entries whose txId is blank or a
+                    // provisional pending_ id never reached the chain and can never be
+                    // connected to their delivered selves - dropping them here heals a
+                    // polluted server file on this device's next upload.
+                    let phantomTxId = jsonString(message, "txId").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let phantomStatus = jsonString(message, "deliveryStatus")
+                    if phantomTxId.isEmpty || phantomTxId.hasPrefix("pending_") {
+                        if phantomStatus == "pending" || phantomStatus == "failed" || phantomTxId.hasPrefix("pending_") {
+                            continue
+                        }
+                    }
                     let key = archiveMessageKey(message)
                     if let existing = entry.messages[key] {
                         entry.messages[key] = preferArchiveMessage(existing, message)
