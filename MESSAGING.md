@@ -229,8 +229,8 @@ ignore unknown extra fields inside these envelopes.
 | Field | Type | Required | Meaning |
 |-------|------|----------|---------|
 | `type` | string | yes | Always `"addr_pool"` |
-| `addresses` | array of string | yes | The **sender's own** fresh receive addresses, for the recipient to pay the sender at. Bech32 Kaspa addresses with the network prefix (`kaspa:` / `kaspatest:`). Typical batch: 5. |
-| `replace` | bool | no | `true`: "discard my previous pool entirely, this list is authoritative". `false` or absent: append to the existing pool, deduplicated by address. |
+| `addresses` | array of string | yes | The **sender's own** fresh receive addresses, for the recipient to pay the sender at. Bech32 Kaspa addresses with the network prefix (`kaspa:` / `kaspatest:`). Typical batch: 2. Receivers MUST accept any batch size (subject to the stored-pool cap) — peers on older client versions may still send 5. |
+| `replace` | bool | no | `true`: "discard my previous pool entirely, this list is authoritative". `false` or absent: **additive** — append to the existing pool, deduplicated by address (used by request-driven top-ups and replenish top-ups, which carry only the new address(es)). |
 
 **Direction matters**: an `addr_pool` FROM contact C contains **C's** receive addresses — the
 receiver stores them as "addresses I can pay C at".
@@ -269,10 +269,12 @@ addresses.
 |-------|------|----------|---------|
 | `type` | string | yes | Always `"addr_pool_request"` |
 
-Sent when the stored pool for a contact runs low (iOS: ≤ 2 unused remaining, throttled to at
-most one request per contact per 10 minutes). The receiver responds by reserving a fresh batch
-and sending `addr_pool` with `replace:false` (append semantics) — subject to the mandatory
-inbound rate limits below (excess requests are silently ignored).
+Sent when the stored pool for a contact runs low (iOS: ≤ 1 unused remaining, throttled to at
+most one request per contact per 10 minutes). With the pool-of-2 auto-replenish (below) this is
+a backstop for a lost top-up, not the primary refill path — a full fresh pool must never
+trigger a request. The receiver responds by reserving a fresh batch and sending `addr_pool`
+with `replace:false` (append semantics) — subject to the mandatory inbound rate limits below
+(excess requests are silently ignored).
 
 #### 3. `payment_notice` — tell the recipient about a pool payment
 
@@ -314,12 +316,27 @@ NOT render anything from its own notice (its bubble was created by the send flow
   contact and never re-offered. Reservations are persisted per wallet + contact; new
   reservations always take fresh indices past the all-time max (which also keeps payment change
   addresses from ever colliding with reservations).
-- Offer batch size: ~5.
+- Offer batch size: 2 (also the replenish target — see below). Earlier client versions sent 5;
+  receivers must accept any batch size.
 - When to send `addr_pool`:
   1. **Lazily, once per contact**, on first conversation open after the feature ships
      (persisted "offered" marker), only for established conversations, with `replace:true`;
   2. on receiving `addr_pool_request` (`replace:false`);
-  3. reciprocally on receiving an `addr_pool` from a contact who hasn't gotten ours yet.
+  3. reciprocally on receiving an `addr_pool` from a contact who hasn't gotten ours yet;
+  4. **auto-replenish (pool of 2)**: whenever one of the sender's offered reservations is
+     detected USED — a `payment_notice` from the contact naming it, or the offering wallet's
+     own UTXO watch seeing funds arrive on it — top the contact back up so they always hold
+     **2 fresh (unfunded, live) addresses**: reserve the shortfall and send an ADDITIVE
+     `addr_pool` (`replace:false`) carrying just the new address(es). Re-check on every
+     conversation open with that contact, so a top-up whose send failed gets retried.
+     Replenish top-ups are **exempt from the 10-minute serve throttle** (they are driven by
+     genuine pool consumption, not a re-offer) but honor the 60-second per-contact gap and
+     both reservation caps in full — see the limits table. A contact who revoked the sender's
+     pool (incoming empty `replace:true`) is never auto-replenished — their zero active count
+     is disinterest, not consumption — until they re-engage (an `addr_pool_request`, a
+     non-empty pool offer of their own, or a successful new offer).
+     Only OUTBOUND replenishes get the throttle exemption: inbound `addr_pool_request`
+     handling keeps the full 10-minute serve throttle.
 - Reserved addresses stay listed in the wallet's normal address management UI like any other
   revealed address (iOS: Manage Addresses) — the reservation only matters to pool logic and is
   not surfaced there.
@@ -334,7 +351,8 @@ NOT render anything from its own notice (its bubble was created by the send flow
    even if that payment ultimately fails; burning an address is safe, reusing one is not).
    A retry of the same payment reuses the same destination.
 2. After the payment tx is accepted, send `payment_notice`.
-3. If consumption leaves ≤ 2 unused addresses, send `addr_pool_request`.
+3. If consumption leaves ≤ 1 unused address, send `addr_pool_request` (backstop — the offerer's
+   auto-replenish normally refills the pool without being asked).
 4. No pool → pay the chatting address, no `payment_notice` (existing detection covers it).
 
 ### Rate Limits & Abuse Resistance (mandatory — part of the contract)
@@ -347,18 +365,22 @@ enforce the same limits:
 
 | Limit | Value | Applies to |
 |-------|-------|------------|
-| Pool-serve throttle | max **1 `addr_pool` send per contact per 10 minutes** | same-state sends: organic offers, reciprocity, and request-driven top-ups |
-| Toggle-transition gap | min **60 seconds between consecutive broadcasts to the same contact** | toggle-driven broadcasts only (revoke on OFF, re-offer on ON) — a genuine state change bypasses the 10-minute throttle so deliberate toggles propagate promptly; rapid flapping stays bounded to one broadcast per contact per gap |
+| Pool-serve throttle | max **1 `addr_pool` send per contact per 10 minutes** | same-state sends: organic offers, reciprocity, and request-driven top-ups. **Exempt: replenish top-ups** (driven by a reservation actually getting funded — consumption-paced, so the consumption itself bounds them) and toggle broadcasts; both instead honor the 60-second gap below |
+| Toggle-transition/replenish gap | min **60 seconds between consecutive broadcasts to the same contact** | throttle-exempt sends: toggle-driven broadcasts (revoke on OFF, re-offer on ON) and replenish top-ups — a genuine state change or consumption event bypasses the 10-minute throttle so it propagates promptly; rapid flapping stays bounded to one broadcast per contact per gap |
 | Lifetime reservation cap | max **50 addresses ever reserved per contact** | reservation itself — batches are clamped so the total never exceeds it; applies to toggle re-offers too |
-| Outstanding-unfunded cap | stop serving once **≥ 15 offered addresses have never received funds** | top-ups/offers, including toggle re-offers (revokes bypass the caps — a revoke must always be allowed out, subject only to the transition gap) |
+| Outstanding-unfunded cap | stop serving once **≥ 15 offered addresses have never received funds** | top-ups/offers, including toggle re-offers AND replenish top-ups (revokes bypass the caps — a revoke must always be allowed out, subject only to the transition gap) |
 
 - Requests/offers suppressed by these limits are **silently ignored** (log locally, send
   nothing) — no error envelope exists.
-- "Funded" knowledge is best-effort: a reservation counts as funded when a `payment_notice`
-  from that contact names it as the payment destination. This is only a proxy (a payer could
-  omit notices), which is why the lifetime cap + throttle backstop it.
+- "Funded" knowledge comes from two sources: a `payment_notice` from that contact naming the
+  reservation as its payment destination, and the offering wallet's own UTXO watch seeing
+  funds arrive on the reserved address (offered reservations are in the watched set anyway).
+  Still best-effort (a device that never sees either misses it), which is why the lifetime
+  cap + throttle backstop it. A funded reservation stops counting as fresh: it leaves the
+  live pool on the offering side and its row moves back into the wallet's normal
+  spending-address list (iOS: Manage Addresses' main Addresses tab, force-unhidden).
 - Outbound side (already stated above): `addr_pool_request` is sent at most once per contact
-  per 10 minutes, and only when unused ≤ 2. A request suppressed by the peer's serve throttle
+  per 10 minutes, and only when unused ≤ 1. A request suppressed by the peer's serve throttle
   resolves itself: payments fall back to the chatting address until a later request (retried on
   conversation open / consumption) is served.
 - Implementations must also guard the reciprocity and initial-offer paths against queued

@@ -476,6 +476,12 @@ extension ChatService {
         AddressActivityNotifier.shared.postUtxoActivityEvent(parsed: parsed, removedByTxId: removedByTxId)
         AddressActivityNotifier.shared.handleLiveUtxoAdditions(parsed: parsed, removedByTxId: removedByTxId)
 
+        // Payment-pool reservation addresses are watched but skipped by the chat classifier
+        // above (Case 3) and excluded from wallet notifications - this is where a receive on
+        // one of them marks the reservation funded and triggers the pool-of-2 auto-replenish,
+        // even when the payer's payment_notice never arrives.
+        handlePoolReservationUtxoAdditions(parsed.added)
+
         if !parsed.added.isEmpty {
             saveMessages()
         }

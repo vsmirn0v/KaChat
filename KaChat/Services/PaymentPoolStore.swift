@@ -21,10 +21,15 @@ import Foundation
 final class PaymentPoolStore {
     static let shared = PaymentPoolStore()
 
-    /// How many fresh addresses each `addr_pool` offer contains.
-    static let offerBatchSize = 5
-    /// Send an `addr_pool_request` when the unused remainder of a contact's pool drops to this or lower.
-    static let lowWaterMark = 2
+    /// How many fresh addresses each `addr_pool` offer contains - also the target the
+    /// auto-replenish keeps live per contact: whenever a reservation is detected funded, the
+    /// offering side tops the contact back up to this many fresh (unfunded, active) addresses.
+    static let offerBatchSize = 2
+    /// Send an `addr_pool_request` when the unused remainder of a contact's pool drops to this
+    /// or lower. With a pool of 2 the request is a backstop for a lost replenish top-up, so it
+    /// fires only once a consumption actually leaves a single unused address - a full fresh
+    /// pool must never trigger a request.
+    static let lowWaterMark = 1
     /// Reject received pools that would grow a contact's stored pool beyond this.
     static let maxStoredPoolSize = 20
     /// Cap on the remembered handled-envelope txId list (replay guard).
@@ -102,6 +107,12 @@ final class PaymentPoolStore {
         /// Chats Privacy was turned off. Cleared per contact when we next successfully offer
         /// (and wholesale on toggle-on). Optional for decode compat.
         var revokedContacts: Set<String>? = nil
+        /// Contacts who revoked OUR pool at THEM (incoming empty replace:true - their Chats
+        /// Privacy went off). While set, the pool-of-2 auto-replenish never proactively sends
+        /// them addresses (their active count is 0 by revocation, not by consumption).
+        /// Cleared when they show renewed interest: an addr_pool_request, a non-empty pool
+        /// offer from them, or any successful offer of ours. Optional for decode compat.
+        var contactsRevokedAtUs: Set<String>? = nil
     }
 
     /// Payment-destination memory for in-flight sends, keyed by the payment's pending txId so a
@@ -194,6 +205,9 @@ final class PaymentPoolStore {
             }
         }
         current.myReservations[contactAddress] = entries
+        // A successful offer supersedes any standing revoked-at-us marker - the contact holds
+        // live addresses of ours again, so replenishes are meaningful again.
+        current.contactsRevokedAtUs?.remove(contactAddress)
         save(current, for: walletAddress)
     }
 
@@ -284,13 +298,37 @@ final class PaymentPoolStore {
     /// leave the ACTIVE set - tag and hide-lock drop - without touching any protocol state
     /// (offered marker, revokedContacts, throttles), so the normal offer lifecycle is
     /// unaffected. Historical `offered` stays set: the addresses remain watched and a
-    /// payment_notice naming one still renders.
+    /// payment_notice naming one still renders. Also records the revoked-at-us marker so the
+    /// auto-replenish doesn't read the zeroed active count as a shortfall and push fresh
+    /// addresses at a contact who just signalled disinterest.
     func markOffersInactive(for contactAddress: String, wallet walletAddress: String) {
         var current = state(for: walletAddress)
-        guard var entries = current.myReservations[contactAddress],
-              entries.contains(where: { $0.activeOffer != false }) else { return }
-        for index in entries.indices { entries[index].activeOffer = false }
-        current.myReservations[contactAddress] = entries
+        var revokedAtUs = current.contactsRevokedAtUs ?? []
+        revokedAtUs.insert(contactAddress)
+        current.contactsRevokedAtUs = revokedAtUs
+        if var entries = current.myReservations[contactAddress],
+           entries.contains(where: { $0.activeOffer != false }) {
+            for index in entries.indices { entries[index].activeOffer = false }
+            current.myReservations[contactAddress] = entries
+        }
+        save(current, for: walletAddress)
+    }
+
+    /// True while `contactAddress` has revoked our pool at them and hasn't shown renewed
+    /// interest since - gates the proactive auto-replenish only (request-driven and
+    /// reciprocity sends clear the marker on arrival).
+    func didContactRevokeAtUs(_ contactAddress: String, wallet walletAddress: String) -> Bool {
+        (state(for: walletAddress).contactsRevokedAtUs ?? []).contains(contactAddress)
+    }
+
+    /// The contact showed renewed pool interest (sent addr_pool_request, offered us a
+    /// non-empty pool, or accepted a successful offer of ours) - proactive replenishes are
+    /// welcome again.
+    func clearContactRevokedAtUs(_ contactAddress: String, wallet walletAddress: String) {
+        var current = state(for: walletAddress)
+        guard var revokedAtUs = current.contactsRevokedAtUs, revokedAtUs.contains(contactAddress) else { return }
+        revokedAtUs.remove(contactAddress)
+        current.contactsRevokedAtUs = revokedAtUs
         save(current, for: walletAddress)
     }
 
@@ -351,19 +389,45 @@ final class PaymentPoolStore {
     }
 
     /// Marks one of our reservations for `contactAddress` as funded - called when a
-    /// payment_notice from that contact names the address as its payment destination. Feeds the
-    /// outstanding-unfunded-offers cap; no-op if the address isn't one of our reservations.
-    func markReservationFunded(_ address: String, for contactAddress: String, wallet walletAddress: String) {
+    /// payment_notice from that contact names the address as its payment destination, or when
+    /// the UTXO watch sees funds arrive on it directly. Feeds the outstanding-unfunded-offers
+    /// cap; no-op if the address isn't one of our reservations. Returns true only when this
+    /// call actually transitioned the reservation to funded - the auto-replenish trigger keys
+    /// off that so repeated notifications for the same funding never queue duplicate top-ups.
+    @discardableResult
+    func markReservationFunded(_ address: String, for contactAddress: String, wallet walletAddress: String) -> Bool {
         var current = state(for: walletAddress)
         guard var entries = current.myReservations[contactAddress],
-              let index = entries.firstIndex(where: { $0.address == address }) else { return }
-        guard entries[index].funded != true else { return }
+              let index = entries.firstIndex(where: { $0.address == address }) else { return false }
+        guard entries[index].funded != true else { return false }
         entries[index].funded = true
         // Consumed: the address leaves the ACTIVE offered set - the row is governed by the
         // funded rule from here (un-hideable via its balance, no longer tagged as an offer).
         entries[index].activeOffer = false
         current.myReservations[contactAddress] = entries
         save(current, for: walletAddress)
+        return true
+    }
+
+    /// The contact a reservation belongs to, by address - used by the UTXO-watch funding
+    /// detection to route a funded reservation back to the contact whose pool it came from.
+    func reservationContact(for address: String, wallet walletAddress: String) -> String? {
+        state(for: walletAddress).myReservations.first { _, entries in
+            entries.contains { $0.address == address }
+        }?.key
+    }
+
+    /// How many of our reservations for `contactAddress` are currently live-and-fresh: part of
+    /// the contact's ACTIVE pool (same predicate as `activeOfferedReservationAddresses`) and
+    /// never funded. This is the count the auto-replenish compares against `offerBatchSize` -
+    /// the contact should always hold that many fresh addresses to pay us at.
+    func activeFreshReservationCount(for contactAddress: String, wallet walletAddress: String) -> Int {
+        let current = state(for: walletAddress)
+        let revoked = (current.revokedContacts ?? []).contains(contactAddress)
+        return (current.myReservations[contactAddress] ?? [])
+            .filter { $0.activeOffer ?? ($0.offered && $0.funded != true && !revoked) }
+            .filter { $0.funded != true }
+            .count
     }
 
     /// The spending-chain index of one of our reservations, by address — used to keep offered

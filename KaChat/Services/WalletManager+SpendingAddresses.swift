@@ -388,6 +388,40 @@ extension WalletManager {
         return result
     }
 
+    /// Derives the spending addresses for an arbitrary index range with a SINGLE seed decrypt
+    /// (shared change-node key), reading/filling the persistent per-index address cache.
+    /// Built for the Address Visibility pager's beyond-revealed pages: calling the public
+    /// `spendingAddress(at:)` once per row re-did the Secure Enclave decrypt + PBKDF2 per
+    /// index, which froze (or, on a transient keychain failure, blanked) a whole 50-row page.
+    /// Returns an empty map when the seed is unavailable this instant - callers should treat
+    /// that as "try again", never as "these indices don't exist".
+    func spendingAddresses(inRange range: Range<Int>) -> [Int: String] {
+        guard !range.isEmpty else { return [:] }
+        // Serve fully-cached ranges without touching the keychain at all.
+        var result: [Int: String] = [:]
+        var missing: [Int] = []
+        if let cacheKey = spendingAddressCacheKey(),
+           let cached = UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String] {
+            for index in range {
+                if let address = cached[String(index)] {
+                    result[index] = address
+                } else {
+                    missing.append(index)
+                }
+            }
+        } else {
+            missing = Array(range)
+        }
+        guard !missing.isEmpty else { return result }
+        guard let changeKey = spendingChangeKey() else { return result }
+        for index in missing {
+            if let address = spendingAddress(at: index, changeKey: changeKey) {
+                result[index] = address
+            }
+        }
+        return result
+    }
+
     /// True if `address` is one of this wallet's own revealed spending-chain addresses
     /// (0...maxSpendingAddressIndex) - used to reject a received pool that tries to feed our own
     /// addresses back to us. One seed decrypt + one derivation per revealed index; call off the

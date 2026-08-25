@@ -44,8 +44,8 @@ extension ChatService {
 
     /// Reserves fresh spending-chain addresses for `contact` and sends them as an `addr_pool`
     /// envelope. Re-uses any reservation recorded for this contact whose send previously failed
-    /// (offered == false) before revealing new indices, so a retried offer doesn't burn five more
-    /// slots. On success the reservations flip to offered, the once-per-contact marker is set,
+    /// (offered == false) before revealing new indices, so a retried offer doesn't burn another
+    /// batch of slots. On success the reservations flip to offered, the once-per-contact marker is set,
     /// and the UTXO subscription is rebuilt so incoming pool payments are noticed promptly.
     ///
     /// `replace: true` for the initial/lazy offer (safe re-offer semantics after a device
@@ -53,8 +53,14 @@ extension ChatService {
     /// top-ups (recipient appends, deduped). `toggleTransition: true` marks a Chats Payment
     /// Privacy toggle-ON broadcast: the 60s transition gap applies instead of the full
     /// 10-minute serve throttle (reservation caps unchanged), so flipping the switch always
-    /// propagates promptly.
-    func reserveAndSendAddressPool(to contact: Contact, replace: Bool, toggleTransition: Bool = false) async throws {
+    /// propagates promptly. `replenish: true` marks an automatic pool-of-2 top-up triggered by
+    /// a reservation getting funded: it shares the toggle broadcasts' throttle exemption
+    /// (60s gap instead of the 10-minute throttle, reservation caps in full - the same shape
+    /// as the revokes' cap exemption, documented in MESSAGING.md) and sends only the SHORTFALL
+    /// - enough new addresses that the contact again holds `offerBatchSize` fresh ones -
+    /// recomputed here inside the serialized operation so several queued triggers for the same
+    /// funding collapse into one send (or none).
+    func reserveAndSendAddressPool(to contact: Contact, replace: Bool, toggleTransition: Bool = false, replenish: Bool = false) async throws {
         guard let wallet = WalletManager.shared.currentWallet else { return }
         let walletAddress = wallet.publicAddress
         let store = PaymentPoolStore.shared
@@ -69,27 +75,46 @@ extension ChatService {
         if replace {
             guard !store.hasOfferedPool(to: contact.address, wallet: walletAddress) else { return }
         }
-        guard store.canServePoolOffer(to: contact.address, wallet: walletAddress, toggleTransition: toggleTransition) else {
+        // Replenish top-ups bypass the 10-minute serve throttle (a funded reservation means
+        // genuine pool usage, not a re-offer) but still honor the 60s gap and both reservation
+        // caps - same exemption shape as the toggle broadcasts.
+        guard store.canServePoolOffer(to: contact.address, wallet: walletAddress, toggleTransition: toggleTransition || replenish) else {
             AppLog.log("[ChatService] Pool offer to %@ suppressed by serve throttle/caps",
                        String(contact.address.suffix(10)))
             return
         }
 
+        // Replenish sends only the shortfall back up to the target pool size; everything else
+        // sends a full batch. Recomputed here (inside the serialized operation) so stacked
+        // replenish triggers see the already-recorded top-up and no-op.
+        let batchLimit: Int
+        if replenish {
+            // Their revoke may have landed between enqueue and execution - re-check here,
+            // inside the serialized operation, like the other guards.
+            guard !store.didContactRevokeAtUs(contact.address, wallet: walletAddress) else { return }
+            let activeFresh = store.activeFreshReservationCount(for: contact.address, wallet: walletAddress)
+            batchLimit = PaymentPoolStore.offerBatchSize - activeFresh
+            guard batchLimit > 0 else { return }
+        } else {
+            batchLimit = PaymentPoolStore.offerBatchSize
+        }
+
         // replace:true (initial offer or post-revoke re-offer) may re-send previously offered
         // but never-funded reservations - the recipient's pool was empty/discarded, re-sending
-        // creates no reuse, and it keeps a toggle off/on cycle from burning five new indices
-        // against the lifetime cap every time. Append top-ups only ever send never-yet-offered
-        // addresses (the recipient dedupes, but resending their live pool would be waste).
+        // creates no reuse, and it keeps a toggle off/on cycle from burning a fresh batch of
+        // indices against the lifetime cap every time. Append top-ups only ever send
+        // never-yet-offered addresses (the recipient dedupes, but resending their live pool
+        // would be waste).
         var pending = replace
             ? store.reofferableReservations(for: contact.address, wallet: walletAddress)
             : store.unofferedReservations(for: contact.address, wallet: walletAddress)
-        if pending.count > PaymentPoolStore.offerBatchSize {
-            pending = Array(pending.prefix(PaymentPoolStore.offerBatchSize))
+        if pending.count > batchLimit {
+            pending = Array(pending.prefix(batchLimit))
         }
         // Never reserve past the per-contact lifetime cap, even mid-batch.
         let lifetimeHeadroom = PaymentPoolStore.maxLifetimeReservationsPerContact
             - store.lifetimeReservationCount(for: contact.address, wallet: walletAddress)
-        let missing = min(PaymentPoolStore.offerBatchSize - pending.count, lifetimeHeadroom)
+        let missing = min(batchLimit - pending.count, lifetimeHeadroom)
         if missing > 0 {
             let fresh = await WalletManager.shared.reserveFreshSpendingAddresses(count: missing)
             guard !fresh.isEmpty else {
@@ -269,6 +294,80 @@ extension ChatService {
             } catch {
                 AppLog.log("[ChatService] addr_pool_request send failed: %@", error.localizedDescription)
             }
+        }
+    }
+
+    // MARK: - Auto-replenish (pool of 2)
+
+    /// Keeps a contact who holds a live pool of ours topped up to `PaymentPoolStore.offerBatchSize`
+    /// fresh (unfunded, active) addresses. Fired whenever one of their reservations is detected
+    /// USED - a `payment_notice` naming it, or the UTXO watch seeing funds arrive on it - and
+    /// re-checked on every conversation open, so a top-up whose send failed earlier gets retried.
+    /// Sends an ADDITIVE `addr_pool` (`replace: false`) carrying only the shortfall.
+    ///
+    /// Caps and throttles: the reservation caps (lifetime, outstanding-unfunded) apply in full,
+    /// and the 60s per-contact transition gap bounds rapid re-fires, but the 10-minute serve
+    /// throttle is bypassed - this is a replenish driven by genuine pool consumption, not a
+    /// re-offer (same exemption pattern as toggle broadcasts/revokes; see MESSAGING.md). The
+    /// shortfall is recomputed inside the serialized send operation, so stacked triggers for
+    /// the same funding collapse to a single send.
+    func replenishPoolIfNeeded(for contactAddress: String) {
+        guard let wallet = WalletManager.shared.currentWallet else { return }
+        let walletAddress = wallet.publicAddress
+        guard AppSettings.chatsPrivacyEnabled(for: walletAddress) else { return }
+        let store = PaymentPoolStore.shared
+        // Only contacts currently holding a live pool of ours get proactive top-ups - a
+        // never-offered contact goes through the normal initial offer, and a revoked one
+        // through the toggle-on re-offer.
+        guard store.hasOfferedPool(to: contactAddress, wallet: walletAddress) else { return }
+        guard !store.isPoolRevoked(for: contactAddress, wallet: walletAddress) else { return }
+        // A contact who revoked our pool at them zeroed their active count deliberately -
+        // that's disinterest, not consumption; never replenish until they re-engage.
+        guard !store.didContactRevokeAtUs(contactAddress, wallet: walletAddress) else { return }
+        guard store.activeFreshReservationCount(for: contactAddress, wallet: walletAddress) < PaymentPoolStore.offerBatchSize else { return }
+        guard isPoolEstablishedConversation(contactAddress) else { return }
+        guard let contact = contactsManager.getContact(byAddress: contactAddress) else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await self.enqueueOutgoingTxOperation {
+                try await self.reserveAndSendAddressPool(to: contact, replace: false, replenish: true)
+            }
+        }
+    }
+
+    /// UTXO-watch side of funded detection: offered reservation addresses are in the gRPC
+    /// `utxosChanged` watched set (see `setupUtxoSubscription`), but the chat classifier
+    /// deliberately skips them ("unknown address" case) and `AddressActivityNotifier` excludes
+    /// them from wallet notifications - so before this hook, nothing marked a reservation
+    /// funded unless the payer's `payment_notice` arrived. Called with every notification
+    /// batch's added entries: any entry landing on an offered reservation marks it funded
+    /// (idempotent - only an actual transition triggers anything), force-unhides its row
+    /// (funded addresses are always visible in Manage Addresses), and tops the contact's
+    /// pool back up.
+    func handlePoolReservationUtxoAdditions(_ added: [ParsedUtxoEntry]) {
+        guard !added.isEmpty, let wallet = WalletManager.shared.currentWallet else { return }
+        let walletAddress = wallet.publicAddress
+        let store = PaymentPoolStore.shared
+        let offered = Set(store.allOfferedReservationAddresses(wallet: walletAddress))
+        guard !offered.isEmpty else { return }
+
+        var contactsToReplenish = Set<String>()
+        for entry in added {
+            guard let address = entry.address, offered.contains(address) else { continue }
+            guard let contactAddress = store.reservationContact(for: address, wallet: walletAddress) else { continue }
+            if store.markReservationFunded(address, for: contactAddress, wallet: walletAddress) {
+                AppLog.log("[ChatService] Pool reservation %@ funded via UTXO watch (contact %@) - replenishing",
+                           String(address.suffix(10)), String(contactAddress.suffix(10)))
+                // Funded addresses are always visible in the main list.
+                if let index = store.reservationIndex(for: address, wallet: walletAddress) {
+                    Task { _ = await WalletManager.shared.setSpendingAddressHidden(index: index, hidden: false) }
+                }
+                contactsToReplenish.insert(contactAddress)
+            }
+        }
+        for contactAddress in contactsToReplenish {
+            replenishPoolIfNeeded(for: contactAddress)
         }
     }
 
@@ -457,6 +556,9 @@ extension ChatService {
                 return
             }
             guard isPoolEstablishedConversation(contactAddress) else { return }
+            // An explicit request is renewed interest - a standing revoked-at-us marker (they
+            // once revoked our pool) no longer applies, so auto-replenish resumes for them.
+            store.clearContactRevokedAtUs(contactAddress, wallet: walletAddress)
             // Inbound abuse gate: every reply costs us a reservation batch AND an on-chain tx
             // fee, so a contact spamming addr_pool_request gets at most one top-up per
             // 10 minutes, and nothing once the lifetime/outstanding-unfunded caps are hit
@@ -534,6 +636,9 @@ extension ChatService {
             for: contactAddress,
             wallet: walletAddress
         )
+        // A non-empty pool offer means the contact participates in the feature again - any
+        // standing revoked-at-us marker (from an earlier revoke of theirs) is stale.
+        store.clearContactRevokedAtUs(contactAddress, wallet: walletAddress)
         AppLog.log("[ChatService] Stored %d pool addresses for %@ (replace=%@)",
                    accepted.count, String(contactAddress.suffix(10)),
                    content.replace == true ? "true" : "false")
@@ -555,14 +660,19 @@ extension ChatService {
 
         // The notice names the reserved address the contact paid - record it funded so the
         // outstanding-unfunded-offers cap reflects genuine pool usage (no-op if the address
-        // isn't one of our reservations for this contact).
+        // isn't one of our reservations for this contact). An actual funded transition also
+        // triggers the pool-of-2 auto-replenish so the contact is topped back up to
+        // `offerBatchSize` fresh addresses.
         if let wallet = WalletManager.shared.currentWallet {
-            PaymentPoolStore.shared.markReservationFunded(content.address, for: contactAddress, wallet: wallet.publicAddress)
+            let transitioned = PaymentPoolStore.shared.markReservationFunded(content.address, for: contactAddress, wallet: wallet.publicAddress)
             // The reserved address now holds money — funded addresses are always visible.
             // Reservations are born visible now, so this is normally a no-op; it still
             // repairs any legacy reservation left hidden by the old born-hidden design.
             if let index = PaymentPoolStore.shared.reservationIndex(for: content.address, wallet: wallet.publicAddress) {
                 Task { _ = await WalletManager.shared.setSpendingAddressHidden(index: index, hidden: false) }
+            }
+            if transitioned {
+                replenishPoolIfNeeded(for: contactAddress)
             }
         }
 

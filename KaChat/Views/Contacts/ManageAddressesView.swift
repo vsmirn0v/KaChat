@@ -327,6 +327,11 @@ struct ManageAddressesView: View {
     /// manages these rows, not the user.
     @ViewBuilder
     private var chatPrivacyTabContent: some View {
+        chatPrivacyDescriptionHeader
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+
         if isLoading && entries.isEmpty {
             HStack {
                 Spacer()
@@ -351,6 +356,15 @@ struct ManageAddressesView: View {
                     .listRowSeparator(.hidden)
             }
         }
+    }
+
+    /// Brief explainer above the Chat Privacy list (and its empty state) - same secondary
+    /// footer-text treatment as the app's other section explainers.
+    private var chatPrivacyDescriptionHeader: some View {
+        Text("These are fresh addresses offered to your contacts for private payments. Each contact gets their own, so your payment history stays unlinkable. KaChat keeps at least 2 fresh addresses per chat and replaces them as they are used.")
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var chatPrivacyEmptyState: some View {
@@ -2496,9 +2510,11 @@ private struct SpendingAddressVisibilityView: View {
 
     @State private var entries: [SpendingAddressEntry] = []
     @State private var isLoading = true
-    /// Addresses currently offered to contacts as Chats Payment Privacy pool reservations -
-    /// excluded from this checklist entirely (they live on Manage Addresses' Chat Privacy
-    /// tab and can't be hidden or unhidden while the offer is live).
+    /// Addresses currently offered to contacts as Chats Payment Privacy pool reservations.
+    /// They DO appear in this checklist - always checked, with the checkbox inert and the row
+    /// labeled "Chat privacy address" - so the user sees the full picture, but they can't be
+    /// unchecked while the offer is live. They still stay out of the MAIN Addresses list (the
+    /// Chat Privacy tab owns them); this is checklist-only visibility.
     @State private var reservedAddresses: Set<String> = []
     /// Lazily-filled history results for zero-balance addresses (address -> ever used).
     @State private var usedByAddress: [String: Bool] = [:]
@@ -2506,25 +2522,14 @@ private struct SpendingAddressVisibilityView: View {
     /// indices on the fly (checking one reveals it without flooding the main list).
     @State private var page = 0
     private let pageSize = 50
-
-    /// The rows for the current page, by raw index order. Revealed indices come from the
-    /// loaded entries; anything beyond derives its address fresh (unrevealed = unchecked).
-    /// Active payment-pool reservations are excluded outright: this checklist reflects the
-    /// MAIN list's row set, and those addresses live on Manage Addresses' Chat Privacy tab
-    /// instead - they can't be hidden or unhidden anyway while the offer is live.
-    private var pageEntries: [SpendingAddressEntry] {
-        let byIndex = Dictionary(uniqueKeysWithValues: entries.map { ($0.index, $0) })
-        let start = page * pageSize
-        return (start..<(start + pageSize)).compactMap { index -> SpendingAddressEntry? in
-            if let existing = byIndex[index] { return existing }
-            guard let address = walletManager.spendingAddress(at: index) else { return nil }
-            return SpendingAddressEntry(
-                index: index, address: address, balanceSompi: 0,
-                isCurrent: false, everUsed: false, label: nil, hidden: true
-            )
-        }
-        .filter { !reservedAddresses.contains($0.address) }
-    }
+    /// The rows for the current page, by raw index order - STATE, rebuilt by `rebuildPage()`,
+    /// never derived inside `body`. The old computed-property version called the public
+    /// `walletManager.spendingAddress(at:)` once per beyond-revealed row during body
+    /// evaluation: 50 separate Secure Enclave seed decrypts + PBKDF2 runs on the main thread
+    /// per page render (and an all-nil page - i.e. a blank list - whenever the keychain read
+    /// transiently failed), which is why tapping the next page appeared to load nothing.
+    /// `rebuildPage()` derives the whole page through one shared change-key derivation instead.
+    @State private var pageEntries: [SpendingAddressEntry] = []
 
     var body: some View {
         NavigationStack {
@@ -2534,11 +2539,20 @@ private struct SpendingAddressVisibilityView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
+                        if pageEntries.isEmpty {
+                            Text("These addresses couldn't be derived right now. Go back a page or reopen this screen to retry.")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .listRowSeparator(.hidden)
+                        }
                         ForEach(pageEntries) { entry in
                             row(entry)
                         }
                     }
                     .listStyle(.plain)
+                    // New identity per page: guarantees a fresh list AND resets the scroll
+                    // position to the top on every page transition.
+                    .id(page)
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -2553,6 +2567,27 @@ private struct SpendingAddressVisibilityView: View {
                 }
             }
             .task { await load() }
+            .onChange(of: page) { _ in rebuildPage() }
+            .onChange(of: entries) { _ in rebuildPage() }
+        }
+    }
+
+    /// Recomputes the current page's rows: revealed indices come from the loaded entries;
+    /// anything beyond derives its address through ONE shared change-key derivation
+    /// (`spendingAddresses(inRange:)` - single seed decrypt for the whole page). Unrevealed
+    /// rows render unchecked; active payment-pool reservations render checked-and-locked.
+    private func rebuildPage() {
+        let byIndex = Dictionary(uniqueKeysWithValues: entries.map { ($0.index, $0) })
+        let start = page * pageSize
+        let range = start..<(start + pageSize)
+        let derived = walletManager.spendingAddresses(inRange: range)
+        pageEntries = range.compactMap { index -> SpendingAddressEntry? in
+            if let existing = byIndex[index] { return existing }
+            guard let address = derived[index] else { return nil }
+            return SpendingAddressEntry(
+                index: index, address: address, balanceSompi: 0,
+                isCurrent: false, everUsed: false, label: nil, hidden: true
+            )
         }
     }
 
@@ -2590,11 +2625,13 @@ private struct SpendingAddressVisibilityView: View {
         let funded = entry.balanceSompi > 0
         // Live primary check - the pointer can rotate (post-send) while this sheet is open,
         // and the lock must follow the authoritative index, not the row's snapshotted flag.
-        // (Payment-pool reservations never reach this row builder - pageEntries excludes
-        // them - but toggle() still guards against them as a backstop.)
         let isPrimary = entry.index == walletManager.currentSpendingAddressIndex
-        let locked = isPrimary || funded
-        let visible = !entry.hidden
+        // Active payment-pool reservations show here CHECKED and inert: always visible (the
+        // offer lifecycle owns them, and they're force-unhidden anyway), never uncheckable
+        // (toggle() guards them), labeled so the user knows why.
+        let isReserved = reservedAddresses.contains(entry.address)
+        let locked = isPrimary || funded || isReserved
+        let visible = !entry.hidden || isReserved
         return HStack(spacing: 10) {
             Image(systemName: visible ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 20))
@@ -2607,6 +2644,11 @@ private struct SpendingAddressVisibilityView: View {
                         .monospacedDigit()
                     if isPrimary {
                         Text("Primary")
+                            .font(.caption2.weight(.bold))
+                            .foregroundColor(.accentColor)
+                    }
+                    if isReserved {
+                        Text("Chat privacy address")
                             .font(.caption2.weight(.bold))
                             .foregroundColor(.accentColor)
                     }
@@ -2649,15 +2691,17 @@ private struct SpendingAddressVisibilityView: View {
     }
 
     private func load() async {
-        // Same legacy repair + ACTIVE offered set Manage Addresses' loadEntries performs, so
-        // this sheet excludes live-pool rows even when opened before that screen reloads;
-        // reverted reservations reappear and toggle like any other row.
+        // Same legacy repair + ACTIVE offered set Manage Addresses' loadEntries performs.
+        // Live-pool rows render here checked-and-locked with the "Chat privacy address"
+        // label (they still stay off the MAIN list - the Chat Privacy tab owns them);
+        // reverted reservations toggle like any other row.
         walletManager.unhideOfferedReservationsIfNeeded()
         if let wallet = walletManager.currentWallet {
             reservedAddresses = Set(PaymentPoolStore.shared.activeOfferedReservationAddresses(wallet: wallet.publicAddress))
         }
         entries = await walletManager.getSpendingAddressList()
         isLoading = false
+        rebuildPage()
     }
 
     /// One history lookup per zero-balance address, cached for the session of this sheet.

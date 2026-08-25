@@ -14,9 +14,12 @@ extension ChatService {
         AppLog.log("[ChatService] Entered conversation for %@", String(address.suffix(12)))
         startActiveChatPoll(for: address)
         loadReactions(for: address)
-        // Fresh-address payment pools: lazily offer our pool once per contact, and top up theirs
-        // if a previous addr_pool_request got lost (both no-ops when nothing to do).
+        // Fresh-address payment pools: lazily offer our pool once per contact, re-check the
+        // pool-of-2 replenish (retries a top-up whose send failed when a reservation got
+        // funded), and top up theirs if a previous addr_pool_request got lost (all no-ops
+        // when nothing to do).
         offerAddressPoolIfNeeded(to: address)
+        replenishPoolIfNeeded(for: address)
         if let contact = contactsManager.getContact(byAddress: address) {
             maybeRequestMorePoolAddresses(from: contact)
         }

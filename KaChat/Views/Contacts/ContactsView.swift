@@ -905,12 +905,13 @@ struct ProfileView: View {
 
     // MARK: - Address action rows (Chatting Address / Spending Address)
 
-    /// Two single-line glass cards, one per address role. Each shows the role title, the
-    /// (shortened, monospaced) address and its balance on the left, and three compact icon
-    /// buttons on the right: Copy, Send, Manage. Replaces the old expanding dropdowns that
-    /// hid the same three actions behind a chevron tap.
+    /// Two single-line rows, one per address role, sitting directly on the screen background
+    /// (no card) - same treatment as the big QR buttons above them. Each shows the role title
+    /// and balance on the left and three large icon-only buttons on the right: Copy, Send,
+    /// Manage. Replaces the old expanding dropdowns that hid the same three actions behind a
+    /// chevron tap.
     private func addressDropdownsSection(_ wallet: Wallet) -> some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 20) {
             addressActionRow(
                 title: "Chatting Address",
                 address: wallet.publicAddress,
@@ -931,9 +932,13 @@ struct ProfileView: View {
         }
     }
 
-    /// One compact address card. `address` is optional because the current spending address
-    /// can be momentarily unresolvable while the keychain unlocks; in that state the Copy and
-    /// Send actions are inert guards rather than the wrong address.
+    /// One address row: role title + balance on the left, three large icon-only circles on
+    /// the right (Copy, Send, Manage - the icons alone carry the meaning; VoiceOver reads the
+    /// accessibility labels). No shortened address, no card background - the row sits on the
+    /// screen background like the QR buttons. `address` is optional because the current
+    /// spending address can be momentarily unresolvable while the keychain unlocks; in that
+    /// state a small "Address unlocking..." note shows and the Copy and Send actions are
+    /// inert guards rather than the wrong address.
     private func addressActionRow<Destination: View>(
         title: String,
         address: String?,
@@ -942,19 +947,14 @@ struct ProfileView: View {
         onSend: @escaping () -> Void,
         @ViewBuilder manageDestination: @escaping () -> Destination
     ) -> some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
-                if let address {
-                    Text("\(address.prefix(12))…\(address.suffix(6))")
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                } else {
+                if address == nil {
                     Text("Address unlocking...")
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -989,9 +989,6 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(glassBackground(cornerRadius: 18))
     }
 
     private func addressRowIconButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
@@ -1001,19 +998,16 @@ struct ProfileView: View {
         .buttonStyle(.plain)
     }
 
+    /// A large icon-only circle, no caption - the caption text became the accessibility label.
     private func addressRowIconLabel(icon: String, label: String) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(.accentColor)
-                .frame(width: 36, height: 36)
-                .background(Circle().fill(.regularMaterial))
-                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
-            Text(label)
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-        .contentShape(Rectangle())
+        Image(systemName: icon)
+            .font(.system(size: 22, weight: .medium))
+            .foregroundColor(.accentColor)
+            .frame(width: 54, height: 54)
+            .background(Circle().fill(.regularMaterial))
+            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+            .contentShape(Circle())
+            .accessibilityLabel(Text(label))
     }
 
     private func loadSpendingAddressBalance() async {
