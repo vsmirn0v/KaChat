@@ -319,12 +319,22 @@ struct SettingsView: View {
         Form {
             Section("iCloud") {
                 Toggle("Store encrypted messages in iCloud CloudKit", isOn: $settingsViewModel.settings.storeMessagesInICloud)
-                    .onChange(of: settingsViewModel.settings.storeMessagesInICloud) { _ in
+                    .onChange(of: settingsViewModel.settings.storeMessagesInICloud) { newValue in
                         settingsViewModel.saveSettings()
                         refreshMessageStoreSize()
+                        // One cloud at a time: turning iCloud on turns Nextcloud Automatic
+                        // Sync off through its real setter, so the pending upload debounce
+                        // is cancelled and the choice is persisted for that wallet.
+                        if newValue, NextcloudService.shared.autoBackupEnabled {
+                            NextcloudService.shared.setAutoSyncEnabled(false)
+                        }
                     }
 
                 Text("Required for cross-device sync and backup of sent messages.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Text("Automatic sync works with one cloud service at a time.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -3208,6 +3218,10 @@ struct NextcloudSettingsView: View {
                         get: { service.autoBackupEnabled },
                         set: { service.setAutoSyncEnabled($0) }
                     ))
+
+                    Text("Automatic sync works with one cloud service at a time.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
 
                     if let lastSynced = service.lastAutoSyncAt {
                         HStack {
