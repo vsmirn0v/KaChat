@@ -2903,11 +2903,38 @@ extension ChatService {
         }
     }
 
+    /// App Group ledger of 1:1 txIds the MAIN APP posted a local banner for - the 1:1
+    /// counterpart of `GroupChatService.localPostedTxIdsKey`. `AppDelegate.willPresent` drops
+    /// a foreground push whose tx_id appears here.
+    static let localPostedTxIdsKey = "chat_local_posted_txids"
+
+    /// Returns false when this txId already produced a banner - the notification extension
+    /// handled its push (`chat_push_handled_txids`, written in NotificationService.didReceive),
+    /// or the main app already posted a local banner for it. Records the claim and returns
+    /// true otherwise. Bounded FIFO, mirroring `GroupChatService.claimGroupBannerSlot`.
+    private static func claimChatBannerSlot(txId: String) -> Bool {
+        guard let defaults = UserDefaults(suiteName: "group.com.kachat.app") else { return true }
+        let pushHandled = defaults.stringArray(forKey: "chat_push_handled_txids") ?? []
+        guard !pushHandled.contains(txId) else { return false }
+        var posted = defaults.stringArray(forKey: localPostedTxIdsKey) ?? []
+        guard !posted.contains(txId) else { return false }
+        posted.append(txId)
+        if posted.count > 300 { posted.removeFirst(posted.count - 300) }
+        defaults.set(posted, forKey: localPostedTxIdsKey)
+        return true
+    }
+
     func sendLocalNotification(for message: ChatMessage, from contact: Contact) {
         let settings = currentSettings
         // Check if notifications are enabled
         guard settings.notificationsEnabled else { return }
-        guard settings.notificationMode != .remotePush else { return }
+        // Foreground: the app's own live sync paths (subscription, sweep, open-chat poll,
+        // catch-up) are the notification source no matter the push mode - remote push only
+        // matters for background/closed. Background keeps the remote-push suppression so
+        // users whose push works don't get double banners there.
+        if UIApplication.shared.applicationState != .active {
+            guard settings.notificationMode != .remotePush else { return }
+        }
 
         // Don't notify during initial sync after wallet import/create
         guard !suppressNotificationsUntilSynced else { return }
@@ -2917,6 +2944,11 @@ extension ChatService {
 
         // Don't notify for pending messages
         guard message.deliveryStatus != .pending else { return }
+
+        // One banner per txId across the local-vs-APNs race: skip if the notification
+        // extension already handled this message's push, and record this local post so a
+        // foreground push duplicate is dropped in AppDelegate.willPresent.
+        guard Self.claimChatBannerSlot(txId: message.txId) else { return }
 
         let content = UNMutableNotificationContent()
         content.title = contact.alias

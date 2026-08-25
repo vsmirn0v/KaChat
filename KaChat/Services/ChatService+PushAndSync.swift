@@ -422,8 +422,11 @@ extension ChatService {
         // just ensure subscription/polling is running — skip the heavy 4-phase sync.
         if hasCompletedInitialSync {
             AppLog.log("[ChatService] Initial sync already done, ensuring subscription/polling")
-            let isRemotePushEnabled = settingsViewModel?.settings.notificationMode == .remotePush
-            if !isRemotePushEnabled && !isUtxoSubscribed && pollTask == nil {
+            // Fallback polling keys off the subscription alone, NOT the push mode: while the
+            // app runs, its own sync paths must detect everything (new handshakes included)
+            // even with remote push on. Backgrounded, the process suspends before the 60s
+            // delay elapses, so push stays the background source either way.
+            if !isUtxoSubscribed && pollTask == nil {
                 startFallbackPolling()
             }
             return
@@ -453,7 +456,6 @@ extension ChatService {
         initialSyncTask?.cancel()
         initialSyncTask = Task {
             AppLog.log("[ChatService] Sync task started")
-            let isRemotePushEnabled = settingsViewModel?.settings.notificationMode == .remotePush
             let settings = currentSettings
             let cloudKitEnabled = settings.storeMessagesInICloud
 
@@ -509,11 +511,10 @@ extension ChatService {
             suppressNotificationsUntilSynced = false
             hasCompletedInitialSync = true
 
-            if isRemotePushEnabled {
-                AppLog.log("[ChatService] Remote push enabled - skipping local polling")
-                return
-            }
-
+            // No remote-push early-out here: fallback polling depends only on whether the
+            // subscription came up. While the app runs, its own sync paths must detect
+            // everything regardless of push registration; backgrounded, the process suspends
+            // before the 60s poll delay elapses, so push stays the background source.
             if isUtxoSubscribed {
                 // RPC subscription active - no polling needed, rely on notifications
                 let protocolName = NodePoolService.shared.activeProtocol

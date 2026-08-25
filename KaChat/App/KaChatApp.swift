@@ -620,12 +620,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             // screen is open (thread id "broadcast:<channel>" on local banners and pushes alike).
             let isActiveBroadcast = threadId.hasPrefix("broadcast:") &&
                 BroadcastService.shared.isViewing(channel: String(threadId.dropFirst("broadcast:".count)))
-            // A group push whose txId the main app ALREADY posted a local banner for (foreground
-            // block-scan/catch-up ingest won the race) must not banner twice. Local banners carry
-            // no "tx_id" in userInfo, so they can never suppress themselves here.
-            if threadId.hasPrefix("group:"), let pushTxId = userInfo["tx_id"] as? String,
-               (UserDefaults(suiteName: "group.com.kachat.app")?
-                    .stringArray(forKey: GroupChatService.localPostedTxIdsKey) ?? []).contains(pushTxId) {
+            // A push whose txId the main app ALREADY posted a local banner for (a foreground
+            // ingest path - subscription, sweep, open-chat poll, catch-up - won the race) must
+            // not banner twice; group and 1:1 ledgers alike. Local banners carry no "tx_id" in
+            // userInfo, so they can never suppress themselves here.
+            if let pushTxId = userInfo["tx_id"] as? String,
+               let shared = UserDefaults(suiteName: "group.com.kachat.app"),
+               (shared.stringArray(forKey: GroupChatService.localPostedTxIdsKey) ?? []).contains(pushTxId) ||
+               (shared.stringArray(forKey: ChatService.localPostedTxIdsKey) ?? []).contains(pushTxId) {
+                completionHandler([])
+                return
+            }
+            // Broadcasts and KaPosts banner from the app's own scan/poll paths while the app is
+            // active, whatever the push mode - and their pushes carry no "tx_id" to dedupe with,
+            // so drop them here wholesale. willPresent never runs for a backgrounded app, so
+            // background push delivery is untouched.
+            if UIApplication.shared.applicationState == .active,
+               threadId == "kaposts" || threadId.hasPrefix("broadcast:") {
                 completionHandler([])
                 return
             }

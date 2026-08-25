@@ -961,7 +961,7 @@ final class BroadcastService: ObservableObject {
             )
             if inserted {
                 touchedChannels.insert(hit.channel)
-                notifyIfEnabled(channel: hit.channel, senderAddress: hit.senderAddress, content: hit.content)
+                notifyIfEnabled(channel: hit.channel, senderAddress: hit.senderAddress, content: hit.content, txId: hit.txId)
             }
         }
 
@@ -981,7 +981,7 @@ final class BroadcastService: ObservableObject {
     /// Fires a local notification for a newly-scanned message, matching Android's per-channel
     /// "Enable Notifications" toggle - like block scanning itself, this only ever fires while the
     /// app is alive (foreground or briefly backgrounded), never for a fully closed/terminated app.
-    private func notifyIfEnabled(channel: String, senderAddress: String, content: String) {
+    private func notifyIfEnabled(channel: String, senderAddress: String, content: String, txId: String) {
         guard senderAddress != WalletManager.shared.currentWallet?.publicAddress else { return }
         guard channels.first(where: { $0.channelName == channel })?.notifyEnabled == true else { return }
         guard !store.hiddenSenderAddresses(forChannel: channel).contains(senderAddress) else { return }
@@ -990,9 +990,12 @@ final class BroadcastService: ObservableObject {
         // Child Mode removes Broadcasts entirely - no local banners for them either.
         guard !settings.childModeEnabled else { return }
         // Indexed channels are covered by remote push (registered via
-        // watched_broadcast_channels) - skip the scan-driven local banner in remote-push mode
-        // so one message can't notify twice, mirroring sendLocalNotification's chat guard.
-        if Self.featuredChannels.contains(channel), settings.notificationMode == .remotePush {
+        // watched_broadcast_channels) while the app is backgrounded or closed - skip the
+        // scan-driven local banner there so one message can't notify twice. While the app is
+        // ACTIVE the scan is the notification source whatever the mode
+        // (AppDelegate.willPresent drops broadcast pushes in foreground), so the banner fires.
+        if Self.featuredChannels.contains(channel), settings.notificationMode == .remotePush,
+           UIApplication.shared.applicationState != .active {
             return
         }
         // Foreground policy: in-app banners fire everywhere (chat list, other chats) EXCEPT the
@@ -1011,8 +1014,12 @@ final class BroadcastService: ObservableObject {
         notificationContent.sound = .default
         notificationContent.threadIdentifier = "broadcast:\(channel)"
 
+        // Keyed by txId: matches the push spec's apns-collapse-id (= message txid), so in the
+        // rare cross-state race (local banner posted while active, push displayed after the
+        // app backgrounds) the second one replaces the first in Notification Center instead
+        // of stacking. Also self-dedupes a re-scanned message.
         let request = UNNotificationRequest(
-            identifier: "broadcast:\(channel):\(UUID().uuidString)",
+            identifier: txId,
             content: notificationContent,
             trigger: nil
         )

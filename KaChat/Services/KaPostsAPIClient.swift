@@ -1,5 +1,6 @@
 import Foundation
 import P256K
+import UIKit
 import UserNotifications
 
 /// REST client for the K social-network indexer (Settings > Connection Settings > KaPost
@@ -715,9 +716,13 @@ final class KaPostsNotificationService {
             // duplicate 90s poll of this same endpoint in parallel.
             await GlobalNotificationCenter.shared.ingestKaPostsNotifications(notifications)
             // OS banner gates apply only from here down. Remote-push mode: the push service
-            // delivers KaPosts pings (registered via kaposts_pubkey) - local pings here would
-            // double-notify, mirroring the broadcast guard.
-            guard settings.notificationsEnabled, settings.notificationMode != .remotePush else { return }
+            // delivers KaPosts pings (registered via kaposts_pubkey) while the app is
+            // backgrounded or closed - local pings there would double-notify, mirroring the
+            // broadcast guard. While the app is ACTIVE this poll is the notification source
+            // whatever the mode (AppDelegate.willPresent drops kaposts pushes in foreground).
+            guard settings.notificationsEnabled else { return }
+            if settings.notificationMode == .remotePush,
+               UIApplication.shared.applicationState != .active { return }
             guard let newest = notifications.map(\.timestamp).max() else { return }
             guard let lastSeen = (UserDefaults.standard.object(forKey: key) as? NSNumber)?.int64Value else {
                 // First run for this wallet: baseline silently instead of replaying history.

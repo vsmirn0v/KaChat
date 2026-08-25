@@ -78,6 +78,12 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
 
+        // Record that this extension handled a 1:1 push for this txId (whether it ends up
+        // showing) so the main app's own foreground/catch-up ingest of the same message doesn't
+        // post a duplicate local banner - counterpart of markGroupPushHandled, consumed by
+        // ChatService.claimChatBannerSlot.
+        markChatPushHandled(txId: txId)
+
         // Get sender display name from shared contacts
         if let walletAddress = getWalletAddress(), walletAddress == senderAddress {
             content.title = ""
@@ -303,6 +309,18 @@ class NotificationService: UNNotificationServiceExtension {
         }
         addPendingMessage(txId: txId, sender: "group", type: messageType)
         contentHandler?(content)
+    }
+
+    /// Records a 1:1 push's txId in the App Group so the main app's own ingest of the same
+    /// message doesn't post a duplicate local notification (see ChatService's
+    /// claimChatBannerSlot). Bounded FIFO, mirroring markGroupPushHandled below.
+    private func markChatPushHandled(txId: String) {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        var ids = defaults.stringArray(forKey: "chat_push_handled_txids") ?? []
+        guard !ids.contains(txId) else { return }
+        ids.append(txId)
+        if ids.count > 300 { ids.removeFirst(ids.count - 300) }
+        defaults.set(ids, forKey: "chat_push_handled_txids")
     }
 
     /// Records a group push's txId in the App Group so the main app's background ingest of the same
