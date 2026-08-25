@@ -260,15 +260,26 @@ final class PaymentPoolStore {
         return holders.filter { !revoked.contains($0) }.sorted()
     }
 
-    /// Contacts with ANY prior pool history (reservations recorded, offered marker, or a
-    /// standing revocation) - used by the toggle-ON proactive re-offer to find everyone who may
-    /// believe our pool is gone. Established-conversation filtering happens at the caller.
-    func contactsWithPoolHistory(wallet walletAddress: String) -> Set<String> {
+    /// Toggle-ON refresh targets from PERSISTED state: every contact who previously HELD a
+    /// live pool of ours - at least one reservation historically flagged offered that wasn't
+    /// reclaimed (offered-ever minus reclaimed-only; Generate recycling every one of a
+    /// contact's addresses dissolves the relationship) - but doesn't hold one now (offered
+    /// marker unset: our revoke landed, or the marker cleared some other way), excluding
+    /// contacts who revoked our pool at them (they get nothing until they re-engage).
+    /// Persisted-state derivation on purpose: it reaches contacts whose CONVERSATION was
+    /// deleted since the offer, whom the conversation-derived lane cannot see.
+    /// Contact-still-exists filtering happens at the caller.
+    func reofferCandidateContacts(wallet walletAddress: String) -> [String] {
         let current = state(for: walletAddress)
-        var contacts = current.offeredContacts
-        contacts.formUnion(current.myReservations.keys)
-        contacts.formUnion(current.revokedContacts ?? [])
-        return contacts
+        let revokedAtUs = current.contactsRevokedAtUs ?? []
+        return current.myReservations
+            .compactMap { contactAddress, entries -> String? in
+                guard !current.offeredContacts.contains(contactAddress) else { return nil }
+                guard !revokedAtUs.contains(contactAddress) else { return nil }
+                guard entries.contains(where: { $0.offered && $0.reclaimed != true }) else { return nil }
+                return contactAddress
+            }
+            .sorted()
     }
 
     func isPoolRevoked(for contactAddress: String, wallet walletAddress: String) -> Bool {

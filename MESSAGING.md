@@ -332,9 +332,10 @@ NOT render anything from its own notice (its bubble was created by the send flow
      Replenish top-ups are **exempt from the 10-minute serve throttle** (they are driven by
      genuine pool consumption, not a re-offer) but honor the 60-second per-contact gap and
      both reservation caps in full — see the limits table. A contact who revoked the sender's
-     pool (incoming empty `replace:true`) is never auto-replenished — their zero active count
-     is disinterest, not consumption — until they re-engage (an `addr_pool_request`, a
-     non-empty pool offer of their own, or a successful new offer).
+     pool (incoming empty `replace:true`) receives **no offer of any kind**: not just no
+     replenish, but no lazy offer and no toggle-on re-offer either (their zero active count
+     is disinterest, not consumption) until they re-engage with an `addr_pool_request` or a
+     non-empty pool offer of their own, both of which clear the marker.
      Only OUTBOUND replenishes get the throttle exemption: inbound `addr_pool_request`
      handling keeps the full 10-minute serve throttle.
 - Reserved addresses stay listed in the wallet's normal address management UI like any other
@@ -424,20 +425,36 @@ gates the **send side only**:
   `replace:true` revocation (see the `addr_pool` section) to **every contact currently holding
   a live pool of its addresses** (derived from PERSISTED reservation state: the offered-marker
   set unioned with contacts holding offered-flagged reservations, minus already-revoked), one
-  revoke per contact, serialized through the normal outgoing queue. Each success sets a
-  persisted per-contact revoked-marker and clears that contact's offered-marker. Failures are
-  logged and non-fatal: that contact simply drains the residual pool (the backstop semantics),
-  staying eligible for a retry on a later toggle-off. Toggle broadcasts honor the 60-second
-  per-contact transition gap (see the limits table), not the 10-minute throttle.
+  revoke per contact, serialized through the normal outgoing queue. The revoke reaches
+  contacts even if they were since deleted from the address book (the envelope only needs the
+  address). Each success sets a persisted per-contact revoked-marker and clears that contact's
+  offered-marker. Failures are logged and non-fatal: that contact simply drains the residual
+  pool (the backstop semantics). A pass that leaves stragglers (contacts deferred by the
+  transition gap or whose send failed) is automatically re-swept after the gap expires,
+  bounded to a few passes (iOS: 3 follow-ups), so a single flip converges to "no contact
+  holds a live pool" without user action; contacts still unreached after the last pass stay
+  eligible on the next toggle-off. Toggle broadcasts honor the 60-second per-contact
+  transition gap (see the limits table), not the 10-minute throttle.
 - **Re-offer on toggle-on**: flipping ON clears the revoked-markers and **immediately
-  broadcasts** a fresh `replace:true` offer to every established contact not currently holding
-  a live pool — previously revoked contacts AND established contacts never offered before (the
-  toggle is the switch; propagation must not wait for a conversation to be opened). Serialized,
-  bounded by the established-conversation count, the per-contact transition gap, and the
-  reservation caps; contacts skipped by the gap are picked up by the lazy per-contact offer on
-  next conversation open. The re-offer MAY reuse previously offered but never-funded
-  reservations (the recipient discarded them on revoke; never-funded means no address reuse is
-  created) rather than burning fresh indices against the lifetime cap each cycle — iOS does.
+  broadcasts** a fresh `replace:true` pool-of-2 offer (the toggle is the switch; propagation
+  must not wait for a conversation to be opened) to the union of:
+  - every contact who **previously held a live pool** of the sender's addresses (derived from
+    persisted reservation state: at least one reservation historically offered and not since
+    reclaimed by the wallet's own address recycling) and doesn't hold one now; this reaches
+    contacts whose conversation was deleted since the offer; and
+  - every **established contact never offered before** (the lazy offer's set, sent now
+    instead of on next conversation open).
+
+  Excluded from both lanes: contacts currently holding a live pool (a revoke that never
+  landed left theirs valid, so there is nothing to resend), contacts who **revoked the
+  sender's pool at them** (no offers of any kind until they re-engage; see Pool Supply),
+  contacts whose every reservation was reclaimed, and contacts no longer in the address book.
+  Serialized, bounded by the per-contact transition gap and the reservation caps; contacts
+  skipped by the gap are picked up by the lazy per-contact offer on next conversation open.
+  The re-offer reuses previously offered but never-funded, never-reclaimed reservations first
+  (the recipient discarded them on revoke; never-funded means no address reuse is created)
+  and tops up with fresh indices to reach the batch size of 2, rather than burning a fresh
+  batch against the lifetime cap each cycle.
 - Reserved addresses are never un-reserved by any of this: they stay reserved for their one
   contact forever and stay in the UTXO watched set, so a payment that raced the revoke still
   lands and still renders (its `payment_notice` is honored regardless of the toggle).

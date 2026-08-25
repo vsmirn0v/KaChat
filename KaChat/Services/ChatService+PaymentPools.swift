@@ -27,6 +27,11 @@ extension ChatService {
         // pool of ours runs out). Also covers the reciprocity path, which routes through here.
         guard AppSettings.chatsPrivacyEnabled(for: wallet.publicAddress) else { return }
         guard !PaymentPoolStore.shared.hasOfferedPool(to: contactAddress, wallet: wallet.publicAddress) else { return }
+        // A contact who revoked our pool at them gets no offers until they re-engage - the
+        // lanes that count as re-engagement (their addr_pool_request, a non-empty pool of
+        // theirs) clear the marker BEFORE routing through here, so this only blocks
+        // unsolicited offers. Re-checked inside reserveAndSendAddressPool too.
+        guard !PaymentPoolStore.shared.didContactRevokeAtUs(contactAddress, wallet: wallet.publicAddress) else { return }
         guard PaymentPoolStore.shared.canServePoolOffer(to: contactAddress, wallet: wallet.publicAddress) else { return }
         guard isPoolEstablishedConversation(contactAddress) else { return }
         guard let contact = contactsManager.getContact(byAddress: contactAddress) else { return }
@@ -72,6 +77,12 @@ extension ChatService {
         // once a send actually happens, so the check must happen after the queue serializes us.
         // Chats Privacy may have been toggled OFF between enqueue and execution.
         guard AppSettings.chatsPrivacyEnabled(for: walletAddress) else { return }
+        // No offer of ANY kind to a contact who revoked our pool at them (incoming empty
+        // replace:true) until they re-engage. The re-engagement lanes (their
+        // addr_pool_request, a non-empty pool of theirs) clear the marker before enqueueing,
+        // so they pass; everything else - lazy offers, toggle-on re-offers, replenishes -
+        // is blocked, including a revoke of theirs that lands between enqueue and execution.
+        guard !store.didContactRevokeAtUs(contact.address, wallet: walletAddress) else { return }
         if replace {
             guard !store.hasOfferedPool(to: contact.address, wallet: walletAddress) else { return }
         }
@@ -89,9 +100,6 @@ extension ChatService {
         // replenish triggers see the already-recorded top-up and no-op.
         let batchLimit: Int
         if replenish {
-            // Their revoke may have landed between enqueue and execution - re-check here,
-            // inside the serialized operation, like the other guards.
-            guard !store.didContactRevokeAtUs(contact.address, wallet: walletAddress) else { return }
             let activeFresh = store.activeFreshReservationCount(for: contact.address, wallet: walletAddress)
             batchLimit = PaymentPoolStore.offerBatchSize - activeFresh
             guard batchLimit > 0 else { return }
@@ -164,10 +172,11 @@ extension ChatService {
     ///
     /// - OFF revokes our pool at every contact holding one (empty replace:true - the wire
     ///   revocation primitive) so their very next payment falls back to our chatting address
-    ///   instead of draining the residual pool.
-    /// - ON clears revocation markers and immediately broadcasts fresh offers to every
-    ///   established contact not currently holding a live pool - contacts we revoked, contacts
-    ///   whose revoke landed while their app was closed, and established contacts never offered
+    ///   instead of draining the residual pool. Gap-deferred and send-failed revokes are
+    ///   retried automatically until the broadcast converges (bounded passes).
+    /// - ON clears revocation markers and immediately broadcasts fresh pool-of-2 offers to
+    ///   every contact who previously held a pool (offered-ever minus reclaimed-only, minus
+    ///   contacts who revoked our pool at them) plus established contacts never offered
     ///   before. (The lazy enterConversation offer remains as backstop for conversations that
     ///   become established later.)
     ///
@@ -184,22 +193,37 @@ extension ChatService {
         }
     }
 
-    /// Toggle-ON proactive broadcast: one `replace:true` offer per established contact that
-    /// doesn't currently hold a live pool of ours (offered marker unset - covers revoked
-    /// contacts AND never-offered ones), serialized through the outgoing queue, bounded by the
-    /// established-conversation count and the per-contact transition gap + reservation caps.
-    /// Contacts skipped by the gap are picked up by the lazy enterConversation offer later.
+    /// Toggle-ON proactive broadcast: one fresh `replace:true` pool-of-2 offer (reofferable
+    /// never-funded/never-reclaimed reservations first, fresh indices topping up to
+    /// `offerBatchSize`) per target contact, serialized through the outgoing queue, bounded by
+    /// the per-contact transition gap + reservation caps. Targets are the union of two lanes:
+    ///
+    /// - **Pool history** (persisted state, `reofferCandidateContacts`): every contact who
+    ///   previously held a live pool of ours - offered-ever minus reclaimed-only - and doesn't
+    ///   now. Reaches contacts whose conversation was deleted since the offer; they proved
+    ///   establishment when first offered, so no conversation re-check.
+    /// - **Never-offered established conversations**: the toggle is the switch, so contacts
+    ///   the lazy offer hasn't reached yet get theirs now instead of on next open.
+    ///
+    /// Both lanes skip contacts currently holding a live pool (a revoke that never landed
+    /// left theirs valid - nothing to resend) and contacts who revoked our pool at them
+    /// (nothing until they re-engage). Contacts skipped by the gap are picked up by the lazy
+    /// enterConversation offer later.
     func reofferPoolsForChatsPrivacyOn() {
         guard let wallet = WalletManager.shared.currentWallet else { return }
         let walletAddress = wallet.publicAddress
         let store = PaymentPoolStore.shared
 
-        let targets = conversations
+        let historyTargets = store.reofferCandidateContacts(wallet: walletAddress)
+        let conversationTargets = conversations
             .map { $0.contact.address }
             .filter { address in
                 isPoolEstablishedConversation(address)
                     && !store.hasOfferedPool(to: address, wallet: walletAddress)
+                    && !store.didContactRevokeAtUs(address, wallet: walletAddress)
             }
+        var seen = Set<String>()
+        let targets = (historyTargets + conversationTargets).filter { seen.insert($0).inserted }
         guard !targets.isEmpty else { return }
         AppLog.log("[ChatService] Chats Privacy on - re-offering pools to %d contacts", targets.count)
 
@@ -223,35 +247,49 @@ extension ChatService {
 
     /// One revoke per contact currently holding our pool (per PERSISTED state - offered marker
     /// unioned with offered-flagged reservations, minus already-revoked), serialized through
-    /// the outgoing queue. Failures are logged and non-fatal - the contact then simply drains
-    /// the residual pool (the pre-revocation backstop semantics), and the contact stays
-    /// eligible for a retry on a later toggle-off. Each successful revoke stamps the serve
-    /// timestamp; toggle broadcasts in either direction then honor the 60s per-contact
-    /// transition gap, bounding rapid flapping while keeping deliberate flips prompt.
-    func revokeOfferedPoolsForChatsPrivacyOff() {
+    /// the outgoing queue. The derivation reaches every contact ever successfully offered:
+    /// offer-send-failed contacts hold nothing (offered never flipped, marker never set) and
+    /// need no revoke; revoked-at-us and reclaimed-set contacts keep their offered flags, so
+    /// they ARE revoked here (their state says they may still believe the pool is live).
+    /// Contacts deleted from the address book still get their revoke - the envelope only
+    /// needs the address, so a placeholder Contact stands in.
+    ///
+    /// Each successful revoke stamps the serve timestamp; toggle broadcasts in either
+    /// direction then honor the 60s per-contact transition gap, bounding rapid flapping while
+    /// keeping deliberate flips prompt. A pass that leaves stragglers - contacts deferred by
+    /// the gap (e.g. an offer went out seconds before the flip) or whose send failed -
+    /// schedules itself again after the gap expires, up to `maxRevokeRetryPasses` passes, so
+    /// a single toggle-off converges to "no contact holds a live pool" without the user
+    /// flipping again. Contacts still unreached after the last pass keep their markers and
+    /// stay eligible on the next toggle-off; meanwhile the residual-drain backstop applies.
+    func revokeOfferedPoolsForChatsPrivacyOff(retryPass: Int = 0) {
         guard let wallet = WalletManager.shared.currentWallet else { return }
         let walletAddress = wallet.publicAddress
         let targets = PaymentPoolStore.shared.contactsHoldingOurPool(wallet: walletAddress)
         guard !targets.isEmpty else { return }
-        AppLog.log("[ChatService] Chats Privacy off - revoking offered pools at %d contacts", targets.count)
+        AppLog.log("[ChatService] Chats Privacy off - revoking offered pools at %d contacts (pass %d)",
+                   targets.count, retryPass)
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            let payload = PaymentPoolCodec.encode(AddressPoolContent(addresses: [], replace: true))
+            guard !payload.isEmpty else { return }
             for contactAddress in targets {
                 // The toggle may flip back ON mid-broadcast - stop revoking, the remaining
                 // contacts keep their (again welcome) pools.
                 guard !AppSettings.chatsPrivacyEnabled(for: walletAddress) else { return }
                 // Flap bound: revokes bypass the reservation caps (a revoke must always be
                 // allowed out) but honor the 60s transition gap per contact. A gap-skipped
-                // contact keeps its markers, so a later toggle-off retries it; meanwhile the
-                // residual-drain backstop applies.
+                // contact keeps its markers; the retry pass below picks it up once the gap
+                // expires.
                 guard !PaymentPoolStore.shared.isWithinPoolServeGap(for: contactAddress, wallet: walletAddress, toggleTransition: true) else {
                     AppLog.log("[ChatService] Revoke to %@ deferred by transition gap", String(contactAddress.suffix(10)))
                     continue
                 }
-                guard let contact = self.contactsManager.getContact(byAddress: contactAddress) else { continue }
-                let payload = PaymentPoolCodec.encode(AddressPoolContent(addresses: [], replace: true))
-                guard !payload.isEmpty else { return }
+                // A deleted contact still holds our pool - the revoke must reach them too,
+                // and the envelope send only needs the address.
+                let contact = self.contactsManager.getContact(byAddress: contactAddress)
+                    ?? Contact(address: contactAddress)
                 do {
                     try await self.enqueueOutgoingTxOperation {
                         // Re-checked once the queue serializes us, same reasoning as offers.
@@ -267,8 +305,25 @@ extension ChatService {
                                String(contactAddress.suffix(10)), error.localizedDescription)
                 }
             }
+
+            // Convergence pass: anyone still holding (gap-deferred or send-failed) gets
+            // another sweep after the transition gap has certainly expired. Bounded so a
+            // permanently unreachable contact can't keep the chain alive forever.
+            let remaining = PaymentPoolStore.shared.contactsHoldingOurPool(wallet: walletAddress)
+            guard !remaining.isEmpty, retryPass < Self.maxRevokeRetryPasses else { return }
+            guard !AppSettings.chatsPrivacyEnabled(for: walletAddress) else { return }
+            try? await Task.sleep(nanoseconds: UInt64((PaymentPoolStore.toggleTransitionGapSeconds + 5) * 1_000_000_000))
+            // Still the same wallet, still off? (A wallet switch invalidates the pass - the
+            // next toggle-off for that wallet starts its own chain.)
+            guard WalletManager.shared.currentWallet?.publicAddress == walletAddress else { return }
+            guard !AppSettings.chatsPrivacyEnabled(for: walletAddress) else { return }
+            self.revokeOfferedPoolsForChatsPrivacyOff(retryPass: retryPass + 1)
         }
     }
+
+    /// How many follow-up sweeps a single toggle-off runs to reach gap-deferred or
+    /// send-failed contacts before giving up until the next toggle-off.
+    private static let maxRevokeRetryPasses = 3
 
     /// Sends `addr_pool_request` when the stored pool for `contact` has run low (<=
     /// `PaymentPoolStore.lowWaterMark` unused) - throttled per contact so a burst of payments or

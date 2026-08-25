@@ -57,6 +57,17 @@ struct ManageAddressesView: View {
     }
     @State private var selectedTab: ManageTab = .addresses
 
+    /// The current account's Chats Payment Privacy toggle, read live (same per-account key
+    /// SettingsViewModel/ChatService read; recomputed whenever WalletManager republishes).
+    /// While OFF this screen is just the plain Addresses list: the segmented control and the
+    /// Chat Privacy tab disappear entirely. Any reservation still flagged active while OFF
+    /// (a revoke that hasn't landed yet) is rendered in the main list as a normal row
+    /// instead of being filtered into the hidden tab - see `visibleEntries`.
+    private var chatsPrivacyOn: Bool {
+        guard let wallet = walletManager.currentWallet else { return true }
+        return AppSettings.chatsPrivacyEnabled(for: wallet.publicAddress)
+    }
+
     /// Authoritative primary index, read live from WalletManager rather than the rows'
     /// snapshotted `isCurrent` flags - a payment send can rotate the primary while this
     /// screen's entries are stale, and every isCurrent-dependent decision here (the star,
@@ -70,8 +81,11 @@ struct ManageAddressesView: View {
     /// as an ACTIVE payment-pool reservation - those live on the Chat Privacy tab instead.
     /// A reverted reservation (revoke, superseding re-offer, or funding-and-revert) leaves
     /// `reservedPoolAddresses` and automatically reappears here as a normal row.
+    /// With Chats Payment Privacy OFF the Chat Privacy tab doesn't exist, so nothing is
+    /// filtered out here - a straggler reservation whose revoke hasn't landed yet must not
+    /// become invisible on both tabs.
     private var visibleEntries: [SpendingAddressEntry] {
-        entries.filter { !$0.hidden && !reservedPoolAddresses.contains($0.address) }
+        entries.filter { !$0.hidden && (!chatsPrivacyOn || !reservedPoolAddresses.contains($0.address)) }
     }
 
     private var hiddenCount: Int {
@@ -110,18 +124,22 @@ struct ManageAddressesView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $selectedTab) {
-                ForEach(ManageTab.allCases, id: \.self) { tab in
-                    Text(tab.rawValue).tag(tab)
+            // The tab switch only exists while Chats Payment Privacy is ON for this account -
+            // OFF means no live pools, so the screen is just the plain Addresses list.
+            if chatsPrivacyOn {
+                Picker("", selection: $selectedTab) {
+                    ForEach(ManageTab.allCases, id: \.self) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
             }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
 
             List {
-                if selectedTab == .addresses {
+                if selectedTab == .addresses || !chatsPrivacyOn {
                     addressesTabContent
                 } else {
                     chatPrivacyTabContent
@@ -135,7 +153,8 @@ struct ManageAddressesView: View {
         .safeAreaInset(edge: .bottom) {
             // The action menu belongs to the Addresses tab only - the Chat Privacy tab is
             // purely a viewer, so Generate/Discover/Consolidate disappear entirely there.
-            if selectedTab == .addresses {
+            // With privacy OFF the screen IS the Addresses list, whatever selectedTab says.
+            if selectedTab == .addresses || !chatsPrivacyOn {
                 Menu {
                     Button {
                         generateNew()
@@ -198,6 +217,9 @@ struct ManageAddressesView: View {
             SpendingAddressVisibilityView()
         }
         .task {
+            // Stale tab selection from a previous visit: with privacy now OFF the Chat
+            // Privacy tab is gone, so fall back to the (only) Addresses view.
+            if !chatsPrivacyOn { selectedTab = .addresses }
             await loadEntries()
         }
         // Live own-address receive detected (AddressActivityNotifier) - refresh balances so
