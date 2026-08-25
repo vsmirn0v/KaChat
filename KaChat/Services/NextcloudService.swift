@@ -275,11 +275,11 @@ final class NextcloudService: ObservableObject {
     /// Quiet time after the last message before the automatic merge upload runs. Short by
     /// design: sends are what the cross-device mirror cares about, and a burst of messages
     /// still coalesces into one upload 15 seconds after the last.
-    nonisolated static let syncDebounceInterval: TimeInterval = 15
+    nonisolated static let syncDebounceInterval: TimeInterval = 5
     /// Foreground change-watcher cadence: how often the shared file's ETag is polled while the
     /// app is active (a tiny Depth-0 PROPFIND, no body). With the 15s upload debounce this
     /// puts another device's message on screen well inside a minute.
-    nonisolated static let changeWatchInterval: TimeInterval = 10
+    nonisolated static let changeWatchInterval: TimeInterval = 5
     /// Failed polls back off 10s -> 30s -> 60s and snap back to 10s on the next success.
     private nonisolated static let changeWatchBackoffMax: TimeInterval = 60
     /// Launch/foreground catch-up threshold: if the last automatic backup is older than this
