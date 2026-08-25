@@ -270,6 +270,18 @@ final class SharedDataManager {
         sharedDefaults?.removeObject(forKey: Keys.sharedSecrets)
     }
 
+    /// One-time hygiene at launch: `storeSharedSecret` has no callers anywhere in the app
+    /// anymore (the NSE derives per-message secrets from the Keychain private key instead),
+    /// but earlier releases DID write per-contact ECDH shared secrets into this plain-plist
+    /// App Group key. Those bytes are message-decryption key material and have no business
+    /// sitting in a UserDefaults plist, so wipe any legacy residue unconditionally.
+    static func purgeLegacySharedSecretsIfPresent() {
+        guard let defaults = sharedDefaults,
+              defaults.object(forKey: Keys.sharedSecrets) != nil else { return }
+        defaults.removeObject(forKey: Keys.sharedSecrets)
+        AppLog.log("[SharedData] Purged legacy shared-secret blob from App Group defaults")
+    }
+
     // MARK: - Pending Messages (txId only, need to fetch payload)
 
     /// Add a pending message that needs to be fetched when app opens

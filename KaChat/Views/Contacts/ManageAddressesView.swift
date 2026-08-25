@@ -1952,8 +1952,13 @@ private struct SpendingAddressPrivateKeyView: View {
         }
     }
 
+    /// Sensitive copy: hard 30s system expiration + localOnly (no Universal Clipboard sync);
+    /// the asyncAfter wipe is an in-app belt-and-suspenders clear (see SettingsView's twin).
     private func copySensitiveToClipboard(_ value: String) {
-        UIPasteboard.general.string = value
+        UIPasteboard.general.setItems(
+            [["public.utf8-plain-text": value]],
+            options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(30)]
+        )
         let copiedValue = value
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
             if UIPasteboard.general.string == copiedValue {
@@ -2409,110 +2414,6 @@ private struct SpendingAddressTransactionHistoryView: View {
     private func openInExplorer(_ tx: KaspaFullTransactionResponse) {
         guard let url = settingsViewModel.settings.kaspaExplorer.txURL(for: tx.transactionId) else { return }
         UIApplication.shared.open(url)
-    }
-}
-
-/// Addresses hidden from the main Manage Addresses list (swipe-to-hide there). Never includes
-/// the primary address or one with a balance — those can't be hidden in the first place.
-private struct HiddenSpendingAddressesView: View {
-    @EnvironmentObject var walletManager: WalletManager
-
-    @State private var entries: [SpendingAddressEntry] = []
-    @State private var isLoading = false
-
-    private var hiddenEntries: [SpendingAddressEntry] {
-        entries.filter { $0.hidden }.sorted { $0.index > $1.index }
-    }
-
-    var body: some View {
-        List {
-            if isLoading && entries.isEmpty {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
-                }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            } else if hiddenEntries.isEmpty {
-                Text("No hidden addresses.")
-                    .foregroundColor(.secondary)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            } else {
-                ForEach(hiddenEntries) { entry in
-                    addressRow(entry)
-                        .padding(.vertical, 6)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .swipeActions(edge: .trailing) {
-                            Button {
-                                unhide(entry)
-                            } label: {
-                                Label("Unhide", systemImage: "eye")
-                            }
-                            .tint(.accentColor)
-                        }
-                }
-            }
-        }
-        .listStyle(.plain)
-        .navigationTitle("Hidden Addresses")
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            await loadEntries()
-        }
-        .refreshable {
-            await loadEntries()
-        }
-    }
-
-    private func addressRow(_ entry: SpendingAddressEntry) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(entry.displayLabel)
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundColor(.secondary)
-            Text(entry.shortAddress)
-                .font(.system(.subheadline, design: .monospaced))
-                .foregroundColor(.primary)
-            Text("\(formatKasExact(entry.balanceSompi)) KAS")
-                .font(.subheadline)
-                .fontWeight(.semibold)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(glassBackground(cornerRadius: 18))
-    }
-
-    private func loadEntries() async {
-        isLoading = true
-        entries = await walletManager.getSpendingAddressList()
-        isLoading = false
-    }
-
-    private func unhide(_ entry: SpendingAddressEntry) {
-        Task {
-            _ = await walletManager.setSpendingAddressHidden(index: entry.index, hidden: false)
-            await loadEntries()
-        }
-    }
-
-    private func formatKasExact(_ sompi: UInt64) -> String {
-        String(format: "%.8f", Double(sompi) / 100_000_000.0)
-    }
-
-    private func glassBackground(cornerRadius: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(.regularMaterial)
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-            )
-            .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
     }
 }
 

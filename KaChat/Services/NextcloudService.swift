@@ -672,7 +672,7 @@ final class NextcloudService: ObservableObject {
             // Envelope-aware: decrypts a v1 encrypted backup, passes legacy plaintext through.
             // A failed decrypt throws into the silent catch below - the done flag stays unset
             // and nothing is imported or uploaded.
-            let data = try BackupEnvelope.decryptIfEnveloped(
+            let data = try await BackupEnvelope.decryptIfEnvelopedDetached(
                 try await downloadBackup(), key: backupEncryptionKey(), walletAddress: walletAtStart
             )
             guard !Task.isCancelled, currentWalletAddress == walletAtStart,
@@ -789,7 +789,7 @@ final class NextcloudService: ObservableObject {
 
         let data: Data
         do {
-            data = try BackupEnvelope.decryptIfEnveloped(
+            data = try await BackupEnvelope.decryptIfEnvelopedDetached(
                 try await downloadBackup(), key: backupEncryptionKey(), walletAddress: walletAtStart
             )
         } catch let error as BackupEnvelope.EnvelopeError {
@@ -1086,7 +1086,7 @@ final class NextcloudService: ObservableObject {
         do {
             // A failed decrypt (wrong seed's file, corrupt envelope) throws HERE - before the
             // merge and before any PUT - so the server copy is never overwritten.
-            existing = try BackupEnvelope.decryptIfEnveloped(
+            existing = try await BackupEnvelope.decryptIfEnvelopedDetached(
                 try await downloadBackup(), key: key, walletAddress: walletAddress
             )
         } catch NextcloudError.backupNotFound {
@@ -1095,7 +1095,7 @@ final class NextcloudService: ObservableObject {
         guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
         let merged = try await ChatService.shared.buildBackupArchiveData(mergingRemote: existing)
         guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
-        var newETag = try await uploadBackup(try BackupEnvelope.encrypt(merged, key: key, walletAddress: walletAddress))
+        var newETag = try await uploadBackup(try await BackupEnvelope.encryptDetached(merged, key: key, walletAddress: walletAddress))
         if newETag == nil {
             // Some proxies strip the PUT response's ETag header; one follow-up Depth-0
             // PROPFIND recovers it so the change watcher still knows this device's own write.
@@ -1538,6 +1538,21 @@ enum BackupEnvelope {
         return envelope
     }
 
+    /// Off-main variant of `encrypt` - AES-GCM plus base64 over a multi-MB archive is real CPU
+    /// work and every caller in this file is `@MainActor`, so hop to a detached task for it.
+    static func encryptDetached(_ plaintext: Data, key: SymmetricKey, walletAddress: String) async throws -> Data {
+        try await Task.detached(priority: .utility) {
+            try encrypt(plaintext, key: key, walletAddress: walletAddress)
+        }.value
+    }
+
+    /// Off-main variant of `decryptIfEnveloped` - same rationale as `encryptDetached`.
+    static func decryptIfEnvelopedDetached(_ data: Data, key: SymmetricKey?, walletAddress: String?) async throws -> Data {
+        try await Task.detached(priority: .utility) {
+            try decryptIfEnveloped(data, key: key, walletAddress: walletAddress)
+        }.value
+    }
+
     /// Envelope-aware read: legacy plaintext passes through untouched; a v1 envelope is
     /// decrypted (after a cheap walletHint check that skips a foreign wallet's file without
     /// attempting the decrypt). Any failure throws `decryptFailed` - callers abort BEFORE any
@@ -1658,7 +1673,7 @@ final class BackupRestoreCoordinator: ObservableObject {
             // BackupEnvelope), and a locally picked file may be a hand-copied server backup.
             // Legacy plaintext archives pass through untouched. A failed decrypt lands in the
             // catch below with the clear "different account" message.
-            let archive = try BackupEnvelope.decryptIfEnveloped(
+            let archive = try await BackupEnvelope.decryptIfEnvelopedDetached(
                 data,
                 key: NextcloudService.shared.backupEncryptionKey(),
                 walletAddress: WalletManager.shared.currentWallet?.publicAddress

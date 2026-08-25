@@ -145,10 +145,15 @@ extension ChatService {
             deletedContactAddresses: contactsManager.deletedAddressSnapshot
         )
 
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(archive)
+        // Encode off the main actor: pretty-printed + sorted-keys over a multi-MB archive is
+        // real CPU work, and this path runs on every debounced auto-backup upload, not just
+        // explicit exports.
+        return try await Task.detached(priority: .utility) {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            return try encoder.encode(archive)
+        }.value
     }
 
     /// The upload body for the SHARED `kachat-backup.json` - this device's history UNIONED with
@@ -190,14 +195,18 @@ extension ChatService {
 
         progress?(.validating)
 
-        let archive: ChatHistoryArchive
-        do {
-            let isoDecoder = JSONDecoder()
-            isoDecoder.dateDecodingStrategy = .iso8601
-            archive = try isoDecoder.decode(ChatHistoryArchive.self, from: data)
-        } catch {
-            archive = try JSONDecoder().decode(ChatHistoryArchive.self, from: data)
-        }
+        // Decode off the main actor: this runs not just for the modal restore but also for the
+        // silent Nextcloud auto-restore and the foreground ETag watcher's merges, and a
+        // multi-MB JSON decode on the main actor is a visible hitch during normal use.
+        let archive: ChatHistoryArchive = try await Task.detached(priority: .utility) {
+            do {
+                let isoDecoder = JSONDecoder()
+                isoDecoder.dateDecodingStrategy = .iso8601
+                return try isoDecoder.decode(ChatHistoryArchive.self, from: data)
+            } catch {
+                return try JSONDecoder().decode(ChatHistoryArchive.self, from: data)
+            }
+        }.value
         guard archive.schemaVersion == chatHistoryArchiveVersion else {
             throw ChatHistoryArchiveError.unsupportedVersion(archive.schemaVersion)
         }

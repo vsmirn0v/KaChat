@@ -475,6 +475,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // Register background task handler
         BackgroundTaskManager.shared.registerBackgroundTasks()
 
+        // Security hygiene: wipe the legacy plaintext shared-secret blob older releases left
+        // in the App Group plist (see SharedDataManager.purgeLegacySharedSecretsIfPresent).
+        SharedDataManager.purgeLegacySharedSecretsIfPresent()
+
         // Warm up keyboard in background to avoid first-tap delay
         // Delay slightly to ensure scene is ready (prevents "UIScene accessed before set" warning)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

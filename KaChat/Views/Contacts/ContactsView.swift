@@ -3718,8 +3718,13 @@ private struct ChattingAddressPrivateKeyView: View {
         }
     }
 
+    /// Sensitive copy: hard 30s system expiration + localOnly (no Universal Clipboard sync);
+    /// the asyncAfter wipe is an in-app belt-and-suspenders clear (see SettingsView's twin).
     private func copySensitiveToClipboard(_ value: String) {
-        UIPasteboard.general.string = value
+        UIPasteboard.general.setItems(
+            [["public.utf8-plain-text": value]],
+            options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(30)]
+        )
         let copiedValue = value
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
             if UIPasteboard.general.string == copiedValue {

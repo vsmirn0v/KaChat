@@ -59,7 +59,7 @@ The app uses MVVM architecture with global singleton services injected via Swift
 1. **Handshake**: Initial key exchange, stored in sender's self-stash on-chain
 2. **Contextual Messages**: Encrypted messages using shared secret derived from handshake
 3. **Payments**: On-chain KAS transfers with optional encrypted metadata
-4. **Audio**: Voice messages encoded with YbridOpus codec
+4. **Audio**: Voice messages encoded with the Opus codec (vendored `Opus.xcframework` via `OpusBridge`)
 
 ### Network Communication
 
@@ -149,7 +149,7 @@ The app uses a sophisticated gRPC-based node pool architecture (see `POOLS_v2.md
 **Node Discovery (`NodeProfiler`):**
 - Resolves DNS seeds using `getaddrinfo()` for all A records
 - Discovers peers via `getPeerAddresses` from active nodes
-- Filters by allowed gRPC ports (16110/16210 for mainnet/testnet)
+- Filters by an allowlist of gRPC ports (15110/15111/16110/16111 mainnet family, 15210/15211/16210/16211 testnet family; see `NodeProfiler.allowedGrpcPorts`)
 
 **Dynamic Probe Modes:**
 - **Aggressive mode**: Fast probing (10s loop, 4min candidate interval) when pool is building
@@ -216,8 +216,8 @@ let publicKeyData = SecKeyCopyExternalRepresentation(publicKey)
 let deviceId = SHA256.hash(data: publicKeyData).prefix(8).hexString  // e.g., "a1b2c3d4e5f6g7h8"
 
 // Keychain keys are device-specific
-"kasia_seed_phrase_a1b2c3d4e5f6g7h8"  // Device 1
-"kasia_seed_phrase_9i8j7k6l5m4n3o2p"  // Device 2
+"kachat_seed_phrase.a1b2c3d4e5f60718"  // Device 1
+"kachat_seed_phrase.29e8f7a6b5c4d3e2"  // Device 2
 ```
 
 - Each device must enter the seed phrase separately during setup
@@ -246,18 +246,24 @@ let zoneId = "wallet-\(SHA256(walletAddress).prefix(8).hexString)"
 
 ```
 KaChat/
-├── App/              # KaChatApp, ContentView (router), MainTabView
-├── Models/           # Models.swift - all data structures in one file
-├── ViewModels/       # SettingsViewModel
-├── Views/            # SwiftUI views by feature: Chat/, Contacts/, Onboarding/, Settings/
-├── Services/         # Core business logic, API clients, crypto utilities
-└── Utilities/        # CryptoUtils, KasiaCipher (ECIES), Bech32
+├── App/              # KaChatApp, ContentView (router), LaunchRouter, MainTabView
+├── Models/           # Models.swift (core), PortfolioModels.swift, SwapModels.swift
+├── ViewModels/       # SettingsViewModel, PortfolioViewModel
+├── Views/            # SwiftUI views by feature: Chat/, Contacts/, Onboarding/, Settings/,
+│                     # ColdStorage/, KaPosts/, Portfolio/, Swap/, Shared/
+├── Services/         # Core business logic, API clients, crypto utilities (+ NodePool/)
+├── Shortcuts/        # App Intents / Shortcuts integration
+├── Generated/        # Generated protobuf/gRPC sources
+└── Utilities/        # CryptoUtils, KasiaCipher (ECIES, in KaChatCipher.swift), Bech32, ...
 ```
+
+Companion targets at the repo root: `KaChatNotificationService/` (push decryption extension), `KaChatShareExtension/` (share sheet), `KaChatWidgets/` (home screen widgets).
 
 ## Key Dependencies
 
-- **P256K**: secp256k1 elliptic curve library for key derivation and signing
-- **YbridOpus**: Audio codec for voice messages (Objective-C bridge via `OpusBridge.h/m`)
+- **P256K** (swift-secp256k1, SPM): secp256k1 elliptic curve library for key derivation and signing
+- **grpc-swift + SwiftProtobuf** (SPM): gRPC stack for the node pool (`KaChat/Generated/*` holds the generated protobuf/gRPC sources)
+- **Opus** (`external/opus/Opus.xcframework`, vendored): audio codec for voice messages, linked through the Objective-C bridge `OpusBridge.h/m`
 
 ## Patterns to Follow
 
@@ -288,28 +294,16 @@ Implementation uses:
 | File | Description |
 |------|-------------|
 | `CLAUDE.md` | This file - project overview and guidance for Claude Code |
-| `docs/README.md` | Canonical documentation index + archive map |
+| `README.md` | Public project overview, feature list, and self-hosted cloud setup |
 | `MESSAGING.md` | Kasia messaging protocol - encryption, handshakes, message types |
 | `POOLS_v2.md` | gRPC node pool architecture - discovery, scoring, failover |
 | `PUSH_NOTIFICATIONS.md` | Push notification architecture and rollout notes |
 | `KAPOSTS_INDEXER.md` | Handoff/build guide for the KaChat-owned KaPosts indexer (protocol, API compatibility bar, required extensions) |
 | `BROADCAST_INDEXER.md` | Handoff/build guide for the KaChat broadcast indexer (#kaspa / #kachat-bugs history, REST spec, Docker) |
 | `PUSH_EXTENSIONS.md` | Server handoff: remote push for broadcasts + KaPosts (registration fields, APNs payload specs, routing contracts) |
-| `PUSH_SECURITY_AUDIT.md` | Push service security review and mitigation plan |
-| `docs/archive/2026-02/POOLS.md` | Legacy pool design (v1), archived |
-| `docs/archive/2026-02/POOLS_v2_IMPROVEMENTS.md` | Historical POOLS_v2 implementation plan, archived |
+
+Other root-level `*.md` files (`CHAT_HISTORY_v2.md`, `CLOUDKIT_IMPROVEMENT_v2.md`, `DETERMINISTIC_ALIASES.md`, `GIFT.md`, `IMPROVE_POOL_SEARCH_GEO.md`, `KEYSTONE_QR_INTEGRATION_ANALYSIS.md`, `KNS_PROFILE_INTEGRATION_PLAN.md`, `OLDER_IOS_SUPPORT.md`, `PERFORMANCE_IMPROVEMENTS.md`) are design/plan documents for specific features; treat shipped code as the source of truth where they disagree.
 
 ## External References
 
-The `external/` directory contains reference implementations (not part of the iOS build):
-
-| Directory | Description |
-|-----------|-------------|
-| `KaChat/` | Web/Tauri version of Kasia - reference for messaging protocol, encryption, and UI patterns |
-| `rusty-kaspa/` | Official Kaspa blockchain Rust implementation - reference for wRPC protocol, Borsh encoding, transaction formats |
-| `kasia-indexer/` | Kasia message indexing service - reference for indexer API endpoints and message storage format |
-| `kaspa-grpc/` | Kaspa gRPC protocol definitions - reference for RPC message structures and opcodes |
-| `kaspium_wallet/` | Kaspium Flutter wallet - reference for transaction building and UTXO management |
-| `workflow-rs/` | Aspectron's Rust workflow library - reference for wRPC resolver protocol and endpoint discovery |
-
-These repos are useful for understanding protocol details, message formats, and implementation patterns when building iOS equivalents.
+The `external/` directory is gitignored except for `external/opus/`, which contains the vendored `Opus.xcframework` (a real linked build dependency for voice messages, not reference material). Reference repos (rusty-kaspa, kasia-indexer, kaspa-grpc, etc.) may be cloned locally under `external/` for protocol research, but they are not tracked in this repository.

@@ -392,9 +392,6 @@
 		CHAD00010001000000000001 /* ChattingAddressPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChattingAddressPickerView.swift; sourceTree = "<group>"; };
 		IMSW00010001000000000001 /* ImportSourceWalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportSourceWalletView.swift; sourceTree = "<group>"; };
 		WMSA00010001000000000001 /* WalletManager+SpendingAddresses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WalletManager+SpendingAddresses.swift"; sourceTree = "<group>"; };
-		XCFW00010001 /* GRPCAll.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GRPCAll.xcframework; path = Frameworks/GRPCAll.xcframework; sourceTree = "<group>"; };
-		XCFW00010002 /* SwiftProtobuf.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = SwiftProtobuf.xcframework; path = Frameworks/SwiftProtobuf.xcframework; sourceTree = "<group>"; };
-		XCFW00010003 /* P256K.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = P256K.xcframework; path = Frameworks/P256K.xcframework; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -490,9 +487,6 @@
 				43BBF3472F15A52900B42BDA /* KaChatNotificationService */,
 				SHREXT000100010000000004 /* KaChatShareExtension */,
 				E8F1A0052F4B000100000005 /* external/opus/Opus.xcframework */,
-				XCFW00010001 /* GRPCAll.xcframework */,
-				XCFW00010002 /* SwiftProtobuf.xcframework */,
-				XCFW00010003 /* P256K.xcframework */,
 				588DACE53026E3D300D94B9B /* KaChatWidgets */,
 				588DACE03026E3D300D94B9B /* Frameworks */,
 				E80000022D4C000000000002 /* Products */,

@@ -36,7 +36,7 @@ When a UTXO notification arrives, we know:
 
 **Direction**: Sender's address → Sender's address (self-spend)
 
-**Payload format**: `ciph_msg:1:msg:<alias>|<base64_encrypted_message>`
+**Payload format**: `kchat:1:comm:<alias>:<base64_encrypted_message>` (legacy root `ciph_msg:1:comm:` still accepted on read)
 
 **Flow**:
 ```
@@ -63,7 +63,7 @@ When a UTXO notification arrives, we know:
 
 **Direction**: Sender's address → Recipient's address
 
-**Payload format**: `ciph_msg:1:pay:<encrypted_memo>` (optional memo)
+**Payload format**: `kchat:1:pay:<encrypted_memo>` (optional memo; legacy root `ciph_msg:1:pay:` still accepted on read)
 
 **Flow**:
 ```
@@ -86,7 +86,7 @@ When a UTXO notification arrives, we know:
 
 **Direction**: Sender's address → Recipient's address (payment-style)
 
-**Payload format**: `ciph_msg:1:hs:<encrypted_handshake_data>`
+**Payload format**: `kchat:1:handshake:<encrypted_handshake_data>` (legacy root `ciph_msg:1:handshake:` still accepted on read)
 
 Handshakes are structurally similar to payments but carry encrypted public key exchange data in the payload. They establish the shared secret for future encrypted messaging.
 
@@ -152,11 +152,11 @@ Process as handshake                  Show in conversation
 
 ### Contextual Messages
 
-Uses ECIES (Elliptic Curve Integrated Encryption Scheme):
+Uses ECIES (Elliptic Curve Integrated Encryption Scheme, see `KasiaCipher`):
 1. Generate ephemeral key pair
-2. ECDH with recipient's public key → shared secret
-3. Derive encryption key from shared secret
-4. AES-256-GCM encrypt the message
+2. ECDH (secp256k1) with recipient's public key → shared secret
+3. Derive encryption key from shared secret via HKDF-SHA256
+4. ChaCha20-Poly1305 encrypt the message
 5. Output: `ephemeral_pubkey || nonce || ciphertext || tag`
 
 ### Handshakes
@@ -252,7 +252,7 @@ iOS implementation: `PaymentPoolCodec` (Models.swift), `ChatService+PaymentPools
 ### Wire Format
 
 All three message types are plain JSON embedded in the **normal encrypted contextual content**
-(`ciph_msg:1:comm:` self-stash channel) — the exact same envelope-in-plaintext pattern reactions
+(`kchat:1:comm:` self-stash channel) — the exact same envelope-in-plaintext pattern reactions
 (`{"type":"reaction",...}`) use. No new payload prefix, no wire-protocol change. They are
 **invisible**: clients intercept them before rendering and none of the three ever appears as a
 chat bubble (a `payment_notice` *produces* a payment bubble, but the envelope itself is not
@@ -551,11 +551,17 @@ When we receive a self-stash notification, the message might not be for us:
 
 ## Transaction Payload Formats
 
+Written prefixes use the `kchat:1:` root; the legacy `ciph_msg:1:` root is accepted on read for
+every kind below (dual-read, write-new):
+
 ```
-ciph_msg:1:msg:<alias>|<base64_encrypted>     # Contextual message
-ciph_msg:1:pay:<base64_encrypted>              # Payment with memo
-ciph_msg:1:hs:<base64_encrypted>               # Handshake
-ciph_msg:1:self_stash:<data>                   # Self-stash metadata
+kchat:1:comm:<alias>:<base64_encrypted>       # Contextual message
+kchat:1:pay:<base64_encrypted>                # Payment with memo
+kchat:1:handshake:<encrypted_hex>             # Handshake
+kchat:1:self_stash:<data>                     # Self-stash metadata
+kchat:1:bcast:<channel>:<content>             # Broadcast channel post (plaintext)
+kchat:1:gcomm:...                             # Group chat message (see GroupCipher)
+kchat:1:gctl:...                              # Group chat control message
 ```
 
 ## Fees

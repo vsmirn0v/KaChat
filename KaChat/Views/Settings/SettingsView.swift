@@ -1824,11 +1824,16 @@ struct SeedPhraseView: View {
         }
     }
 
-    /// Copies sensitive material (the private key hex) to the clipboard and auto-wipes it 30s
-    /// later - but only if nothing else has overwritten the clipboard in the meantime. This bounds
-    /// the window in which other apps or the system clipboard history can read it.
+    /// Copies sensitive material (the private key hex) to the clipboard with a hard 30s system
+    /// expiration and `localOnly` (never syncs to other devices via Universal Clipboard/Handoff).
+    /// The system honors `expirationDate` even if the app is suspended before it elapses; the
+    /// asyncAfter wipe below is a belt-and-suspenders in-app clear that also fires at 30s when
+    /// nothing else has overwritten the clipboard in the meantime.
     private func copySensitiveToClipboard(_ value: String) {
-        UIPasteboard.general.string = value
+        UIPasteboard.general.setItems(
+            [["public.utf8-plain-text": value]],
+            options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(30)]
+        )
         let copiedValue = value
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
             if UIPasteboard.general.string == copiedValue {
