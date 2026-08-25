@@ -2078,22 +2078,34 @@ struct ConnectionSettingsView: View {
                         .italic()
                 } else {
                     ForEach(settingsViewModel.settings.savedNodeAddresses) { entry in
-                        VStack(alignment: .leading, spacing: 2) {
-                            if !entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text(entry.label)
-                                Text(entry.address)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .foregroundColor(.secondary)
-                            } else {
-                                Text(entry.address)
-                                    .font(.system(.body, design: .monospaced))
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                if !entry.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Text(entry.label)
+                                    Text(entry.address)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                } else {
+                                    Text(entry.address)
+                                        .font(.system(.body, design: .monospaced))
+                                }
                             }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            UIPasteboard.general.string = entry.address
-                            Haptics.success()
-                            showToast("Node address copied.")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                UIPasteboard.general.string = entry.address
+                                Haptics.success()
+                                showToast("Node address copied.")
+                            }
+
+                            Button {
+                                deleteSavedNodeAddress(entry)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("Delete saved address")
                         }
                     }
                     .onDelete { indexSet in
@@ -2136,6 +2148,23 @@ struct ConnectionSettingsView: View {
                     toastMessage = nil
                 }
             }
+        }
+    }
+
+    /// Removes one IP Address Book entry (trash icon on its row). Deliberately does NOT touch
+    /// the node selection: deleting the entry for the currently-pinned node keeps the pin (the
+    /// picker then shows it as a custom address), matching the existing rule that the picker
+    /// always reflects the real connection state - the toast tells the user which case they hit.
+    private func deleteSavedNodeAddress(_ entry: SavedNodeAddress) {
+        let entryAddress = entry.address.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pinnedAddress = settingsViewModel.settings.trustedNodeAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        settingsViewModel.settings.savedNodeAddresses.removeAll { $0.id == entry.id }
+        settingsViewModel.saveSettings()
+        Haptics.success()
+        if !pinnedAddress.isEmpty && pinnedAddress == entryAddress {
+            showToast("Removed from address book. Still connected to this node.")
+        } else {
+            showToast("Address removed.")
         }
     }
 
@@ -2424,6 +2453,18 @@ struct ConnectionStatusDetailView: View {
                                 .foregroundColor(.orange)
                         }
                         Text("Connectivity might be limited. Using HTTP/1.1 and decreased pagination for indexer requests.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if nodePool.nodeNetworkBlockedSuspected {
+                        HStack {
+                            Text("Node Network")
+                            Spacer()
+                            Text("Blocked")
+                                .foregroundColor(.orange)
+                        }
+                        Text("Node connections appear blocked on this network. You can still receive and read messages through the indexer, but sending messages and payments needs a node connection.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }

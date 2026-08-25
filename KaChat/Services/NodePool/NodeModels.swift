@@ -624,3 +624,31 @@ let testnetDNSSeeds: [DNSSeed] = [
     DNSSeed(hostname: "seeder1-testnet.kaspad.net", port: 16210),
     DNSSeed(hostname: "seeder2-testnet.kaspad.net", port: 16210),
 ]
+
+// MARK: - Bootstrap Fallback Nodes (last resort)
+
+/// Bootstrap-of-last-resort node IPs, used ONLY when every DNS seed fails to resolve
+/// (see NodeProfiler.refreshDNSSeeds). That happens on networks where the seeder hostnames are
+/// blocked or poisoned (censorship/DPI, restrictive corporate DNS) on a first launch or an
+/// otherwise-empty registry - whenever DNS works, real seeder results are used instead and the
+/// registry persists them, so this list is never consulted on a healthy network.
+///
+/// These are NOT invented addresses: each one was returned by the official mainnet DNS seeders
+/// (n.seeder2/n.seeder4.kaspad.net, kaspadns.kaspacalc.net, n-mainnet.kaspa.ws) and verified to
+/// accept TCP connections on gRPC port 16110 at the time of writing (2026-08). Entries are still
+/// treated as unverified candidates: the profiler probes them (GetInfo isSynced/isUtxoIndexed
+/// gating) before any are used for wallet traffic, so a stale entry is harmless. Refresh this
+/// list from a live seeder resolution whenever it is touched.
+let mainnetBootstrapFallbackIPs: [String] = [
+    "152.53.118.79",     // netcup
+    "109.199.108.138",   // contabo
+    "46.62.230.235",     // hetzner
+    "91.106.155.180",
+    "115.21.171.185",
+    "79.98.47.173",
+    "72.28.135.10",
+    "23.118.8.168",
+]
+
+/// Testnet has no verified fallback list yet - the mechanism simply no-ops on an empty list.
+let testnetBootstrapFallbackIPs: [String] = []

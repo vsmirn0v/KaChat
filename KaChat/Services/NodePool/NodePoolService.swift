@@ -34,6 +34,15 @@ final class NodePoolService: ObservableObject {
     @Published private(set) var lastRefreshDate: Date?
     @Published private(set) var connectionError: String?
 
+    /// True when the pattern of failures says gRPC node connections are blocked wholesale on
+    /// this network (censorship/DPI, corporate firewall): the device is online, zero nodes are
+    /// active, and many DISTINCT nodes have failed recently with not a single success. The
+    /// connection status screen surfaces this honestly (receiving messages still works over the
+    /// indexer's HTTPS; sending needs a node). Cleared automatically the moment any node
+    /// answers, and health stats reset on every network path change, so a verdict earned on
+    /// hotel WiFi does not outlive that network.
+    @Published private(set) var nodeNetworkBlockedSuspected = false
+
     // MARK: - Components
 
     let registry: NodeRegistry
@@ -79,7 +88,14 @@ final class NodePoolService: ObservableObject {
         // instantiated, so this was never actually happening.
         epochMonitor.onEpochChange { [weak self] newEpochId in
             Task {
-                await self?.registry.resetEpochStats(newEpochId: newEpochId)
+                guard let self else { return }
+                await self.registry.resetEpochStats(newEpochId: newEpochId)
+                // Then immediately redial every tracked connection that is dead on the new
+                // path (bounded to the existing pool; cheap no-op for live connections) - a
+                // WiFi<->cellular or VPN flip kills sockets that would otherwise only get
+                // reconnected lazily when something happens to pick that exact endpoint.
+                // UtxoSubscriptionManager independently resubscribes on this same signal.
+                await self.connectionPool.reconnectDisconnected()
             }
         }
     }
@@ -431,7 +447,87 @@ final class NodePoolService: ObservableObject {
         }
 
         await updatePoolStats()
+
+        // Every gRPC endpoint failed (or none were eligible) - fall back to the Kaspa REST API
+        // over HTTPS, which typically survives networks that block raw gRPC on 16110
+        // (censorship/DPI, corporate firewalls). Read-only: balance display, fee estimation and
+        // spendable-UTXO lookups keep working; transaction submission still needs a node (the
+        // REST submit endpoint cannot carry the payload field KaChat messages live in).
+        do {
+            let utxos = try await getUtxosByAddressesViaRest(addresses)
+            AppLog.log("[NodePool] getUtxosByAddresses: gRPC unavailable, served %d UTXOs via REST fallback", utxos.count)
+            return utxos
+        } catch {
+            AppLog.log("[NodePool] getUtxosByAddresses REST fallback failed: %@", error.localizedDescription)
+        }
+
         throw lastError ?? KasiaError.networkError("All endpoints failed")
+    }
+
+    // MARK: - REST Fallback (UTXO reads)
+
+    /// Response shape of the Kaspa REST API's `GET /addresses/{address}/utxos`
+    /// (kaspa-rest-server; amounts and DAA scores are decimal strings).
+    private struct RestUtxoEntry: Decodable {
+        struct RestOutpoint: Decodable {
+            let transactionId: String
+            let index: UInt32
+        }
+        struct RestScriptPublicKey: Decodable {
+            let scriptPublicKey: String
+        }
+        struct RestEntry: Decodable {
+            let amount: String
+            let scriptPublicKey: RestScriptPublicKey
+            let blockDaaScore: String
+            let isCoinbase: Bool?
+        }
+        let address: String
+        let outpoint: RestOutpoint
+        let utxoEntry: RestEntry
+    }
+
+    private func getUtxosByAddressesViaRest(_ addresses: [String]) async throws -> [UTXO] {
+        let baseURL = AppSettings.load().kaspaRestAPIURL
+        var all: [UTXO] = []
+
+        for address in addresses {
+            guard var components = URLComponents(string: baseURL) else {
+                throw KasiaError.networkError("Invalid Kaspa REST API URL")
+            }
+            components.path += "/addresses/\(address)/utxos"
+            guard let url = components.url else {
+                throw KasiaError.networkError("Invalid Kaspa REST API URL")
+            }
+
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 15
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                throw KasiaError.networkError("Kaspa REST API returned an error for UTXO lookup")
+            }
+
+            let decoded = try JSONDecoder().decode([RestUtxoEntry].self, from: data)
+            for entry in decoded {
+                guard let amount = UInt64(entry.utxoEntry.amount) else { continue }
+                let scriptData = Data(hexString: entry.utxoEntry.scriptPublicKey.scriptPublicKey) ?? Data()
+                all.append(
+                    UTXO(
+                        address: entry.address,
+                        outpoint: UTXO.Outpoint(
+                            transactionId: entry.outpoint.transactionId,
+                            index: entry.outpoint.index
+                        ),
+                        amount: amount,
+                        scriptPublicKey: scriptData,
+                        blockDaaScore: UInt64(entry.utxoEntry.blockDaaScore) ?? 0,
+                        isCoinbase: entry.utxoEntry.isCoinbase ?? false
+                    )
+                )
+            }
+        }
+
+        return all
     }
 
     /// Current virtual DAA score from the pool, used to decide coinbase maturity: a coinbase UTXO
@@ -904,6 +1000,22 @@ final class NodePoolService: ObservableObject {
         if quarantinedCount != newQuarantined { quarantinedCount = newQuarantined }
         if lastPingLatencyMs != newLatency { lastPingLatencyMs = newLatency }
 
+        // Blocked-network heuristic (see nodeNetworkBlockedSuspected's doc comment). Requires
+        // 8+ distinct failed nodes, so a single broken pinned node can never trip it.
+        let newBlockedSuspected: Bool
+        if newActive == 0 && epochMonitor.isOnline {
+            let snapshot = await registry.connectivitySnapshot(window: 10 * 60)
+            newBlockedSuspected = snapshot.recentSuccessfulNodes == 0 && snapshot.recentFailedNodes >= 8
+        } else {
+            newBlockedSuspected = false
+        }
+        if nodeNetworkBlockedSuspected != newBlockedSuspected {
+            nodeNetworkBlockedSuspected = newBlockedSuspected
+            if newBlockedSuspected {
+                AppLog.log("[NodePool] Node connections appear blocked on this network (0 active, no recent successes)")
+            }
+        }
+
         // If pool just became healthy, check if we should reconnect to lowest latency node
         if wasNonHealthy && isNowHealthy {
             await reconnectToBestNodeIfNeeded()
@@ -1216,7 +1328,31 @@ extension NodePoolService {
         if trimmed.isEmpty {
             staleEndpoint = await registry.setTrustedNode(nil)
             await updatePoolStats()
-            await forceProbeAll()
+            // Instant switch to Automatic Scan: setTrustedNode(nil) just restored the pre-pin
+            // pool (if any) - dial the best-known nodes RIGHT NOW, racing several in parallel
+            // (bootstrapProbe's happy-eyeballs + double-probe promotes the first responder to
+            // .active immediately), while normal discovery keeps profiling in the background.
+            // The old forceProbeAll() here was a no-op: pinning wipes the registry, so after
+            // unpinning it probed an empty pool and, with no DNS re-resolution scheduled
+            // anywhere, the app stayed nodeless until the next cold launch.
+            let known = await registry.allRecords()
+            if known.isEmpty {
+                // Pinned since first launch (or stash lost): full quickBoot resolves DNS seeds
+                // (with bundled bootstrap fallback) and races the resolved IPs in parallel.
+                await profiler?.quickBoot()
+            } else {
+                let dialFirst = known
+                    .sorted { lhs, rhs in
+                        if (lhs.state == .active) != (rhs.state == .active) {
+                            return lhs.state == .active
+                        }
+                        return lhs.effectiveLatencyMs < rhs.effectiveLatencyMs
+                    }
+                    .prefix(6)
+                    .map(\.endpoint)
+                await profiler?.bootstrapProbe(Array(dialFirst))
+            }
+            await updatePoolStats()
         } else if let endpoint = Endpoint(url: trimmed) {
             staleEndpoint = await registry.setTrustedNode(endpoint)
             await updatePoolStats()
