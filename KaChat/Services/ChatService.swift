@@ -606,22 +606,9 @@ final class ChatService: ObservableObject {
         }
     }
 
-    func wipeIncomingMessagesAndResync() async {
-        var updatedConversations = conversations
-        for index in updatedConversations.indices {
-            updatedConversations[index].messages.removeAll(where: { !$0.isOutgoing })
-            updatedConversations[index].unreadCount = 0
-        }
-        conversations = updatedConversations
-        MessageStore.shared.clearIncomingMessages()
-        MessageStore.shared.clearDpiCorruptionWarning()
-        lastPollTime = 0
-        lastPaymentFetchTime = 0
-        userDefaults.removeObject(forKey: lastPollTimeKey)
-        clearSyncObjectCursors()
-        saveMessages()
-        await fetchNewMessages(forActiveOnly: nil)
-    }
+    // NOTE: the Danger Zone wipe-and-resync now lives in
+    // `wipeAndResyncIncomingMessages(contacts:progress:)` (ChatService+Fetching.swift), driven
+    // by `IncomingResyncCoordinator` so it reports progress and survives view teardown.
 
     /// Reset chat state for new/imported wallet - clears data but keeps polling active
     /// - Parameter skipStoreClear: If true, skips calling messageStore.clearAll() (use when switching to a fresh wallet store)

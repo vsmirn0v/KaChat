@@ -1970,6 +1970,47 @@ final class MessageStore {
         }
     }
 
+    /// Awaitable incoming-message wipe for the CURRENT wallet, optionally limited to the given
+    /// conversations (matched by `CDMessage.contactAddress`). Used by the Danger Zone
+    /// wipe-and-resync flow, which must not start re-fetching until the delete has actually
+    /// landed in the store (the fire-and-forget `clearIncomingMessages()` above could otherwise
+    /// race the re-sync's own writes).
+    func clearIncomingMessagesAndWait(forContacts contactAddresses: [String]? = nil) async {
+        guard ensureStoreLoaded() else { return }
+        if let contactAddresses, contactAddresses.isEmpty { return }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            context.perform {
+                let fetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+                var clauses = ["isOutgoing == NO"]
+                var arguments: [Any] = []
+                if let contactAddresses {
+                    clauses.append("contactAddress IN %@")
+                    arguments.append(contactAddresses)
+                }
+                if let walletAddr {
+                    clauses.append("(walletAddress == %@ OR walletAddress == nil)")
+                    arguments.append(walletAddr)
+                }
+                fetch.predicate = NSPredicate(format: clauses.joined(separator: " AND "), argumentArray: arguments)
+                let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetch)
+                deleteRequest.resultType = .resultTypeObjectIDs
+                do {
+                    let result = try context.execute(deleteRequest) as? NSBatchDeleteResult
+                    let objectIds = result?.result as? [NSManagedObjectID] ?? []
+                    if !objectIds.isEmpty {
+                        NSManagedObjectContext.mergeChanges(fromRemoteContextSave: [NSDeletedObjectsKey: objectIds], into: [self.viewContext])
+                    }
+                    self.logInfo("[MessageStore] Cleared %d incoming messages (%@)", objectIds.count, contactAddresses == nil ? "all chats" : "\(contactAddresses?.count ?? 0) chats")
+                } catch {
+                    self.logInfo("[MessageStore] Failed to clear incoming messages: \(error)")
+                }
+                continuation.resume()
+            }
+        }
+    }
+
     // MARK: - Retention
 
     /// Off-main wrapper for `applyRetention`. The synchronous version uses `performAndWait`, which

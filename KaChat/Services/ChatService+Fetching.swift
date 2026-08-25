@@ -3110,3 +3110,212 @@ extension ChatService {
     }
 
 }
+
+// MARK: - Danger Zone: wipe & re-sync incoming messages
+
+extension ChatService {
+    /// Progress events reported by `wipeAndResyncIncomingMessages`, in order. The coordinator
+    /// driving the blocking modal maps these onto the same stage-weight pattern the Nextcloud
+    /// restore modal uses.
+    enum IncomingResyncEvent {
+        case wiping
+        case fetchingHandshakes
+        case fetchingPayments
+        /// Per-contact contextual re-fetch: `done` of `total` chats finished.
+        case syncingChats(done: Int, total: Int)
+        case finalizing
+    }
+
+    struct IncomingResyncSummary {
+        let chats: Int
+        let messages: Int
+    }
+
+    enum IncomingResyncError: LocalizedError {
+        case noWallet
+        case notConfigured
+        case walletChanged
+        case handshakeFetchFailed
+        case paymentFetchFailed
+        case chatsFailed(failed: Int, total: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .noWallet:
+                return "No active account. Log in and try again."
+            case .notConfigured:
+                return "The indexer connection is not available. Check Connection Settings and try again."
+            case .walletChanged:
+                return "The active account changed while re-syncing. Messages already recovered were kept."
+            case .handshakeFetchFailed:
+                return "Could not re-fetch handshakes from the indexer. Messages already recovered were kept; try again on a better connection."
+            case .paymentFetchFailed:
+                return "Could not re-fetch payments from the indexer. Messages already recovered were kept; try again on a better connection."
+            case .chatsFailed(let failed, let total):
+                return "\(failed) of \(total) chats could not be re-synced. Messages already recovered were kept; try again on a better connection."
+            }
+        }
+    }
+
+    /// Wipes incoming messages and re-fetches them from the indexer, scoped to `contacts`
+    /// (nil = every known 1:1 chat). Owned by `IncomingResyncCoordinator`, never by a view.
+    ///
+    /// Scope mechanics: the wipe deletes only the selected conversations' incoming rows (in
+    /// memory and in the Core Data store, matched by `contactAddress`) and drops only those
+    /// contacts' incoming contextual cursors, so the per-contact re-fetch below starts from
+    /// block time 0 (retention-clamped) for exactly those chats and nothing else. Handshake and
+    /// payment rows are incoming messages too, so both phases re-run from 0 - they are
+    /// wallet-global endpoints and idempotent (`addMessageToConversation` dedupes by txId), so
+    /// untouched chats simply no-op. The global `lastPollTime` fallback cursor is never
+    /// advanced by this flow (`endSyncBlockTime(success: false)`): only the re-fetched objects'
+    /// own cursors move, so unrelated sync windows cannot be skipped.
+    func wipeAndResyncIncomingMessages(
+        contacts selectedAddresses: [String]?,
+        progress: @escaping (IncomingResyncEvent) -> Void
+    ) async throws -> IncomingResyncSummary {
+        guard let wallet = WalletManager.shared.currentWallet else {
+            throw IncomingResyncError.noWallet
+        }
+        await configureAPIIfNeeded()
+        guard isConfigured else {
+            throw IncomingResyncError.notConfigured
+        }
+        let myAddress = wallet.publicAddress
+        let privateKey = WalletManager.shared.getPrivateKey()
+        let scopeIsAll = selectedAddresses == nil
+
+        // Target set: the picked chats, or (for All Chats) the same contact universe the full
+        // sync sweeps - routing states + legacy aliases + every live conversation. Ordered by
+        // conversation recency so the progress bar works through visible chats first.
+        var targetPool: Set<String>
+        if let selectedAddresses {
+            targetPool = Set(selectedAddresses)
+        } else {
+            targetPool = Set(routingStates.keys)
+                .union(conversationAliases.keys)
+                .union(conversations.map { $0.contact.address })
+        }
+        let recency: [String: Date] = Dictionary(
+            conversations.compactMap { convo -> (String, Date)? in
+                guard let last = convo.lastMessage else { return nil }
+                return (convo.contact.address.lowercased(), last.timestamp)
+            },
+            uniquingKeysWith: { max($0, $1) }
+        )
+        let targets = targetPool.sorted { a, b in
+            let la = recency[a.lowercased()]
+            let lb = recency[b.lowercased()]
+            switch (la, lb) {
+            case let (da?, db?) where da != db: return da > db
+            case (.some, .none): return true
+            case (.none, .some): return false
+            default: return a < b
+            }
+        }
+        let targetSet = Set(targets.map { $0.lowercased() })
+
+        // PHASE 1 - wipe. In-memory first (synchronous, so the UI empties immediately), then
+        // the store (awaited, so the re-fetch cannot race the batch delete), then the cursors.
+        progress(.wiping)
+        var updated = conversations
+        for index in updated.indices where targetSet.contains(updated[index].contact.address.lowercased()) {
+            updated[index].messages.removeAll(where: { !$0.isOutgoing })
+            updated[index].unreadCount = 0
+        }
+        conversations = updated
+        await MessageStore.shared.clearIncomingMessagesAndWait(forContacts: scopeIsAll ? nil : targets)
+        MessageStore.shared.clearDpiCorruptionWarning()
+        removeIncomingSyncCursors(for: targets, includeIncomingHandshakes: true)
+        saveMessages()
+
+        // Re-fetch under sync batching, with notifications suppressed: everything below is
+        // historical data the user has already seen.
+        let previousSuppress = suppressNotificationsUntilSynced
+        suppressNotificationsUntilSynced = true
+        beginSyncBlockTime()
+        defer {
+            // Never advance the global lastPollTime fallback off this scoped run - per-object
+            // cursors advanced above are the only state this flow is allowed to move forward.
+            endSyncBlockTime(success: false)
+            suppressNotificationsUntilSynced = previousSuppress
+        }
+
+        let nowMs = currentTimeMs()
+        let historyStart = applyMessageRetention(to: 0)
+
+        // PHASE 2 - incoming handshakes (restores wiped handshake rows and re-derives aliases).
+        progress(.fetchingHandshakes)
+        var handshakeTxIds = Set<String>()
+        if let fetched = await retryUntilSuccess(
+            label: "re-sync incoming handshakes",
+            maxAttempts: Self.syncPhaseMaxRetryAttempts,
+            operation: { [self] in try await fetchIncomingHandshakes(for: myAddress, blockTime: historyStart) }
+        ) {
+            handshakeTxIds = Set(fetched.map { $0.txId })
+            await processHandshakes(fetched, isOutgoing: false, myAddress: myAddress, privateKey: privateKey)
+            advanceSyncCursor(
+                for: handshakeSyncObjectKey(direction: "in", address: myAddress),
+                maxBlockTime: fetched.compactMap { $0.blockTime }.max()
+            )
+        } else {
+            throw IncomingResyncError.handshakeFetchFailed
+        }
+        guard isActiveWallet(myAddress) else { throw IncomingResyncError.walletChanged }
+
+        // PHASE 3 - incoming payments (payment rows are incoming messages and were wiped too).
+        // Handshake txIds are filtered out so a handshake is never re-added as a payment (the
+        // same Bug 4 guard the full sync applies).
+        progress(.fetchingPayments)
+        if let fetched = await retryUntilSuccess(
+            label: "re-sync incoming payments",
+            maxAttempts: Self.syncPhaseMaxRetryAttempts,
+            operation: { [self] in try await fetchIncomingPayments(for: myAddress, blockTime: historyStart) }
+        ) {
+            let payments = fetched.filter { !handshakeTxIds.contains($0.txId) }
+            await processPayments(payments, isOutgoing: false, myAddress: myAddress, privateKey: privateKey)
+        } else {
+            throw IncomingResyncError.paymentFetchFailed
+        }
+        guard isActiveWallet(myAddress) else { throw IncomingResyncError.walletChanged }
+
+        // PHASE 4 - per-contact contextual history. Serial on purpose: the modal's bar advances
+        // one chat at a time, and a re-sync is a repair operation, not a latency-critical sync.
+        // Each contact's incoming cursor was dropped above, so `fallbackSince: 0` makes
+        // `fetchIncomingContextualMessages` page through that chat's full (retention-clamped)
+        // history; contacts with no incoming alias yet return immediately.
+        var failedChats = 0
+        var done = 0
+        progress(.syncingChats(done: 0, total: targets.count))
+        for address in targets {
+            guard isActiveWallet(myAddress) else { throw IncomingResyncError.walletChanged }
+            let ok = await fetchIncomingContextualMessages(
+                contactAddress: address,
+                myAddress: myAddress,
+                privateKey: privateKey,
+                fallbackSince: 0,
+                nowMs: nowMs
+            )
+            if !ok { failedChats += 1 }
+            done += 1
+            progress(.syncingChats(done: done, total: targets.count))
+        }
+
+        // PHASE 5 - persist everything the phases touched.
+        progress(.finalizing)
+        saveConversationAliases()
+        saveOurAliases()
+        saveConversationIds()
+        saveRoutingStates()
+        saveMessages()
+
+        if failedChats > 0 {
+            throw IncomingResyncError.chatsFailed(failed: failedChats, total: targets.count)
+        }
+
+        let restoredMessages = conversations.reduce(0) { count, convo in
+            guard targetSet.contains(convo.contact.address.lowercased()) else { return count }
+            return count + convo.messages.filter { !$0.isOutgoing }.count
+        }
+        return IncomingResyncSummary(chats: targets.count, messages: restoredMessages)
+    }
+}

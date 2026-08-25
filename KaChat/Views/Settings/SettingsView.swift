@@ -18,12 +18,20 @@ struct SettingsView: View {
     // Restore-from-backup state lives on this singleton (NOT view @State) so the restore Task
     // survives any view teardown; this view only presents the blocking modal and observes.
     @ObservedObject private var restoreCoordinator = BackupRestoreCoordinator.shared
+    // Same ownership rule for the Danger Zone wipe-and-resync: the task lives on this singleton,
+    // this view only presents the blocking modal and observes.
+    @ObservedObject private var resyncCoordinator = IncomingResyncCoordinator.shared
 
     @State private var showSeedPhrase = false
     @State private var showDeleteConfirmation = false
     @State private var showWipeIncomingConfirmation = false
+    @State private var showResyncChatPicker = false
+    /// Selection handed back by the chat picker sheet; the resync starts from the sheet's
+    /// onDismiss so the fullScreenCover is never presented while the sheet is still animating out.
+    @State private var pendingResyncSelection: [String]?
     @State private var showWipeAccountConfirmation = false
-    @State private var showWipeAccountCloudConfirmation = false
+    @State private var showWipeICloudConfirmation = false
+    @State private var isWipingICloud = false
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -140,6 +148,19 @@ struct SettingsView: View {
                 ChatRestoreProgressModal()
             }
             .onChange(of: restoreCoordinator.phase) { phase in
+                if case .success = phase {
+                    refreshMessageStoreSize()
+                }
+            }
+            // Blocking wipe-and-resync modal (Danger Zone): same inescapable pattern as the
+            // restore modal above - no-op binding setter, exits only via the modal's own buttons.
+            .fullScreenCover(isPresented: Binding(
+                get: { resyncCoordinator.isPresentingModal },
+                set: { _ in }
+            )) {
+                IncomingResyncProgressModal()
+            }
+            .onChange(of: resyncCoordinator.phase) { phase in
                 if case .success = phase {
                     refreshMessageStoreSize()
                 }
@@ -382,19 +403,31 @@ struct SettingsView: View {
                         Label("Wipe and re-sync incoming messages", systemImage: "arrow.triangle.2.circlepath")
                             .foregroundColor(.red)
                     }
+                    .disabled(resyncCoordinator.isRunning)
                     .confirmationDialog(
                         "Wipe and re-sync incoming messages",
                         isPresented: $showWipeIncomingConfirmation,
                         titleVisibility: .visible
                     ) {
-                        Button("Wipe Incoming Messages", role: .destructive) {
-                            Task {
-                                await wipeIncomingMessages()
-                            }
+                        Button("All Chats", role: .destructive) {
+                            IncomingResyncCoordinator.shared.start(scope: .all)
+                        }
+                        Button("Select Chats...") {
+                            showResyncChatPicker = true
                         }
                         Button("Cancel", role: .cancel) {}
                     } message: {
-                    Text("This removes all incoming messages locally and in iCloud, then re-syncs them from the blockchain. Your account info and sent messages are preserved.")
+                        Text("This removes incoming messages locally, then re-syncs them from the blockchain. Your account info and sent messages are preserved. Choose whether to re-sync every chat or only the chats you select.")
+                    }
+                    .sheet(isPresented: $showResyncChatPicker, onDismiss: {
+                        if let selection = pendingResyncSelection {
+                            pendingResyncSelection = nil
+                            IncomingResyncCoordinator.shared.start(scope: .contacts(selection))
+                        }
+                    }) {
+                        ResyncChatPickerView { addresses in
+                            pendingResyncSelection = addresses
+                        }
                     }
 
                     Button(role: .destructive) {
@@ -419,24 +452,31 @@ struct SettingsView: View {
                     }
 
                     Button(role: .destructive) {
-                        showWipeAccountCloudConfirmation = true
+                        showWipeICloudConfirmation = true
                     } label: {
-                        Label("Wipe account & messages & iCloud", systemImage: "icloud.slash")
-                            .foregroundColor(.red)
+                        HStack {
+                            Label("Wipe iCloud Data", systemImage: "icloud.slash")
+                                .foregroundColor(.red)
+                            Spacer()
+                            if isWipingICloud {
+                                ProgressView()
+                            }
+                        }
                     }
+                    .disabled(isWipingICloud)
                     .confirmationDialog(
-                        "Wipe account & messages & iCloud",
-                        isPresented: $showWipeAccountCloudConfirmation,
+                        "Wipe iCloud Data",
+                        isPresented: $showWipeICloudConfirmation,
                         titleVisibility: .visible
                     ) {
-                        Button("Wipe Local & iCloud Data", role: .destructive) {
+                        Button("Wipe iCloud Data", role: .destructive) {
                             Task {
-                                await wipeAccountAndMessages(deleteCloudData: true)
+                                await wipeICloudData()
                             }
                         }
                         Button("Cancel", role: .cancel) {}
                     } message: {
-                        Text("This deletes all local data and CloudKit message records. This cannot be undone.")
+                        Text("This deletes this account's message data from iCloud only. Your local messages and your account stay on this device. If iCloud message storage is enabled, messages may upload to iCloud again over time.")
                     }
                 }
         }
@@ -467,9 +507,18 @@ struct SettingsView: View {
         messageStoreSize = formatter.string(fromByteCount: bytes)
     }
 
-    private func wipeIncomingMessages() async {
-        await ChatService.shared.wipeIncomingMessagesAndResync()
-        refreshMessageStoreSize()
+    /// iCloud-only wipe: deletes the CURRENT wallet's CloudKit zone and nothing else. Local
+    /// messages, contacts, and the account are untouched (the combined local+iCloud wipe this
+    /// button used to trigger lives on in `wipeAccountAndMessages`, which the
+    /// "Wipe account & messages" entry still uses for the local-only path).
+    private func wipeICloudData() async {
+        isWipingICloud = true
+        defer { isWipingICloud = false }
+        if let error = await MessageStore.shared.purgeCurrentWalletCloudKitData() {
+            showToast("iCloud wipe failed: \(error.localizedDescription)", style: .error)
+        } else {
+            showToast("iCloud message data wiped.")
+        }
     }
 
     private func wipeAccountAndMessages(deleteCloudData: Bool) async {
@@ -3495,5 +3544,379 @@ struct ChatRestoreProgressModal: View {
                     .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
             )
             .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+    }
+}
+
+// MARK: - Wipe-and-resync coordinator (blocking progress modal)
+
+/// Owns a Danger Zone incoming-message wipe-and-resync from tap to terminal state, independent
+/// of any view's lifetime - the exact ownership pattern of `BackupRestoreCoordinator`.
+/// Interrupting the flow between the wipe and the re-fetch would leave chats emptied without
+/// their history restored, so the Settings hierarchy only OBSERVES this singleton: the resync
+/// `Task` is held here, never by a view, and while `phase == .running` an inescapable
+/// fullScreenCover (`IncomingResyncProgressModal`) is presented whose only exits are the
+/// modal's own Done / Try Again / Close buttons.
+@MainActor
+final class IncomingResyncCoordinator: ObservableObject {
+    static let shared = IncomingResyncCoordinator()
+    private init() {}
+
+    enum Scope: Equatable {
+        /// Every known 1:1 chat.
+        case all
+        /// Only the picked contacts' chats (addresses from the chat picker).
+        case contacts([String])
+    }
+
+    enum Phase: Equatable {
+        case idle
+        case running
+        case success(chats: Int, messages: Int)
+        case failure(String)
+    }
+
+    @Published private(set) var phase: Phase = .idle
+    /// 0...1, monotonic. Stage weights mirror the restore modal's pattern: wipe 0-10%,
+    /// handshake re-fetch 10-20%, payment re-fetch 20-30%, per-chat contextual re-fetch 30-95%
+    /// (the bar advances one chat at a time), finalize 95-100%.
+    @Published private(set) var fraction: Double = 0
+    @Published private(set) var stageText: String = ""
+
+    var isRunning: Bool { phase == .running }
+    var isPresentingModal: Bool { phase != .idle }
+
+    /// Kept so Try Again after a failure reruns the exact same scope (the flow is idempotent:
+    /// re-wiping already-wiped chats is a no-op and every fetch dedupes by txId).
+    private var lastScope: Scope?
+    /// Held by the singleton (not a view) so navigation or sheet churn cannot cancel it.
+    private var resyncTask: Task<Void, Never>?
+
+    func start(scope: Scope) {
+        guard !isRunning else { return }
+        lastScope = scope
+        fraction = 0
+        stageText = "Preparing..."
+        phase = .running
+        resyncTask = Task { [weak self] in
+            await self?.run(scope)
+        }
+    }
+
+    /// Reruns the failed resync with the same scope. Only valid from the failure state.
+    func retry() {
+        guard case .failure = phase, let lastScope else { return }
+        phase = .idle
+        start(scope: lastScope)
+    }
+
+    /// Leaves the modal. Only honored from a terminal state; a running resync cannot be dismissed.
+    func dismiss() {
+        guard !isRunning else { return }
+        phase = .idle
+        fraction = 0
+        stageText = ""
+    }
+
+    private func run(_ scope: Scope) async {
+        do {
+            let contacts: [String]?
+            switch scope {
+            case .all:
+                contacts = nil
+            case .contacts(let picked):
+                contacts = picked
+            }
+            let summary = try await ChatService.shared.wipeAndResyncIncomingMessages(contacts: contacts) { [weak self] event in
+                self?.apply(event)
+            }
+            fraction = 1.0
+            stageText = "Done"
+            phase = .success(chats: summary.chats, messages: summary.messages)
+        } catch {
+            phase = .failure(error.localizedDescription)
+        }
+    }
+
+    private func apply(_ event: ChatService.IncomingResyncEvent) {
+        switch event {
+        case .wiping:
+            advance(to: 0.05, stage: "Wiping incoming messages...")
+        case .fetchingHandshakes:
+            advance(to: 0.12, stage: "Re-fetching handshakes...")
+        case .fetchingPayments:
+            advance(to: 0.22, stage: "Re-fetching payments...")
+        case .syncingChats(let done, let total):
+            let f = total > 0 ? Double(done) / Double(total) : 1.0
+            advance(to: 0.30 + 0.65 * f, stage: "Re-syncing... \(done) of \(total) chats")
+        case .finalizing:
+            advance(to: 0.96, stage: "Finishing up...")
+        }
+    }
+
+    /// Monotonic progress: overlapping async reports can never move the bar backwards.
+    private func advance(to value: Double, stage: String) {
+        fraction = max(fraction, min(value, 1.0))
+        stageText = stage
+    }
+}
+
+// MARK: - Blocking wipe-and-resync progress modal
+
+/// Full-screen modal shown while a Danger Zone wipe-and-resync runs. Deliberately inescapable
+/// while running, exactly like `ChatRestoreProgressModal`: presented via a fullScreenCover whose
+/// binding setter is a no-op, interactive dismissal disabled, and no dismissing control rendered
+/// until a terminal state. Leaving mid-flow would strand chats wiped but not yet re-synced.
+struct IncomingResyncProgressModal: View {
+    @ObservedObject private var coordinator = IncomingResyncCoordinator.shared
+
+    var body: some View {
+        ZStack {
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
+
+            VStack(spacing: 20) {
+                switch coordinator.phase {
+                case .idle, .running:
+                    runningContent
+                case .success(let chats, let messages):
+                    successContent(chats: chats, messages: messages)
+                case .failure(let message):
+                    failureContent(message: message)
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: 340)
+            .background(glassBackground(cornerRadius: 24))
+            .padding(.horizontal, 24)
+        }
+        .interactiveDismissDisabled(true)
+    }
+
+    @ViewBuilder
+    private var runningContent: some View {
+        Image(systemName: "arrow.triangle.2.circlepath")
+            .font(.system(size: 38, weight: .medium))
+            .foregroundColor(.accentColor)
+
+        Text("Re-syncing Messages")
+            .font(.title3.weight(.semibold))
+
+        VStack(spacing: 10) {
+            ProgressView(value: coordinator.fraction)
+                .progressViewStyle(.linear)
+                .tint(.accentColor)
+                .animation(.easeInOut(duration: 0.25), value: coordinator.fraction)
+
+            HStack {
+                Text(coordinator.stageText)
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 12)
+                Text("\(Int(coordinator.fraction * 100))%")
+                    .font(.footnote.monospacedDigit())
+                    .foregroundColor(.secondary)
+            }
+        }
+
+        Text("Please keep the app open. Leaving now could leave chats without their history.")
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .multilineTextAlignment(.center)
+    }
+
+    @ViewBuilder
+    private func successContent(chats: Int, messages: Int) -> some View {
+        Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: 44))
+            .foregroundColor(.green)
+
+        Text("Re-sync Complete")
+            .font(.title3.weight(.semibold))
+
+        Text("Re-synced \(messages) incoming \(messages == 1 ? "message" : "messages") across \(chats) \(chats == 1 ? "chat" : "chats").")
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+            .multilineTextAlignment(.center)
+
+        Button {
+            coordinator.dismiss()
+        } label: {
+            Text("Done")
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+    }
+
+    @ViewBuilder
+    private func failureContent(message: String) -> some View {
+        Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 44))
+            .foregroundColor(.orange)
+
+        Text("Re-sync Failed")
+            .font(.title3.weight(.semibold))
+
+        Text(message)
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+            .multilineTextAlignment(.center)
+
+        VStack(spacing: 10) {
+            Button {
+                coordinator.retry()
+            } label: {
+                Text("Try Again")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Button {
+                coordinator.dismiss()
+            } label: {
+                Text("Close")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+        }
+    }
+
+    /// Same glass card treatment the app's other overlays use (see BroadcastChannelView).
+    private func glassBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.regularMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+    }
+}
+
+// MARK: - Resync chat picker
+
+/// Multi-select picker for the scoped wipe-and-resync: lists the wallet's 1:1 conversations in
+/// chat-list order (group chats live in GroupChatService and are not covered by the incoming
+/// wipe, so they are not offered). Hands the picked addresses back via `onConfirm`; the caller
+/// starts the resync from the sheet's onDismiss so the blocking modal never races the sheet.
+struct ResyncChatPickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    let onConfirm: ([String]) -> Void
+
+    @State private var conversations: [Conversation] = []
+    @State private var selected: Set<String> = []
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if conversations.isEmpty {
+                    Text("No chats to re-sync.")
+                        .foregroundColor(.secondary)
+                } else {
+                    List {
+                        Section {
+                            ForEach(conversations) { conversation in
+                                row(for: conversation)
+                            }
+                        } footer: {
+                            Text("Only the selected chats have their incoming messages wiped and re-synced. Sent messages and all other chats are untouched.")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Select Chats")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(selected.count == conversations.count ? "Deselect All" : "Select All") {
+                        if selected.count == conversations.count {
+                            selected = []
+                        } else {
+                            selected = Set(conversations.map { $0.contact.address })
+                        }
+                    }
+                    .disabled(conversations.isEmpty)
+                }
+                ToolbarItem(placement: .bottomBar) {
+                    Button {
+                        let picked = Array(selected)
+                        onConfirm(picked)
+                        dismiss()
+                    } label: {
+                        Text("Re-sync \(selected.count) \(selected.count == 1 ? "Chat" : "Chats")")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(selected.isEmpty)
+                }
+            }
+            .onAppear {
+                // Snapshot once: this is a static picker, not a live chat list. Newest activity
+                // first, matching the chat list's ordering.
+                conversations = ChatService.shared.conversations.sorted { a, b in
+                    switch (a.lastMessage?.timestamp, b.lastMessage?.timestamp) {
+                    case let (da?, db?):
+                        return da > db
+                    case (.some, .none):
+                        return true
+                    case (.none, .some):
+                        return false
+                    default:
+                        return a.contact.alias < b.contact.alias
+                    }
+                }
+            }
+        }
+    }
+
+    private func row(for conversation: Conversation) -> some View {
+        let address = conversation.contact.address
+        let isSelected = selected.contains(address)
+        return Button {
+            if isSelected {
+                selected.remove(address)
+            } else {
+                selected.insert(address)
+            }
+        } label: {
+            HStack(spacing: 12) {
+                KNSAvatarView(
+                    avatarURLString: KNSService.shared.profileCache[address]?.avatarURL,
+                    fallbackText: conversation.contact.alias,
+                    size: 44,
+                    contactAddress: address
+                )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(conversation.contact.alias)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .foregroundColor(.primary)
+                    Text(address)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer()
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

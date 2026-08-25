@@ -979,6 +979,34 @@ extension ChatService {
         userDefaults.removeObject(forKey: syncCursorsKey)
     }
 
+    /// Drops only the INCOMING-direction cursors for the given contacts, so the next fetch for
+    /// those objects starts from the caller-supplied fallback instead of the stored block time.
+    /// Incoming contextual keys are "ctx|in|<contactAddress>|<alias>[|<contactAddress>]" - the
+    /// query address of an incoming fetch is the contact itself, so matching on the third
+    /// component covers both the current and the legacy (no trailing contact) key shapes.
+    /// With `includeIncomingHandshakes` the wallet-global "hs|in|..." cursor is dropped too.
+    /// Outgoing cursors are deliberately left alone: the wipe-and-resync flow never deletes
+    /// outgoing messages, so their windows stay covered.
+    func removeIncomingSyncCursors(for contactAddresses: [String], includeIncomingHandshakes: Bool) {
+        let lowered = Set(contactAddresses.map { $0.lowercased() })
+        var removedAny = false
+        for key in Array(syncObjectCursors.keys) {
+            let parts = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count >= 2 else { continue }
+            let isIncomingContextual = parts[0] == "ctx" && parts[1] == "in"
+                && parts.count >= 3 && lowered.contains(parts[2].lowercased())
+            let isIncomingHandshake = includeIncomingHandshakes && parts[0] == "hs" && parts[1] == "in"
+            if isIncomingContextual || isIncomingHandshake {
+                syncObjectCursors.removeValue(forKey: key)
+                removedAny = true
+            }
+        }
+        if removedAny {
+            syncObjectCursorsDirty = true
+            saveSyncObjectCursorsIfNeeded()
+        }
+    }
+
     func loadSyncObjectCursors() {
         guard let data = userDefaults.data(forKey: syncCursorsKey),
               let decoded = try? JSONDecoder().decode([String: SyncObjectCursor].self, from: data) else {
