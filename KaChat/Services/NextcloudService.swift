@@ -549,8 +549,9 @@ final class NextcloudService: ObservableObject {
             let summary = try await ChatService.shared.importChatHistoryArchive(data)
             guard currentWalletAddress == walletAtStart else { return }
             UserDefaults.standard.set(true, forKey: doneKey)
+            // Fully silent by design: sync is invisible background plumbing, like iCloud.
+            // The log line is the only trace.
             AppLog.log("%@", "[Nextcloud] Automatic restore finished: \(summary.messageCount) messages in \(summary.conversationCount) chats")
-            showSyncToast("Restored \(summary.messageCount) messages from Nextcloud")
         } catch NextcloudError.backupNotFound {
             // No file yet is not an error, and does NOT mark restore done: if a backup appears
             // later (first sync from another device), the next activation picks it up.
