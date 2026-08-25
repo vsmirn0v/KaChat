@@ -913,7 +913,7 @@ struct ProfileView: View {
     private func addressDropdownsSection(_ wallet: Wallet) -> some View {
         VStack(spacing: 20) {
             addressActionRow(
-                title: "Chatting Address",
+                title: "Chatting",
                 address: wallet.publicAddress,
                 balanceText: wallet.balanceSompi.map { "\(formatKaspaExact($0)) KAS" },
                 onSend: { showWithdrawSheet = true }
@@ -921,7 +921,7 @@ struct ProfileView: View {
                 ChattingAddressManageView(address: wallet.publicAddress)
             }
             addressActionRow(
-                title: "Spending Address",
+                title: "Spending",
                 address: walletManager.currentSpendingAddress(),
                 balanceText: spendingAddressBalanceSompi.map { "\(formatKaspaExact($0)) KAS" },
                 isLoadingBalance: isLoadingSpendingBalance,
