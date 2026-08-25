@@ -1325,7 +1325,7 @@ enum AppAppearance: String, Codable, CaseIterable {
 /// the Settings row that sets this: it always prompts for a restart after changing this value).
 enum AppLanguage: String, Codable, CaseIterable {
     case system
-    case ar, arEG = "ar-EG", bn, de, en, es, fa, fr, he, hi, it, ja, ko, pt, ru, tr, vi
+    case ar, arEG = "ar-EG", bn, de, en, es, fa, fr, he, hi, id, it, ja, ko, pt, ru, tr, vi
     case zhHans = "zh-Hans"
 
     /// Native name, matching how a language picker conventionally presents itself (each language
@@ -1343,6 +1343,7 @@ enum AppLanguage: String, Codable, CaseIterable {
         case .fr: return "Français"
         case .he: return "עברית"
         case .hi: return "हिन्दी"
+        case .id: return "Bahasa Indonesia"
         case .it: return "Italiano"
         case .ja: return "日本語"
         case .ko: return "한국어"
@@ -1388,6 +1389,7 @@ enum AppCurrency: String, Codable, CaseIterable {
     case indianRupee = "inr"
     case southKoreanWon = "krw"
     case singaporeDollar = "sgd"
+    case indonesianRupiah = "idr"
     case newZealandDollar = "nzd"
     case mexicanPeso = "mxn"
     case brazilianReal = "brl"
@@ -1418,6 +1420,7 @@ enum AppCurrency: String, Codable, CaseIterable {
         case .indianRupee: return "Indian Rupee"
         case .southKoreanWon: return "South Korean Won"
         case .singaporeDollar: return "Singapore Dollar"
+        case .indonesianRupiah: return "Indonesian Rupiah"
         case .newZealandDollar: return "New Zealand Dollar"
         case .mexicanPeso: return "Mexican Peso"
         case .brazilianReal: return "Brazilian Real"
