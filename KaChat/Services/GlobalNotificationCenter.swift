@@ -7,7 +7,7 @@ import SwiftUI
 /// account-scoped, persisted, deduped by id, and capped; opening the list marks everything seen.
 ///
 /// Sources push in via `record(...)`:
-///  - KaPosts: fed by KaPostsNotificationService's single 60s poll via
+///  - KaPosts: fed by KaPostsNotificationService's single 30s poll via
 ///    `ingestKaPostsNotifications` (independent of the banner pinger's per-type/remote-push
 ///    gates - the center always lists activity).
 ///  - Group mentions: GroupChatService calls `recordGroupMentionIfNeeded` on incoming messages.
@@ -63,7 +63,7 @@ final class GlobalNotificationCenter: ObservableObject {
     private init() {
         reload()
         // KaPosts rows arrive via ingestKaPostsNotifications, fed by KaPostsNotificationService's
-        // 60s poll — this class used to run its OWN 90s poll of the same endpoint in parallel.
+        // 30s poll — this class used to run its OWN 90s poll of the same endpoint in parallel.
     }
 
     // MARK: - Persistence (account-scoped)
@@ -146,7 +146,7 @@ final class GlobalNotificationCenter: ObservableObject {
     // MARK: - KaPosts poll
 
     /// Feeds the bell center from a notifications page some OTHER poller already fetched
-    /// (KaPostsNotificationService's 60s loop) — one request, two consumers. Runs regardless
+    /// (KaPostsNotificationService's 30s loop) — one request, two consumers. Runs regardless
     /// of the OS-ping gates so the bell fills even with notifications disabled.
     func ingestKaPostsNotifications(_ notifications: [KaPostsAPIClient.KNotification]) async {
         guard WalletManager.shared.currentWallet != nil else { return }

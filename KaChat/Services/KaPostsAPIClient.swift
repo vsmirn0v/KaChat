@@ -657,18 +657,63 @@ extension KaPostsAPIClient {
 // MARK: - KaPosts local notification pings
 
 /// In-app notification pings for KaPosts, mirroring how 1:1/group chats notify: while the app
-/// is running it polls the indexer's notification stream (60s) and posts local iOS
+/// is running it polls the indexer's notification stream (30s) and posts local iOS
 /// notifications for new actions on your content ("alice liked your post"). Needs no indexer
 /// changes; push while the app is CLOSED arrives with the KaChat-owned indexer fork
 /// (KAPOSTS_INDEXER.md).
+///
+/// This poller is THE foreground banner source for KaPosts: `AppDelegate.willPresent` drops
+/// remote kaposts pushes while the app is active and this poller is running, because only
+/// this side knows the per-type Settings toggles (the push payload carries no action type).
+/// The displayed-action ledger below dedupes across the two sources at their boundary.
 @MainActor
 final class KaPostsNotificationService {
     static let shared = KaPostsNotificationService()
 
     private var pollTask: Task<Void, Never>?
-    private static let pollIntervalNanos: UInt64 = 60 * 1_000_000_000
+    private static let pollIntervalNanos: UInt64 = 30 * 1_000_000_000
+
+    /// True while the poll loop is alive - `AppDelegate.willPresent` consults this: with the
+    /// poller running it is the foreground banner source and kaposts pushes are dropped; with
+    /// it stopped (in-app browser powers it down) the push presents instead, matching the
+    /// browser's "closed-app path" design.
+    var isPolling: Bool { pollTask != nil }
+
+    /// True while KaPostsNotificationsView is on screen - mirrors the open-conversation rule:
+    /// no banner for the very stream the user is looking at (set from that view's
+    /// onAppear/onDisappear; consulted by `AppDelegate.willPresent`).
+    var isNotificationsScreenVisible = false
 
     private init() {}
+
+    // MARK: Displayed-action ledger (App Group)
+
+    /// Ledger of KaPosts ACTION txids already shown as a banner, by EITHER source: this
+    /// poller's local banners (claimed before posting) or a remote push `willPresent`
+    /// presented / the user tapped. The kaposts push carries no `tx_id` in userInfo, but its
+    /// `apns-collapse-id` IS the action's txid (PUSH_EXTENSIONS.md) and iOS surfaces that as
+    /// `UNNotificationRequest.identifier` - the stable key both sides share. Bounded FIFO,
+    /// mirroring `ChatService.localPostedTxIdsKey`.
+    ///
+    /// Residual race this cannot close: a push delivered while BACKGROUNDED never passes
+    /// through willPresent, so it is only recorded when tapped or while it still sits in
+    /// Notification Center (pollOnce checks deliveredNotifications). A background push the
+    /// user swipe-dismissed can therefore re-banner on the next foreground poll.
+    private static let displayedActionIdsKey = "kaposts_displayed_action_ids"
+
+    func hasDisplayed(actionId: String) -> Bool {
+        guard let defaults = UserDefaults(suiteName: "group.com.kachat.app") else { return false }
+        return (defaults.stringArray(forKey: Self.displayedActionIdsKey) ?? []).contains(actionId)
+    }
+
+    func recordDisplayed(actionId: String) {
+        guard let defaults = UserDefaults(suiteName: "group.com.kachat.app") else { return }
+        var displayed = defaults.stringArray(forKey: Self.displayedActionIdsKey) ?? []
+        guard !displayed.contains(actionId) else { return }
+        displayed.append(actionId)
+        if displayed.count > 300 { displayed.removeFirst(displayed.count - 300) }
+        defaults.set(displayed, forKey: Self.displayedActionIdsKey)
+    }
 
     /// Last notification timestamp already surfaced (banner or Notifications screen), per
     /// wallet - anything at or before this never pings.
@@ -719,7 +764,8 @@ final class KaPostsNotificationService {
             // delivers KaPosts pings (registered via kaposts_pubkey) while the app is
             // backgrounded or closed - local pings there would double-notify, mirroring the
             // broadcast guard. While the app is ACTIVE this poll is the notification source
-            // whatever the mode (AppDelegate.willPresent drops kaposts pushes in foreground).
+            // whatever the mode (AppDelegate.willPresent drops REMOTE kaposts pushes while
+            // this poller is running - the poller's own local banners present).
             guard settings.notificationsEnabled else { return }
             if settings.notificationMode == .remotePush,
                UIApplication.shared.applicationState != .active { return }
@@ -742,9 +788,27 @@ final class KaPostsNotificationService {
                 return
             }
             UserDefaults.standard.set(NSNumber(value: max(newest, lastSeen)), forKey: key)
+            // Actions a remote push already bannered must not banner again: the ledger holds
+            // ids willPresent presented or the user tapped, and deliveredNotifications covers
+            // pushes delivered while backgrounded that still sit in Notification Center
+            // (their request identifier is the apns-collapse-id, i.e. the action's txid).
+            // Those get recorded into the ledger too, so clearing the center later doesn't
+            // resurrect them.
+            let deliveredIds = Set(
+                await UNUserNotificationCenter.current().deliveredNotifications()
+                    .filter { $0.request.content.threadIdentifier == "kaposts" }
+                    .map(\.request.identifier)
+            )
             // Oldest first so banners arrive in order; cap a burst so a viral post doesn't
             // fire fifty banners at once.
             for notification in fresh.sorted(by: { $0.timestamp < $1.timestamp }).suffix(5) {
+                if deliveredIds.contains(notification.id) {
+                    recordDisplayed(actionId: notification.id)
+                    continue
+                }
+                guard !hasDisplayed(actionId: notification.id) else { continue }
+                // Claim BEFORE posting so a racing push in willPresent sees it.
+                recordDisplayed(actionId: notification.id)
                 await postLocal(notification)
             }
         } catch {

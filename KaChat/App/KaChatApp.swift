@@ -631,12 +631,61 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 completionHandler([])
                 return
             }
-            // Broadcasts and KaPosts banner from the app's own scan/poll paths while the app is
-            // active, whatever the push mode - and their pushes carry no "tx_id" to dedupe with,
-            // so drop them here wholesale. willPresent never runs for a backgrounded app, so
-            // background push delivery is untouched.
-            if UIApplication.shared.applicationState == .active,
-               threadId == "kaposts" || threadId.hasPrefix("broadcast:") {
+            // KaPosts: the local poller (KaPostsNotificationService) is the foreground banner
+            // source - it alone applies the per-type Settings toggles, which the push payload
+            // cannot (no action type in userInfo). willPresent runs for LOCAL notifications
+            // too, so this must branch on the trigger: an earlier thread-id-only drop here
+            // swallowed the poller's own banners as well, killing every foreground KaPosts
+            // banner. willPresent never runs for a backgrounded app, so background push
+            // delivery is untouched throughout.
+            if threadId == "kaposts" {
+                let kaPosts = KaPostsNotificationService.shared
+                // Mirrors the open-conversation rule: no banner for the very stream the
+                // user is looking at (the Notifications screen shows these rows live).
+                if UIApplication.shared.applicationState == .active,
+                   kaPosts.isNotificationsScreenVisible {
+                    completionHandler([])
+                    return
+                }
+                if notification.request.trigger is UNPushNotificationTrigger {
+                    // The push's request identifier is its apns-collapse-id: the ACTION's
+                    // txid (PUSH_EXTENSIONS.md) - the same key the poller's ledger claims.
+                    if kaPosts.hasDisplayed(actionId: notification.request.identifier) {
+                        completionHandler([])
+                        return
+                    }
+                    if UIApplication.shared.applicationState == .active, kaPosts.isPolling {
+                        // Poller alive: it banners this within its cadence, with the
+                        // per-type toggles applied. (Residual: if the indexer poll is
+                        // failing while pushes still flow, the banner waits for the poll
+                        // to recover - the push service is fed by that same indexer, so
+                        // in practice both sides fail together.)
+                        completionHandler([])
+                        return
+                    }
+                    // Poller stopped while foregrounded (the in-app browser powers it
+                    // down): the push is the only source, exactly the closed-app path.
+                    // Record it so the poller doesn't re-banner on resume.
+                    kaPosts.recordDisplayed(actionId: notification.request.identifier)
+                }
+                // Local banner from the poller (toggles already applied there), or a push
+                // that won the slot above.
+                var options: UNNotificationPresentationOptions = [.banner, .badge]
+                if settings.incomingNotificationSoundEnabled {
+                    options.insert(.sound)
+                } else if settings.incomingNotificationVibrationEnabled {
+                    Haptics.impact(.light)
+                }
+                completionHandler(options)
+                return
+            }
+            // Broadcasts banner from the app's own scan path while active - drop only the
+            // REMOTE push here (it carries no "tx_id" to dedupe with); the scan's local
+            // banner falls through to the normal presentation below, where the
+            // open-broadcast-room suppression applies.
+            if notification.request.trigger is UNPushNotificationTrigger,
+               UIApplication.shared.applicationState == .active,
+               threadId.hasPrefix("broadcast:") {
                 completionHandler([])
                 return
             }
@@ -784,6 +833,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // KaPosts push (server thread-id "kaposts"): straight to the post's thread when the
         // payload names one, else into KaPosts with the Notifications screen opened.
         if threadIdentifier == "kaposts" {
+            // A tapped push leaves Notification Center, so the poller's delivered-list check
+            // can no longer see it - record its action txid (the request identifier is the
+            // apns-collapse-id) in the displayed ledger so the next poll doesn't re-banner it.
+            if response.notification.request.trigger is UNPushNotificationTrigger {
+                let actionId = response.notification.request.identifier
+                Task { @MainActor in
+                    KaPostsNotificationService.shared.recordDisplayed(actionId: actionId)
+                }
+            }
             let userInfo = response.notification.request.content.userInfo
             if let postId = userInfo["postId"] as? String, !postId.isEmpty {
                 KaPostsDeepLink.pendingPostTxId = postId

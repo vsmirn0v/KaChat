@@ -5283,6 +5283,10 @@ struct KaPostsNotificationsView: View {
                 }
             }
             .task { await load() }
+            // The open-conversation rule for KaPosts: while this stream is on screen,
+            // AppDelegate.willPresent suppresses kaposts banners (local and push alike).
+            .onAppear { KaPostsNotificationService.shared.isNotificationsScreenVisible = true }
+            .onDisappear { KaPostsNotificationService.shared.isNotificationsScreenVisible = false }
         }
     }
 
