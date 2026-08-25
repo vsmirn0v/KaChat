@@ -601,18 +601,34 @@ actor NodeRegistry {
     /// (see NodePoolService.updatePoolStats): many distinct nodes failing with zero successes
     /// while the device is online is the signature of gRPC being blocked wholesale
     /// (firewall/DPI), as opposed to a few individually-bad nodes.
-    func connectivitySnapshot(window: TimeInterval = 600) -> (recentFailedNodes: Int, recentSuccessfulNodes: Int) {
-        let cutoff = Date().addingTimeInterval(-window)
-        var failed = 0
+    ///
+    /// Only events at or after `anchor` count - the caller anchors this to the most recent
+    /// boot / pin-switch / network-epoch change, so failures persisted from a previous launch
+    /// or earned on a previous network path can never contribute to a verdict about this one.
+    /// Chronic dead-weight candidates (known for over an hour, never once answered - e.g.
+    /// seeder entries behind Cloudflare that cannot serve raw gRPC anywhere) are excluded from
+    /// the failed count: they fail on every network and are evidence about nothing. Freshly
+    /// discovered nodes still count, so a first launch under censorship still trips.
+    func connectivitySnapshot(
+        since anchor: Date,
+        window: TimeInterval = 600
+    ) -> (recentFailedNodes: Int, recentSuccessfulNodes: Int, failedKeys: [String]) {
+        let now = Date()
+        let cutoff = max(anchor, now.addingTimeInterval(-window))
+        let chronicCutoff = now.addingTimeInterval(-3600)
+        var failedKeys: [String] = []
         var succeeded = 0
         for record in records.values {
             if let successAt = record.health.lastSuccessAt, successAt >= cutoff {
                 succeeded += 1
             } else if let failureAt = record.health.lastFailureAt, failureAt >= cutoff {
-                failed += 1
+                let neverSucceeded = record.health.lastSuccessAt == nil
+                let knownForever = record.firstSeenAt < chronicCutoff
+                if neverSucceeded && knownForever { continue }
+                failedKeys.append(record.endpoint.key)
             }
         }
-        return (failed, succeeded)
+        return (failedKeys.count, succeeded, failedKeys)
     }
 
     /// Average latency of active nodes

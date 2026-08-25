@@ -380,7 +380,19 @@ final class UtxoSubscriptionManager: ObservableObject {
         let generationAtSubscribe = await conn.connectionGeneration
 
         // Subscribe request
+        let subscribeStart = Date()
         try await sendNotifyUtxosChanged(on: conn)
+
+        // An accepted subscription is a full request/response roundtrip - record it so the
+        // registry (and the blocked-network detector reading it) sees this success immediately,
+        // not only at the next 15s health ping.
+        await registry.recordResult(
+            endpoint: endpoint,
+            epochId: epochMonitor.epochId,
+            latencyMs: Date().timeIntervalSince(subscribeStart) * 1000,
+            isTimeout: false,
+            isError: false
+        )
 
         // Add notification handler to connection
         let handlerId = await conn.addNotificationHandler { [weak self] type, data in
@@ -480,6 +492,19 @@ final class UtxoSubscriptionManager: ObservableObject {
 
             // Connection is alive
             primaryFailures = 0
+
+            // Feed the success into the registry: the subscription is the app's primary
+            // long-lived connection, but its pings previously left no trace there, so the
+            // blocked-network detector (which reads registry lastSuccessAt) could see "zero
+            // recent successes" while a perfectly healthy subscription was pinging every 15s.
+            // Also keeps the primary's health/latency fresh between (slow) profiler probes.
+            await registry.recordResult(
+                endpoint: endpoint,
+                epochId: epochMonitor.epochId,
+                latencyMs: latencyMs,
+                isTimeout: false,
+                isError: false
+            )
 
             AppLog.log("[UtxoSub] Ping OK on %@ (%.0fms)", endpoint.key, latencyMs)
 

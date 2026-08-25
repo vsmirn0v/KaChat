@@ -329,6 +329,12 @@ struct NodeHealth: Codable {
         quarantineUntil = nil
         circuitBreakerFailures = 0
         circuitBreakerOpenUntil = nil
+        // A failure earned on the OLD network path is not evidence about the new one - leaving
+        // this set let the blocked-network detector (NodeRegistry.connectivitySnapshot) count
+        // stale failures from a previous WiFi/VPN/cellular path and flag a perfectly good
+        // network. lastSuccessAt is deliberately kept: stale successes can only delay a blocked
+        // verdict (safe direction), and they mark the node as proven-real for the detector.
+        lastFailureAt = nil
     }
 
     /// Record a successful request

@@ -39,9 +39,18 @@ final class NodePoolService: ObservableObject {
     /// active, and many DISTINCT nodes have failed recently with not a single success. The
     /// connection status screen surfaces this honestly (receiving messages still works over the
     /// indexer's HTTPS; sending needs a node). Cleared automatically the moment any node
-    /// answers, and health stats reset on every network path change, so a verdict earned on
-    /// hotel WiFi does not outlive that network.
+    /// answers, and both the flag and its failure accounting reset on every boot, pin switch,
+    /// and network path change, so a verdict earned on hotel WiFi cannot outlive that network.
+    /// No verdict is formed inside the grace window after any of those events: the parallel
+    /// boot/switch racing intentionally burns through stale and dead candidates fast, and eight
+    /// distinct failures can pile up in seconds while the eventual winner is still dialing.
     @Published private(set) var nodeNetworkBlockedSuspected = false
+
+    /// Failures before this instant never count toward a blocked verdict, and no verdict is
+    /// formed until `blockedDetectionGracePeriod` has elapsed past it. Bumped on initialize,
+    /// pin/unpin switches, and network epoch changes (see resetBlockedNetworkDetection).
+    private var blockedDetectionAnchor = Date()
+    private static let blockedDetectionGracePeriod: TimeInterval = 90
 
     // MARK: - Components
 
@@ -89,6 +98,10 @@ final class NodePoolService: ObservableObject {
         epochMonitor.onEpochChange { [weak self] newEpochId in
             Task {
                 guard let self else { return }
+                // New network path: any blocked verdict (and the failure accounting behind it)
+                // belonged to the old path - clear both instantly, even while discovery/stats
+                // loops are paused, so a stale "Blocked" can never be shown on a new network.
+                await self.resetBlockedNetworkDetection(reason: "network epoch change")
                 await self.registry.resetEpochStats(newEpochId: newEpochId)
                 // Then immediately redial every tracked connection that is dead on the new
                 // path (bounded to the existing pool; cheap no-op for live connections) - a
@@ -128,6 +141,10 @@ final class NodePoolService: ObservableObject {
         isInitializing = true
         self.networkType = network
         AppLog.log("[NodePool] Initializing for %@", network.displayName)
+
+        // Fresh session, fresh verdict window - persisted records may carry failure timestamps
+        // from a launch minutes ago on some other network.
+        await resetBlockedNetworkDetection(reason: "initialize")
 
         // Load persisted records FIRST
         await registry.load()
@@ -320,6 +337,9 @@ final class NodePoolService: ObservableObject {
     func resumeDiscovery() async {
         guard isInitialized, isDiscoveryPaused else { return }
         isDiscoveryPaused = false
+        // The stats loop was frozen while paused; restart the verdict window rather than let
+        // pre-pause failures (possibly from another network) combine with the resume burst.
+        await resetBlockedNetworkDetection(reason: "discovery resumed")
         await profiler?.start(network: networkType)
         startPeriodicStatsUpdate()
         quickBootTask?.cancel()
@@ -1001,19 +1021,27 @@ final class NodePoolService: ObservableObject {
         if lastPingLatencyMs != newLatency { lastPingLatencyMs = newLatency }
 
         // Blocked-network heuristic (see nodeNetworkBlockedSuspected's doc comment). Requires
-        // 8+ distinct failed nodes, so a single broken pinned node can never trip it.
+        // 8+ distinct failed nodes, so a single broken pinned node can never trip it, and a
+        // sustained zero-success grace window past the last boot/switch/path change, so the
+        // deliberate burst of fast failures from parallel boot racing cannot.
         let newBlockedSuspected: Bool
-        if newActive == 0 && epochMonitor.isOnline {
-            let snapshot = await registry.connectivitySnapshot(window: 10 * 60)
+        let sinceAnchor = Date().timeIntervalSince(blockedDetectionAnchor)
+        if newActive == 0 && epochMonitor.isOnline && sinceAnchor >= Self.blockedDetectionGracePeriod {
+            let snapshot = await registry.connectivitySnapshot(since: blockedDetectionAnchor, window: 10 * 60)
             newBlockedSuspected = snapshot.recentSuccessfulNodes == 0 && snapshot.recentFailedNodes >= 8
+            if newBlockedSuspected && !nodeNetworkBlockedSuspected {
+                // One diagnosable line per trip: counts plus the distinct endpoints behind them.
+                AppLog.log("[NodePool] Blocked-network verdict tripped: %d distinct nodes failed, %d succeeded, 0 active, %.0fs since anchor. Failed: %@",
+                      snapshot.recentFailedNodes,
+                      snapshot.recentSuccessfulNodes,
+                      sinceAnchor,
+                      snapshot.failedKeys.sorted().prefix(12).joined(separator: ", "))
+            }
         } else {
             newBlockedSuspected = false
         }
         if nodeNetworkBlockedSuspected != newBlockedSuspected {
             nodeNetworkBlockedSuspected = newBlockedSuspected
-            if newBlockedSuspected {
-                AppLog.log("[NodePool] Node connections appear blocked on this network (0 active, no recent successes)")
-            }
         }
 
         // If pool just became healthy, check if we should reconnect to lowest latency node
@@ -1022,6 +1050,17 @@ final class NodePoolService: ObservableObject {
         }
 
         previousPoolHealth = health
+    }
+
+    /// Restart the blocked-network detector: clear the flag and move the accounting anchor so
+    /// only failures from here on can build a new verdict, after a fresh grace window. Called
+    /// on boot, pin/unpin switches, discovery restarts, and network epoch changes.
+    private func resetBlockedNetworkDetection(reason: String) async {
+        blockedDetectionAnchor = Date()
+        if nodeNetworkBlockedSuspected {
+            AppLog.log("[NodePool] Blocked-network verdict cleared (%@)", reason)
+            nodeNetworkBlockedSuspected = false
+        }
     }
 
     /// Reconnect to best node when pool becomes healthy
@@ -1095,6 +1134,7 @@ final class NodePoolService: ObservableObject {
         guard !isRefreshing else { return }
         isRefreshing = true
         AppLog.log("[NodePool] Clearing connection pool")
+        await resetBlockedNetworkDetection(reason: "connection pool cleared")
 
         // Stop active subscription and connections.
         subscriptionManager?.unsubscribe()
@@ -1325,6 +1365,9 @@ extension NodePoolService {
     func setTrustedNodeAddress(_ address: String?) async {
         let trimmed = address?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         var staleEndpoint: Endpoint?
+        // Switching modes intentionally races/burns candidates - never let that burst, or
+        // failures from the previous mode, feed a blocked-network verdict.
+        await resetBlockedNetworkDetection(reason: "node selection changed")
         if trimmed.isEmpty {
             staleEndpoint = await registry.setTrustedNode(nil)
             await updatePoolStats()
