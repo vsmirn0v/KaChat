@@ -13,6 +13,9 @@ extension ChatService {
         activeConversationAddress = address
         AppLog.log("[ChatService] Entered conversation for %@", String(address.suffix(12)))
         startActiveChatPoll(for: address)
+        // Nextcloud mirror runs on an adaptive cadence keyed off the open chat; wake its
+        // change watcher so this chat picks up other devices' uploads immediately.
+        NextcloudService.shared.noteChatOpened()
         loadReactions(for: address)
         // Fresh-address payment pools: lazily offer our pool once per contact, re-check the
         // pool-of-2 replenish (retries a top-up whose send failed when a reservation got

@@ -395,6 +395,9 @@ final class GroupChatService: ObservableObject {
     func enterGroup(_ groupId: String) {
         activeGroupId = groupId
         loadGroupReactions(for: groupId)
+        // Nextcloud mirror runs on an adaptive cadence keyed off the open chat; wake its
+        // change watcher so this thread picks up other devices' uploads immediately.
+        NextcloudService.shared.noteChatOpened()
     }
 
     /// Loads this group's reactions from disk into the live in-memory index - mirrors

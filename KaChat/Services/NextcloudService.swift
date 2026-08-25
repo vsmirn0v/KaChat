@@ -236,6 +236,10 @@ final class NextcloudService: ObservableObject {
     /// Bumped on every watcher start/stop so a superseded loop can never clear (or keep alive)
     /// its successor's `changeWatcherTask` slot.
     private var changeWatcherEpoch = 0
+    /// Bumped by `noteChatOpened` to break the watcher out of its current sleep for an
+    /// immediate poll. The sleep runs in short slices and checks this each slice - no
+    /// busy loop, and the watcher only runs while the app is foregrounded.
+    private var changeWatcherWakeToken = 0
     /// The server ETag of the last backup content this device IMPORTED or WROTE, normalized
     /// (no weak prefix, no quotes). Persisted per wallet so a change that lands while the app
     /// is backgrounded is still caught by the first poll after foregrounding. nil = never seen.
@@ -272,16 +276,25 @@ final class NextcloudService: ObservableObject {
     /// Persisted last-known backup ETag (see `lastKnownBackupETag`).
     private nonisolated static let lastETagKey = "kachat_nextcloud_last_etag"
     nonisolated static let autoBackupMinInterval: TimeInterval = 3600
-    /// Quiet time after the last message before the automatic merge upload runs. Short by
-    /// design: sends are what the cross-device mirror cares about, and a burst of messages
-    /// still coalesces into one upload 15 seconds after the last.
-    nonisolated static let syncDebounceInterval: TimeInterval = 5
-    /// Foreground change-watcher cadence: how often the shared file's ETag is polled while the
-    /// app is active (a tiny Depth-0 PROPFIND, no body). With the 15s upload debounce this
-    /// puts another device's message on screen well inside a minute.
-    nonisolated static let changeWatchInterval: TimeInterval = 5
-    /// Failed polls back off 10s -> 30s -> 60s and snap back to 10s on the next success.
+    /// Quiet time after the last message before the automatic merge upload runs. Two tiers,
+    /// for battery: fast while a 1:1 or group chat is open on screen (a send from inside a
+    /// chat is the latency-sensitive case), relaxed elsewhere in the app. The tier is picked
+    /// each time the timer is armed, so further activity re-reads the open-chat state.
+    nonisolated static let inChatSyncDebounceInterval: TimeInterval = 5
+    nonisolated static let idleSyncDebounceInterval: TimeInterval = 15
+    /// Foreground change-watcher cadence: how often the shared file's ETag is polled while
+    /// the app is active (a tiny Depth-0 PROPFIND, no body). Same two tiers: the fast poll
+    /// runs only while a chat is actually open on screen; the rest of the app gets the
+    /// relaxed cadence. The watcher re-resolves the tier on every loop iteration, and
+    /// entering a chat wakes it for an immediate poll (see `noteChatOpened`).
+    nonisolated static let inChatChangeWatchInterval: TimeInterval = 5
+    nonisolated static let idleChangeWatchInterval: TimeInterval = 30
+    /// Failed polls back off from the CURRENT tier's base (x3 per consecutive failure,
+    /// interval capped here) and snap back to the tier cadence on the next success.
     private nonisolated static let changeWatchBackoffMax: TimeInterval = 60
+    /// Cap for the failure multiplier itself (backoffMax / fastest base), so recovery after a
+    /// long outage never has to unwind an unbounded factor.
+    private nonisolated static let changeWatchBackoffFactorMax: Double = 12
     /// Launch/foreground catch-up threshold: if the last automatic backup is older than this
     /// (e.g. the app was force-quit for days and never got a backgrounding moment), back up on
     /// becoming active instead of waiting for the next background.
@@ -523,7 +536,41 @@ final class NextcloudService: ObservableObject {
                 UserDefaults.standard.set(true, forKey: key)
             }
         }
-        armSyncDebounce(for: wallet, after: Self.syncDebounceInterval)
+        // Tier picked at ARM time: a message landing while a chat is open arms the fast
+        // upload; background-ish activity (sweeps, catch-up syncs) arms the relaxed one.
+        // Every re-arm re-reads the state, so the last message of a burst decides.
+        armSyncDebounce(for: wallet, after: currentSyncDebounceInterval)
+    }
+
+    // MARK: - Cadence tiers (fast in an open chat, relaxed elsewhere, for battery)
+
+    /// True while a 1:1 conversation or a group thread is actually open on screen - the same
+    /// signals notification suppression keys off. `ChatService.enterConversation` /
+    /// `leaveConversation` and `GroupChatService.enterGroup` / `exitGroup` are driven by the
+    /// chat views' appear/disappear, so both clear on leaving the thread.
+    private var isChatOpenOnScreen: Bool {
+        ChatService.shared.activeConversationAddress != nil
+            || GroupChatService.shared.activeGroupId != nil
+    }
+
+    /// The change watcher's base cadence for the CURRENT tier, resolved fresh per tick.
+    private var currentChangeWatchInterval: TimeInterval {
+        isChatOpenOnScreen ? Self.inChatChangeWatchInterval : Self.idleChangeWatchInterval
+    }
+
+    /// The upload debounce for the CURRENT tier, resolved fresh at each arm.
+    private var currentSyncDebounceInterval: TimeInterval {
+        isChatOpenOnScreen ? Self.inChatSyncDebounceInterval : Self.idleSyncDebounceInterval
+    }
+
+    /// Chat-entry signal - called from `ChatService.enterConversation` and
+    /// `GroupChatService.enterGroup`. Wakes the change watcher out of whatever sleep it is in
+    /// so opening a chat polls the server immediately instead of waiting out a residual
+    /// idle-tier tick; the ticks after that resolve to the in-chat cadence on their own.
+    /// A no-op when no watcher is running (background, disconnected, sync off).
+    func noteChatOpened() {
+        guard changeWatcherTask != nil else { return }
+        changeWatcherWakeToken &+= 1
     }
 
     private func armSyncDebounce(for wallet: String, after delay: TimeInterval) {
@@ -657,12 +704,13 @@ final class NextcloudService: ObservableObject {
     /// same lifecycle moments as the debounce machinery (foreground, wallet load, connect,
     /// toggle-on); a no-op while a watcher is already running.
     ///
-    /// The loop polls the shared file's ETag every ~10s with a Depth-0 PROPFIND (a tiny
-    /// request, no body download). When the ETag differs from the last one this device
-    /// imported or wrote, the file is downloaded, decrypted and merge-imported through
+    /// The loop polls the shared file's ETag with a Depth-0 PROPFIND (a tiny request, no body
+    /// download), fast while a chat is open on screen and relaxed elsewhere (see the cadence
+    /// tier constants). When the ETag differs from the last one this device imported or
+    /// wrote, the file is downloaded, decrypted and merge-imported through
     /// `importChatHistoryArchive` - additive, txId-deduped, never-unread - silently, with one
-    /// AppLog line. Combined with the other device's 15s upload debounce, a message sent
-    /// there lands here well inside a minute.
+    /// AppLog line. Combined with the other device's upload debounce, a message sent there
+    /// lands here in seconds while you are looking at the chat.
     func startChangeWatcherIfNeeded() {
         guard changeWatcherTask == nil else { return }
         guard autoBackupEnabled, isConnected, let wallet = currentWalletAddress,
@@ -682,24 +730,44 @@ final class NextcloudService: ObservableObject {
         changeWatcherTask = nil
     }
 
-    /// The poll loop. A failed poll backs off (10s -> 30s -> 60s cap) and snaps back to the
-    /// normal cadence on the next success; a guard failure ends the loop (every state change
-    /// that could cause one also calls `stopChangeWatcher`, so this is belt and braces).
+    /// The poll loop. The cadence tier is resolved fresh for every tick, so leaving a chat
+    /// relaxes the very next sleep and entering one tightens it (plus `noteChatOpened` cuts
+    /// the sleep short for an immediate poll). A failed poll backs off from the current
+    /// tier's base (x3 per consecutive failure, capped) and snaps back on the next success;
+    /// a guard failure ends the loop (every state change that could cause one also calls
+    /// `stopChangeWatcher`, so this is belt and braces).
     private func runChangeWatcher(walletAtStart: String, epoch: Int) async {
-        var interval = Self.changeWatchInterval
+        var backoffFactor: Double = 1
         while !Task.isCancelled {
-            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            let interval = min(currentChangeWatchInterval * backoffFactor, Self.changeWatchBackoffMax)
+            await sleepInterruptibly(seconds: interval, epoch: epoch)
             guard !Task.isCancelled, changeWatcherEpoch == epoch else { break }
             guard currentWalletAddress == walletAtStart, autoBackupEnabled, isConnected else { break }
             do {
                 try await checkForRemoteChangeAndImport(walletAtStart: walletAtStart)
-                interval = Self.changeWatchInterval
+                backoffFactor = 1
             } catch {
-                interval = min(interval * 3, Self.changeWatchBackoffMax)
+                backoffFactor = min(backoffFactor * 3, Self.changeWatchBackoffFactorMax)
             }
         }
         if changeWatcherEpoch == epoch {
             changeWatcherTask = nil
+        }
+    }
+
+    /// Sleeps up to `seconds`, returning early when the watcher is cancelled, superseded
+    /// (epoch bump) or woken by `noteChatOpened`. Implemented as short sleep slices with a
+    /// wake-token check between them - not a busy loop, and the watcher only runs while the
+    /// app is foregrounded, so the half-second granularity is battery-trivial.
+    private func sleepInterruptibly(seconds: TimeInterval, epoch: Int) async {
+        let wakeTokenAtStart = changeWatcherWakeToken
+        let deadline = Date().addingTimeInterval(seconds)
+        while !Task.isCancelled,
+              changeWatcherEpoch == epoch,
+              changeWatcherWakeToken == wakeTokenAtStart {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { return }
+            try? await Task.sleep(nanoseconds: UInt64(min(0.5, remaining) * 1_000_000_000))
         }
     }
 
