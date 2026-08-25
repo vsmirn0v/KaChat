@@ -444,7 +444,7 @@ struct GroupChatDetailView: View {
                             // only composing is blocked. Mirrors 1:1 chat's gate exactly.
                             ZeroBalanceFundingCardView(
                                 address: myAddress,
-                                onCopied: { _ in showToast("Address copied to clipboard.", style: .success) }
+                                onCopied: { showToast($0.addressCopiedToastText, style: .success) }
                             )
                             .padding(.horizontal)
                             .padding(.bottom, 4)
@@ -1513,7 +1513,7 @@ struct GroupChatDetailView: View {
 
     private func copyAddress(_ address: String) {
         UIPasteboard.general.string = address
-        showToast("Address copied.", style: .success)
+        showToast(address.addressCopiedToastText, style: .success)
     }
 
     private func hideSender(_ address: String) {
@@ -2564,7 +2564,7 @@ struct GroupChatInfoView: View {
             Section {
                 Toggle("Only Notify if I'm Mentioned", isOn: mentionsOnlyBinding)
             } footer: {
-                Text("When on, you'll only get notified about messages that @mention you - other messages still show up in the chat, just silently.")
+                Text("When on, you'll only get notified about messages that @mention you. Replies to your messages and reactions on them still notify you. Everything else shows up in the chat silently.")
             }
 
             if group.isAdmin {

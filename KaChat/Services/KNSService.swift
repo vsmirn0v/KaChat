@@ -158,6 +158,17 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         return await fetchInfo(for: address, network: network)
     }
 
+    /// The cached reverse-resolved primary domain for `address` (the explicit `/primary-name`
+    /// result the @mention feature keys on - see `KNSAddressInfo.explicitPrimaryDomain`), bare
+    /// (no ".kas") and lowercased. Nil when the lookup found none, or when nothing is cached
+    /// yet. Used by the group mentions-only notification gate to recognize Android-composed
+    /// `@{primaryKNSDomain}` mention tokens.
+    func barePrimaryDomain(for address: String) -> String? {
+        guard let raw = domainCache[address]?.explicitPrimaryDomain?
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !raw.isEmpty else { return nil }
+        return raw.hasSuffix(".kas") ? String(raw.dropLast(4)) : raw
+    }
+
     /// Fetch KNS info for an address (always fetches fresh data).
     /// Concurrent callers for the same address share one in-flight request; failed lookups are
     /// throttled by a short exponential cooldown rather than refetched on every call.
@@ -965,6 +976,12 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         domainCache[address] = info
         trimCacheIfNeeded(&domainCache)
         persistCache()
+        // The wallet's OWN primary domain just (re)loaded - push it to the App Group so the
+        // notification extension's mentions-only gate can match Android-composed @domain
+        // mention tokens (see SharedDataManager.syncOwnKNSDomainForExtension).
+        if address == WalletManager.shared.currentWallet?.publicAddress {
+            SharedDataManager.syncOwnKNSDomainForExtension()
+        }
     }
 
     private func fetchProfileInternal(for address: String, network: NetworkType) async -> (info: KNSAddressProfileInfo?, hadError: Bool) {

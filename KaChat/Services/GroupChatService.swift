@@ -448,9 +448,12 @@ final class GroupChatService: ObservableObject {
 
         // Honor this group's "only notify if mentioned" setting (the extension enforces the same
         // rule for the push path; this covers the case where no push reached the extension at all).
-        if mentionsOnlyNotifications(for: group.id) {
-            let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
-            guard !myAddress.isEmpty, message.content.contains("@\(myAddress)") else { return }
+        // Suppressing must still CLAIM the banner slot: willPresent only drops a foreground push
+        // whose txId is in the local-posted ledger, so an unclaimed suppression would let that
+        // same message's push banner anyway and bypass the toggle.
+        if mentionsOnlyNotifications(for: group.id), !isPersonalGroupMessage(message.content) {
+            _ = claimGroupBannerSlot(txId: message.txId)
+            return
         }
 
         // Don't duplicate a push the extension already handled, and record this local banner so
@@ -498,8 +501,13 @@ final class GroupChatService: ObservableObject {
 
         let targetIsMine = groupMessages[group.id]?.first(where: { $0.txId == targetTxId })?.isOutgoing == true
         // Mentions-only groups: a reaction to YOUR message is personal, like a reply to you;
-        // reactions to other members' messages stay silent.
-        if mentionsOnlyNotifications(for: group.id), !targetIsMine { return }
+        // reactions to other members' messages stay silent. Same ledger rule as messages: the
+        // suppression claims the banner slot so the reaction's own push can't banner in
+        // willPresent and bypass the toggle.
+        if mentionsOnlyNotifications(for: group.id), !targetIsMine {
+            _ = claimGroupBannerSlot(txId: txId)
+            return
+        }
 
         guard claimGroupBannerSlot(txId: txId) else { return }
 
@@ -522,6 +530,44 @@ final class GroupChatService: ObservableObject {
 
         let request = UNNotificationRequest(identifier: txId, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+    }
+
+    /// The exact rule the notification-service extension applies to a group_message push in a
+    /// mentions-only group (`isMentionsOnlyEnabled` + `mentionsMe` + `isReplyToMe` in
+    /// NotificationService.swift): a message is "personal" when it replies to one of MY
+    /// messages, or when its own text @mentions me in EITHER cross-platform wire form -
+    /// iOS/desktop compose `@{fullKaspaAddress}` (`GroupMentionCodec`), Android composes
+    /// `@{primaryKNSDomain}` - both checked on the reply-unwrapped text so a quoted
+    /// `replyToPreview` that happens to contain my mention doesn't count. The domain form
+    /// reuses the domain-mention rendering feature's own tokenizer (`KaPostsView.mentionDomains`:
+    /// "@" at a word boundary, lowercased, ".kas" suffix optional) against the wallet's
+    /// reverse-resolved primary domain, so detection can never disagree with rendering. No
+    /// wallet loaded = treat as personal (don't suppress), matching the NSE's same
+    /// conservative fallback.
+    private func isPersonalGroupMessage(_ content: String) -> Bool {
+        guard let myAddress = WalletManager.shared.currentWallet?.publicAddress, !myAddress.isEmpty else {
+            return true
+        }
+        if MessageReplyCodec.parse(content)?.replyToSender == myAddress { return true }
+        let ownText = MessageReplyCodec.unwrappedText(content)
+        if GroupMentionCodec.mentions(myAddress, in: ownText) { return true }
+        if let myDomain = KNSService.shared.barePrimaryDomain(for: myAddress) {
+            return KaPostsView.mentionDomains(in: ownText).contains(myDomain)
+        }
+        return false
+    }
+
+    /// The wallet's own outgoing group-message txIds (newest first, bounded). Shared with the
+    /// notification extension (see `SharedDataManager.syncOwnGroupTxIdsForExtension`) so it can
+    /// tell a reaction to MY message - personal, notifies even in a mentions-only group - from a
+    /// reaction to someone else's message, which stays silent there.
+    func ownOutgoingGroupTxIds(limit: Int = 500) -> [String] {
+        groupMessages.values
+            .flatMap { $0 }
+            .filter { $0.isOutgoing && !$0.txId.hasPrefix("pending_") }
+            .sorted { $0.blockTime > $1.blockTime }
+            .prefix(limit)
+            .map { $0.txId }
     }
 
     /// App Group ledger of group txIds the MAIN APP posted a local banner for. Counterpart of the
@@ -588,6 +634,9 @@ final class GroupChatService: ObservableObject {
                 self.loadGroupReactions(for: group.id)
                 await Task.yield()
             }
+            // Every group's history is now in memory - refresh the extension's own-txId list so
+            // reactions to this wallet's messages are recognized as personal in the push path.
+            SharedDataManager.syncOwnGroupTxIdsForExtension()
         }
         updateScanningStateIfNeeded()
         ChatService.shared.scheduleBadgeUpdate()
@@ -1279,6 +1328,9 @@ final class GroupChatService: ObservableObject {
                     blockTime: pendingMessage.blockTime, isOutgoing: true, deliveryStatus: .sent
                 )
             }
+            // The message just got its real txId - share it with the notification extension so a
+            // reaction to it counts as personal under "Only Notify if I'm Mentioned".
+            SharedDataManager.syncOwnGroupTxIdsForExtension()
             replyingTo = nil
         } catch {
             store.markMessageFailed(pendingId: pendingId)
@@ -1353,6 +1405,8 @@ final class GroupChatService: ObservableObject {
                     blockTime: message.blockTime, isOutgoing: true, deliveryStatus: .sent
                 )
             }
+            // Same as sendGroupMessage: the retried message now has a real txId to share.
+            SharedDataManager.syncOwnGroupTxIdsForExtension()
         } catch {
             store.markMessageFailed(pendingId: pendingId)
             if let index = groupMessages[groupId]?.firstIndex(where: { $0.id == message.id }) {
@@ -1867,6 +1921,13 @@ final class GroupChatService: ObservableObject {
                 isOutgoing: senderAddress == WalletManager.shared.currentWallet?.publicAddress, deliveryStatus: .sent
             )
             groupMessages[group.id, default: []].append(message)
+            // Own message echoed back (sent from another device of this wallet, or self-stash
+            // catch-up): keep the extension's own-txId list fresh so reactions to it are
+            // recognized as personal in the push path. Rare (dedup drops re-served own sends
+            // above), so the UserDefaults write doesn't run per catch-up row.
+            if message.isOutgoing {
+                SharedDataManager.syncOwnGroupTxIdsForExtension()
+            }
             // Global notification center: list incoming messages that @mention one of the
             // wallet's own KNS domains (deduped by txId inside the center).
             if !message.isOutgoing {

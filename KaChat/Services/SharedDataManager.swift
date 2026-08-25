@@ -36,6 +36,8 @@ final class SharedDataManager {
         static let incomingNotificationSoundEnabled = "incoming_notification_sound_enabled"
         static let incomingNotificationVibrationEnabled = "incoming_notification_vibration_enabled"
         static let groupMentionsOnlyNotifications = "shared_group_mentions_only"
+        static let groupOwnTxIds = "shared_group_own_txids"
+        static let ownPrimaryKNSDomain = "shared_own_kns_domain"
     }
 
     // MARK: - Contact Sync
@@ -138,6 +140,37 @@ final class SharedDataManager {
         // wallet's own address (already shared separately via `syncWalletAddressForExtension`).
         if let mentionsData = try? JSONEncoder().encode(GroupChatService.shared.groupMentionsOnlyNotifications) {
             sharedDefaults?.set(mentionsData, forKey: Keys.groupMentionsOnlyNotifications)
+        }
+
+        syncOwnGroupTxIdsForExtension()
+        syncOwnKNSDomainForExtension()
+    }
+
+    /// The wallet's own recent outgoing group-message txIds. A group reaction envelope carries
+    /// its target's txId, so with this list the NSE can apply the mentions-only rule's personal
+    /// exception - a reaction to MY message still notifies in a mentions-only group - and word
+    /// the banner "to your message" when it knows the target is mine. Refreshed on every group
+    /// sync, at wallet load (once history is in memory), and when an outgoing send resolves to
+    /// its real txId.
+    @MainActor
+    static func syncOwnGroupTxIdsForExtension() {
+        sharedDefaults?.set(GroupChatService.shared.ownOutgoingGroupTxIds(), forKey: Keys.groupOwnTxIds)
+    }
+
+    /// The wallet's own primary KNS domain (bare, lowercased) for the extension's mentions-only
+    /// gate: Android's composer writes mentions as `@{primaryKNSDomain}` in the wire plaintext
+    /// (not iOS's `@{address}` form), so the NSE must recognize that token too. Refreshed by
+    /// `KNSService.updateCache` whenever the wallet's own KNS info (re)loads. Skips when nothing
+    /// is cached yet - "not loaded" must not erase a previously shared domain - and clears when
+    /// the lookup is loaded but finds no explicit primary.
+    @MainActor
+    static func syncOwnKNSDomainForExtension() {
+        guard let address = WalletManager.shared.currentWallet?.publicAddress,
+              KNSService.shared.domainCache[address] != nil else { return }
+        if let domain = KNSService.shared.barePrimaryDomain(for: address) {
+            sharedDefaults?.set(domain, forKey: Keys.ownPrimaryKNSDomain)
+        } else {
+            sharedDefaults?.removeObject(forKey: Keys.ownPrimaryKNSDomain)
         }
     }
 
