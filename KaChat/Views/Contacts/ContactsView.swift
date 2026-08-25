@@ -997,6 +997,9 @@ struct ProfileView: View {
             .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(glassBackground(cornerRadius: 18))
     }
 
     private func addressRowIconButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
