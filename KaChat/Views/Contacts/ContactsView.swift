@@ -992,6 +992,9 @@ struct ProfileView: View {
                             .lineLimit(1)
                     }
                 }
+                // Fixed width so the Send/Manage buttons land in the same column on both
+                // cards regardless of title and balance text width.
+                .frame(width: 140, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
