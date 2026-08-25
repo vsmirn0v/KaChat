@@ -947,7 +947,9 @@ struct ProfileView: View {
         onSend: @escaping () -> Void,
         @ViewBuilder manageDestination: @escaping () -> Destination
     ) -> some View {
-        HStack(spacing: 14) {
+        // Two buttons instead of three now, so the row centers as one cluster instead of
+        // splitting to the screen edges.
+        HStack(spacing: 24) {
             // The title + balance block IS the copy affordance: tapping it copies the
             // address, replacing the old dedicated Copy button.
             Button {
@@ -983,7 +985,6 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text("Copy \(title) address"))
-            Spacer(minLength: 8)
             addressRowIconButton(icon: "arrow.up.circle.fill", label: "Send") {
                 guard address != nil else { return }
                 onSend()
@@ -995,6 +996,7 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
         }
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private func addressRowIconButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
