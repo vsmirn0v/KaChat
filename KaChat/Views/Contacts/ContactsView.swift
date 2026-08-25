@@ -99,7 +99,9 @@ struct ProfileView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 2)
                 .padding(.bottom, 8)
-                .background(.regularMaterial)
+                // Solid screen background, matching the Chats title band: all black in dark
+                // mode, no gray material blur.
+                .background(Color(UIColor.systemBackground))
             }
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
