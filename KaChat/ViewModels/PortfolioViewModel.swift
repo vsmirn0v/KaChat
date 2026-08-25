@@ -63,6 +63,9 @@ final class PortfolioViewModel: ObservableObject {
     private var priceHistoryEpoch = 0
     private let coinGecko: CoinGeckoService
     private var activeWalletAddress: String?
+    /// The one background price-backfill loop (see `startPriceBackfillIfNeeded`) — nil when
+    /// idle. Cancelled on wallet switch/clear so a pass never writes into the wrong ledger.
+    private var priceBackfillTask: Task<Void, Never>?
 
     /// This wallet's transactions belonging to whichever portfolio is currently active. `transactions`
     /// itself holds every portfolio's rows for the wallet (filtering here is free and avoids a
@@ -167,11 +170,18 @@ final class PortfolioViewModel: ObservableObject {
         let normalizedAddress = normalizeWalletAddress(walletAddress)
         guard activeWalletAddress != normalizedAddress else { return }
         activeWalletAddress = normalizedAddress
+        // A backfill pass in flight belongs to the previous wallet's ledger — stop it before
+        // swapping `transactions` out from under it.
+        priceBackfillTask?.cancel()
+        priceBackfillTask = nil
         guard let normalizedAddress, let defaultPortfolioId = PortfolioManager.shared.portfolios.first?.id else {
             transactions = []
             return
         }
         transactions = PortfolioLedgerStore.load(walletAddress: normalizedAddress, defaultPortfolioId: defaultPortfolioId)
+        // Rows left unpriced by an import the app was killed/backgrounded during (or by an older
+        // build with no backfill at all) resume pricing here.
+        startPriceBackfillIfNeeded()
     }
 
     private func normalizeWalletAddress(_ walletAddress: String?) -> String? {
@@ -570,6 +580,8 @@ final class PortfolioViewModel: ObservableObject {
     /// Permanently deletes this wallet's portfolio ledger, used when a saved account is
     /// removed from the device entirely. Mirrors ColdStorageManager.clearAllLocalData.
     func clearAllLocalData() {
+        priceBackfillTask?.cancel()
+        priceBackfillTask = nil
         PortfolioLedgerStore.save([], walletAddress: activeWalletAddress)
         transactions = []
     }
@@ -768,8 +780,75 @@ final class PortfolioViewModel: ObservableObject {
         if case .success(let importResult) = result {
             transactions.append(contentsOf: importResult.imported)
             persist()
+            // Rows the synchronous batched pricing couldn't cover land immediately with the
+            // right balance and a "price loading" note — the backfill fills their prices in
+            // behind, so the import never blocks (or fails) on CoinGecko's rate limit.
+            startPriceBackfillIfNeeded()
         }
         return result
+    }
+
+    // MARK: - Background price backfill
+
+    private var hasPendingPriceRows: Bool {
+        transactions.contains { PortfolioAddressImporter.isPricePending($0.notes) && $0.sourceTxId != nil }
+    }
+
+    /// Prices auto-imported rows the import itself couldn't price (batch range call failed, or
+    /// the day is older than CoinGecko's keyless 365-day window). Runs a few passes on a growing
+    /// backoff — each pass retries the batched range call first (cheap: cache + at most one
+    /// request) and then walks the leftover days through the paced per-day fallback, saving
+    /// every price the moment it lands so rows fill in incrementally rather than all-or-nothing.
+    /// One loop at a time; re-triggering while it runs is a no-op (the running loop picks up any
+    /// newly imported rows on its next pass).
+    func startPriceBackfillIfNeeded() {
+        guard priceBackfillTask == nil, hasPendingPriceRows else { return }
+        let wallet = activeWalletAddress
+        priceBackfillTask = Task { [weak self] in
+            for delaySeconds in [0.0, 30.0, 120.0, 300.0] {
+                if delaySeconds > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                }
+                guard let self, !Task.isCancelled, self.activeWalletAddress == wallet,
+                      self.hasPendingPriceRows else { break }
+                await self.runPriceBackfillPass(wallet: wallet)
+            }
+            // A cancelled task must not clear the slot — wallet switch/clear already reset it,
+            // possibly to a NEW task this stale one would otherwise clobber.
+            guard let self, !Task.isCancelled else { return }
+            self.priceBackfillTask = nil
+        }
+    }
+
+    private func runPriceBackfillPass(wallet: String?) async {
+        let currency = currentCurrency
+        let pending = transactions.filter { PortfolioAddressImporter.isPricePending($0.notes) && $0.sourceTxId != nil }
+        guard !pending.isEmpty else { return }
+        let days = Array(Set(pending.map { PortfolioAddressImporter.utcDay(for: $0.timestamp) }))
+
+        var prices = await PortfolioAddressImporter.resolveDailyPrices(for: days, currency: currency)
+        // Days the batched range couldn't cover: paced per-day fallback, newest first, capped
+        // per pass so one pass stays bounded (~1 minute) — the rest wait for the next pass.
+        let missing = days.sorted(by: >).filter { prices[$0] == nil }
+        for day in missing.prefix(30) {
+            guard !Task.isCancelled, activeWalletAddress == wallet else { break }
+            if let price = await PortfolioAddressImporter.resolveDailyPriceSingle(day: day, currency: currency) {
+                prices[day] = price
+            }
+            try? await Task.sleep(nanoseconds: PortfolioAddressImporter.priceRequestSpacingNanoseconds)
+        }
+
+        guard !prices.isEmpty, !Task.isCancelled, activeWalletAddress == wallet else { return }
+        var changed = false
+        for index in transactions.indices {
+            let tx = transactions[index]
+            guard PortfolioAddressImporter.isPricePending(tx.notes), tx.sourceTxId != nil,
+                  let price = prices[PortfolioAddressImporter.utcDay(for: tx.timestamp)] else { continue }
+            transactions[index].fiatValue = tx.amountKas * price
+            transactions[index].notes = nil
+            changed = true
+        }
+        if changed { persist() }
     }
 
     /// Splits on commas outside double quotes, unescapes "" back to " within a quoted field.

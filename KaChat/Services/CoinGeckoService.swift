@@ -122,6 +122,10 @@ final class CoinGeckoService: Sendable {
     /// CoinGecko simply has no data for that date, so callers (see `PortfolioAddressImporter`)
     /// must treat this the same as any other "couldn't price this" case rather than assuming
     /// nil only means a network error.
+    ///
+    /// Same 429/5xx retry as `getPriceHistory`: the keyless tier throttles bursts, and this
+    /// endpoint is the per-day fallback the portfolio price backfill leans on — one Retry-After-
+    /// honoring retry (capped at 10s) turns a throttle window into a delay instead of a miss.
     func getHistoricalPrice(date: Date, currency: AppCurrency) async -> Double? {
         guard var components = URLComponents(string: baseURL + "/api/v3/coins/kaspa/history") else { return nil }
         components.queryItems = [
@@ -130,13 +134,22 @@ final class CoinGeckoService: Sendable {
         ]
         guard let url = components.url else { return nil }
 
-        do {
-            let (data, response) = try await session.data(from: url)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            let decoded = try JSONDecoder().decode(HistoryResponse.self, from: data)
-            return decoded.marketData?.currentPrice?[currency.rawValue]
-        } catch {
-            return nil
+        for attempt in 0..<2 {
+            do {
+                let (data, response) = try await session.data(from: url)
+                guard let http = response as? HTTPURLResponse else { return nil }
+                if http.statusCode == 200 {
+                    let decoded = try JSONDecoder().decode(HistoryResponse.self, from: data)
+                    return decoded.marketData?.currentPrice?[currency.rawValue]
+                }
+                guard attempt == 0, http.statusCode == 429 || http.statusCode >= 500 else { return nil }
+                let retryAfter = min(Double(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 2, 10)
+                try await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
+            } catch {
+                // Includes Task cancellation during the retry sleep — bail out quietly.
+                return nil
+            }
         }
+        return nil
     }
 }
