@@ -198,6 +198,40 @@ plus a 60s fallback poll when the subscription is down and push is off. All path
 
 There is no per-contact "disable realtime" flag or spam detector on any platform.
 
+## Encrypted Backup Envelope (v1)
+
+Cloud copies of the chat archive (the shared Nextcloud `kachat-backup.json` and Android's
+per-account Google Drive files) are encrypted at rest. iCloud is unaffected (CloudKit already
+encrypts server-side).
+
+**Envelope** (the file's entire content):
+
+```json
+{
+  "kachatEncryptedBackup": 1,
+  "cipher": "aes-256-gcm",
+  "nonce": "<base64, 12 random bytes, fresh per write>",
+  "ciphertext": "<base64, AES-256-GCM ciphertext with the 16-byte tag appended>",
+  "walletHint": "<first 8 bytes of SHA-256(walletAddress), hex>"
+}
+```
+
+**Key derivation** (identical on every platform):
+`key = SHA-256( identity_private_key_bytes || UTF8("kachat-backup-v1") )` where
+`identity_private_key_bytes` is the raw 32-byte private key of the chatting/identity address
+(m/44'/111111'/0'/0/0). Any device holding the seed derives the same key; nothing else can
+read the archive.
+
+**Plaintext** is the existing ChatHistoryArchive JSON, schema unchanged, including
+`desktopState` and any foreign keys.
+
+**Readers**: if the parsed top level has `kachatEncryptedBackup == 1`, decrypt then parse;
+otherwise treat as a legacy plaintext archive and parse as-is. Legacy files stay restorable
+indefinitely; writers ALWAYS encrypt. Merge-on-upload becomes download, decrypt (if
+enveloped), merge, encrypt, upload. `walletHint` lets a device skip a foreign wallet's file
+without decrypting; the decrypted archive's own `walletAddress` is still validated as today.
+A failed decrypt (wrong seed, corrupt file) aborts before any upload, never overwrites.
+
 ## Fresh-Address Payment Pools
 
 Privacy feature: when a user taps Send Kaspa in a 1:1 chat, the payment goes to a **fresh
