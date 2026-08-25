@@ -76,7 +76,32 @@ actor NodeRegistry {
         do {
             let loaded = try store.loadAll()
             records = Dictionary(uniqueKeysWithValues: loaded.map { ($0.endpoint.key, $0) })
-            AppLog.log("[NodeRegistry] Loaded %d node records", records.count)
+
+            // Quarantine and circuit-breaker verdicts are in-session protection, not a
+            // permanent blacklist: persisted across launches they can depopulate the boot race
+            // (quickBoot selects by state, and a prior session's failure bursts can leave most
+            // records .quarantined/.suspect for up to an hour of wall-clock time). The runtime
+            // epoch-change reset clears the same fields, but on a cold launch it races
+            // quickBoot's candidate selection nondeterministically - so clear them here,
+            // deterministically, before anything selects. updateState() then lifts the records
+            // back into .candidate/.verified so every persisted node is raceable at boot.
+            var sanitized = 0
+            for (key, record) in records {
+                var fresh = record
+                let wasBlocked = fresh.health.quarantineUntil != nil
+                    || fresh.health.circuitBreakerOpenUntil != nil
+                    || fresh.health.consecutiveFailures > 0
+                fresh.health.quarantineUntil = nil
+                fresh.health.circuitBreakerOpenUntil = nil
+                fresh.health.circuitBreakerFailures = 0
+                fresh.health.consecutiveFailures = 0
+                fresh.updateState()
+                records[key] = fresh
+                if wasBlocked { sanitized += 1 }
+            }
+
+            AppLog.log("[NodeRegistry] Loaded %d node records (%d cleared of stale quarantine/failure state)",
+                  records.count, sanitized)
         } catch {
             AppLog.log("[NodeRegistry] Failed to load records: %@", error.localizedDescription)
         }
@@ -198,7 +223,15 @@ actor NodeRegistry {
         UserDefaults.standard.removeObject(forKey: Self.prePinStashKey)
         var restored = 0
         for record in stashed where records[record.endpoint.key] == nil {
-            records[record.endpoint.key] = record
+            // Same sanitize as load(): quarantine/circuit verdicts from the stash era are not
+            // evidence about the present, and would depopulate the instant-switch race.
+            var fresh = record
+            fresh.health.quarantineUntil = nil
+            fresh.health.circuitBreakerOpenUntil = nil
+            fresh.health.circuitBreakerFailures = 0
+            fresh.health.consecutiveFailures = 0
+            fresh.updateState()
+            records[fresh.endpoint.key] = fresh
             restored += 1
         }
         return restored

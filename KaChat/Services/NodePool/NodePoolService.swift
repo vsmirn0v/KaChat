@@ -1394,6 +1394,15 @@ extension NodePoolService {
                     .prefix(6)
                     .map(\.endpoint)
                 await profiler?.bootstrapProbe(Array(dialFirst))
+
+                // A stash from the era when pinning wiped the registry can be tiny or entirely
+                // stale - if racing it produced no active node, fall through to the full
+                // quickBoot (persisted -> DNS seeds + bundled bootstrap IPs) instead of leaving
+                // the user to wait for the background loops.
+                if (await registry.stateCounts()[.active] ?? 0) == 0 {
+                    AppLog.log("[NodePool] Restored known-good nodes all failed - falling back to quickBoot")
+                    await profiler?.quickBoot()
+                }
             }
             await updatePoolStats()
         } else if let endpoint = Endpoint(url: trimmed) {

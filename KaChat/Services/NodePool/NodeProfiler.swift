@@ -927,9 +927,15 @@ actor NodeProfiler {
 
     /// Probe a single node. Returns true when the node answered GetInfo (the probe recorded a
     /// success), false on failure or when candidate screening skipped the probe entirely.
+    ///
+    /// `skipCandidateScreening` is for the boot race (bootstrapProbe): the candidate TCP
+    /// pre-screen (up to 2 attempts x 1-5s each) and geo enrichment (remote HTTP lookups, up to
+    /// several seconds on a fresh session) run SERIALLY before the actual dial, and both are
+    /// redundant there - the race is about to do a real connect with its own 3s timeout anyway.
+    /// Background probe-loop probing keeps them.
     @discardableResult
-    private func probeNode(_ endpoint: Endpoint) async -> Bool {
-        if let record = await registry.get(endpoint) {
+    private func probeNode(_ endpoint: Endpoint, skipCandidateScreening: Bool = false) async -> Bool {
+        if !skipCandidateScreening, let record = await registry.get(endpoint) {
             if await shouldProbeCandidate(record) == false {
                 return false
             }
@@ -1057,6 +1063,10 @@ actor NodeProfiler {
             return true
 
         } catch {
+            // A probe abandoned because the boot race already found its winner (bootstrapProbe
+            // cancels the rest of the wave) says nothing about the node - don't smear its health.
+            if Task.isCancelled { return false }
+
             // Record failure
             let isTimeout = error.localizedDescription.contains("timeout")
             await registry.recordResult(
@@ -1081,43 +1091,75 @@ actor NodeProfiler {
     /// probe loop's next pass (10-60s away). Used everywhere time-to-connected matters: cold
     /// start with an empty pool, and the pinned-node -> Automatic Scan switch.
     ///
-    /// Endpoints are raced in chunks (bounded parallelism); with `stopAtFirstActive` the walk
-    /// stops as soon as any node has been promoted to `.active`, leaving the rest to the normal
-    /// background loops. Returns the number of endpoints that answered.
+    /// The whole set races as ONE wide wave (sliding window, results drained as they complete) -
+    /// serial chunks were the field-reported stall: with roughly 1 in 6 public candidates alive,
+    /// chunks of 8 could burn several full chunk timeouts before a live node's chunk even
+    /// started. A dead candidate costs one 3s connect timeout and ~20 sockets for 3s is cheap,
+    /// so width wins. With `stopAtFirstActive` the race is cancelled the moment any node is
+    /// promoted to `.active` (cancelled probes don't smear health stats), so the winner starts
+    /// serving without waiting for stragglers. Returns the number of endpoints that answered.
     @discardableResult
     func bootstrapProbe(_ endpoints: [Endpoint], stopAtFirstActive: Bool = true) async -> Int {
         guard !endpoints.isEmpty else { return 0 }
-        let parallelism = max(1, min(await getMaxConcurrentProbes(), 8))
+        let raceStart = Date()
+        // Cap the wave; keep it wide even on poor networks - the boot race IS the connection.
+        let capped = Array(endpoints.prefix(24))
+        let parallelism = min(capped.count, max(12, await getMaxConcurrentProbes()))
         var responders = 0
+        var firstSuccessSecs: Double?
+        var activeSecs: Double?
 
-        for chunkStart in stride(from: 0, to: endpoints.count, by: parallelism) {
-            guard !Task.isCancelled else { break }
-            let chunkEnd = min(chunkStart + parallelism, endpoints.count)
-            let chunk = Array(endpoints[chunkStart..<chunkEnd])
-
-            let chunkResponders = await withTaskGroup(of: Bool.self, returning: Int.self) { group in
-                for endpoint in chunk {
-                    group.addTask {
-                        guard await self.probeNode(endpoint) else { return false }
-                        // Second probe: promotes a fresh responder to .active right now.
-                        _ = await self.probeNode(endpoint)
-                        return true
-                    }
+        await withTaskGroup(of: Bool.self) { group in
+            var iterator = capped.makeIterator()
+            var inFlight = 0
+            while inFlight < parallelism, let next = iterator.next() {
+                group.addTask {
+                    guard await self.probeNode(next, skipCandidateScreening: true) else { return false }
+                    // Second probe pipelines immediately on the live connection (getInfo +
+                    // dagInfo only; the peer-info check already ran this epoch): promotes a
+                    // fresh responder to .active right now.
+                    _ = await self.probeNode(next, skipCandidateScreening: true)
+                    return true
                 }
-                var count = 0
-                for await ok in group where ok { count += 1 }
-                return count
+                inFlight += 1
             }
 
-            responders += chunkResponders
-            if chunkResponders > 0 {
-                await rebalanceActivePool(reason: "bootstrap-probe")
-                if stopAtFirstActive {
-                    let activeCount = await registry.stateCounts()[.active] ?? 0
-                    if activeCount > 0 { break }
+            while let ok = await group.next() {
+                inFlight -= 1
+                if ok {
+                    responders += 1
+                    if firstSuccessSecs == nil {
+                        firstSuccessSecs = Date().timeIntervalSince(raceStart)
+                    }
+                    await rebalanceActivePool(reason: "bootstrap-probe")
+                    if stopAtFirstActive {
+                        let activeCount = await registry.stateCounts()[.active] ?? 0
+                        if activeCount > 0 {
+                            activeSecs = Date().timeIntervalSince(raceStart)
+                            group.cancelAll()
+                            break
+                        }
+                    }
+                }
+                if let next = iterator.next() {
+                    group.addTask {
+                        guard await self.probeNode(next, skipCandidateScreening: true) else { return false }
+                        _ = await self.probeNode(next, skipCandidateScreening: true)
+                        return true
+                    }
+                    inFlight += 1
                 }
             }
         }
+
+        // One summary line per race so a slow boot is diagnosable from the log alone.
+        AppLog.log("[NodeProfiler] Boot race: %d candidates, window %d, first success %@, active %@, %d responders, %.1fs total",
+              capped.count,
+              parallelism,
+              firstSuccessSecs.map { String(format: "%.1fs", $0) } ?? "never",
+              activeSecs.map { String(format: "%.1fs", $0) } ?? "not reached",
+              responders,
+              Date().timeIntervalSince(raceStart))
 
         if responders > 0 {
             await registry.persistNow()
@@ -2211,14 +2253,15 @@ actor NodeProfiler {
             let stillActive = await registry.stateCounts()[.active] ?? 0
             if responders > 0 && stillActive > 0 {
                 AppLog.log("[NodeProfiler] Quick boot: persisted node verified, starting peer discovery")
-                if let node = await registry.records(inState: .active).first {
-                    _ = await discoverFromNode(node.endpoint)
-                }
-                await rebalanceActivePool(reason: "quick-boot-persisted-active")
-
-                // Start DNS refresh loop in background for pool expansion
+                // Discovery expands the pool in the background; the verified node serves now.
                 Task { [weak self] in
-                    await self?.startDNSRefreshLoop()
+                    guard let self else { return }
+                    if let node = await self.registry.records(inState: .active).first {
+                        _ = await self.discoverFromNode(node.endpoint)
+                        await self.rebalanceActivePool(reason: "quick-boot-persisted-active")
+                    }
+                    // Start DNS refresh loop in background for pool expansion
+                    await self.startDNSRefreshLoop()
                 }
                 return
             }
@@ -2235,13 +2278,14 @@ actor NodeProfiler {
             let activeCount = await registry.stateCounts()[.active] ?? 0
             if responders > 0 && activeCount > 0 {
                 AppLog.log("[NodeProfiler] Quick boot: verified node promoted to active")
-                if let node = await registry.records(inState: .active).first {
-                    _ = await discoverFromNode(node.endpoint)
-                }
-                await rebalanceActivePool(reason: "quick-boot-persisted-verified")
-
+                // Discovery expands the pool in the background; the promoted node serves now.
                 Task { [weak self] in
-                    await self?.startDNSRefreshLoop()
+                    guard let self else { return }
+                    if let node = await self.registry.records(inState: .active).first {
+                        _ = await self.discoverFromNode(node.endpoint)
+                        await self.rebalanceActivePool(reason: "quick-boot-persisted-verified")
+                    }
+                    await self.startDNSRefreshLoop()
                 }
                 return
             }
@@ -2258,43 +2302,59 @@ actor NodeProfiler {
             AppLog.log("[NodeProfiler] DNS resolution complete, continuing in background")
         }
 
-        // Probe resolved seed nodes, return as soon as we have one active
+        // The bundled TCP-verified bootstrap IPs enter the FIRST wave unconditionally, not only
+        // when DNS fails - on a fresh install they are the highest-probability-alive candidates
+        // available, and racing them costs nothing while DNS is still resolving. They join as
+        // ordinary .seed candidates; normal GetInfo/isSynced gating still applies.
+        let bootstrapIPs = networkType == .mainnet ? mainnetBootstrapFallbackIPs : testnetBootstrapFallbackIPs
+        let bootstrapPort = networkType == .mainnet ? 16110 : 16210
+        var bootstrapKeys = Set<String>()
+        for host in bootstrapIPs {
+            let endpoint = Endpoint(host: host, port: bootstrapPort)
+            bootstrapKeys.insert(endpoint.key)
+            if await registry.get(endpoint) == nil {
+                await registry.upsert(endpoint: endpoint, origin: .seed)
+            }
+        }
 
-        // Poll for seeds as they're being resolved
+        // Race seeds as they become available: the first pass goes out immediately with the
+        // bootstrap IPs (bootstrap-first ordering, since they were alive when last verified),
+        // and each later pass races only the seeds DNS has resolved since - instead of the old
+        // single-shot race that ignored any DNS answers arriving after its first batch.
+        var racedKeys = Set<String>()
         var attemptCount = 0
-        while attemptCount < 5 {  // Try for up to 5 seconds
-            let seeds = await registry.records(inState: .candidate)
-                .filter { $0.origin == .seed }
-
-            if !seeds.isEmpty {
-                AppLog.log("[NodeProfiler] Found %d resolved seeds, starting probes", seeds.count)
-
-                // Race the first N resolved seeds in parallel (happy-eyeballs); the double-probe
-                // inside bootstrapProbe promotes the first responder to .active immediately,
-                // instead of leaving every seed one success short of promotion until the probe
-                // loop's next pass (which used to add 10-25s to every cold start).
-                _ = await bootstrapProbe(Array(seeds.prefix(20).map(\.endpoint)))
-                let foundActive = (await registry.stateCounts()[.active] ?? 0) > 0
-                if foundActive {
-                    AppLog.log("[NodeProfiler] Quick boot complete - found active node")
+        while attemptCount < 5 {  // Try for up to ~5 seconds of DNS arrival
+            let unraced = await registry.records(inState: .candidate)
+                .filter { $0.origin == .seed && !racedKeys.contains($0.endpoint.key) }
+                .sorted { lhs, rhs in
+                    let lhsBootstrap = bootstrapKeys.contains(lhs.endpoint.key)
+                    let rhsBootstrap = bootstrapKeys.contains(rhs.endpoint.key)
+                    if lhsBootstrap != rhsBootstrap { return lhsBootstrap }
+                    return lhs.endpoint.key < rhs.endpoint.key
                 }
 
-                // If we found an active node, discover peers immediately
-                if foundActive {
-                    let activeNodes = await registry.records(inState: .active)
-                    if let node = activeNodes.first {
-                        AppLog.log("[NodeProfiler] Quick boot: calling discovery for peer discovery")
-                        _ = await discoverFromNode(node.endpoint)
+            if !unraced.isEmpty {
+                AppLog.log("[NodeProfiler] Quick boot: racing %d seed candidates (pass %d)", unraced.count, attemptCount + 1)
+                let wave = unraced.prefix(24).map(\.endpoint)
+                wave.forEach { racedKeys.insert($0.key) }
+                _ = await bootstrapProbe(Array(wave))
+
+                if (await registry.stateCounts()[.active] ?? 0) > 0 {
+                    AppLog.log("[NodeProfiler] Quick boot complete - found active node")
+                    // Peer discovery expands the pool in the background; the fresh active node
+                    // starts serving (subscription, requests) without waiting on it.
+                    Task { [weak self] in
+                        guard let self else { return }
+                        if let node = await self.registry.records(inState: .active).first {
+                            _ = await self.discoverFromNode(node.endpoint)
+                            await self.rebalanceActivePool(reason: "quick-boot-seed-probes")
+                        }
                     }
-                    await rebalanceActivePool(reason: "quick-boot-seed-probes")
                     return
                 }
-
-                // If we probed seeds, break the retry loop
-                break
             }
 
-            // Wait a bit for DNS resolution
+            // Wait a bit for more DNS resolution
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             attemptCount += 1
         }
