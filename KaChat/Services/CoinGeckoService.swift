@@ -7,7 +7,9 @@ import Foundation
 /// a hard error. Currency is caller-supplied (`AppCurrency`, Settings > Customization > Currency) -
 /// CoinGecko's public API natively supports any of its listed `vs_currency` values, so switching
 /// away from USD needs no change on CoinGecko's side, just passing the selected code through.
-final class CoinGeckoService {
+/// `Sendable` (all stored properties immutable) - PortfolioViewModel hands the instance from
+/// its @MainActor context to a nonisolated fetch+downsample helper running off the main actor.
+final class CoinGeckoService: Sendable {
     static let shared = CoinGeckoService()
 
     private let session: URLSession

@@ -51,7 +51,16 @@ final class PortfolioViewModel: ObservableObject {
     /// refreshPrice() (an explicit "get me current data" action) — selecting a range merely
     /// serves from cache or fetches once per range per session.
     private var priceHistoryCache: [Int: [PricePoint]] = [:]
-    private var priceHistoryTask: Task<Void, Never>?
+    /// One in-flight fetch per range (days). A range switch does NOT cancel the previous
+    /// range's fetch - it completes into its own cache so tapping back is instant, and its
+    /// completion only paints `priceHistory` if its range is still the selected one. Tapping
+    /// a range whose fetch is already in flight is a no-op (dedup), so rapid cycling through
+    /// all five ranges costs at most one request per range instead of a 429-triggering burst.
+    private var priceHistoryTasks: [Int: Task<Void, Never>] = [:]
+    /// Bumped by `cancelPriceHistoryTasks()` (explicit refresh). Each fetch task captures the
+    /// epoch at start and refuses to write results or clean up `priceHistoryTasks` once it's
+    /// stale - same epoch pattern the chat send-menu gesture uses for ownership.
+    private var priceHistoryEpoch = 0
     private let coinGecko: CoinGeckoService
     private var activeWalletAddress: String?
 
@@ -188,9 +197,19 @@ final class PortfolioViewModel: ObservableObject {
             // pull-to-refresh).
             self.publishWidgetSnapshot()
         }
+        cancelPriceHistoryTasks()
         priceHistoryCache.removeAll()
         fetchPriceHistory(days: priceRangeDays, force: true)
         fetchSevenDayPriceHistoryForCards()
+    }
+
+    /// Abandons every in-flight range fetch (explicit-refresh paths only - a mere range
+    /// switch lets fetches complete into their caches instead). Epoch bump + removeAll means
+    /// an abandoned task can neither write results nor evict a successor from the dictionary.
+    private func cancelPriceHistoryTasks() {
+        priceHistoryEpoch += 1
+        for task in priceHistoryTasks.values { task.cancel() }
+        priceHistoryTasks.removeAll()
     }
 
     /// Fetches (or refetches, on a currency change) the fixed 7-day window `sevenDayPriceHistory`
@@ -222,21 +241,27 @@ final class PortfolioViewModel: ObservableObject {
     /// spinner needs to stay up until the data has actually arrived rather than returning the
     /// instant the underlying fire-and-forget Tasks are merely kicked off.
     func refreshPriceAsync() async {
-        priceHistoryTask?.cancel()
+        cancelPriceHistoryTasks()
         priceHistoryCache.removeAll()
         fetchSevenDayPriceHistoryForCards()
         let currency = currentCurrency
+        let coinGecko = self.coinGecko
+        // Capture the range this refresh is fetching - a range tap mid-refresh must not
+        // mis-key the cache write or repaint the new range with the old range's data.
+        let days = priceRangeDays
         async let price = coinGecko.getCurrentPrice(currency: currency)
-        async let history = coinGecko.getPriceHistory(days: priceRangeDays, currency: currency)
+        async let history = Self.fetchHistoryDownsampled(coinGecko, days: days, currency: currency)
         if let result = await price {
             currentPriceUsd = result.price
             priceChange24h = result.change24hPercent
         }
         let result = await history
         if !result.isEmpty {
-            persistHistory(result, days: priceRangeDays, currency: currency)
-            priceHistoryCache[priceRangeDays] = result
-            priceHistory = result
+            persistHistory(result, days: days, currency: currency)
+            priceHistoryCache[days] = result
+            if priceRangeDays == days {
+                priceHistory = result
+            }
         }
         publishWidgetSnapshot()
     }
@@ -323,10 +348,14 @@ final class PortfolioViewModel: ObservableObject {
         }
     }
 
-    /// Switches the price chart's window (1/7/30 days) and refetches history for it if not
-    /// already cached this session.
+    /// Switches the price chart's window (1D/1W/1M/3M/1Y) and paints/refetches history for it.
+    /// Re-tapping the already-selected range retries a range that never managed to load
+    /// (harmless no-op when its data is cached or its fetch is still in flight).
     func setPriceRangeDays(_ days: Int) {
-        guard priceRangeDays != days else { return }
+        guard priceRangeDays != days else {
+            if priceHistoryCache[days] == nil { fetchPriceHistory(days: days) }
+            return
+        }
         priceRangeDays = days
         fetchPriceHistory(days: days)
     }
@@ -374,46 +403,111 @@ final class PortfolioViewModel: ObservableObject {
         UserDefaults.standard.set(data, forKey: historyCacheKey(days: days, currency: currency))
     }
 
-    /// Serves `days` from the session cache, then the persisted 10-minute cache, before hitting
-    /// the network (rapid range-cycle taps would otherwise fire overlapping requests — any
-    /// still-in-flight fetch is cancelled first). `force` (explicit refresh) skips both caches.
-    /// An empty network result gets one paced retry, then falls back to the persisted copy for
-    /// this range even if stale; only if there's nothing at all is `priceHistory` left alone,
-    /// preserving whatever chart is on screen instead of blanking it (the chart card only
-    /// renders when priceHistory.count >= 2).
+    /// Stale-while-refresh per range. On every tap the best data already on hand for the
+    /// TAPPED range paints synchronously - session cache first, else the persisted copy even
+    /// when older than the 10-minute TTL (a 3-month curve from an hour ago is still the right
+    /// shape) - so switching ranges never blocks on the network. Only when this range has no
+    /// data at all is `priceHistory` cleared, showing the chart card's spinner instead of the
+    /// previous range's curve mislabeled as the new one. A refresh then runs behind unless the
+    /// persisted copy is TTL-fresh.
+    ///
+    /// The refresh task is per-range and deduped: one in flight per range, never cancelled by
+    /// a range switch (it completes into its own cache; see `priceHistoryTasks`). While its
+    /// range stays selected it keeps retrying on a growing backoff, so a range parked by
+    /// CoinGecko's keyless-tier 429 throttling loads by itself once the window clears rather
+    /// than never. Completion repaints only if the range is still the one on screen.
+    /// `force` (explicit refresh) skips the fresh-cache early-outs but still paints stale
+    /// data first.
     private func fetchPriceHistory(days: Int, force: Bool = false) {
-        if !force, let cached = priceHistoryCache[days] {
-            priceHistory = cached
-            return
-        }
         let currency = currentCurrency
-        if !force, let persisted = readPersistedHistory(days: days, currency: currency),
-           Date().timeIntervalSince(persisted.fetchedAt) < Self.historyCacheTTL {
-            priceHistoryCache[days] = persisted.points
-            priceHistory = persisted.points
-            return
-        }
-        priceHistoryTask?.cancel()
-        priceHistoryTask = Task { [weak self] in
-            guard let self else { return }
-            var result = await self.coinGecko.getPriceHistory(days: days, currency: currency)
-            if result.isEmpty {
-                // One paced retry — the keyless tier's throttle window usually clears quickly.
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                guard !Task.isCancelled else { return }
-                result = await self.coinGecko.getPriceHistory(days: days, currency: currency)
+        if let cached = priceHistoryCache[days] {
+            priceHistory = cached
+            if !force { return }
+        } else if let persisted = readPersistedHistory(days: days, currency: currency) {
+            let points = Self.downsample(persisted.points)
+            priceHistory = points
+            if !force, Date().timeIntervalSince(persisted.fetchedAt) < Self.historyCacheTTL {
+                priceHistoryCache[days] = points
+                return
             }
-            guard !Task.isCancelled else { return }
+        } else if priceRangeDays == days {
+            priceHistory = []
+        }
+
+        guard priceHistoryTasks[days] == nil else { return }
+        let epoch = priceHistoryEpoch
+        priceHistoryTasks[days] = Task { [weak self] in
+            guard let self else { return }
+            let coinGecko = self.coinGecko
+            var result: [PricePoint] = []
+            // Growing pauses between attempts: CoinGecko's keyless tier 429s bursts for a
+            // stretch, so a parked range needs patient retries, not a single quick one. Only
+            // the range the user is still looking at earns the later retries; a range tapped
+            // past gets one shot (into its cache) and stops.
+            for delaySeconds in [0.0, 4.0, 12.0, 30.0] {
+                if delaySeconds > 0 {
+                    guard self.priceRangeDays == days else { break }
+                    try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                }
+                guard !Task.isCancelled, self.priceHistoryEpoch == epoch else { return }
+                result = await Self.fetchHistoryDownsampled(coinGecko, days: days, currency: currency)
+                if !result.isEmpty { break }
+            }
+            guard !Task.isCancelled, self.priceHistoryEpoch == epoch else { return }
             if !result.isEmpty {
                 self.persistHistory(result, days: days, currency: currency)
-            } else if let persisted = self.readPersistedHistory(days: days, currency: currency) {
-                result = persisted.points
-            }
-            if !result.isEmpty {
                 self.priceHistoryCache[days] = result
-                self.priceHistory = result
+                if self.priceRangeDays == days {
+                    self.priceHistory = result
+                }
             }
+            self.priceHistoryTasks[days] = nil
         }
+    }
+
+    /// Fetch + decode + downsample entirely off the main actor (nonisolated async runs on the
+    /// global executor) - the 1M/3M ranges arrive at hourly granularity (~720/~2160 points)
+    /// and must not be crunched on the UI thread mid range-switch.
+    private nonisolated static func fetchHistoryDownsampled(
+        _ coinGecko: CoinGeckoService,
+        days: Int,
+        currency: AppCurrency
+    ) async -> [PricePoint] {
+        downsample(await coinGecko.getPriceHistory(days: days, currency: currency))
+    }
+
+    /// Caps a series at ~`maxCount` points for the chart, keeping each time-bucket's min AND
+    /// max samples (in order) so spikes and dips survive. Without this, the 3M range's ~2160
+    /// hourly points become ~4300 catmullRom Swift Charts marks and the switch visibly hitches.
+    /// 288 keeps the 1D range (5-minutely, 288 points) untouched.
+    nonisolated static func downsample(_ points: [PricePoint], maxCount: Int = 288) -> [PricePoint] {
+        guard maxCount >= 4, points.count > maxCount else { return points }
+        let bucketCount = maxCount / 2
+        let bucketSize = Double(points.count) / Double(bucketCount)
+        var result: [PricePoint] = []
+        result.reserveCapacity(maxCount + 2)
+        for bucket in 0..<bucketCount {
+            let start = Int(Double(bucket) * bucketSize)
+            let end = min(Int(Double(bucket + 1) * bucketSize), points.count)
+            guard start < end else { continue }
+            var minPoint = points[start]
+            var maxPoint = points[start]
+            for point in points[start..<end] {
+                if point.value < minPoint.value { minPoint = point }
+                if point.value > maxPoint.value { maxPoint = point }
+            }
+            let pair = minPoint.timestamp <= maxPoint.timestamp ? (minPoint, maxPoint) : (maxPoint, minPoint)
+            result.append(pair.0)
+            if pair.1.timestamp != pair.0.timestamp { result.append(pair.1) }
+        }
+        // Preserve the true endpoints so the plotted latest price matches the header readout.
+        if let first = points.first, result.first != first, result.first?.timestamp != first.timestamp {
+            result.insert(first, at: 0)
+        }
+        if let last = points.last, result.last != last, result.last?.timestamp != last.timestamp {
+            result.append(last)
+        }
+        return result
     }
 
     // MARK: - Ledger CRUD
