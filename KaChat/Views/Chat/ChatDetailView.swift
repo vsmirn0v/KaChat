@@ -99,6 +99,25 @@ struct ChatDetailView: View {
     @State private var scrollInteractionResetWorkItem: DispatchWorkItem?
     @State private var lastAutoBottomScrollAt: Date = .distantPast
     @State private var newMessagesWhileScrolledUp = 0
+    /// While true the ScrollView's default anchor is re-armed to `.bottom` so a history prepend
+    /// (window growth at the head) keeps the viewport pinned through the reflow; the rest of the
+    /// time the anchor sits at the inert `.top`, so tail appends from the 2s open-chat poll and
+    /// the live mirror can never shift a reader who is scrolled up. Mirrors
+    /// `GroupChatDetailView.isGrowingHistoryWindow`.
+    @State private var isGrowingHistoryWindow = false
+    @State private var historyGrowthAnchorReleaseWorkItem: DispatchWorkItem?
+    /// The first message currently rendered by the suffix window. `onChange(of: messages.count)`
+    /// re-derives `loadedMessageCount` from this id, so the rendered window's START stays pinned
+    /// to the same message across data-model changes: new tail messages extend the window
+    /// downward (below the viewport, no reflow above), while background prefetch of OLDER pages
+    /// stays hidden backlog instead of silently prepending rendered rows.
+    @State private var renderedWindowStartMessageId: UUID?
+    /// txId (or id fallback) of the newest message the tail-change handler has already acted on.
+    /// Snapshot rebuilds can swap the tail's in-memory identity (txId dedup replacing the
+    /// optimistic local copy with the store copy) without any new message arriving; keying on
+    /// txId keeps replacements from scrolling or bumping the badge.
+    @State private var lastSeenTailMessageKey: String?
+    @State private var lastHandledTailCount = 0
     @State private var hasLoadedCurrentTopPage = false
     @State private var isPrefetchingOlderMessages = false
     @State private var lastOlderPrefetchAt: Date = .distantPast
@@ -482,7 +501,15 @@ struct ChatDetailView: View {
                         .padding(.horizontal)
                         .padding(.top)
                     }
-                    .defaultScrollAnchorCompat(initialScrollAnchorMessageId == nil ? .bottom : .top)
+                    // .bottom ONLY while the initial viewport is being positioned or a history
+                    // prepend is reflowing - the rest of the time the anchor sits at the inert
+                    // .top. A permanently-armed .bottom default anchor (the previous state; the
+                    // condition was always .bottom in practice) makes iOS 17+ re-anchor the
+                    // viewport bottom-relative on EVERY content size change, so each message the
+                    // 2s open-chat poll or live mirror appended shifted a scrolled-up reader's
+                    // rows by the new row's height - the up/down yanking while reading history.
+                    // Mirrors GroupChatDetailView's identical conditional anchor.
+                    .defaultScrollAnchorCompat(!initialViewportPositioned || isGrowingHistoryWindow ? .bottom : .top)
                     .opacity(initialViewportPositioned ? 1 : 0)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         // Hosting the compose bar as a real `safeAreaInset` (rather than a
@@ -585,20 +612,38 @@ struct ChatDetailView: View {
                         positionInitialViewport(using: proxy)
                     }
                     .onChange(of: messages.last?.id) { _ in
+                        let tail = messages.last
+                        let tailKey = tail.map { $0.txId.isEmpty ? $0.id.uuidString : $0.txId }
+                        let newCount = messages.count
+                        let grew = newCount > lastHandledTailCount
+                        lastHandledTailCount = newCount
                         guard didInitialScroll else {
+                            // First population: positionInitialViewport already jumps to the
+                            // bottom instantly (unanimated), so only seed the trackers here.
                             didInitialScroll = true
+                            lastSeenTailMessageKey = tailKey
                             return
                         }
-                        if messages.last?.isOutgoing == true {
-                            // A message *you* just sent should always land smoothly at the
-                            // bottom, unconditionally - matching group chat/broadcast rooms'
-                            // identical unconditional scroll-on-new-message. The
-                            // isBottomAnchorVisible/isUserInteractingWithScroll/throttle gates
-                            // below exist to avoid yanking your position for an *incoming*
-                            // message while you're reading up top; they don't apply to your own.
+                        // Keyed on txId (not in-memory id): snapshot rebuilds can swap the tail's
+                        // identity when txId dedup replaces the optimistic local copy with the
+                        // store/indexer copy, and that replacement must never scroll or bump the
+                        // badge. Requiring growth means deletes never scroll either.
+                        let isNewTailMessage = grew && tailKey != lastSeenTailMessageKey
+                        lastSeenTailMessageKey = tailKey
+                        guard isNewTailMessage, let tail else { return }
+                        if tail.isOutgoing && tail.txId.hasPrefix("pending_") {
+                            // A send initiated on THIS device: every local send path (message,
+                            // audio, payment, handshake) inserts its optimistic row with a
+                            // provisional "pending_" txId before broadcast, and provisional ids
+                            // never travel through sync or the shared archive (phantom scrub) -
+                            // so this is exactly "you just hit send here", and sending implies
+                            // returning to now. An own message mirrored in from another device
+                            // arrives under its real txId and falls through to the same
+                            // near-bottom gate as incoming messages, so it never yanks the
+                            // viewport while you're reading history.
                             lastAutoBottomScrollAt = Date()
                             scrollToBottom(using: proxy, animated: true)
-                        } else if isBottomAnchorVisible && !isUserInteractingWithScroll {
+                        } else if shouldAutoScrollForArrival() {
                             let now = Date()
                             if now.timeIntervalSince(lastAutoBottomScrollAt) > 0.12 {
                                 lastAutoBottomScrollAt = now
@@ -607,7 +652,6 @@ struct ChatDetailView: View {
                         } else {
                             newMessagesWhileScrolledUp += 1
                         }
-                        didInitialScroll = true
                     }
                     .onChange(of: isBottomAnchorVisible) { visible in
                         if visible {
@@ -827,6 +871,11 @@ struct ChatDetailView: View {
                 initialViewportPositioned = false
                 initialScrollAnchorMessageId = nil
                 pendingPrependViewportSnapshot = nil
+                historyGrowthAnchorReleaseWorkItem?.cancel()
+                isGrowingHistoryWindow = false
+                renderedWindowStartMessageId = nil
+                lastSeenTailMessageKey = nil
+                lastHandledTailCount = 0
                 rebuildMessageSnapshotIfNeeded(force: true)
                 configureInitialMessageWindow()
                 initialLayoutReady = true
@@ -983,6 +1032,11 @@ struct ChatDetailView: View {
             initialScrollAnchorMessageId = nil
             lastMessageSnapshotDigest = nil
             totalStoredMessages = 0
+            historyGrowthAnchorReleaseWorkItem?.cancel()
+            isGrowingHistoryWindow = false
+            renderedWindowStartMessageId = nil
+            lastSeenTailMessageKey = nil
+            lastHandledTailCount = 0
             rebuildMessageSnapshotIfNeeded(force: true)
             configureInitialMessageWindow()
             previousMessagesCount = messages.count
@@ -1002,19 +1056,42 @@ struct ChatDetailView: View {
         .onChange(of: messages.count) { newCount in
             let oldCount = previousMessagesCount
             previousMessagesCount = newCount
+            // A delete shrinks the array without moving the tail id; clamp the tail-change
+            // handler's growth tracker so the NEXT genuine arrival still registers as growth.
+            if newCount < lastHandledTailCount {
+                lastHandledTailCount = newCount
+            }
             totalStoredMessages = max(totalStoredMessages, messages.count)
-            if initialViewportPositioned,
-               newCount > oldCount,
-               !isBottomAnchorVisible {
-                loadedMessageCount = min(
-                    max(loadedMessageCount + (newCount - oldCount), messagePageSize),
-                    max(newCount, messagePageSize)
-                )
+            if initialViewportPositioned, newCount > oldCount {
+                // Pin the rendered window's START to the same message across data-model growth.
+                // The previous grow-by-delta treated EVERY count increase as tail growth, so a
+                // background prefetch of OLDER history (which is supposed to stay hidden
+                // backlog) silently prepended its whole page into the rendered window with no
+                // viewport restore - and, because the backlog then never accumulated, prefetch
+                // kept fetching page after page while the user was scrolled up, reflowing the
+                // rows they were reading in a loop. Re-deriving loadedMessageCount from the
+                // pinned start id handles both directions correctly: tail arrivals extend the
+                // window downward (newest message always rendered), head prepends stay hidden.
+                if let startId = renderedWindowStartMessageId,
+                   let startIndex = messages.firstIndex(where: { $0.id == startId }) {
+                    loadedMessageCount = min(
+                        max(messages.count - startIndex, messagePageSize),
+                        messages.count
+                    )
+                } else {
+                    // Start id unknown or replaced by dedup - fall back to grow-by-delta so the
+                    // tail stays covered, then re-pin below.
+                    loadedMessageCount = min(
+                        max(loadedMessageCount + (newCount - oldCount), messagePageSize),
+                        max(newCount, messagePageSize)
+                    )
+                }
             }
             if loadedMessageCount == 0 {
                 configureInitialMessageWindow()
             } else {
                 loadedMessageCount = min(max(loadedMessageCount, messagePageSize), max(messages.count, messagePageSize))
+                rememberRenderedWindowStart()
                 refreshStoredMessageCountAsync()
             }
         }
@@ -1050,6 +1127,7 @@ struct ChatDetailView: View {
         messagePageSize = configuredMessagePageSize()
         let targetWindow = max(initialMessageWindowSize(), messagePageSize)
         loadedMessageCount = min(messages.count, targetWindow)
+        rememberRenderedWindowStart()
         initialScrollAnchorMessageId = nil
         totalStoredMessages = max(totalStoredMessages, messages.count)
         refreshStoredMessageCountAsync()
@@ -1112,6 +1190,63 @@ struct ChatDetailView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: workItem)
     }
 
+    /// Re-pins `renderedWindowStartMessageId` to the first message of the current suffix window.
+    /// Derived from `messages` directly (not `displayedMessages`) so it also works before
+    /// `initialLayoutReady`.
+    private func rememberRenderedWindowStart() {
+        guard loadedMessageCount > 0, !messages.isEmpty else {
+            renderedWindowStartMessageId = nil
+            return
+        }
+        let startIndex = max(0, messages.count - loadedMessageCount)
+        renderedWindowStartMessageId = messages[startIndex].id
+    }
+
+    /// Re-arms the `.bottom` default anchor for the duration of a history-window growth so the
+    /// prepend reflow keeps the viewport pinned (SwiftUI holds the bottom-relative offset), then
+    /// releases back to the inert `.top`. The release is a cancellable work item so back-to-back
+    /// pagination bursts keep the anchor armed continuously instead of dropping it mid-growth.
+    private func armHistoryGrowthAnchor() {
+        historyGrowthAnchorReleaseWorkItem?.cancel()
+        isGrowingHistoryWindow = true
+        let workItem = DispatchWorkItem {
+            isGrowingHistoryWindow = false
+        }
+        historyGrowthAnchorReleaseWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
+    }
+
+    /// Whether the reader's viewport bottom is within about one bubble row of the newest content.
+    /// Read straight off the introspected UIScrollView, so at tail-arrival time this measures the
+    /// PRE-insert baseline (the new row hasn't been laid out yet) - a reader pinned to the end
+    /// keeps passing this gate through a multi-message catch-up batch.
+    private func isNearBottomOfContent() -> Bool {
+        guard let scrollView = scrollViewReference.scrollView else {
+            // No geometry yet - fall back to the debounced bottom-anchor marker.
+            return isBottomAnchorVisible
+        }
+        let visibleBottom = scrollView.contentOffset.y + scrollView.bounds.height
+            - scrollView.adjustedContentInset.bottom
+        let distanceFromBottom = scrollView.contentSize.height - visibleBottom
+        return distanceFromBottom <= 120
+    }
+
+    /// At-bottom gate for an ARRIVING message (incoming, or an own message mirrored in from
+    /// another device): auto-scroll only when the reader is effectively at the end and not
+    /// actively touching the list. A reading position anywhere above stays rock-solid; the
+    /// scroll-to-latest button badge picks the message up instead.
+    private func shouldAutoScrollForArrival() -> Bool {
+        guard !isUserInteractingWithScroll else { return false }
+        if let scrollView = scrollViewReference.scrollView,
+           scrollView.isTracking || scrollView.isDragging {
+            return false
+        }
+        // Mid-flight of a just-fired auto-scroll animation the geometry briefly reads as
+        // not-at-bottom; treat the burst as still pinned so catch-up batches keep following.
+        if Date().timeIntervalSince(lastAutoBottomScrollAt) < 0.8 { return true }
+        return isNearBottomOfContent()
+    }
+
     private func refreshStoredMessageCountAsync() {
         storedCountTask?.cancel()
         let contactAddress = contact.address
@@ -1133,6 +1268,23 @@ struct ChatDetailView: View {
     private func restoreViewportFromPrependSnapshotIfPossible() -> Bool {
         guard let snapshot = pendingPrependViewportSnapshot else { return false }
         guard let scrollView = scrollViewReference.scrollView else { return false }
+
+        // Never jam contentOffset while the user's finger owns the scroll or a fling is live -
+        // a programmatic setContentOffset mid-gesture kills the drag/momentum and reads as a
+        // freeze-then-jump. On iOS 17+ the re-armed bottom anchor (armHistoryGrowthAnchor)
+        // already holds the viewport through the prepend reflow, so the snapshot can simply be
+        // dropped. On iOS 16 there is no default anchor to lean on, so only skip while the
+        // finger is literally down (tracking/dragging) and still restore through deceleration -
+        // stopping the fling is the lesser evil there versus losing the reading position.
+        if #available(iOS 17.0, *) {
+            if scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating {
+                pendingPrependViewportSnapshot = nil
+                return true
+            }
+        } else if scrollView.isTracking || scrollView.isDragging {
+            pendingPrependViewportSnapshot = nil
+            return true
+        }
 
         let deltaHeight = scrollView.contentSize.height - snapshot.contentHeight
         // Wait for layout/content size to settle.
@@ -1178,6 +1330,18 @@ struct ChatDetailView: View {
     private func preserveViewport(using proxy: ScrollViewProxy, anchorMessageId: UUID?) {
         guard let anchorMessageId else { return }
         DispatchQueue.main.async {
+            // Same drag-safety split as the snapshot restore: on iOS 17+ never fight any active
+            // gesture (the armed bottom anchor held position); on iOS 16 only skip while the
+            // finger is down.
+            if let scrollView = scrollViewReference.scrollView {
+                if #available(iOS 17.0, *) {
+                    if scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating {
+                        return
+                    }
+                } else if scrollView.isTracking || scrollView.isDragging {
+                    return
+                }
+            }
             var transaction = Transaction()
             transaction.animation = nil
             withTransaction(transaction) {
@@ -1195,7 +1359,9 @@ struct ChatDetailView: View {
             guard now.timeIntervalSince(lastOlderPageRequestAt) > 0.25 else { return false }
             lastOlderPageRequestAt = now
             capturePrependViewportSnapshot()
+            armHistoryGrowthAnchor()
             loadedMessageCount = min(messages.count, loadedMessageCount + batchSize)
+            rememberRenderedWindowStart()
             restoreViewportAfterPrepend(using: proxy, fallbackAnchorMessageId: viewportAnchorMessageId)
             hasLoadedCurrentTopPage = false
             if isTopAnchorVisible {
@@ -1221,7 +1387,9 @@ struct ChatDetailView: View {
             isLoadingOlderMessages = false
 
             if loaded > 0 {
+                armHistoryGrowthAnchor()
                 loadedMessageCount = min(messages.count, loadedMessageCount + loaded)
+                rememberRenderedWindowStart()
                 restoreViewportAfterPrepend(using: proxy, fallbackAnchorMessageId: viewportAnchorMessageId)
                 hasLoadedCurrentTopPage = false
                 if isTopAnchorVisible {
@@ -2479,6 +2647,10 @@ struct ChatDetailView: View {
     }
 
     private func pinToBottomThroughKeyboardTransition() {
+        // Re-pin only when the reader is already at (or near) the bottom, measured BEFORE the
+        // keyboard rises - focusing the composer while scrolled up reading history must not
+        // yank the viewport; the keyboard just rises over the list and the position stays.
+        guard isBottomAnchorVisible || isNearBottomOfContent() else { return }
         // Keeps the chat pinned to the bottom when the composer gains focus and the keyboard rises.
         // A previous version snapped `contentOffset` at 30 Hz for 1.2 s, which fought SwiftUI's
         // keyboard-driven safe-area animation frame-by-frame and produced a sustained screen shake
@@ -2516,7 +2688,9 @@ struct ChatDetailView: View {
             return
         }
         let target = messages[targetIndex]
+        armHistoryGrowthAnchor()
         loadedMessageCount = max(loadedMessageCount, messages.count - targetIndex)
+        rememberRenderedWindowStart()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             scrollAndHighlight(target.id, using: proxy)
         }
