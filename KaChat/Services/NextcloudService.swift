@@ -122,9 +122,10 @@ final class NextcloudService: ObservableObject {
 
     /// "Automatic Sync" toggle (Settings > Storage > Nextcloud) - the upgraded form of the old
     /// "Automatic Backup" switch (same stored key, so existing choices carry over; defaults ON
-    /// once connected). When on, the shared archive uploads continuously: a debounced merge
-    /// upload a few minutes after message activity settles, an hourly on-background catch-up,
-    /// and a silent one-time restore when a wallet activates. Per wallet account.
+    /// once connected). When on, the shared archive syncs near-live: a debounced merge upload
+    /// seconds after message activity settles, a foreground ETag watcher that pulls in other
+    /// devices' uploads, an hourly on-background catch-up, and a silent one-time restore when
+    /// a wallet activates. Per wallet account.
     /// Persistence is NOT in didSet: loads and programmatic defaults must never masquerade as
     /// a user choice (the pre-sync build's didSet did exactly that, stamping OFF on every
     /// wallet load - see `resolveAndMigrateAutoSyncEnabled`). The UI writes through
@@ -134,12 +135,15 @@ final class NextcloudService: ObservableObject {
             guard !isLoadingWalletState, oldValue != autoBackupEnabled else { return }
             if autoBackupEnabled {
                 // Turning sync on marks the archive dirty so the first upload happens promptly,
-                // and gives this wallet its one-time silent restore if it never had one.
+                // gives this wallet its one-time silent restore if it never had one, and starts
+                // the foreground change watcher.
                 noteMessageActivity()
                 scheduleAutoRestoreIfNeeded()
+                startChangeWatcherIfNeeded()
             } else {
                 syncDebounceTask?.cancel()
                 syncDebounceTask = nil
+                stopChangeWatcher()
             }
         }
     }
@@ -227,6 +231,17 @@ final class NextcloudService: ObservableObject {
     private var syncDebounceTask: Task<Void, Never>?
     /// The silent one-time restore for a freshly activated wallet.
     private var autoRestoreTask: Task<Void, Never>?
+    /// The foreground ETag poll loop (see `startChangeWatcherIfNeeded`).
+    private var changeWatcherTask: Task<Void, Never>?
+    /// Bumped on every watcher start/stop so a superseded loop can never clear (or keep alive)
+    /// its successor's `changeWatcherTask` slot.
+    private var changeWatcherEpoch = 0
+    /// The server ETag of the last backup content this device IMPORTED or WROTE, normalized
+    /// (no weak prefix, no quotes). Persisted per wallet so a change that lands while the app
+    /// is backgrounded is still caught by the first poll after foregrounding. nil = never seen.
+    /// This is the feedback-loop guard: `runBackup` records the ETag of its own PUT, so a
+    /// device never re-downloads its own write.
+    private var lastKnownBackupETag: String?
     /// In-memory mirror of the ACTIVE wallet's persisted dirty flag, so the per-message
     /// activity hook doesn't hit UserDefaults on every insert during a big sync.
     private var pendingSyncDirty = false
@@ -254,9 +269,19 @@ final class NextcloudService: ObservableObject {
     /// Marks that the stored `autoBackupKey` value is an EXPLICIT user choice (or a settled
     /// migration), not a leftover default - see `resolveAndMigrateAutoSyncEnabled`.
     private nonisolated static let autoSyncChosenKey = "kachat_nextcloud_auto_sync_chosen"
+    /// Persisted last-known backup ETag (see `lastKnownBackupETag`).
+    private nonisolated static let lastETagKey = "kachat_nextcloud_last_etag"
     nonisolated static let autoBackupMinInterval: TimeInterval = 3600
-    /// Quiet time after the last message before the automatic merge upload runs.
-    nonisolated static let syncDebounceInterval: TimeInterval = 180
+    /// Quiet time after the last message before the automatic merge upload runs. Short by
+    /// design: sends are what the cross-device mirror cares about, and a burst of messages
+    /// still coalesces into one upload 15 seconds after the last.
+    nonisolated static let syncDebounceInterval: TimeInterval = 15
+    /// Foreground change-watcher cadence: how often the shared file's ETag is polled while the
+    /// app is active (a tiny Depth-0 PROPFIND, no body). With the 15s upload debounce this
+    /// puts another device's message on screen well inside a minute.
+    nonisolated static let changeWatchInterval: TimeInterval = 10
+    /// Failed polls back off 10s -> 30s -> 60s and snap back to 10s on the next success.
+    private nonisolated static let changeWatchBackoffMax: TimeInterval = 60
     /// Launch/foreground catch-up threshold: if the last automatic backup is older than this
     /// (e.g. the app was force-quit for days and never got a backgrounding moment), back up on
     /// becoming active instead of waiting for the next background.
@@ -279,6 +304,7 @@ final class NextcloudService: ObservableObject {
                 // window instead of waiting out a suspended debounce.
                 NextcloudService.shared.syncDebounceTask?.cancel()
                 NextcloudService.shared.syncDebounceTask = nil
+                NextcloudService.shared.stopChangeWatcher()
                 NextcloudService.shared.scheduleAutoBackup()
             }
         }
@@ -292,6 +318,7 @@ final class NextcloudService: ObservableObject {
         ) { _ in
             Task { @MainActor in
                 NextcloudService.shared.scheduleAutoBackup(minInterval: Self.autoBackupCatchUpInterval)
+                NextcloudService.shared.startChangeWatcherIfNeeded()
             }
         }
     }
@@ -312,6 +339,7 @@ final class NextcloudService: ObservableObject {
         syncDebounceTask = nil
         autoRestoreTask?.cancel()
         autoRestoreTask = nil
+        stopChangeWatcher()
         thumbnailCache.removeAllObjects()
 
         currentWalletAddress = walletAddress
@@ -326,6 +354,7 @@ final class NextcloudService: ObservableObject {
             mediaSendEnabled = false
             pendingSyncDirty = false
             lastAutoSyncAt = nil
+            lastKnownBackupETag = nil
             return
         }
 
@@ -342,10 +371,13 @@ final class NextcloudService: ObservableObject {
         pendingSyncDirty = scopedKey(Self.pendingSyncKey).map { UserDefaults.standard.bool(forKey: $0) } ?? false
         let lastStamp = scopedKey(Self.lastAutoBackupKey).map { UserDefaults.standard.double(forKey: $0) } ?? 0
         lastAutoSyncAt = lastStamp > 0 ? Date(timeIntervalSince1970: lastStamp) : nil
+        lastKnownBackupETag = scopedKey(Self.lastETagKey).flatMap { UserDefaults.standard.string(forKey: $0) }
 
         // Wallet activation (load, import, switch) is the auto-restore moment: if the shared
         // file exists and this wallet never restored it, import it silently in the background.
         scheduleAutoRestoreIfNeeded()
+        // Continuous path after the bootstrap: watch the shared file for other devices' writes.
+        startChangeWatcherIfNeeded()
     }
 
     /// Deletes a wallet's stored Nextcloud login and settings outright - used when that account
@@ -355,7 +387,8 @@ final class NextcloudService: ObservableObject {
         try? KeychainService.shared.deleteNextcloudCredentials(walletAddress: walletAddress)
         let suffix = KeychainService.walletHashSuffix(walletAddress)
         for base in [Self.autoBackupKey, Self.mediaSendKey, Self.lastAutoBackupKey,
-                     Self.pendingSyncKey, Self.autoRestoreDoneKey, Self.autoSyncChosenKey] {
+                     Self.pendingSyncKey, Self.autoRestoreDoneKey, Self.autoSyncChosenKey,
+                     Self.lastETagKey] {
             UserDefaults.standard.removeObject(forKey: "\(base)_\(suffix)")
         }
     }
@@ -585,6 +618,10 @@ final class NextcloudService: ObservableObject {
         defer { syncInFlight = false }
 
         do {
+            // ETag before the download (best-effort): recorded after a successful import so
+            // the change watcher's first poll does not immediately re-download the file the
+            // bootstrap just imported.
+            let etagAtDownload = (try? await fetchBackupETag()) ?? nil
             // Envelope-aware: decrypts a v1 encrypted backup, passes legacy plaintext through.
             // A failed decrypt throws into the silent catch below - the done flag stays unset
             // and nothing is imported or uploaded.
@@ -597,6 +634,9 @@ final class NextcloudService: ObservableObject {
             let summary = try await ChatService.shared.importChatHistoryArchive(data)
             guard currentWalletAddress == walletAtStart else { return }
             UserDefaults.standard.set(true, forKey: doneKey)
+            if let etagAtDownload {
+                setLastKnownBackupETag(etagAtDownload, walletAddress: walletAtStart)
+            }
             // Fully silent by design: sync is invisible background plumbing, like iCloud.
             // The log line is the only trace.
             AppLog.log("%@", "[Nextcloud] Automatic restore finished: \(summary.messageCount) messages in \(summary.conversationCount) chats")
@@ -607,6 +647,167 @@ final class NextcloudService: ObservableObject {
             // Includes "archive invalid/empty" and transient network failures: stay silent
             // (the flag stays unset, so a later activation retries) and never surface a modal.
             AppLog.log("%@", "[Nextcloud] Automatic restore skipped (next wallet activation retries): \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Change watcher (foreground near-live pull of other devices' uploads)
+
+    /// Starts the foreground ETag watcher when every condition holds: Automatic Sync on, a
+    /// server connected, a wallet active, and the app not in the background. Called from the
+    /// same lifecycle moments as the debounce machinery (foreground, wallet load, connect,
+    /// toggle-on); a no-op while a watcher is already running.
+    ///
+    /// The loop polls the shared file's ETag every ~10s with a Depth-0 PROPFIND (a tiny
+    /// request, no body download). When the ETag differs from the last one this device
+    /// imported or wrote, the file is downloaded, decrypted and merge-imported through
+    /// `importChatHistoryArchive` - additive, txId-deduped, never-unread - silently, with one
+    /// AppLog line. Combined with the other device's 15s upload debounce, a message sent
+    /// there lands here well inside a minute.
+    func startChangeWatcherIfNeeded() {
+        guard changeWatcherTask == nil else { return }
+        guard autoBackupEnabled, isConnected, let wallet = currentWalletAddress,
+              UIApplication.shared.applicationState != .background else { return }
+        changeWatcherEpoch += 1
+        let epoch = changeWatcherEpoch
+        changeWatcherTask = Task { [weak self] in
+            await self?.runChangeWatcher(walletAtStart: wallet, epoch: epoch)
+        }
+    }
+
+    /// Stops the watcher: on background, disconnect, wallet switch and toggle-off. The epoch
+    /// bump keeps a mid-await loop iteration from outliving the stop.
+    func stopChangeWatcher() {
+        changeWatcherEpoch += 1
+        changeWatcherTask?.cancel()
+        changeWatcherTask = nil
+    }
+
+    /// The poll loop. A failed poll backs off (10s -> 30s -> 60s cap) and snaps back to the
+    /// normal cadence on the next success; a guard failure ends the loop (every state change
+    /// that could cause one also calls `stopChangeWatcher`, so this is belt and braces).
+    private func runChangeWatcher(walletAtStart: String, epoch: Int) async {
+        var interval = Self.changeWatchInterval
+        while !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            guard !Task.isCancelled, changeWatcherEpoch == epoch else { break }
+            guard currentWalletAddress == walletAtStart, autoBackupEnabled, isConnected else { break }
+            do {
+                try await checkForRemoteChangeAndImport(walletAtStart: walletAtStart)
+                interval = Self.changeWatchInterval
+            } catch {
+                interval = min(interval * 3, Self.changeWatchBackoffMax)
+            }
+        }
+        if changeWatcherEpoch == epoch {
+            changeWatcherTask = nil
+        }
+    }
+
+    /// One poll: fetch the ETag, and import the file if it changed. Skips silently (leaving
+    /// the last-known ETag alone, so the next poll retries) while a manual restore/resync or
+    /// another sync pass owns the store. Throws on network trouble so the watcher backs off.
+    private func checkForRemoteChangeAndImport(walletAtStart: String) async throws {
+        // ETag BEFORE the download: if the file is replaced between the two requests, the
+        // stored ETag is the older one and the next poll simply imports again - the safe
+        // direction (an import can only add).
+        guard let etag = try await fetchBackupETag() else { return } // no backup yet
+        guard etag != lastKnownBackupETag else { return }
+        guard currentWalletAddress == walletAtStart, autoBackupEnabled, isConnected else { return }
+        guard !syncInFlight,
+              !BackupRestoreCoordinator.shared.isRunning,
+              !IncomingResyncCoordinator.shared.isRunning else { return }
+        syncInFlight = true
+        defer { syncInFlight = false }
+
+        let data: Data
+        do {
+            data = try BackupEnvelope.decryptIfEnveloped(
+                try await downloadBackup(), key: backupEncryptionKey(), walletAddress: walletAtStart
+            )
+        } catch let error as BackupEnvelope.EnvelopeError {
+            // A file this wallet cannot read (foreign wallet's backup, corrupt envelope):
+            // record the ETag so it is not re-downloaded every poll; a future replacement
+            // changes the ETag and gets a fresh look.
+            setLastKnownBackupETag(etag, walletAddress: walletAtStart)
+            AppLog.log("%@", "[Nextcloud] Change watcher skipped an unreadable server backup: \(error.localizedDescription)")
+            return
+        }
+        guard !Task.isCancelled, currentWalletAddress == walletAtStart,
+              !BackupRestoreCoordinator.shared.isRunning,
+              !IncomingResyncCoordinator.shared.isRunning else { return }
+        let summary = try await ChatService.shared.importChatHistoryArchive(data)
+        guard currentWalletAddress == walletAtStart else { return }
+        setLastKnownBackupETag(etag, walletAddress: walletAtStart)
+        // Fully silent by design, like the auto-restore: the log line is the only trace.
+        AppLog.log("%@", "[Nextcloud] Change watcher merged another device's update (\(summary.messageCount) messages in \(summary.conversationCount) chats on the server)")
+    }
+
+    /// The backup file's current ETag via a Depth-0 PROPFIND requesting only `getetag`.
+    /// nil = no backup file yet (404); throws on any other failure.
+    private func fetchBackupETag() async throws -> String? {
+        guard let account, let server = account.serverURL else { throw NextcloudError.badCredentials }
+        var url = server
+        for part in "remote.php/dav/files/\(account.username)/\(backupFolderPath)/\(Self.backupFileName)".split(separator: "/") {
+            url.appendPathComponent(String(part))
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PROPFIND"
+        request.setValue("0", forHTTPHeaderField: "Depth")
+        request.setValue("application/xml", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request, account: account)
+        request.httpBody = Data("""
+        <?xml version="1.0"?>
+        <d:propfind xmlns:d="DAV:"><d:prop><d:getetag/></d:prop></d:propfind>
+        """.utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw NextcloudError.malformedResponse }
+        if http.statusCode == 401 { throw NextcloudError.badCredentials }
+        if http.statusCode == 404 { return nil }
+        guard http.statusCode == 207 else { throw NextcloudError.httpError(http.statusCode) }
+        guard let etag = Self.parseETagFromMultistatus(data) else { throw NextcloudError.malformedResponse }
+        return etag
+    }
+
+    /// Pulls the getetag value out of a Depth-0 multistatus without a full XML pass - servers
+    /// vary the namespace prefix (`d:`, `D:`, none), so any tag whose name contains "getetag"
+    /// matches.
+    nonisolated static func parseETagFromMultistatus(_ data: Data) -> String? {
+        guard let xml = String(data: data, encoding: .utf8),
+              let regex = try? NSRegularExpression(
+                pattern: "<[^<>]*getetag[^<>]*>([^<]+)</[^<>]*getetag[^<>]*>",
+                options: [.caseInsensitive]
+              ) else { return nil }
+        let range = NSRange(xml.startIndex..., in: xml)
+        guard let match = regex.firstMatch(in: xml, range: range),
+              let valueRange = Range(match.range(at: 1), in: xml) else { return nil }
+        let raw = String(xml[valueRange])
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&amp;", with: "&")
+        let normalized = normalizedETag(raw)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    /// Strips the weak-validator prefix and surrounding quotes so a PUT response header ETag
+    /// and a PROPFIND getetag for the same content compare equal.
+    nonisolated static func normalizedETag(_ raw: String) -> String {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("W/") { value.removeFirst(2) }
+        return value.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+    }
+
+    /// Persists the last-known ETag against a SNAPSHOTTED wallet's scoped key (mirrors
+    /// `setPendingSyncDirty`) and keeps the in-memory copy in step when that wallet is still
+    /// active.
+    private func setLastKnownBackupETag(_ etag: String?, walletAddress: String) {
+        let key = "\(Self.lastETagKey)_\(KeychainService.walletHashSuffix(walletAddress))"
+        if let etag {
+            UserDefaults.standard.set(etag, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        if currentWalletAddress == walletAddress {
+            lastKnownBackupETag = etag
         }
     }
 
@@ -680,11 +881,13 @@ final class NextcloudService: ObservableObject {
         reconcileOneCloudAtATime()
         noteMessageActivity()
         scheduleAutoRestoreIfNeeded()
+        startChangeWatcherIfNeeded()
     }
 
     func disconnect() {
         syncDebounceTask?.cancel()
         syncDebounceTask = nil
+        stopChangeWatcher()
         autoRestoreTask?.cancel()
         autoRestoreTask = nil
         autoBackupTask?.cancel()
@@ -824,7 +1027,17 @@ final class NextcloudService: ObservableObject {
         guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
         let merged = try await ChatService.shared.buildBackupArchiveData(mergingRemote: existing)
         guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
-        try await uploadBackup(try BackupEnvelope.encrypt(merged, key: key, walletAddress: walletAddress))
+        var newETag = try await uploadBackup(try BackupEnvelope.encrypt(merged, key: key, walletAddress: walletAddress))
+        if newETag == nil {
+            // Some proxies strip the PUT response's ETag header; one follow-up Depth-0
+            // PROPFIND recovers it so the change watcher still knows this device's own write.
+            newETag = (try? await fetchBackupETag()) ?? nil
+        }
+        // Feedback-loop guard: remember our own write's ETag so the watcher never downloads
+        // it back. If both captures failed, the stored ETag is cleared - the watcher then
+        // re-imports our own upload once, which the txId dedupe makes a harmless no-op.
+        guard currentWalletAddress == walletAtStart else { return }
+        setLastKnownBackupETag(newETag, walletAddress: walletAddress)
     }
 
     /// The active wallet's backup envelope key, derived from the chatting/identity address's
@@ -839,8 +1052,11 @@ final class NextcloudService: ObservableObject {
     /// (MKCOL answers 405 when it already exists — fine; a user-picked folder always already
     /// exists since it was chosen through the folder browser). Overwrites in place: private so
     /// every chat-history caller goes through `runBackup` and the body is a merge, never a
-    /// replacement.
-    private func uploadBackup(_ data: Data) async throws {
+    /// replacement. Returns the uploaded file's ETag when the server sent one on the PUT
+    /// response (`OC-ETag` first - Nextcloud's canonical header - then `ETag`), normalized;
+    /// nil when the header is missing.
+    @discardableResult
+    private func uploadBackup(_ data: Data) async throws -> String? {
         guard let account, let server = account.serverURL else { throw NextcloudError.badCredentials }
         var folderURL = server.appendingPathComponent("remote.php/dav/files/\(account.username)")
         for part in backupFolderPath.split(separator: "/") {
@@ -867,6 +1083,8 @@ final class NextcloudService: ObservableObject {
         guard let http = putResponse as? HTTPURLResponse else { throw NextcloudError.malformedResponse }
         if http.statusCode == 401 { throw NextcloudError.badCredentials }
         guard (200..<300).contains(http.statusCode) else { throw NextcloudError.httpError(http.statusCode) }
+        let rawETag = http.value(forHTTPHeaderField: "OC-ETag") ?? http.value(forHTTPHeaderField: "ETag")
+        return rawETag.map { Self.normalizedETag($0) }.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// The backup file's server-side metadata (nil = no backup yet). A missing folder lists
