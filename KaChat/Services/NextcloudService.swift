@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import UIKit
 
 /// A connected Nextcloud account (server + login + app password), persisted as one Keychain blob.
@@ -118,11 +119,49 @@ final class NextcloudService: ObservableObject {
 
     @Published private(set) var account: NextcloudAccount?
 
-    /// "Automatic Backup" toggle (Settings > Storage > Nextcloud). When on, the chat archive
-    /// uploads on app-background, throttled to at most once per hour. Per wallet account.
-    @Published var autoBackupEnabled: Bool = false {
-        didSet { persistSetting(autoBackupEnabled, baseKey: Self.autoBackupKey) }
+    /// "Automatic Sync" toggle (Settings > Storage > Nextcloud) - the upgraded form of the old
+    /// "Automatic Backup" switch (same stored key, so existing choices carry over; defaults ON
+    /// once connected). When on, the shared archive uploads continuously: a debounced merge
+    /// upload a few minutes after message activity settles, an hourly on-background catch-up,
+    /// and a silent one-time restore when a wallet activates. Per wallet account.
+    /// Persistence is NOT in didSet: loads and programmatic defaults must never masquerade as
+    /// a user choice (the pre-sync build's didSet did exactly that, stamping OFF on every
+    /// wallet load - see `resolveAndMigrateAutoSyncEnabled`). The UI writes through
+    /// `setAutoSyncEnabled`, which persists the value plus an explicit-choice marker.
+    @Published private(set) var autoBackupEnabled: Bool = false {
+        didSet {
+            guard !isLoadingWalletState, oldValue != autoBackupEnabled else { return }
+            if autoBackupEnabled {
+                // Turning sync on marks the archive dirty so the first upload happens promptly,
+                // and gives this wallet its one-time silent restore if it never had one.
+                noteMessageActivity()
+                scheduleAutoRestoreIfNeeded()
+            } else {
+                syncDebounceTask?.cancel()
+                syncDebounceTask = nil
+            }
+        }
     }
+
+    /// The user flipped the Automatic Sync toggle: persist the value AND the explicit-choice
+    /// marker, so this wallet's decision survives every future default resolution.
+    func setAutoSyncEnabled(_ enabled: Bool) {
+        if let key = scopedKey(Self.autoBackupKey) {
+            UserDefaults.standard.set(enabled, forKey: key)
+        }
+        if let markerKey = scopedKey(Self.autoSyncChosenKey) {
+            UserDefaults.standard.set(true, forKey: markerKey)
+        }
+        autoBackupEnabled = enabled
+    }
+
+    /// When the active wallet's archive last uploaded automatically (nil = never). Mirrors the
+    /// persisted throttle stamp so Settings can show a live "Last synced" line.
+    @Published private(set) var lastAutoSyncAt: Date?
+
+    /// Transient status line for the silent auto-restore ("Restored N messages from Nextcloud").
+    /// MainTabView renders it as a toast; nil hides it.
+    @Published var syncStatusToast: String?
 
     /// "Send Media via Nextcloud" toggle (Settings > Storage > Nextcloud). When on, photos and
     /// voice recordings sent in 1:1 chats upload to the connected server and the chat message
@@ -144,13 +183,42 @@ final class NextcloudService: ObservableObject {
     /// archive must never upload while account B is active.
     private var autoBackupTask: Task<Void, Never>?
 
+    /// The quiet-time timer armed by `noteMessageActivity` - a rapid exchange coalesces into
+    /// one merge upload after things settle. Cancelled by wallet switch, disconnect, toggle-off
+    /// and backgrounding (the on-background flush takes over there).
+    private var syncDebounceTask: Task<Void, Never>?
+    /// The silent one-time restore for a freshly activated wallet.
+    private var autoRestoreTask: Task<Void, Never>?
+    /// In-memory mirror of the ACTIVE wallet's persisted dirty flag, so the per-message
+    /// activity hook doesn't hit UserDefaults on every insert during a big sync.
+    private var pendingSyncDirty = false
+    /// Serializes automatic uploads and the silent restore so they never interleave; a skipped
+    /// run leaves the dirty flag set and a later trigger retries.
+    private var syncInFlight = false
+    /// True while `setCurrentWallet` loads stored state - suppresses the toggle's user-action
+    /// side effects (didSet fires for plain property loads too).
+    private var isLoadingWalletState = false
+
     // `nonisolated` so these constants are usable from nonisolated contexts (e.g. the default
     // argument of autoBackupIfDue) without a main-actor hop — they're immutable Sendable values.
     // Base names only: the active wallet's hash suffix is appended via `scopedKey`.
     private nonisolated static let autoBackupKey = "kachat_nextcloud_auto_backup"
     private nonisolated static let mediaSendKey = "kachat_nextcloud_media_send"
     private nonisolated static let lastAutoBackupKey = "kachat_nextcloud_last_auto_backup"
+    /// Persisted dirty flag: message activity happened after the last successful automatic
+    /// upload. Survives a kill, so the app-active / on-background catch-up flushes what the
+    /// debounce path missed.
+    private nonisolated static let pendingSyncKey = "kachat_nextcloud_pending_sync"
+    /// Per-wallet marker: this wallet already had its one-time silent auto-restore. Set only
+    /// after a successful import; a missing server file leaves it unset so a backup appearing
+    /// later (first sync from another device) still bootstraps.
+    private nonisolated static let autoRestoreDoneKey = "kachat_nextcloud_auto_restore_done"
+    /// Marks that the stored `autoBackupKey` value is an EXPLICIT user choice (or a settled
+    /// migration), not a leftover default - see `resolveAndMigrateAutoSyncEnabled`.
+    private nonisolated static let autoSyncChosenKey = "kachat_nextcloud_auto_sync_chosen"
     nonisolated static let autoBackupMinInterval: TimeInterval = 3600
+    /// Quiet time after the last message before the automatic merge upload runs.
+    nonisolated static let syncDebounceInterval: TimeInterval = 180
     /// Launch/foreground catch-up threshold: if the last automatic backup is older than this
     /// (e.g. the app was force-quit for days and never got a backgrounding moment), back up on
     /// becoming active instead of waiting for the next background.
@@ -167,6 +235,12 @@ final class NextcloudService: ObservableObject {
             queue: .main
         ) { _ in
             Task { @MainActor in
+                // The on-background flush takes over from any pending quiet-time timer: the
+                // dirty flag is persisted, and autoBackupIfDue bypasses the hourly throttle
+                // while it is set, so the pending change uploads inside the background task
+                // window instead of waiting out a suspended debounce.
+                NextcloudService.shared.syncDebounceTask?.cancel()
+                NextcloudService.shared.syncDebounceTask = nil
                 NextcloudService.shared.scheduleAutoBackup()
             }
         }
@@ -196,15 +270,24 @@ final class NextcloudService: ObservableObject {
 
         autoBackupTask?.cancel()
         autoBackupTask = nil
+        syncDebounceTask?.cancel()
+        syncDebounceTask = nil
+        autoRestoreTask?.cancel()
+        autoRestoreTask = nil
         thumbnailCache.removeAllObjects()
 
         currentWalletAddress = walletAddress
         currentWalletHashSuffix = walletAddress.map { KeychainService.walletHashSuffix($0) }
 
+        isLoadingWalletState = true
+        defer { isLoadingWalletState = false }
+
         guard let walletAddress else {
             account = nil
             autoBackupEnabled = false
             mediaSendEnabled = false
+            pendingSyncDirty = false
+            lastAutoSyncAt = nil
             return
         }
 
@@ -215,8 +298,15 @@ final class NextcloudService: ObservableObject {
         } else {
             account = nil
         }
-        autoBackupEnabled = scopedKey(Self.autoBackupKey).map { UserDefaults.standard.bool(forKey: $0) } ?? false
+        autoBackupEnabled = resolveAndMigrateAutoSyncEnabled()
         mediaSendEnabled = scopedKey(Self.mediaSendKey).map { UserDefaults.standard.bool(forKey: $0) } ?? false
+        pendingSyncDirty = scopedKey(Self.pendingSyncKey).map { UserDefaults.standard.bool(forKey: $0) } ?? false
+        let lastStamp = scopedKey(Self.lastAutoBackupKey).map { UserDefaults.standard.double(forKey: $0) } ?? 0
+        lastAutoSyncAt = lastStamp > 0 ? Date(timeIntervalSince1970: lastStamp) : nil
+
+        // Wallet activation (load, import, switch) is the auto-restore moment: if the shared
+        // file exists and this wallet never restored it, import it silently in the background.
+        scheduleAutoRestoreIfNeeded()
     }
 
     /// Deletes a wallet's stored Nextcloud login and settings outright - used when that account
@@ -225,7 +315,8 @@ final class NextcloudService: ObservableObject {
     func purgeStoredState(forWalletAddress walletAddress: String) {
         try? KeychainService.shared.deleteNextcloudCredentials(walletAddress: walletAddress)
         let suffix = KeychainService.walletHashSuffix(walletAddress)
-        for base in [Self.autoBackupKey, Self.mediaSendKey, Self.lastAutoBackupKey] {
+        for base in [Self.autoBackupKey, Self.mediaSendKey, Self.lastAutoBackupKey,
+                     Self.pendingSyncKey, Self.autoRestoreDoneKey, Self.autoSyncChosenKey] {
             UserDefaults.standard.removeObject(forKey: "\(base)_\(suffix)")
         }
     }
@@ -240,6 +331,46 @@ final class NextcloudService: ObservableObject {
     private func persistSetting(_ value: Bool, baseKey: String) {
         guard let key = scopedKey(baseKey) else { return }
         UserDefaults.standard.set(value, forKey: key)
+    }
+
+    /// The active wallet's effective Automatic Sync value, upgrading the old "Automatic
+    /// Backup" storage in place the first time this wallet is seen CONNECTED:
+    ///
+    ///   * explicit-choice marker set: the stored value is authoritative;
+    ///   * stored true (the old toggle was on): stays on;
+    ///   * stored false with a real backup stamp: the old toggle ran backups and was then
+    ///     turned off - that is a genuine choice, kept off;
+    ///   * stored false with NO stamp: the pre-sync didSet persisted the OFF default on
+    ///     every wallet load, so this is no choice at all - upgraded to the new connected
+    ///     default (ON), like a missing value.
+    ///
+    /// The resolution is persisted with the marker (one-time), so the first successful sync
+    /// changing the stamp can never flip the toggle back later. Disconnected wallets are NOT
+    /// migrated - the default only means something once a server is connected - and simply
+    /// report their stored value.
+    private func resolveAndMigrateAutoSyncEnabled() -> Bool {
+        guard let key = scopedKey(Self.autoBackupKey),
+              let markerKey = scopedKey(Self.autoSyncChosenKey) else { return false }
+        let defaults = UserDefaults.standard
+        let stored = defaults.object(forKey: key) as? Bool
+        if defaults.bool(forKey: markerKey) {
+            return stored ?? (account != nil)
+        }
+        guard account != nil else { return stored ?? false }
+
+        let resolved: Bool
+        if let stored, stored {
+            resolved = true
+        } else if stored == false,
+                  let stampKey = scopedKey(Self.lastAutoBackupKey),
+                  defaults.double(forKey: stampKey) > 0 {
+            resolved = false
+        } else {
+            resolved = true
+        }
+        defaults.set(resolved, forKey: key)
+        defaults.set(true, forKey: markerKey)
+        return resolved
     }
 
     /// One-time migration off the pre-per-wallet storage: the single global Keychain blob and
@@ -284,28 +415,158 @@ final class NextcloudService: ObservableObject {
         }
     }
 
-    /// Runs the automatic backup when enabled, connected, and at least `minInterval` past the
-    /// last one (hourly for on-background, daily for the launch catch-up). Failures are silent
-    /// by design (the next trigger retries); success stamps the throttle clock.
+    /// Runs the automatic backup when enabled, connected, and either at least `minInterval`
+    /// past the last one (hourly for on-background, daily for the launch catch-up) or when the
+    /// persisted dirty flag says message activity is still owed an upload (a kill beat the
+    /// debounce timer). Failures are silent by design (the flag is re-marked and the next
+    /// trigger retries); success stamps the throttle clock and clears the flag. Every upload
+    /// goes through `runBackup`, so it merges with the server's copy exactly like a manual one.
     func autoBackupIfDue(minInterval: TimeInterval = NextcloudService.autoBackupMinInterval) async {
         guard autoBackupEnabled, isConnected,
               let walletAtStart = currentWalletAddress,
               let lastBackupKey = scopedKey(Self.lastAutoBackupKey) else { return }
         let last = UserDefaults.standard.double(forKey: lastBackupKey)
-        guard Date().timeIntervalSince1970 - last >= minInterval else { return }
+        let due = Date().timeIntervalSince1970 - last >= minInterval
+        guard due || pendingSyncDirty else { return }
+
+        await performAutomaticSync(walletAtStart: walletAtStart)
+    }
+
+    // MARK: - Continuous sync (debounced message-activity uploads)
+
+    /// Message activity signal - called from `ChatService.addMessageToConversation` for every
+    /// message that lands, incoming or outgoing, whatever the path. Marks the active wallet's
+    /// archive dirty (persisted, so a kill can't lose the fact that an upload is owed) and
+    /// restarts the quiet-time timer; a rapid exchange coalesces into one merge upload after
+    /// things settle. Cheap and safe to call at any rate.
+    func noteMessageActivity() {
+        guard autoBackupEnabled, isConnected, let wallet = currentWalletAddress else { return }
+        if !pendingSyncDirty {
+            pendingSyncDirty = true
+            if let key = scopedKey(Self.pendingSyncKey) {
+                UserDefaults.standard.set(true, forKey: key)
+            }
+        }
+        armSyncDebounce(for: wallet, after: Self.syncDebounceInterval)
+    }
+
+    private func armSyncDebounce(for wallet: String, after delay: TimeInterval) {
+        syncDebounceTask?.cancel()
+        syncDebounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard !Task.isCancelled, let self else { return }
+            guard self.pendingSyncDirty else { return }
+            await self.performAutomaticSync(walletAtStart: wallet)
+        }
+    }
+
+    /// The one automatic upload path. `walletAtStart` is the wallet snapshotted at schedule
+    /// time; the active wallet is re-checked before building and again before uploading (inside
+    /// `runBackup`), so a wallet switch mid-flight drops the work instead of writing one
+    /// account's history into another's file. The dirty flag is cleared BEFORE building - a
+    /// message arriving during the upload re-marks it, so nothing is lost; clearing after would
+    /// swallow that signal - and re-marked on any failure so a later trigger retries.
+    private func performAutomaticSync(walletAtStart: String) async {
+        guard currentWalletAddress == walletAtStart, autoBackupEnabled, isConnected else { return }
+        guard !syncInFlight,
+              !BackupRestoreCoordinator.shared.isRunning,
+              !IncomingResyncCoordinator.shared.isRunning else {
+            // A manual restore/resync (or another automatic pass) owns the store right now;
+            // the dirty flag stays set and a short re-arm retries once it is done.
+            armSyncDebounce(for: walletAtStart, after: 30)
+            return
+        }
+        syncInFlight = true
+        defer { syncInFlight = false }
+
+        setPendingSyncDirty(false, walletAddress: walletAtStart)
 
         let taskId = UIApplication.shared.beginBackgroundTask(withName: "nextcloud-auto-backup")
         defer { if taskId != .invalid { UIApplication.shared.endBackgroundTask(taskId) } }
 
-        guard let fileURL = try? await ChatService.shared.exportChatHistoryArchive(),
-              let data = try? Data(contentsOf: fileURL) else { return }
-        try? FileManager.default.removeItem(at: fileURL)
-        // The export awaited: if the wallet switched meanwhile (or the switch cancelled this
-        // task), drop the upload - this archive belongs to the previous account.
-        guard !Task.isCancelled, currentWalletAddress == walletAtStart else { return }
-        if (try? await uploadBackup(data)) != nil,
-           !Task.isCancelled, currentWalletAddress == walletAtStart {
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastBackupKey)
+        do {
+            try await runBackup()
+            guard !Task.isCancelled, currentWalletAddress == walletAtStart else { return }
+            let now = Date()
+            if let lastBackupKey = scopedKey(Self.lastAutoBackupKey) {
+                UserDefaults.standard.set(now.timeIntervalSince1970, forKey: lastBackupKey)
+            }
+            lastAutoSyncAt = now
+            AppLog.log("%@", "[Nextcloud] Automatic sync uploaded the merged archive")
+        } catch {
+            setPendingSyncDirty(true, walletAddress: walletAtStart)
+            AppLog.log("%@", "[Nextcloud] Automatic sync upload failed (a later trigger retries): \(error.localizedDescription)")
+        }
+    }
+
+    /// Writes the dirty flag against a SNAPSHOTTED wallet's scoped key (never the current
+    /// one - the wallet may have switched mid-flight) and keeps the in-memory mirror in step
+    /// when that wallet is still active.
+    private func setPendingSyncDirty(_ dirty: Bool, walletAddress: String) {
+        let key = "\(Self.pendingSyncKey)_\(KeychainService.walletHashSuffix(walletAddress))"
+        UserDefaults.standard.set(dirty, forKey: key)
+        if currentWalletAddress == walletAddress {
+            pendingSyncDirty = dirty
+        }
+    }
+
+    // MARK: - Automatic restore (one-time silent bootstrap per wallet)
+
+    /// Arms the silent restore for the active wallet if it never had one. Runs a few seconds
+    /// later so wallet activation (message store switch, chat list load) finishes first; the
+    /// wallet is re-checked at every await. No modal for this path - one log line and a short
+    /// toast with counts.
+    func scheduleAutoRestoreIfNeeded() {
+        guard isConnected, autoBackupEnabled, let wallet = currentWalletAddress,
+              let doneKey = scopedKey(Self.autoRestoreDoneKey),
+              !UserDefaults.standard.bool(forKey: doneKey) else { return }
+        autoRestoreTask?.cancel()
+        autoRestoreTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            await self.runAutoRestore(walletAtStart: wallet)
+        }
+    }
+
+    private func runAutoRestore(walletAtStart: String) async {
+        guard currentWalletAddress == walletAtStart, isConnected, autoBackupEnabled else { return }
+        // The manual restore/resync modals own the store while running; skip silently (the
+        // done flag stays unset, so the next wallet activation retries).
+        guard !BackupRestoreCoordinator.shared.isRunning,
+              !IncomingResyncCoordinator.shared.isRunning,
+              !syncInFlight else { return }
+        let doneKey = "\(Self.autoRestoreDoneKey)_\(KeychainService.walletHashSuffix(walletAtStart))"
+        guard !UserDefaults.standard.bool(forKey: doneKey) else { return }
+
+        syncInFlight = true
+        defer { syncInFlight = false }
+
+        do {
+            let data = try await downloadBackup()
+            guard !Task.isCancelled, currentWalletAddress == walletAtStart,
+                  !BackupRestoreCoordinator.shared.isRunning,
+                  !IncomingResyncCoordinator.shared.isRunning else { return }
+            let summary = try await ChatService.shared.importChatHistoryArchive(data)
+            guard currentWalletAddress == walletAtStart else { return }
+            UserDefaults.standard.set(true, forKey: doneKey)
+            AppLog.log("%@", "[Nextcloud] Automatic restore finished: \(summary.messageCount) messages in \(summary.conversationCount) chats")
+            showSyncToast("Restored \(summary.messageCount) messages from Nextcloud")
+        } catch NextcloudError.backupNotFound {
+            // No file yet is not an error, and does NOT mark restore done: if a backup appears
+            // later (first sync from another device), the next activation picks it up.
+        } catch {
+            // Includes "archive invalid/empty" and transient network failures: stay silent
+            // (the flag stays unset, so a later activation retries) and never surface a modal.
+            AppLog.log("%@", "[Nextcloud] Automatic restore skipped (next wallet activation retries): \(error.localizedDescription)")
+        }
+    }
+
+    private func showSyncToast(_ message: String) {
+        withAnimation { syncStatusToast = message }
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard let self, self.syncStatusToast == message else { return }
+            withAnimation { self.syncStatusToast = nil }
         }
     }
 
@@ -361,9 +622,23 @@ final class NextcloudService: ObservableObject {
         let encoded = try JSONEncoder().encode(candidate)
         try KeychainService.shared.saveNextcloudCredentials(encoded, walletAddress: walletAddress)
         account = candidate
+
+        // Automatic Sync defaults ON for a fresh connection (an earlier explicit choice for
+        // this wallet carries over instead), the archive is marked dirty so the first upload
+        // happens promptly, and the wallet gets its one-time silent restore if the shared
+        // file already exists.
+        autoBackupEnabled = resolveAndMigrateAutoSyncEnabled()
+        noteMessageActivity()
+        scheduleAutoRestoreIfNeeded()
     }
 
     func disconnect() {
+        syncDebounceTask?.cancel()
+        syncDebounceTask = nil
+        autoRestoreTask?.cancel()
+        autoRestoreTask = nil
+        autoBackupTask?.cancel()
+        autoBackupTask = nil
         if let walletAddress = currentWalletAddress {
             try? KeychainService.shared.deleteNextcloudCredentials(walletAddress: walletAddress)
         }
@@ -468,10 +743,37 @@ final class NextcloudService: ObservableObject {
     static let backupFolderName = "KaChat"
     static let backupFileName = "kachat-backup.json"
 
+    /// The whole backup: read whatever the server already holds, merge it with this device's
+    /// history (`ChatService.buildBackupArchiveData`), and upload the union - so a backup can
+    /// only ever ADD to `kachat-backup.json` (desktop, iOS and Android all write that same
+    /// file) and no device can delete another's chat history. Every path that backs chat
+    /// history up must go through here, never a raw `uploadBackup`.
+    ///
+    /// The only "just upload" case is a genuine 404 (no backup yet). Every other failure - an
+    /// unreadable server response, or a merge that rejects the remote file as foreign, corrupt
+    /// or a different wallet - throws BEFORE the PUT, leaving the existing file untouched. The
+    /// active wallet is re-checked around every await so a mid-flight account switch aborts
+    /// instead of cross-pollinating archives.
+    func runBackup() async throws {
+        let walletAtStart = currentWalletAddress
+        let existing: Data?
+        do {
+            existing = try await downloadBackup()
+        } catch NextcloudError.backupNotFound {
+            existing = nil
+        }
+        guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
+        let merged = try await ChatService.shared.buildBackupArchiveData(mergingRemote: existing)
+        guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
+        try await uploadBackup(merged)
+    }
+
     /// Uploads the archive to `<backup folder>/kachat-backup.json`, creating the folder first
     /// (MKCOL answers 405 when it already exists — fine; a user-picked folder always already
-    /// exists since it was chosen through the folder browser).
-    func uploadBackup(_ data: Data) async throws {
+    /// exists since it was chosen through the folder browser). Overwrites in place: private so
+    /// every chat-history caller goes through `runBackup` and the body is a merge, never a
+    /// replacement.
+    private func uploadBackup(_ data: Data) async throws {
         guard let account, let server = account.serverURL else { throw NextcloudError.badCredentials }
         var folderURL = server.appendingPathComponent("remote.php/dav/files/\(account.username)")
         for part in backupFolderPath.split(separator: "/") {

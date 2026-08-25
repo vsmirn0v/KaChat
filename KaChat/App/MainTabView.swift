@@ -31,6 +31,9 @@ struct MainTabView: View {
     // Red dot on the Profile tab while the bell (which lives on the Profile screen)
     // holds unread notifications.
     @ObservedObject private var notifCenter = GlobalNotificationCenter.shared
+    // Surfaces the Nextcloud silent auto-restore's one-line result ("Restored N messages...")
+    // as a toast over whatever tab is showing - the automatic path has no modal by design.
+    @ObservedObject private var nextcloudService = NextcloudService.shared
 
     /// The Chats slot's effective content - the cycled-to tab, validated against what's still
     /// masked behind the slot (menu toggles can restore a tab to the dock mid-flight). Single
@@ -59,6 +62,7 @@ struct MainTabView: View {
             }
         }
         .tint(.accentColor)
+        .toast(message: nextcloudService.syncStatusToast)
         // Custom gesture layer over the Chats dock slot: replicates tap (switch/cycle) and adds
         // hold-then-slide selection of the masked tabs. Mounted only when something is actually
         // masked behind the slot, and only on iPhone (iPad's tab bar isn't a bottom dock).

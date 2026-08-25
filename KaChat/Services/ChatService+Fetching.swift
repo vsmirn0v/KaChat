@@ -2814,6 +2814,10 @@ extension ChatService {
 
         if isNewMessage {
             AppLog.log("%@", "[ChatService] Added message \(message.txId.prefix(16))... to \(contactAddress.suffix(10)), type: \(message.messageType), isNew: \(isNewConversation)")
+            // Continuous Nextcloud sync: every message that lands - incoming or outgoing,
+            // whatever the delivery path - marks the archive dirty and (re)arms the debounced
+            // merge upload. No-op unless Automatic Sync is on and a server is connected.
+            NextcloudService.shared.noteMessageActivity()
         }
 
         // If user is currently viewing this chat, advance read marker immediately

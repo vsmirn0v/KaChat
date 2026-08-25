@@ -3202,7 +3202,22 @@ struct NextcloudSettingsView: View {
                     Text("When on, photos and voice messages you send in private chats upload in full quality to this server's \(NextcloudService.mediaFolderPath) folder, and the chat carries a share link instead — recipients see a normal media bubble. The message with the link stays end-to-end encrypted, but the files themselves are stored unencrypted on your server and are reachable by anyone who has the unguessable link. When off, media is embedded in the encrypted on-chain payload as before.")
                 }
                 Section {
-                    Toggle("Automatic Backup", isOn: $service.autoBackupEnabled)
+                    // Custom binding: the setter must go through setAutoSyncEnabled so the
+                    // choice is recorded as explicit (see NextcloudService's migration notes).
+                    Toggle("Automatic Sync", isOn: Binding(
+                        get: { service.autoBackupEnabled },
+                        set: { service.setAutoSyncEnabled($0) }
+                    ))
+
+                    if let lastSynced = service.lastAutoSyncAt {
+                        HStack {
+                            Text("Last synced")
+                            Spacer()
+                            Text(lastSynced.formatted(date: .abbreviated, time: .shortened))
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        }
+                    }
 
                     Button {
                         showBackupFolderPicker = true
@@ -3267,7 +3282,7 @@ struct NextcloudSettingsView: View {
                 } header: {
                     Text("Message Backup")
                 } footer: {
-                    Text("Backs up your full chat history archive as \(NextcloudService.backupFileName) in the folder above (choosing All Files resets to the default \(NextcloudService.backupFolderName) folder). Automatic Backup uploads when you leave the app, at most once per hour. Restoring merges the archive into this device's history.")
+                    Text("Keeps your chat history in \(NextcloudService.backupFileName) in the folder above (choosing All Files resets to the default \(NextcloudService.backupFolderName) folder). Automatic Sync uploads a few minutes after new messages settle and catches up when you leave or reopen the app; a wallet that connects to an existing backup restores it once automatically. Every upload merges with what is already on the server, so no device can erase another's history. Restoring merges the archive into this device's history.")
                 }
 
                 Section {
@@ -3365,10 +3380,9 @@ struct NextcloudSettingsView: View {
         backupErrorMessage = nil
         Task {
             do {
-                let fileURL = try await ChatService.shared.exportChatHistoryArchive()
-                let data = try Data(contentsOf: fileURL)
-                try await NextcloudService.shared.uploadBackup(data)
-                try? FileManager.default.removeItem(at: fileURL)
+                // Merge-on-upload: reads the server's copy first and uploads the union, so a
+                // manual backup can never clobber another device's history (or desktop's state).
+                try await NextcloudService.shared.runBackup()
                 backupInfo = await NextcloudService.shared.fetchBackupInfo()
                 backupStatusMessage = "Backup uploaded."
             } catch {
