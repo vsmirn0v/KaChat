@@ -60,7 +60,6 @@ struct ProfileView: View {
                     if let wallet = walletManager.currentWallet {
                         accountNameRow(wallet)
                         profileHeroSection(wallet)
-                        editKNSProfileRow
                         qrButtonsSection(wallet)
                         addressDropdownsSection(wallet)
                         if !AppTab.visible(from: settingsViewModel.settings).contains(.apps) {
@@ -85,8 +84,25 @@ struct ProfileView: View {
                 _ = try? await walletManager.refreshBalance()
                 await loadSpendingAddressBalance()
             }
+            // Pinned large-title header: the system .large title scrolls away with the content,
+            // so the title lives here as fixed chrome instead - same font/weight/leading inset
+            // as the system large title, with the content sliding underneath through the
+            // material (same pinned pattern as BroadcastChannelView's top notice). The nav bar
+            // itself runs .inline, where the principal balance view already occupies the title
+            // slot - identical to what the bar showed mid-scroll before.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HStack {
+                    Text("Profile")
+                        .font(.largeTitle.weight(.bold))
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 2)
+                .padding(.bottom, 8)
+                .background(.regularMaterial)
+            }
             .navigationTitle("Profile")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     ConnectionStatusIndicator()
@@ -486,13 +502,34 @@ struct ProfileView: View {
             .frame(maxWidth: .infinity)
             .clipped()
 
-            KNSAvatarView(
-                avatarURLString: knsProfileInfo?.avatarURL,
-                fallbackText: displayName,
-                size: 76
-            )
-            .overlay(Circle().stroke(Color(uiColor: .systemBackground), lineWidth: 3))
-            .padding(.leading, 16)
+            // Avatar overlaps the banner; the Edit/Create entry sits beside it, bottom-aligned
+            // so the text lands fully below the banner. This hero is only ever built for the
+            // user's own wallet (ProfileView renders walletManager.currentWallet), so the edit
+            // affordance never shows on someone else's profile.
+            HStack(alignment: .bottom) {
+                KNSAvatarView(
+                    avatarURLString: knsProfileInfo?.avatarURL,
+                    fallbackText: displayName,
+                    size: 76
+                )
+                .overlay(Circle().stroke(Color(uiColor: .systemBackground), lineWidth: 3))
+                Spacer()
+                Button {
+                    if hasKNSProfile {
+                        showKNSEditor = true
+                    } else {
+                        showCreateKNSProfileFlow = true
+                    }
+                } label: {
+                    Text(hasKNSProfile ? "Edit KNS Profile" : "Create KNS Profile")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.accentColor)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 4)
+            }
+            .padding(.horizontal, 16)
             .padding(.top, -38)
 
             VStack(alignment: .leading, spacing: 6) {
@@ -522,34 +559,6 @@ struct ProfileView: View {
     /// created - no app restart required.
     private var hasKNSProfile: Bool {
         !(knsProfileInfo?.domainName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    /// Straight to the KNS editor screen (same destination the old profile card's tap used);
-    /// no domain yet -> the create-profile flow instead, and the label says so.
-    private var editKNSProfileRow: some View {
-        Button {
-            if hasKNSProfile {
-                showKNSEditor = true
-            } else {
-                showCreateKNSProfileFlow = true
-            }
-        } label: {
-            HStack {
-                Label(
-                    hasKNSProfile ? "Edit KNS Profile" : "Create KNS Profile",
-                    systemImage: hasKNSProfile ? "person.text.rectangle" : "person.crop.circle.badge.plus"
-                )
-                    .foregroundColor(.primary)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(16)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(glassBackground(cornerRadius: 18))
     }
 
     private func setPrimaryDomain(_ domain: KNSDomain) async {
