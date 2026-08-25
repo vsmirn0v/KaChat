@@ -713,7 +713,7 @@ struct WelcomeGuideView: View {
                     Button {
                         UIPasteboard.general.string = chattingAddress
                         Haptics.success()
-                        showToast("Address copied to clipboard.")
+                        showToast(chattingAddress.addressCopiedToastText)
                     } label: {
                         Text(chattingAddress)
                             .font(.footnote.monospaced())

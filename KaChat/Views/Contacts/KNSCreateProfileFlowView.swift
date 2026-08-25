@@ -216,7 +216,7 @@ struct KNSCreateProfileFlowView: View {
                 Button {
                     UIPasteboard.general.string = walletAddress
                     Haptics.success()
-                    showToast("Address copied to clipboard.")
+                    showToast(walletAddress.addressCopiedToastText)
                 } label: {
                     Text(walletAddress)
                         .font(.footnote.monospaced())
@@ -316,7 +316,7 @@ struct KNSCreateProfileFlowView: View {
                 Button {
                     UIPasteboard.general.string = walletAddress
                     Haptics.success()
-                    showToast("Address copied to clipboard.")
+                    showToast(walletAddress.addressCopiedToastText)
                 } label: {
                     Text(walletAddress)
                         .font(.footnote.monospaced())

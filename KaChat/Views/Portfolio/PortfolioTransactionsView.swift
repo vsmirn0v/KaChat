@@ -30,6 +30,7 @@ struct PortfolioTransactionsView<Header: View>: View {
     @State private var exportURL: URL?
     @State private var toastMessage: String?
     @State private var toastStyle: ToastStyle = .success
+    @State private var toastToken = UUID()
     @State private var editMode: EditMode = .inactive
     @State private var selectedIDs = Set<String>()
     @State private var showDeleteSelectedConfirm = false
@@ -130,7 +131,6 @@ struct PortfolioTransactionsView<Header: View>: View {
             AddPortfolioAddressSheet(viewModel: viewModel) { result in
                 switch result {
                 case .success(let importResult):
-                    toastStyle = .success
                     var message = "Imported \(importResult.imported.count) transaction\(importResult.imported.count == 1 ? "" : "s")"
                     if importResult.missingPriceCount > 0 {
                         message += ". Prices for \(importResult.missingPriceCount) are still loading and will fill in automatically"
@@ -138,10 +138,9 @@ struct PortfolioTransactionsView<Header: View>: View {
                     if !importResult.historyComplete {
                         message += ". Some history couldn't be fetched, re-add this address later to import the rest"
                     }
-                    toastMessage = message
+                    showToast(message)
                 case .failure(let error):
-                    toastStyle = .error
-                    toastMessage = error.errorDescription ?? "Import failed."
+                    showToast(error.errorDescription ?? "Import failed.", style: .error)
                 }
             }
         }
@@ -155,10 +154,10 @@ struct PortfolioTransactionsView<Header: View>: View {
             case .success(let url):
                 let count = viewModel.importCsv(from: url)
                 toastStyle = count > 0 ? .success : .error
-                toastMessage = count > 0 ? "Imported \(count) transaction\(count == 1 ? "" : "s")" : "Import failed. Check the CSV format"
+                showToast(count > 0 ? "Imported \(count) transaction\(count == 1 ? "" : "s")" : "Import failed. Check the CSV format", style: count > 0 ? .success : .error)
             case .failure:
                 toastStyle = .error
-                toastMessage = "Import failed. Check the CSV format"
+                showToast("Import failed. Check the CSV format", style: .error)
             }
         }
         .toast(message: toastMessage, style: toastStyle)
@@ -172,6 +171,18 @@ struct PortfolioTransactionsView<Header: View>: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This can't be undone.")
+        }
+    }
+
+    private func showToast(_ message: String, style: ToastStyle = .success) {
+        let token = UUID()
+        toastToken = token
+        toastStyle = style
+        withAnimation(.easeOut(duration: 0.2)) { toastMessage = message }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) { toastMessage = nil }
+            }
         }
     }
 

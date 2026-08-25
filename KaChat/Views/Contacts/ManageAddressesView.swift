@@ -441,7 +441,7 @@ struct ManageAddressesView: View {
                 Button {
                     UIPasteboard.general.string = entry.address
                     Haptics.success()
-                    showToast("Address copied to clipboard.")
+                    showToast(entry.address.addressCopiedToastText)
                 } label: {
                     Label("Copy Address", systemImage: "doc.on.doc")
                 }
@@ -564,7 +564,7 @@ struct ManageAddressesView: View {
                         Button {
                             UIPasteboard.general.string = entry.address
                             Haptics.success()
-                            showToast("Address copied to clipboard.")
+                            showToast(entry.address.addressCopiedToastText)
                         } label: {
                             Label("Copy Address", systemImage: "doc.on.doc")
                         }
@@ -1799,20 +1799,16 @@ private struct SpendingAddressQRView: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 32)
 
-                        Button {
-                            UIPasteboard.general.string = entry.address
-                            Haptics.success()
-                            showToast("Address copied to clipboard.")
-                        } label: {
-                            Label("Copy Address", systemImage: "doc.on.doc")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundColor(.accentColor)
-                        }
+                        Text("Tap anywhere to copy")
+                            .font(.footnote)
+                            .foregroundColor(Color.black.opacity(0.4))
 
                         Spacer()
                         Spacer()
                     }
                 )
+                .contentShape(Rectangle())
+                .onTapGesture { copyAddress() }
                 .navigationTitle("Address #\(entry.index)")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -1823,6 +1819,12 @@ private struct SpendingAddressQRView: View {
                 .onAppear { generateQR() }
                 .toast(message: toastMessage)
         }
+    }
+
+    private func copyAddress() {
+        UIPasteboard.general.string = entry.address
+        Haptics.success()
+        showToast(entry.address.addressCopiedToastText)
     }
 
     private func showToast(_ message: String) {

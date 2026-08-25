@@ -2290,7 +2290,7 @@ struct ChatDetailView: View {
     private var zeroBalanceGateCard: some View {
         ZeroBalanceFundingCardView(
             address: myAddress,
-            onCopied: { _ in showToast(String(localized: "Address copied to clipboard.")) }
+            onCopied: { showToast($0.addressCopiedToastText) }
         )
         .padding(.horizontal)
         .padding(.bottom, 4)

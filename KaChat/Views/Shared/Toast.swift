@@ -67,3 +67,38 @@ extension View {
         modifier(ToastPresenter(message: message, style: style))
     }
 }
+
+extension String {
+    /// App-standard toast text for copying an address: "Address kaspa:qz3x...m2aj...8f2k copied".
+    /// Every address-copy confirmation across the app must use this so the wording and the
+    /// shortened form cannot drift between screens.
+    var addressCopiedToastText: String {
+        "Address \(addressToastShortened) copied"
+    }
+
+    /// Standard shortened form used inside the copy toast: the "kaspa:"/"kaspatest:" prefix,
+    /// then the first 4 payload characters, 4 characters from the exact middle of the payload,
+    /// and the last 4, joined with "..." - three visible segments so a lookalike-address swap
+    /// is harder to miss. Short or abnormal strings fall back to the plain value.
+    private var addressToastShortened: String {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix: String
+        let payload: String
+        if let colon = trimmed.firstIndex(of: ":") {
+            prefix = String(trimmed[...colon])
+            payload = String(trimmed[trimmed.index(after: colon)...])
+        } else {
+            prefix = ""
+            payload = trimmed
+        }
+        // Only shorten when the three 4-char segments plus separators actually save space
+        // and the segments cannot overlap; otherwise show the value as-is.
+        guard payload.count >= 24 else { return trimmed }
+        let chars = Array(payload)
+        let first = String(chars[0..<4])
+        let midStart = chars.count / 2 - 2
+        let middle = String(chars[midStart..<(midStart + 4)])
+        let last = String(chars[(chars.count - 4)...])
+        return "\(prefix)\(first)...\(middle)...\(last)"
+    }
+}

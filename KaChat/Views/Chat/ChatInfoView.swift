@@ -235,7 +235,7 @@ struct ChatInfoView: View {
                     Button {
                         UIPasteboard.general.string = contact.address
                         Haptics.success()
-                        showToast(localized("Address copied to clipboard."))
+                        showToast(contact.address.addressCopiedToastText)
                     } label: {
                         VStack(spacing: 12) {
                             if let qrImage = makeQRCodeImage(from: contact.address) {

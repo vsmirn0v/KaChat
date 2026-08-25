@@ -337,7 +337,7 @@ struct SwapView: View {
                         Button {
                             UIPasteboard.general.string = payinAddress
                             Haptics.success()
-                            showToast("Address copied")
+                            showToast(payinAddress.addressCopiedToastText)
                         } label: {
                             Image(uiImage: qrImage)
                                 .interpolation(.none)
@@ -357,7 +357,7 @@ struct SwapView: View {
             Button {
                 UIPasteboard.general.string = result.payinAddress ?? ""
                 Haptics.success()
-                showToast("Address copied")
+                showToast((result.payinAddress ?? "").addressCopiedToastText)
             } label: {
                 Text(result.payinAddress ?? "")
                     .font(.caption)
@@ -716,6 +716,7 @@ private struct SwapDetailView: View {
     @ObservedObject private var swapService = SwapService.shared
     @Environment(\.dismiss) private var dismiss
     @State private var toastMessage: String?
+    @State private var toastToken = UUID()
     @State private var isRefreshingStatus = false
 
     /// The LIVE history entry - the sheet used to render the captured value, so Refresh
@@ -756,7 +757,7 @@ private struct SwapDetailView: View {
                     Button {
                         UIPasteboard.general.string = swap.payinAddress
                         Haptics.success()
-                        toastMessage = "Address copied"
+                        showToast(swap.payinAddress.addressCopiedToastText)
                     } label: {
                         Text(swap.payinAddress)
                             .font(.system(.caption, design: .monospaced))
@@ -782,7 +783,7 @@ private struct SwapDetailView: View {
                     Button {
                         UIPasteboard.general.string = swap.id
                         Haptics.success()
-                        toastMessage = "Exchange ID copied"
+                        showToast("Exchange ID copied")
                     } label: {
                         Text(swap.id)
                             .font(.system(.caption, design: .monospaced))
@@ -797,7 +798,7 @@ private struct SwapDetailView: View {
                         Task {
                             let status = await SwapService.shared.refreshSwapStatusAsync(id: swap.id)
                             isRefreshingStatus = false
-                            toastMessage = status.map { "Status: \($0.capitalized)" } ?? "Couldn't reach ChangeNOW - try again"
+                            showToast(status.map { "Status: \($0.capitalized)" } ?? "Couldn't reach ChangeNOW - try again")
                         }
                     } label: {
                         HStack {
@@ -830,6 +831,21 @@ private struct SwapDetailView: View {
     private func formatDecimal(_ text: String) -> String {
         guard let value = Double(text) else { return text }
         return String(format: "%.8f", value)
+    }
+
+    private func showToast(_ message: String) {
+        let token = UUID()
+        toastToken = token
+        withAnimation(.easeOut(duration: 0.2)) {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    toastMessage = nil
+                }
+            }
+        }
     }
 
     private func makeQRCodeImage(from string: String) -> UIImage? {

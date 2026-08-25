@@ -1297,6 +1297,7 @@ struct NotificationsSettingsView: View {
     @State private var isEnablingPush = false
     @State private var notificationPermissionDenied = false
     @State private var toastMessage: String?
+    @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
 
     var body: some View {
@@ -1456,13 +1457,17 @@ struct NotificationsSettingsView: View {
     }
 
     private func showToast(_ message: String, style: ToastStyle = .success) {
+        let token = UUID()
+        toastToken = token
         toastStyle = style
-        withAnimation {
+        withAnimation(.easeOut(duration: 0.2)) {
             toastMessage = message
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            withAnimation {
-                toastMessage = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    toastMessage = nil
+                }
             }
         }
     }
@@ -1898,6 +1903,7 @@ struct ConnectionSettingsView: View {
     @State private var savedNodeAddressError: String?
 
     @State private var toastMessage: String?
+    @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
 
     var body: some View {
@@ -2087,7 +2093,7 @@ struct ConnectionSettingsView: View {
                         .onTapGesture {
                             UIPasteboard.general.string = entry.address
                             Haptics.success()
-                            showToast("Address copied.")
+                            showToast("Node address copied.")
                         }
                     }
                     .onDelete { indexSet in
@@ -2118,14 +2124,17 @@ struct ConnectionSettingsView: View {
     }
 
     private func showToast(_ message: String, style: ToastStyle = .success) {
-        toastMessage = nil
+        let token = UUID()
+        toastToken = token
         toastStyle = style
-        withAnimation {
+        withAnimation(.easeOut(duration: 0.2)) {
             toastMessage = message
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            withAnimation {
-                toastMessage = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    toastMessage = nil
+                }
             }
         }
     }
@@ -2380,6 +2389,7 @@ struct ConnectionStatusDetailView: View {
     @State private var nodeRecords: [NodeRecord] = []
     @State private var showClearPoolConfirm: Bool = false
     @State private var toastMessage: String?
+    @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
 
     var body: some View {
@@ -2795,14 +2805,17 @@ struct ConnectionStatusDetailView: View {
     }
 
     private func showToast(_ message: String, style: ToastStyle = .success) {
-        toastMessage = nil
+        let token = UUID()
+        toastToken = token
         toastStyle = style
-        withAnimation {
+        withAnimation(.easeOut(duration: 0.2)) {
             toastMessage = message
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            withAnimation {
-                toastMessage = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    toastMessage = nil
+                }
             }
         }
     }

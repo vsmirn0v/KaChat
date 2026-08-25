@@ -93,7 +93,7 @@ struct BroadcastChannelView: View {
                         // composing is blocked. Mirrors 1:1 chat's gate exactly.
                         ZeroBalanceFundingCardView(
                             address: myAddress,
-                            onCopied: { _ in showToast("Address copied to clipboard.") }
+                            onCopied: { showToast($0.addressCopiedToastText) }
                         )
                         .padding(.horizontal)
                         .padding(.bottom, 4)
@@ -258,7 +258,7 @@ struct BroadcastChannelView: View {
                                         onPayInKaspa: { openChat(with: message.senderAddress, paymentMode: true) },
                                         onCopyAddress: {
                                             UIPasteboard.general.string = message.senderAddress
-                                            showToast("Address copied.")
+                                            showToast(message.senderAddress.addressCopiedToastText)
                                         },
                                         onHideSender: { broadcastService.hideSender(message.senderAddress, inChannel: channelName) },
                                         onReply: { broadcastService.startReplyTo(message) },

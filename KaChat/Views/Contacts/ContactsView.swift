@@ -967,7 +967,7 @@ struct ProfileView: View {
                 guard let address else { return }
                 UIPasteboard.general.string = address
                 Haptics.success()
-                showToast("Address copied to clipboard.")
+                showToast(address.addressCopiedToastText)
             } label: {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
@@ -3801,20 +3801,16 @@ struct ChattingAddressQRView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 40)
 
-                    Button {
-                        UIPasteboard.general.string = address
-                        Haptics.success()
-                        showToast("Address copied to clipboard.")
-                    } label: {
-                        Label("Copy Address", systemImage: "doc.on.doc")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(.accentColor)
-                    }
+                    Text("Tap anywhere to copy")
+                        .font(.footnote)
+                        .foregroundColor(Color.black.opacity(0.4))
 
                     Spacer()
                     Spacer()
                 }
             )
+            .contentShape(Rectangle())
+            .onTapGesture { copyAddress() }
             .toast(message: toastMessage)
             .toolbar {
                 ToolbarItem(placement: .principal) {
@@ -3832,6 +3828,12 @@ struct ChattingAddressQRView: View {
                     qrImage = image
                 }
             }
+    }
+
+    private func copyAddress() {
+        UIPasteboard.general.string = address
+        Haptics.success()
+        showToast(address.addressCopiedToastText)
     }
 
     private func showToast(_ message: String) {
