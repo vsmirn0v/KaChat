@@ -2879,18 +2879,24 @@ extension ChatService {
     /// Throttle bookkeeping for `clearDeliveredNotifications` - the sweep is an XPC
     /// round-trip to the notification daemon, and mark-read paths can fire in bursts
     /// during catch-up sync. One sweep per thread per 2s is plenty.
-    private nonisolated static let clearThrottleQueue = DispatchQueue(label: "com.kachat.notifClearThrottle")
+    /// NSLock, not DispatchQueue.sync: callers run inside Swift Concurrency tasks, and a
+    /// forced dispatch sync from the cooperative pool trips the runtime's
+    /// "unsafeForcedSync called from Swift Concurrent context" diagnostic. A lock around
+    /// a dictionary lookup is the sanctioned pattern for a critical section this small.
+    private nonisolated static let clearThrottleLock = NSLock()
     nonisolated(unsafe) private static var lastClearByThread: [String: Date] = [:]
 
     nonisolated static func clearDeliveredNotifications(threadIdentifier: String) {
-        let allowed = clearThrottleQueue.sync { () -> Bool in
-            let now = Date()
-            if let last = lastClearByThread[threadIdentifier], now.timeIntervalSince(last) < 2.0 {
-                return false
-            }
+        clearThrottleLock.lock()
+        let now = Date()
+        let allowed: Bool
+        if let last = lastClearByThread[threadIdentifier], now.timeIntervalSince(last) < 2.0 {
+            allowed = false
+        } else {
             lastClearByThread[threadIdentifier] = now
-            return true
+            allowed = true
         }
+        clearThrottleLock.unlock()
         guard allowed else { return }
         UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
             let ids = delivered
