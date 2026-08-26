@@ -1193,6 +1193,13 @@ final class NextcloudService: ObservableObject {
         guard (200..<300).contains(http.statusCode) else {
             throw NextcloudError.httpError(http.statusCode)
         }
+        // A WebDAV GET of the backup file is never legitimately HTML; a 2xx HTML body is a
+        // reverse-proxy, login, or maintenance page standing in for the server. Without this
+        // check that page flows into the merge parser and surfaces as "the file on the server
+        // isn't a KaChat backup", which misreads a transient hiccup as a foreign file.
+        if http.mimeType?.lowercased().contains("html") == true {
+            throw NextcloudError.malformedResponse
+        }
 
         let expected: Int64? = http.expectedContentLength > 0 ? http.expectedContentLength : nil
         var data = Data()
