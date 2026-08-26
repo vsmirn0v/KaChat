@@ -778,8 +778,12 @@ struct MessageBubbleView: View {
     }
 
     private func chessLiveCard(_ summary: ChessGameSummary) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ChessBoardThumbnail(board: summary.board)
+        // The status row is pinned to the board's width: its Spacer must push the timer chip
+        // to the board's right edge, not stretch the whole card to the bubble's max width
+        // (which left a wide dark void beside the board).
+        let boardSize: CGFloat = 160
+        return VStack(alignment: .leading, spacing: 8) {
+            ChessBoardThumbnail(board: summary.board, size: boardSize)
             HStack(spacing: 6) {
                 Text(summary.statusText)
                     .font(.caption)
@@ -795,6 +799,7 @@ struct MessageBubbleView: View {
                     .foregroundColor(.secondary)
                 }
             }
+            .frame(width: boardSize)
         }
         .padding(10)
         .background(Color(.systemGray6))
