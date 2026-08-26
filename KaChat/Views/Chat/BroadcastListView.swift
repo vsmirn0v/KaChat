@@ -56,6 +56,9 @@ struct BroadcastListView: View {
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var hasAppliedInitialChannel = false
+    /// Collapsed by default: eleven language rooms would bury the two Popular rooms and the
+    /// user's own channels under a wall of list.
+    @State private var languagesExpanded = false
 
     init(initialChannel: String? = nil) {
         self.initialChannel = initialChannel
@@ -190,44 +193,90 @@ struct BroadcastListView: View {
             }
     }
 
+    /// The Popular section's rows: the two auto-joined curated rooms, then the collapsible
+    /// "Other Languages" category and, when expanded, the curated language rooms. Split out of
+    /// `combinedList` purely to keep each SwiftUI view builder small enough to type-check
+    /// quickly (this file has hit "unable to type-check in reasonable time" before).
+    @ViewBuilder
+    private var popularSectionRows: some View {
+        ForEach(BroadcastService.featuredChannels, id: \.self) { name in
+            let channel = broadcastService.channels.first { $0.channelName == name }
+            HStack(spacing: 4) {
+                Button {
+                    selectedChannel = name
+                } label: {
+                    Text("#\(name)")
+                        .font(.body)
+                        .fontWeight(.bold)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                // Curated rooms are permanent (no Leave) with fixed 3-day retention
+                // (no gear) and indexer-backed history (no listen toggle) - the bell
+                // is the only control, gating in-app banners AND remote push.
+                if let channel {
+                    Button {
+                        toggleNotify(channel)
+                    } label: {
+                        Image(systemName: channel.notifyEnabled ? "bell.fill" : "bell.slash")
+                            .foregroundColor(channel.notifyEnabled ? .accentColor : .secondary)
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+            .padding(16)
+            .background(Color(UIColor.secondarySystemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        }
+
+        // "Other Languages": a collapsed category inside Popular (so the section
+        // header's 30-day retention note covers these rooms too, which it correctly
+        // does - they are indexer-tracked exactly like the two above).
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { languagesExpanded.toggle() }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "globe")
+                    .foregroundColor(.accentColor)
+                Text("Other Languages")
+                    .font(.body.weight(.bold))
+                    .foregroundColor(.primary)
+                Spacer(minLength: 0)
+                Text("\(BroadcastService.languageChannels.count)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Image(systemName: "chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(.secondary)
+                    .rotationEffect(.degrees(languagesExpanded ? 0 : -90))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(16)
+        .background(Color(UIColor.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+
+        if languagesExpanded {
+            ForEach(BroadcastService.languageChannels, id: \.self) { name in
+                languageChannelRow(name)
+            }
+        }
+    }
+
     private var combinedList: some View {
         List {
             Section {
-                ForEach(BroadcastService.featuredChannels, id: \.self) { name in
-                    let channel = broadcastService.channels.first { $0.channelName == name }
-                    HStack(spacing: 4) {
-                        Button {
-                            selectedChannel = name
-                        } label: {
-                            Text("#\(name)")
-                                .font(.body)
-                                .fontWeight(.bold)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-
-                        // Curated rooms are permanent (no Leave) with fixed 3-day retention
-                        // (no gear) and indexer-backed history (no listen toggle) - the bell
-                        // is the only control, gating in-app banners AND remote push.
-                        if let channel {
-                            Button {
-                                toggleNotify(channel)
-                            } label: {
-                                Image(systemName: channel.notifyEnabled ? "bell.fill" : "bell.slash")
-                                    .foregroundColor(channel.notifyEnabled ? .accentColor : .secondary)
-                                    .frame(width: 32, height: 32)
-                            }
-                            .buttonStyle(.borderless)
-                        }
-                    }
-                    .padding(16)
-                    .background(Color(UIColor.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                }
+                popularSectionRows
             } header: {
                 // The retention note lives here since the in-room banner was removed to keep
                 // the chat itself clean.
@@ -243,8 +292,10 @@ struct BroadcastListView: View {
             }
 
             Section {
+                // Every curated room (Popular and the language rooms) is already rendered above,
+                // so a joined language room must not also appear here as one of "your" channels.
                 let ownChannels = broadcastService.channels.filter {
-                    !BroadcastService.featuredChannels.contains($0.channelName)
+                    !BroadcastService.indexedChannels.contains($0.channelName)
                 }
                 if ownChannels.isEmpty {
                     Text("No channels yet - tap + to join or create one.")
@@ -289,6 +340,70 @@ struct BroadcastListView: View {
             .foregroundColor(.accentColor)
             .textCase(nil)
             .padding(.leading, 4)
+    }
+
+    /// One curated language room. Indented under the "Other Languages" card, showing the native
+    /// language name over its channel name. These rooms are NOT auto-joined, so the store row
+    /// (and with it the bell state) may not exist yet - both actions create it on demand.
+    private func languageChannelRow(_ name: String) -> some View {
+        let channel = broadcastService.channels.first { $0.channelName == name }
+        return HStack(spacing: 4) {
+            Button {
+                openCuratedChannel(name)
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(BroadcastService.languageDisplayName(for: name) ?? "#\(name)")
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Text("#\(name)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                toggleNotifyForCuratedChannel(name)
+            } label: {
+                let isOn = channel?.notifyEnabled ?? false
+                Image(systemName: isOn ? "bell.fill" : "bell.slash")
+                    .foregroundColor(isOn ? .accentColor : .secondary)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(16)
+        .background(Color(UIColor.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        // Deeper leading inset than the cards above: these read as children of the
+        // "Other Languages" row they slid out from.
+        .listRowInsets(EdgeInsets(top: 4, leading: 32, bottom: 4, trailing: 16))
+    }
+
+    /// Opens a curated room, creating its store row first when it has none (the language rooms
+    /// are not auto-joined). `joinChannel` is a no-op for an already-joined room.
+    private func openCuratedChannel(_ name: String) {
+        if !broadcastService.channels.contains(where: { $0.channelName == name }) {
+            broadcastService.joinChannel(name)
+        }
+        selectedChannel = name
+    }
+
+    /// Bell for a curated room that may have no store row yet - join first, then toggle, so the
+    /// very first tap turns notifications ON rather than silently creating an off row.
+    private func toggleNotifyForCuratedChannel(_ name: String) {
+        if let channel = broadcastService.channels.first(where: { $0.channelName == name }) {
+            toggleNotify(channel)
+            return
+        }
+        broadcastService.joinChannel(name)
+        guard let joined = broadcastService.channels.first(where: { $0.channelName == name }) else { return }
+        // A fresh row starts with the bell off, so this first toggle turns it on.
+        toggleNotify(joined)
     }
 
     private func ownChannelRow(_ channel: BroadcastChannel) -> some View {
@@ -367,7 +482,7 @@ struct BroadcastListView: View {
     private func toggleNotify(_ channel: BroadcastChannel) {
         let newValue = !channel.notifyEnabled
         broadcastService.setNotifyEnabled(newValue, forChannel: channel.channelName)
-        let isIndexed = BroadcastService.featuredChannels.contains(channel.channelName)
+        let isIndexed = BroadcastService.indexedChannels.contains(channel.channelName)
         showToast(newValue
             ? (isIndexed
                 ? "You'll get notifications for new messages in this broadcast, even when the app is closed"

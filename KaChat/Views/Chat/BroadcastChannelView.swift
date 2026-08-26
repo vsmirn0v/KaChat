@@ -75,7 +75,7 @@ struct BroadcastChannelView: View {
     /// Indexer-tracked curated channel (#kaspa / #kachat-bugs): history comes from the
     /// broadcast indexer and retention is fixed at 30 days.
     private var isIndexedChannel: Bool {
-        BroadcastService.featuredChannels.contains(BroadcastChannelName.normalize(channelName))
+        BroadcastService.indexedChannels.contains(BroadcastChannelName.normalize(channelName))
     }
 
     var body: some View {

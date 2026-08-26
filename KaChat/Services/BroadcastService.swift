@@ -11,10 +11,57 @@ import UserNotifications
 final class BroadcastService: ObservableObject {
     static let shared = BroadcastService()
 
-    /// Hardcoded curated channels shown in a "Popular" section, matching Android.
+    /// Hardcoded curated channels shown in a "Popular" section, matching Android. These two are
+    /// AUTO-JOINED for every account (see `ensureFeaturedChannelsJoined`).
     /// nonisolated: read from BroadcastStore's background prune (retention rule) as well as
     /// main-actor UI - immutable Sendable value, safe from anywhere.
     nonisolated static let featuredChannels = ["kaspa", "kachat-bugs"]
+
+    /// Curated per-language rooms, listed behind the collapsible "Other Languages" row under
+    /// Popular. Indexer-tracked exactly like the featured rooms (30-day retention, indexer
+    /// history, no retention gear, remote-push eligible) but deliberately NOT auto-joined: a
+    /// store row is created on first open or bell tap. Auto-joining eleven more rooms would
+    /// multiply push registrations, block-scan subscriptions and cellular cost for every user,
+    /// including the vast majority who want none of them.
+    /// Ordered alphabetically by display name, Latin scripts first (see `languageDisplayName`).
+    nonisolated static let languageChannels = [
+        "kaspa-indonesia",
+        "kaspa-czech",
+        "kaspa-german",
+        "kaspa-espanol",
+        "kaspa-francais",
+        "kaspa-portugues",
+        "kaspa-slovak",
+        "kaspa-chinese",
+        "kaspa-japanese",
+        "kaspa-korean",
+        "kaspa-hebrew",
+    ]
+
+    /// Every indexer-tracked room. EVERYTHING that follows from "the indexer serves this room's
+    /// history" keys off this set - 30-day retention, no per-room retention gear, no Leave,
+    /// remote-push registration, the cellular block-stream skip, the push-covered local-banner
+    /// skip. Only auto-join and the pinned Popular list use `featuredChannels` alone.
+    nonisolated static let indexedChannels = featuredChannels + languageChannels
+
+    /// Native-language label for a curated language room, e.g. "kaspa-espanol" -> "Español".
+    /// Native names (not English ones) so a speaker scanning the list finds their own language.
+    nonisolated static func languageDisplayName(for channel: String) -> String? {
+        switch BroadcastChannelName.normalize(channel) {
+        case "kaspa-indonesia": return "Bahasa Indonesia"
+        case "kaspa-czech": return "Čeština"
+        case "kaspa-german": return "Deutsch"
+        case "kaspa-espanol": return "Español"
+        case "kaspa-francais": return "Français"
+        case "kaspa-portugues": return "Português"
+        case "kaspa-slovak": return "Slovenčina"
+        case "kaspa-chinese": return "中文"
+        case "kaspa-japanese": return "日本語"
+        case "kaspa-korean": return "한국어"
+        case "kaspa-hebrew": return "עברית"
+        default: return nil
+        }
+    }
 
     @Published private(set) var channels: [BroadcastChannel] = []
     @Published private(set) var messagesByChannel: [String: [BroadcastMessage]] = [:]
@@ -117,8 +164,9 @@ final class BroadcastService: ObservableObject {
     }
 
     func leaveChannel(_ name: String) {
-        // Curated rooms can't be left - no UI offers it; guard against stray paths.
-        guard !Self.featuredChannels.contains(BroadcastChannelName.normalize(name)) else { return }
+        // Curated rooms (Popular and the language rooms alike) can't be left - both are
+        // permanent fixtures of the list screen, so no UI offers it; guard against stray paths.
+        guard !Self.indexedChannels.contains(BroadcastChannelName.normalize(name)) else { return }
         let normalized = BroadcastChannelName.normalize(name)
         store.leaveChannel(normalized)
         messagesByChannel.removeValue(forKey: normalized)
@@ -137,7 +185,7 @@ final class BroadcastService: ObservableObject {
     func setNotifyEnabled(_ enabled: Bool, forChannel name: String) {
         // Indexed channels' bells also gate remote push - sync the registration so the push
         // service starts/stops sending for this channel.
-        if Self.featuredChannels.contains(BroadcastChannelName.normalize(name)) {
+        if Self.indexedChannels.contains(BroadcastChannelName.normalize(name)) {
             Task { await PushNotificationManager.shared.updateWatchedAddresses() }
         }
         store.setNotifyEnabled(enabled, forChannel: name)
@@ -181,7 +229,7 @@ final class BroadcastService: ObservableObject {
     /// Hides in the indexed channels also gate server-side push - re-sync the registration so
     /// the push service stops (or resumes) sending for that sender.
     private func syncHiddenSendersToPushIfNeeded(channel: String) {
-        guard Self.featuredChannels.contains(BroadcastChannelName.normalize(channel)) else { return }
+        guard Self.indexedChannels.contains(BroadcastChannelName.normalize(channel)) else { return }
         Task { await PushNotificationManager.shared.updateWatchedAddresses() }
     }
 
@@ -336,7 +384,7 @@ final class BroadcastService: ObservableObject {
         // Indexed channels have no listen toggle - while the app is OPEN they scan whenever
         // their bell is on (so in-app banners fire); remote push covers the closed-app case.
         for channel in channels where channel.alwaysListen
-            || (Self.featuredChannels.contains(channel.channelName) && channel.notifyEnabled) {
+            || (Self.indexedChannels.contains(channel.channelName) && channel.notifyEnabled) {
             wanted.insert(channel.channelName)
         }
         return wanted
@@ -876,7 +924,7 @@ final class BroadcastService: ObservableObject {
         let indexerConfigured = !AppSettings.load().broadcastIndexerURL
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         if indexerConfigured {
-            wanted.subtract(Set(Self.featuredChannels))
+            wanted.subtract(Set(Self.indexedChannels))
         }
         return wanted
     }
@@ -1031,7 +1079,7 @@ final class BroadcastService: ObservableObject {
         // scan-driven local banner there so one message can't notify twice. While the app is
         // ACTIVE the scan is the notification source whatever the mode
         // (AppDelegate.willPresent drops broadcast pushes in foreground), so the banner fires.
-        if Self.featuredChannels.contains(channel), settings.notificationMode == .remotePush,
+        if Self.indexedChannels.contains(channel), settings.notificationMode == .remotePush,
            UIApplication.shared.applicationState != .active {
             return
         }

@@ -546,7 +546,7 @@ final class BroadcastStore {
                 // Indexer-tracked channels keep the indexer's FULL 30-day window (the gear is
                 // hidden for them in the UI; the indexer serves 30 days and the room should
                 // always show all of it). Other channels keep the user setting, 3-day cap.
-                let retention = BroadcastService.featuredChannels.contains(channel.channelName)
+                let retention = BroadcastService.indexedChannels.contains(channel.channelName)
                     ? Self.indexerRetentionMillis
                     : min(channel.retentionMillis, Self.maxRetentionMillis)
                 let cutoff = nowMillis - retention

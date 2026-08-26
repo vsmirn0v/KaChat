@@ -1291,7 +1291,7 @@ final class PushNotificationManager: ObservableObject {
         // whose fingerprint includes this list, so the re-registration happens automatically.
         guard !AppSettings.load().childModeEnabled else { return [] }
         return BroadcastService.shared.channels
-            .filter { BroadcastService.featuredChannels.contains($0.channelName) && $0.notifyEnabled }
+            .filter { BroadcastService.indexedChannels.contains($0.channelName) && $0.notifyEnabled }
             .map(\.channelName)
             .sorted()
     }
