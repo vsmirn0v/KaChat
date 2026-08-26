@@ -1285,13 +1285,13 @@ struct ProfileView: View {
         )
     }
 
+    /// Marketing version only ("4.0") - the build number stays out of About entirely (it still
+    /// travels in diagnostics archives, where it matters).
     private var appVersionDisplay: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
 
         switch (version?.trimmingCharacters(in: .whitespacesAndNewlines), build?.trimmingCharacters(in: .whitespacesAndNewlines)) {
-        case let (v?, b?) where !v.isEmpty && !b.isEmpty:
-            return "\(v) (\(b))"
         case let (v?, _) where !v.isEmpty:
             return v
         case let (_, b?) where !b.isEmpty:
