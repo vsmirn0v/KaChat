@@ -91,9 +91,31 @@ struct ProfileView: View {
             // itself runs .inline, where the principal balance view already occupies the title
             // slot - identical to what the bar showed mid-scroll before.
             .safeAreaInset(edge: .top, spacing: 0) {
-                HStack {
+                HStack(spacing: 12) {
                     Text("Profile")
                         .font(.largeTitle.weight(.bold))
+                    // Global notification center: KaPosts activity, group @mentions, live
+                    // broadcasts - its own glass pill beside the title (moved out of the nav
+                    // bar, where it crowded the balance off center). A plain red DOT (no
+                    // count) signals unread.
+                    Button {
+                        showNotifCenter = true
+                    } label: {
+                        Image(systemName: "bell")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.accentColor)
+                            .frame(width: 38, height: 38)
+                            .background(bellGlassBackground)
+                            .overlay(alignment: .topTrailing) {
+                                if notifCenter.unreadCount > 0 {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: -4, y: 4)
+                                }
+                            }
+                    }
+                    .accessibilityLabel(Text("Notifications"))
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 16)
@@ -106,46 +128,24 @@ struct ProfileView: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // Both sides mirror each other with hidden copies of the opposite side's
-                // items, so the leading and trailing bar groups always occupy the same width
-                // and the principal balance sits at TRUE screen center - two trailing buttons
-                // against one leading dot otherwise shove the title view visibly left.
+                // One item per side (dot left, gear right) so the bar's glass pills hug their
+                // real content and the principal balance centers naturally. The notification
+                // bell lives next to the pinned "Profile" title below, not in this bar - an
+                // earlier hidden-mirror centering trick made iOS 26's Liquid Glass stretch
+                // the leading pill into a long empty capsule around the lone dot.
                 ToolbarItem(placement: .navigationBarLeading) {
-                    HStack(spacing: 12) {
-                        ConnectionStatusIndicator()
-                        Image(systemName: "bell").hidden()
-                        Image(systemName: "gear").hidden()
-                    }
+                    ConnectionStatusIndicator()
                 }
                 ToolbarItem(placement: .principal) {
                     balanceToolbarView
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    HStack(spacing: 12) {
-                        ConnectionStatusIndicator().hidden()
-                        // Global notification center: KaPosts activity, group @mentions, live
-                        // broadcasts. A plain red DOT (no count) signals unread.
-                        Button {
-                            showNotifCenter = true
-                        } label: {
-                            Image(systemName: "bell")
-                                .overlay(alignment: .topTrailing) {
-                                    if notifCenter.unreadCount > 0 {
-                                        Circle()
-                                            .fill(Color.red)
-                                            .frame(width: 8, height: 8)
-                                            .offset(x: 4, y: -3)
-                                    }
-                                }
-                        }
-                        .accessibilityLabel(Text("Notifications"))
-                        Button {
-                            showSettings = true
-                        } label: {
-                            Image(systemName: "gear")
-                        }
-                        .accessibilityLabel(Text("Settings"))
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gear")
                     }
+                    .accessibilityLabel(Text("Settings"))
                 }
             }
             .sheet(isPresented: $showNotifCenter) {
@@ -370,6 +370,21 @@ struct ProfileView: View {
                     giftAlreadyClaimedTapCount = 0
                 }
             }
+        }
+    }
+
+    /// The bell's circular glass chip: the system's real Liquid Glass on iOS 26+, the app's
+    /// established material-and-hairline glass look on older iOS (same pattern as the KaPosts
+    /// drawer card).
+    @ViewBuilder
+    private var bellGlassBackground: some View {
+        if #available(iOS 26.0, *) {
+            Color.clear
+                .glassEffect(.regular, in: Circle())
+        } else {
+            Circle()
+                .fill(.regularMaterial)
+                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
         }
     }
 
