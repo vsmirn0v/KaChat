@@ -691,6 +691,9 @@ class NotificationService: UNNotificationServiceExtension {
         let from: String?
         let to: String?
         let accepted: Bool?
+        /// "timeout" when the sender's clock ran out (timed games) - distinguishes a flag
+        /// fall from a manual resignation in the push body.
+        let reason: String?
     }
 
     private func chessPreviewText(for content: String) -> String? {
@@ -706,7 +709,7 @@ class NotificationService: UNNotificationServiceExtension {
             guard let from = parsed.from, let to = parsed.to else { return "♟️ Played a chess move" }
             return "♟️ Played \(from) → \(to)"
         case "chess_resign":
-            return "♟️ Resigned the chess game"
+            return parsed.reason == "timeout" ? "♟️ Lost on time" : "♟️ Resigned the chess game"
         default:
             return nil
         }

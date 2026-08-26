@@ -2988,6 +2988,26 @@ extension ChatService {
         // what's notified rather than the raw `{"type":"reply",...}` JSON.
         let unwrapped = MessageReplyCodec.unwrappedText(content)
 
+        // Chess envelopes are JSON in the message content; without this they banner as raw
+        // JSON on the local (foreground) path while the push extension shows friendly text.
+        // Wording matches the NSE's chessPreviewText exactly.
+        if let chessEnvelope = ChessCodec.parseAny(unwrapped) {
+            switch chessEnvelope {
+            case .invite:
+                return "♟️ Invited you to a game of chess"
+            case .response(let response):
+                return response.accepted ? "♟️ Accepted your chess game" : "♟️ Declined your chess game"
+            case .move(let move):
+                return "♟️ Played \(move.from) → \(move.to)"
+            case .resign(let resign):
+                return resign.reason == "timeout" ? "♟️ Lost on time" : "♟️ Resigned the chess game"
+            }
+        }
+        // Same guard for reaction envelopes, mirroring the NSE's reactionPreviewText.
+        if let reaction = MessageReactionCodec.parse(unwrapped) {
+            return "Reacted \(reaction.emoji)"
+        }
+
         // Check if content is a file JSON payload
         let trimmed = unwrapped.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else {
