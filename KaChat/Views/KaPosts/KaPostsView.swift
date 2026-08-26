@@ -237,8 +237,18 @@ struct KaPostsView: View {
     /// because the profile is itself a sheet: the thread must present from inside the profile's
     /// own NavigationStack (a view can only present one sheet at a time), not the top-level presenter.
     @State private var profileDetailTarget: PostDetailTarget?
-    /// "View Post in Explorer" tapped: engagement screen first (likes/dislikes/reposts/quotes).
+    /// "Post Activity" tapped from a feed/profile/bookmark cell: engagement screen first
+    /// (likes/dislikes/reposts/quotes).
     @State private var engagementTarget: DraftPost?
+    /// "Post Activity" tapped from INSIDE an open thread. Separate from `engagementTarget`
+    /// because the thread is itself a sheet: the top-level `$engagementTarget` sheet hangs off
+    /// `feedLayer`, which cannot present a second sheet while the thread is up - the screen
+    /// only appeared after the thread was closed. This one presents from the thread's own
+    /// hierarchy instead.
+    @State private var threadEngagementTarget: DraftPost?
+    /// Set when a reply notification opens the PARENT post's thread: once the thread's
+    /// comment list contains this reply txid, the list scrolls it into view.
+    @State private var pendingThreadScrollRemoteId: String?
     @State private var profileFollowListKind: KaPostsFollowListView.Kind?
     @State private var myFollowersCount: Int?
     /// Your on-chain posts fetched from the indexer for the profile feed - local session posts
@@ -1271,30 +1281,46 @@ struct KaPostsView: View {
 
     /// Applies a mutation to a post OR any of its comments, found by id - one code path for
     /// engagement on both levels of the thread.
-    /// Mutates a post ANYWHERE in the trees - top level or nested comments at any depth
-    /// (comment threads can nest now).
+    /// Mutates EVERY node with this id, in every tree and at any depth. Remote posts carry a
+    /// DETERMINISTIC id (stableId from the txid), so the same post routinely exists as several
+    /// nodes at once - e.g. a reply is both a top-level feed card in `remotePosts` AND a
+    /// comment node inside its parent's thread. The old first-match-and-return version updated
+    /// only whichever twin the search order hit first (usually the newer feed card, which
+    /// sits BEFORE its parent in the newest-first feed), so a like/dislike/repost/bookmark
+    /// made inside an open thread landed on the twin and the thread kept rendering the
+    /// untouched node until it was closed and reopened.
     private func mutatePost(id: UUID, _ transform: (inout DraftPost) -> Void) {
-        func mutate(_ list: inout [DraftPost]) -> Bool {
+        func mutate(_ list: inout [DraftPost]) {
             for index in list.indices {
                 if list[index].id == id {
                     transform(&list[index])
-                    return true
                 }
-                if mutate(&list[index].comments) {
-                    return true
-                }
+                mutate(&list[index].comments)
             }
-            return false
         }
-        if mutate(&posts) { return }
-        if mutate(&remotePosts) { return }
-        if mutate(&posterProfilePosts) { return }
-        if mutate(&posterProfileReplies) { return }
-        if mutate(&myProfileRemotePosts) { return }
-        _ = mutate(&myProfileRemoteReplies)
+        mutate(&posts)
+        mutate(&remotePosts)
+        mutate(&posterProfilePosts)
+        mutate(&posterProfileReplies)
+        mutate(&myProfileRemotePosts)
+        mutate(&myProfileRemoteReplies)
+        // The open thread's "Thread" section renders from threadChains COPIES (and segments
+        // beyond the first exist ONLY there), so keep them in step too - otherwise an action
+        // on a chain segment never renders while the thread stays open.
+        for (rootId, chain) in threadChains {
+            guard chain.contains(where: { $0.id == id }) else { continue }
+            var updated = chain
+            for index in updated.indices where updated[index].id == id {
+                transform(&updated[index])
+            }
+            threadChains[rootId] = updated
+        }
     }
 
-    /// Recursive lookup mirroring mutatePost's search order.
+    /// Recursive lookup mirroring mutatePost's coverage (mutatePost updates every twin, so any
+    /// match renders the same state). Thread-chain copies are searched LAST: segments beyond
+    /// the first live only in `threadChains`, and without that fallback opening one of them
+    /// as its own thread came up empty.
     private func findPost(id: UUID) -> DraftPost? {
         func search(_ list: [DraftPost]) -> DraftPost? {
             for post in list {
@@ -1303,8 +1329,14 @@ struct KaPostsView: View {
             }
             return nil
         }
-        return search(posts) ?? search(remotePosts) ?? search(posterProfilePosts)
-            ?? search(posterProfileReplies) ?? search(myProfileRemotePosts) ?? search(myProfileRemoteReplies)
+        if let hit = search(posts) ?? search(remotePosts) ?? search(posterProfilePosts)
+            ?? search(posterProfileReplies) ?? search(myProfileRemotePosts) ?? search(myProfileRemoteReplies) {
+            return hit
+        }
+        for chain in threadChains.values {
+            if let hit = search(chain) { return hit }
+        }
+        return nil
     }
 
     /// findPost by the on-chain txid instead of the local UUID, same recursive coverage.
@@ -1316,8 +1348,14 @@ struct KaPostsView: View {
             }
             return nil
         }
-        return search(posts) ?? search(remotePosts) ?? search(posterProfilePosts)
-            ?? search(posterProfileReplies) ?? search(myProfileRemotePosts) ?? search(myProfileRemoteReplies)
+        if let hit = search(posts) ?? search(remotePosts) ?? search(posterProfilePosts)
+            ?? search(posterProfileReplies) ?? search(myProfileRemotePosts) ?? search(myProfileRemoteReplies) {
+            return hit
+        }
+        for chain in threadChains.values {
+            if let hit = search(chain) { return hit }
+        }
+        return nil
     }
 
     /// Bottom toast stack: the post-undo countdown (while a submit is being held) above the
@@ -2012,12 +2050,12 @@ struct KaPostsView: View {
     /// needed) and open its comment thread.
     private func openSharedPost(txId: String) async {
         if let post = findPost(byRemoteId: txId) {
-            openDetail(post)
+            await openResolvedPost(post)
             return
         }
         await loadFeed()
         if let post = findPost(byRemoteId: txId) {
-            openDetail(post)
+            await openResolvedPost(post)
             return
         }
         // Notification/deep-link targets are usually YOUR OWN content, which lives outside
@@ -2029,7 +2067,7 @@ struct KaPostsView: View {
             await loadMyProfileReplies(pubkey: pubkey, reset: true)
         }
         if let post = findPost(byRemoteId: txId) {
-            openDetail(post)
+            await openResolvedPost(post)
             return
         }
         // Still unresolved: the txid is usually a notification's ACTING content — someone
@@ -2042,7 +2080,9 @@ struct KaPostsView: View {
             await loadPosterProfilePosts(pubkey: n.userPublicKey, reset: true)
             await loadPosterProfileReplies(pubkey: n.userPublicKey, reset: true)
             if let post = findPost(byRemoteId: txId) {
-                openDetail(post)
+                // For a reply notification the stream's contentId IS the parent - pass it
+                // through in case the fetched mapping lost parentPostId.
+                await openResolvedPost(post, parentRemoteIdHint: n.contentType == "reply" ? n.contentId : nil)
                 return
             }
             if let parentId = n.contentId, !parentId.isEmpty, let parent = findPost(byRemoteId: parentId) {
@@ -2051,6 +2091,33 @@ struct KaPostsView: View {
             }
         }
         showActionToast("Post not found - it may be older than the current feed", txId: txId)
+    }
+
+    /// A resolved deep-link/notification target that is itself a REPLY opens its PARENT's
+    /// thread - the post that was replied to on top, the reply visible in the comments below
+    /// and scrolled into view - instead of presenting the bare reply as a context-free thread
+    /// root. The parent resolves from what's already loaded, then from own posts+replies (a
+    /// reply notification always targets YOUR content); when it still can't be found, the
+    /// reply's own thread opens as before.
+    private func openResolvedPost(_ post: DraftPost, parentRemoteIdHint: String? = nil) async {
+        guard let parentId = post.parentRemoteId ?? parentRemoteIdHint,
+              !parentId.isEmpty, parentId != post.remoteId else {
+            openDetail(post)
+            return
+        }
+        if let parent = findPost(byRemoteId: parentId) {
+            openDetail(parent, scrollToCommentRemoteId: post.remoteId)
+            return
+        }
+        if let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() {
+            await loadMyProfilePosts(pubkey: pubkey, reset: true)
+            await loadMyProfileReplies(pubkey: pubkey, reset: true)
+        }
+        if let parent = findPost(byRemoteId: parentId) {
+            openDetail(parent, scrollToCommentRemoteId: post.remoteId)
+            return
+        }
+        openDetail(post)
     }
 
     /// One place for the thread view's cells (root, comments, inline replies) - identical
@@ -2069,7 +2136,9 @@ struct KaPostsView: View {
             onBlock: { moderationStore.block(item.posterAddress) },
             onBookmark: { toggleBookmark(item) },
             onRetry: { retryPost(item) },
-            onViewEngagement: { engagementTarget = item },
+            // Presented from the thread sheet's OWN hierarchy - the top-level
+            // $engagementTarget sheet can't present while the thread sheet is up.
+            onViewEngagement: { threadEngagementTarget = item },
             onFollowToggle: { toggleFollowSubmitting(address: item.posterAddress, pubkey: item.posterPubkey) },
             onOpenProfile: { profileTarget = PosterProfileTarget(address: item.posterAddress, pubkey: item.posterPubkey) },
             onTip: { tip(item.posterAddress) },
@@ -2162,8 +2231,11 @@ struct KaPostsView: View {
         Task { await loadThreadReplies(for: comment, reset: true) }
     }
 
-    private func openDetail(_ post: DraftPost) {
+    private func openDetail(_ post: DraftPost, scrollToCommentRemoteId: String? = nil) {
         replyText = ""
+        // nil on every normal open, so a stale pending scroll target from an earlier
+        // notification landing can never yank a later thread around.
+        pendingThreadScrollRemoteId = scrollToCommentRemoteId
         detailTarget = PostDetailTarget(id: post.id)
         // Remote post: pull its real reply thread from the indexer into the comments array,
         // then walk the author's own continuation so the Thread section can render.
@@ -2178,6 +2250,7 @@ struct KaPostsView: View {
     /// a person's posts/replies straight from their profile.
     private func openProfileDetail(_ post: DraftPost) {
         replyText = ""
+        pendingThreadScrollRemoteId = nil
         profileDetailTarget = PostDetailTarget(id: post.id)
         Task {
             await loadThreadReplies(for: post, reset: true)
@@ -2928,6 +3001,7 @@ struct KaPostsView: View {
         NavigationStack {
             if let post = findPost(id: postId) {
                 VStack(spacing: 0) {
+                    ScrollViewReader { scrollProxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             // X-style upward context: when this thread's root is itself a
@@ -3001,6 +3075,8 @@ struct KaPostsView: View {
                                 let triggerId = kaPostsPrefetchTriggerId(comments)
                                 ForEach(comments) { comment in
                                     threadCell(comment)
+                                        // Scroll anchor for the reply-notification landing.
+                                        .id(comment.remoteId ?? comment.id.uuidString)
                                         .onAppear {
                                             guard comment.id == triggerId else { return }
                                             Task { await loadThreadReplies(for: post, reset: false) }
@@ -3016,6 +3092,31 @@ struct KaPostsView: View {
                                 Task { await loadThreadReplies(for: post, reset: false) }
                             }
                         }
+                    }
+                    // Reply-notification landing: this thread is the PARENT of the reply that
+                    // was tapped - once the comment list actually contains that reply, bring
+                    // it into view (openDetail's reset fetch changes the id list, firing this).
+                    .onChange(of: commentsExcludingThread(of: post).map { $0.remoteId ?? "" }) { ids in
+                        guard let target = pendingThreadScrollRemoteId, ids.contains(target) else { return }
+                        pendingThreadScrollRemoteId = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                scrollProxy.scrollTo(target, anchor: .center)
+                            }
+                        }
+                    }
+                    // Same landing when the reply was already loaded before the sheet opened
+                    // (so the reset fetch changes nothing and onChange never fires).
+                    .onAppear {
+                        guard let target = pendingThreadScrollRemoteId,
+                              commentsExcludingThread(of: post).contains(where: { $0.remoteId == target }) else { return }
+                        pendingThreadScrollRemoteId = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                scrollProxy.scrollTo(target, anchor: .center)
+                            }
+                        }
+                    }
                     }
                     Divider()
                     // @mention autocomplete for COMMENTS - the same suggestion list as the post
@@ -3122,6 +3223,12 @@ struct KaPostsView: View {
                     // listener can't present while this detail sheet is up, so the funding
                     // card (and its Claim Gift flow) presents from in here instead.
                     ZeroBalanceFundingSheetView()
+                }
+                .sheet(item: $threadEngagementTarget) { target in
+                    // Post Activity from INSIDE the open thread - same nested-sheet rule as
+                    // the funding card above: feedLayer's $engagementTarget sheet can't
+                    // present while this thread sheet is up, so it presents from in here.
+                    KaPostEngagementView(post: target)
                 }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -3257,7 +3364,7 @@ private struct KaPostCellView: View {
                             Button {
                                 onViewEngagement()
                             } label: {
-                                Label("View Post in Explorer", systemImage: "globe")
+                                Label("Post Activity", systemImage: "globe")
                             }
                         }
                         if !isOwnPost {
@@ -4773,7 +4880,7 @@ final class KaPostsModerationStore: ObservableObject {
 
 // MARK: - Post engagement screen (who liked/disliked/reposted/quoted, each row -> explorer)
 
-/// Intermediate screen behind "View Post in Explorer": four tabs of actors (Likes, Dislikes,
+/// Intermediate screen behind "Post Activity": four tabs of actors (Likes, Dislikes,
 /// Reposts, Quotes), each row linking to THAT action's transaction on the explorer, plus a link
 /// to the post's own transaction. Actor identity resolves through contacts/KNS as everywhere.
 ///
