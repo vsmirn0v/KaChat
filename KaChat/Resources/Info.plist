@@ -4,6 +4,12 @@
 <dict>
 	<key>AppIdentifierPrefix</key>
 	<string>$(AppIdentifierPrefix)</string>
+	<!-- Export compliance, declared here so App Store Connect stops asking the encryption
+	     and France questions on every single TestFlight upload. If KaChat is ever filed for
+	     mass-market self-classification with the US BIS, flip this to <true/> and add
+	     ITSEncryptionExportComplianceCode with the code Apple issues. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>ChangeNowAPIKey</key>
 	<string>$(CHANGENOW_API_KEY)</string>
 	<key>NSFaceIDUsageDescription</key>
