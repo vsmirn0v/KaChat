@@ -351,8 +351,11 @@ struct ChessGameView: View {
                     Button("Close") { dismiss() }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if let summary, summary.status == .inProgress {
-                        Button("Resign", role: .destructive) {
+                    // Available whenever the game isn't over - including a still-pending
+                    // invite, which the sender must be able to close (a resign on a pending
+                    // game is already how starting a new game retires the previous one).
+                    if let summary, !summary.status.isGameOver {
+                        Button(summary.status == .pendingResponse ? "Cancel game" : "Resign", role: .destructive) {
                             showResignConfirm = true
                         }
                     }
