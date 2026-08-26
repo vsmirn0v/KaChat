@@ -2409,6 +2409,13 @@ struct KaspaNodeQuickAccessSections: View {
 struct ConnectionStatusIndicator: View {
     @EnvironmentObject var chatService: ChatService
     @State private var showDetail = false
+    /// Red is reserved for SUSTAINED disconnection. `.disconnected` is also what the status
+    /// reads at cold start before the first subscribe and in the gaps between reconnect
+    /// attempts, and flashing red there tells the user they're offline when they aren't -
+    /// those windows show orange until the state has persisted for the grace period.
+    @State private var disconnectedSince: Date?
+    @State private var disconnectGraceElapsed = false
+    private static let disconnectGrace: TimeInterval = 8
 
     var body: some View {
         Button {
@@ -2425,6 +2432,27 @@ struct ConnectionStatusIndicator: View {
         .sheet(isPresented: $showDetail) {
             ConnectionStatusDetailView()
         }
+        .onAppear { syncDisconnectedAnchor() }
+        .onChange(of: chatService.connectionStatus) { _ in syncDisconnectedAnchor() }
+        .task(id: disconnectedSince) {
+            disconnectGraceElapsed = false
+            guard let since = disconnectedSince else { return }
+            let remaining = Self.disconnectGrace - Date().timeIntervalSince(since)
+            if remaining > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+            }
+            if !Task.isCancelled, chatService.connectionStatus == .disconnected {
+                disconnectGraceElapsed = true
+            }
+        }
+    }
+
+    private func syncDisconnectedAnchor() {
+        if chatService.connectionStatus == .disconnected {
+            if disconnectedSince == nil { disconnectedSince = Date() }
+        } else {
+            disconnectedSince = nil
+        }
     }
 
     private var statusColor: Color {
@@ -2436,7 +2464,7 @@ struct ConnectionStatusIndicator: View {
         case .connecting:
             return .orange
         case .disconnected:
-            return .red
+            return disconnectGraceElapsed ? .red : .orange
         }
     }
 }
