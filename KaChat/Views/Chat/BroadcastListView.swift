@@ -229,7 +229,17 @@ struct BroadcastListView: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 }
             } header: {
-                sectionHeader("Popular")
+                // The retention note lives here since the in-room banner was removed to keep
+                // the chat itself clean.
+                HStack(alignment: .firstTextBaseline) {
+                    sectionHeader("Popular")
+                    Spacer()
+                    Text("All messages persist for 30 days")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .textCase(nil)
+                        .padding(.trailing, 4)
+                }
             }
 
             Section {

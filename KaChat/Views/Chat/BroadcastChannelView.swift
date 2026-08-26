@@ -108,27 +108,6 @@ struct BroadcastChannelView: View {
                 .animation(.easeInOut(duration: 0.25), value: isChattingBalanceZero)
                 .padding(.bottom, 2)
             }
-            // Permanent notice on the indexed channels - pinned above the messages, never
-            // dismissable.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if isIndexedChannel {
-                    HStack(spacing: 8) {
-                        Image(systemName: "info.circle.fill")
-                            .font(.caption)
-                            .foregroundColor(.accentColor)
-                        Text("All messages are public and are stored for 30 days only.")
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(.secondary)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.regularMaterial)
-                    .overlay(alignment: .bottom) {
-                        Divider()
-                    }
-                }
-            }
         .navigationTitle("#\(channelName)")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
