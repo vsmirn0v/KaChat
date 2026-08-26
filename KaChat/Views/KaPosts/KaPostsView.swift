@@ -705,6 +705,8 @@ struct KaPostsView: View {
                             isFollowing: followStore.isFollowing(post.posterAddress),
                             commentCount: commentCount(of: post),
                             truncatesLongText: true,
+                            quotedDisplayName: post.quoted.map { posterDisplayName($0.posterAddress) },
+                            quotedAvatarURLString: quotedAvatarURL(post),
                             onComment: { openDetail(post) },
                             onMute: { moderationStore.mute(post.posterAddress) },
                             onBlock: { moderationStore.block(post.posterAddress) },
@@ -720,6 +722,7 @@ struct KaPostsView: View {
                             onRepostAction: { handleRepostAction(post, $0) },
                             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                         )
+                        .equatable()
                         .task(id: post.posterAddress) {
                             guard knsService.profileCache[post.posterAddress] == nil,
                                   !post.posterAddress.isEmpty else { return }
@@ -1158,11 +1161,13 @@ struct KaPostsView: View {
         }
     }
 
-    /// Scroll trigger for your own profile: pages whichever tab is on screen.
-    private func loadMoreMyProfile() {
+    /// Scroll trigger for your own profile. Tab-explicit (not "whichever tab is selected"):
+    /// with the profile pager both tabs' lists stay alive, so each page asks for ITS OWN
+    /// next batch regardless of which page is fronted.
+    private func loadMoreMyProfile(_ tab: ProfileFeedTab) {
         guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
         Task {
-            if myProfileFeedTab == .posts {
+            if tab == .posts {
                 await loadMyProfilePosts(pubkey: pubkey, reset: false)
             } else {
                 await loadMyProfileReplies(pubkey: pubkey, reset: false)
@@ -1171,10 +1176,10 @@ struct KaPostsView: View {
     }
 
     /// Same for the tapped poster's profile (its pubkey is remembered when the sheet loads).
-    private func loadMorePosterProfile() {
+    private func loadMorePosterProfile(_ tab: ProfileFeedTab) {
         guard let pubkey = posterProfilePubkey else { return }
         Task {
-            if posterProfileFeedTab == .posts {
+            if tab == .posts {
                 await loadPosterProfilePosts(pubkey: pubkey, reset: false)
             } else {
                 await loadPosterProfileReplies(pubkey: pubkey, reset: false)
@@ -1537,14 +1542,25 @@ struct KaPostsView: View {
     /// The author's own continuation chain for an opened root post, keyed by the root's local
     /// id: [segment2, segment3, ...]. Loaded by walking self-authored replies link by link.
     @State private var threadChains: [UUID: [DraftPost]] = [:]
-    /// Feed probe results: post txid -> "its replies include one by the author" (= thread root).
-    /// false is also cached so a post is probed at most once per session.
-    @State private var threadRootProbe: [String: Bool] = [:]
+    /// Probe bookkeeping that must NOT touch SwiftUI state: claims and negative results live in
+    /// a plain reference box, so the write every NEW ROW makes as it scrolls in is invisible to
+    /// the render loop. Keeping these in @State invalidated the entire feed twice per revealed
+    /// post (once for the claim, once for the - usually negative - result), which is exactly the
+    /// scroll jank the Android port hit with its observable probe-claim maps. Only a POSITIVE
+    /// "this is a thread root" changes pixels, so only that lands in @State below.
+    private final class ThreadProbeClaims {
+        var claimed: Set<String> = []
+    }
+    /// @State holding a reference type: the box's identity is stable for the view's lifetime and
+    /// mutating its contents never triggers a body pass.
+    @State private var threadProbeClaims = ThreadProbeClaims()
+    /// Confirmed thread roots (post txids) - the only probe outcome the UI shows.
+    @State private var threadRootIds: Set<String> = []
 
     private func isThreadRoot(_ post: DraftPost) -> Bool {
         if post.isLocalThreadRoot { return true }
         guard let remoteId = post.remoteId else { return false }
-        return threadRootProbe[remoteId] ?? false
+        return threadRootIds.contains(remoteId)
     }
 
     /// Cheap feed probe, run once per commented post as its cell appears: fetch the first reply
@@ -1553,13 +1569,14 @@ struct KaPostsView: View {
         guard let remoteId = post.remoteId,
               !post.isLocalThreadRoot,
               commentCount(of: post) > 0,
-              threadRootProbe[remoteId] == nil else { return }
-        threadRootProbe[remoteId] = false // claim, so one post never probes twice
+              !threadProbeClaims.claimed.contains(remoteId) else { return }
+        threadProbeClaims.claimed.insert(remoteId) // claim, so one post never probes twice
         guard let page = try? await KaPostsAPIClient.shared.fetchReplies(postId: remoteId, limit: 10, before: nil) else { return }
-        let isThread = page.posts.contains { reply in
+        if page.posts.contains(where: { reply in
             KaPostsAPIClient.kaspaAddress(fromPubkey: reply.userPublicKey) == post.posterAddress
+        }) {
+            threadRootIds.insert(remoteId)
         }
-        threadRootProbe[remoteId] = isThread
     }
 
     /// Walks the author's self-reply chain from an opened root: segment 2 comes from the
@@ -1585,7 +1602,10 @@ struct KaPostsView: View {
                 .first
         }
         threadChains[rootId] = chain
-        if let remoteId = root.remoteId, !chain.isEmpty { threadRootProbe[remoteId] = true }
+        if let remoteId = root.remoteId, !chain.isEmpty {
+            threadProbeClaims.claimed.insert(remoteId)
+            threadRootIds.insert(remoteId)
+        }
     }
 
     /// The root's comments with thread segments removed - a thread's segment 2 IS a direct
@@ -2035,13 +2055,15 @@ struct KaPostsView: View {
 
     /// One place for the thread view's cells (root, comments, inline replies) - identical
     /// wiring everywhere; non-root cells navigate deeper on tap.
-    private func threadCell(_ item: DraftPost, isRoot: Bool = false) -> KaPostCellView {
+    private func threadCell(_ item: DraftPost, isRoot: Bool = false) -> some View {
         KaPostCellView(
             post: item,
             displayName: posterDisplayName(item.posterAddress),
             avatarURLString: knsService.profileCache[item.posterAddress]?.avatarURL,
             isFollowing: followStore.isFollowing(item.posterAddress),
             commentCount: commentCount(of: item),
+            quotedDisplayName: item.quoted.map { posterDisplayName($0.posterAddress) },
+            quotedAvatarURLString: quotedAvatarURL(item),
             onComment: isRoot ? nil : { openDetail(item) },
             onMute: { moderationStore.mute(item.posterAddress) },
             onBlock: { moderationStore.block(item.posterAddress) },
@@ -2057,6 +2079,7 @@ struct KaPostsView: View {
             onRepostAction: { handleRepostAction(item, $0) },
             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
         )
+        .equatable()
     }
 
     /// X-style inline reply chain under a comment: "View N replies" expands the chain in
@@ -2179,8 +2202,10 @@ struct KaPostsView: View {
         }
         let myPosts = (myProfileRemotePosts + localOnly).sorted { $0.timestamp > $1.timestamp }
         return NavigationStack {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+            // Fixed chrome (banner, avatar, name, counts, tab bar) with ONLY the feed paging
+            // underneath - see the pager comment below.
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     // Banner (KNS profile banner when set, subtle gradient fallback).
                     ZStack(alignment: .bottomLeading) {
                         Group {
@@ -2250,73 +2275,56 @@ struct KaPostsView: View {
                     .padding(.bottom, 14)
 
                     profileFeedTabBar(selection: $myProfileFeedTab)
-
-                    let myFeedItems = myProfileFeedTab == .posts ? myPosts : myProfileRemoteReplies
-                    if myFeedItems.isEmpty, isLoadingMyProfilePosts {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 40)
-                    } else if myFeedItems.isEmpty {
-                        VStack(spacing: 12) {
-                            Image(systemName: myProfileFeedTab == .posts ? "square.and.pencil" : "bubble.left")
-                                .font(.system(size: 40))
-                                .foregroundColor(.secondary)
-                            Text(myProfileFeedTab == .posts ? "No posts yet" : "No replies yet")
-                                .font(.headline)
-                            Text(myProfileFeedTab == .posts
-                                 ? "Your posts will show up here."
-                                 : "Replies you post will show up here.")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 40)
-                    } else {
-                        let triggerId = kaPostsPrefetchTriggerId(myFeedItems)
-                        ForEach(myFeedItems) { post in
-                            KaPostCellView(
-                                post: post,
-                                displayName: posterDisplayName(post.posterAddress),
-                                avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
-                                isFollowing: followStore.isFollowing(post.posterAddress),
-                                commentCount: commentCount(of: post),
-                                onComment: nil,
-                                onMute: { moderationStore.mute(post.posterAddress) },
-                                onBlock: { moderationStore.block(post.posterAddress) },
-                                onBookmark: { toggleBookmark(post) },
-                                onRetry: { retryPost(post) },
-                                onViewEngagement: { engagementTarget = post },
-                                onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
-                                onOpenProfile: {},
-                                onTip: { tip(post.posterAddress) },
-                            onLike: { toggleLike(post) },
-                                onDislike: { toggleDislike(post) },
-                                onRepost: { handleRepostTap(post) },
-                                onRepostAction: { handleRepostAction(post, $0) },
-                                onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
-                            )
-                            .onAppear {
-                                guard post.id == triggerId else { return }
-                                loadMoreMyProfile()
-                            }
-                            Divider()
-                                .padding(.leading, 68)
-                        }
-                        KaPostsLoadMoreFooter(
-                            state: myProfileFeedTab == .posts ? myPostsPage : myRepliesPage
-                        ) {
-                            if myProfileFeedTab == .posts {
-                                myPostsPage.prepareManualRetry()
-                            } else {
-                                myRepliesPage.prepareManualRetry()
-                            }
-                            loadMoreMyProfile()
-                        }
-                    }
                 }
+
+                // Finger-tracking pager between Posts and Replies - the same page-style
+                // TabView machinery as the main feed tabs. Both pages stay alive, so the
+                // swipe tracks the finger, each tab keeps its own scroll position, and a
+                // switch never rebuilds the other tab's cells (the old end-of-drag
+                // crossfade rebuilt both lists on every flip).
+                TabView(selection: $myProfileFeedTab) {
+                    profileFeedPage(
+                        items: myPosts,
+                        isLoading: isLoadingMyProfilePosts,
+                        emptyIcon: "square.and.pencil",
+                        emptyTitle: "No posts yet",
+                        emptyBody: "Your posts will show up here.",
+                        pageState: myPostsPage,
+                        onLoadMore: { loadMoreMyProfile(.posts) },
+                        onRetryLoadMore: {
+                            myPostsPage.prepareManualRetry()
+                            loadMoreMyProfile(.posts)
+                        },
+                        onRefresh: {
+                            guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
+                            await loadMyProfilePosts(pubkey: pubkey, reset: true)
+                        },
+                        cell: { post in myProfileCell(post) }
+                    )
+                    .tag(ProfileFeedTab.posts)
+                    profileFeedPage(
+                        items: myProfileRemoteReplies,
+                        isLoading: isLoadingMyProfilePosts,
+                        emptyIcon: "bubble.left",
+                        emptyTitle: "No replies yet",
+                        emptyBody: "Replies you post will show up here.",
+                        pageState: myRepliesPage,
+                        onLoadMore: { loadMoreMyProfile(.replies) },
+                        onRetryLoadMore: {
+                            myRepliesPage.prepareManualRetry()
+                            loadMoreMyProfile(.replies)
+                        },
+                        onRefresh: {
+                            guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
+                            await loadMyProfileReplies(pubkey: pubkey, reset: true)
+                        },
+                        cell: { post in myProfileCell(post) }
+                    )
+                    .tag(ProfileFeedTab.replies)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
             }
             .ignoresSafeArea(edges: .top)
-            .simultaneousGesture(profileFeedSwipe(selection: $myProfileFeedTab))
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -2327,11 +2335,6 @@ struct KaPostsView: View {
             .task(id: myAddress) {
                 guard knsService.profileCache[myAddress] == nil, !myAddress.isEmpty else { return }
                 _ = await knsService.fetchProfile(for: myAddress)
-            }
-            .refreshable {
-                guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
-                await loadMyProfilePosts(pubkey: pubkey, reset: true)
-                await loadMyProfileReplies(pubkey: pubkey, reset: true)
             }
             .task {
                 guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
@@ -2384,8 +2387,9 @@ struct KaPostsView: View {
         let address = target.address
         let info = knsService.profileCache[address]
         return NavigationStack {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
+            // Fixed chrome + finger-tracking Posts/Replies pager, mirroring myProfileSheet.
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     ZStack(alignment: .bottomLeading) {
                         Group {
                             if let bannerURL = info?.profile?.bannerUrl,
@@ -2489,68 +2493,52 @@ struct KaPostsView: View {
                     Divider()
 
                     profileFeedTabBar(selection: $posterProfileFeedTab)
-
-                    let posterFeedItems = posterProfileFeedTab == .posts ? posterProfilePosts : posterProfileReplies
-                    if posterFeedItems.isEmpty, isLoadingPosterProfile {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 40)
-                    } else if posterFeedItems.isEmpty {
-                        VStack(spacing: 12) {
-                            Image(systemName: posterProfileFeedTab == .posts ? "square.and.pencil" : "bubble.left")
-                                .font(.system(size: 40))
-                                .foregroundColor(.secondary)
-                            Text(posterProfileFeedTab == .posts ? "No posts yet" : "No replies yet")
-                                .font(.headline)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 40)
-                    } else {
-                        let triggerId = kaPostsPrefetchTriggerId(posterFeedItems)
-                        ForEach(posterFeedItems) { post in
-                            KaPostCellView(
-                                post: post,
-                                displayName: posterDisplayName(post.posterAddress),
-                                avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
-                                isFollowing: followStore.isFollowing(post.posterAddress),
-                                commentCount: commentCount(of: post),
-                                onComment: { openProfileDetail(post) },
-                                onMute: { moderationStore.mute(post.posterAddress) },
-                                onBlock: { moderationStore.block(post.posterAddress) },
-                                onBookmark: { toggleBookmark(post) },
-                                onRetry: nil,
-                                onViewEngagement: { engagementTarget = post },
-                                onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
-                                onOpenProfile: {},
-                                onTip: { tip(post.posterAddress) },
-                            onLike: { toggleLike(post) },
-                                onDislike: { toggleDislike(post) },
-                                onRepost: { handleRepostTap(post) },
-                                onRepostAction: { handleRepostAction(post, $0) },
-                                onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
-                            )
-                            .onAppear {
-                                guard post.id == triggerId else { return }
-                                loadMorePosterProfile()
-                            }
-                            Divider()
-                                .padding(.leading, 68)
-                        }
-                        KaPostsLoadMoreFooter(
-                            state: posterProfileFeedTab == .posts ? posterPostsPage : posterRepliesPage
-                        ) {
-                            if posterProfileFeedTab == .posts {
-                                posterPostsPage.prepareManualRetry()
-                            } else {
-                                posterRepliesPage.prepareManualRetry()
-                            }
-                            loadMorePosterProfile()
-                        }
-                    }
                 }
+
+                // Finger-tracking Posts/Replies pager - see myProfileSheet's pager comment.
+                TabView(selection: $posterProfileFeedTab) {
+                    profileFeedPage(
+                        items: posterProfilePosts,
+                        isLoading: isLoadingPosterProfile,
+                        emptyIcon: "square.and.pencil",
+                        emptyTitle: "No posts yet",
+                        emptyBody: nil,
+                        pageState: posterPostsPage,
+                        onLoadMore: { loadMorePosterProfile(.posts) },
+                        onRetryLoadMore: {
+                            posterPostsPage.prepareManualRetry()
+                            loadMorePosterProfile(.posts)
+                        },
+                        onRefresh: {
+                            guard let pubkey = posterProfilePubkey else { return }
+                            await loadPosterProfilePosts(pubkey: pubkey, reset: true)
+                        },
+                        cell: { post in posterProfileCell(post) }
+                    )
+                    .tag(ProfileFeedTab.posts)
+                    profileFeedPage(
+                        items: posterProfileReplies,
+                        isLoading: isLoadingPosterProfile,
+                        emptyIcon: "bubble.left",
+                        emptyTitle: "No replies yet",
+                        emptyBody: nil,
+                        pageState: posterRepliesPage,
+                        onLoadMore: { loadMorePosterProfile(.replies) },
+                        onRetryLoadMore: {
+                            posterRepliesPage.prepareManualRetry()
+                            loadMorePosterProfile(.replies)
+                        },
+                        onRefresh: {
+                            guard let pubkey = posterProfilePubkey else { return }
+                            await loadPosterProfileReplies(pubkey: pubkey, reset: true)
+                        },
+                        cell: { post in posterProfileCell(post) }
+                    )
+                    .tag(ProfileFeedTab.replies)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
             }
             .ignoresSafeArea(edges: .top)
-            .simultaneousGesture(profileFeedSwipe(selection: $posterProfileFeedTab))
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -2577,11 +2565,6 @@ struct KaPostsView: View {
             // NavigationStack so it stacks above the profile sheet (top-level $detailTarget can't).
             .sheet(item: $profileDetailTarget) { target in
                 postDetailSheet(postId: target.id)
-            }
-            .refreshable {
-                guard let pubkey = posterProfilePubkey else { return }
-                await loadPosterProfilePosts(pubkey: pubkey, reset: true)
-                await loadPosterProfileReplies(pubkey: pubkey, reset: true)
             }
             .task(id: target.id) {
                 posterProfilePosts = []
@@ -2648,7 +2631,7 @@ struct KaPostsView: View {
     }
 
     /// Underline tab bar for profile feeds (Posts | Replies), matching the app's other tab
-    /// bars; swiping the sheet content switches too (profileFeedSwipe).
+    /// bars; a tap animates the pager across, and the pager's swipe moves the underline.
     private func profileFeedTabBar(selection: Binding<ProfileFeedTab>) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
@@ -2675,19 +2658,121 @@ struct KaPostsView: View {
         }
     }
 
-    private func profileFeedSwipe(selection: Binding<ProfileFeedTab>) -> some Gesture {
-        DragGesture(minimumDistance: 25)
-            .onEnded { value in
-                let dx = value.translation.width
-                guard abs(dx) > 50, abs(dx) > abs(value.translation.height) * 1.5 else { return }
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    if dx < 0, selection.wrappedValue == .posts {
-                        selection.wrappedValue = .replies
-                    } else if dx > 0, selection.wrappedValue == .replies {
-                        selection.wrappedValue = .posts
+    /// One page of a profile pager (Posts or Replies): its own ScrollView + LazyVStack with the
+    /// standard trigger-row prefetch and load-more footer. The pager keeps both pages alive, so
+    /// each tab's scroll position survives swiping between them.
+    private func profileFeedPage<Cell: View>(
+        items: [DraftPost],
+        isLoading: Bool,
+        emptyIcon: String,
+        emptyTitle: String,
+        emptyBody: String?,
+        pageState: KaPostsPageState,
+        onLoadMore: @escaping () -> Void,
+        onRetryLoadMore: @escaping () -> Void,
+        onRefresh: @escaping () async -> Void,
+        @ViewBuilder cell: @escaping (DraftPost) -> Cell
+    ) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if items.isEmpty, isLoading {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 40)
+                } else if items.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: emptyIcon)
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary)
+                        Text(emptyTitle)
+                            .font(.headline)
+                        if let emptyBody {
+                            Text(emptyBody)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
+                } else {
+                    let triggerId = kaPostsPrefetchTriggerId(items)
+                    ForEach(items) { post in
+                        cell(post)
+                            .onAppear {
+                                guard post.id == triggerId else { return }
+                                onLoadMore()
+                            }
+                        Divider()
+                            .padding(.leading, 68)
+                    }
+                    KaPostsLoadMoreFooter(state: pageState, onLoadMore: onRetryLoadMore)
                 }
             }
+        }
+        .refreshable { await onRefresh() }
+    }
+
+    /// The resolved KNS avatar for a post's QUOTED author, passed into the cell so the cell
+    /// never has to observe KNSService itself (see KaPostCellView's observation notes).
+    private func quotedAvatarURL(_ post: DraftPost) -> String? {
+        guard let quoted = post.quoted, !quoted.posterAddress.isEmpty else { return nil }
+        return knsService.profileCache[quoted.posterAddress]?.avatarURL
+    }
+
+    /// Cell wiring shared by both of MY profile's pager pages.
+    private func myProfileCell(_ post: DraftPost) -> some View {
+        KaPostCellView(
+            post: post,
+            displayName: posterDisplayName(post.posterAddress),
+            avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
+            isFollowing: followStore.isFollowing(post.posterAddress),
+            commentCount: commentCount(of: post),
+            quotedDisplayName: post.quoted.map { posterDisplayName($0.posterAddress) },
+            quotedAvatarURLString: quotedAvatarURL(post),
+            onComment: nil,
+            onMute: { moderationStore.mute(post.posterAddress) },
+            onBlock: { moderationStore.block(post.posterAddress) },
+            onBookmark: { toggleBookmark(post) },
+            onRetry: { retryPost(post) },
+            onViewEngagement: { engagementTarget = post },
+            onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
+            onOpenProfile: {},
+            onTip: { tip(post.posterAddress) },
+            onLike: { toggleLike(post) },
+            onDislike: { toggleDislike(post) },
+            onRepost: { handleRepostTap(post) },
+            onRepostAction: { handleRepostAction(post, $0) },
+            onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
+        )
+        .equatable()
+    }
+
+    /// Cell wiring shared by both of a tapped POSTER profile's pager pages.
+    private func posterProfileCell(_ post: DraftPost) -> some View {
+        KaPostCellView(
+            post: post,
+            displayName: posterDisplayName(post.posterAddress),
+            avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
+            isFollowing: followStore.isFollowing(post.posterAddress),
+            commentCount: commentCount(of: post),
+            quotedDisplayName: post.quoted.map { posterDisplayName($0.posterAddress) },
+            quotedAvatarURLString: quotedAvatarURL(post),
+            onComment: { openProfileDetail(post) },
+            onMute: { moderationStore.mute(post.posterAddress) },
+            onBlock: { moderationStore.block(post.posterAddress) },
+            onBookmark: { toggleBookmark(post) },
+            onRetry: nil,
+            onViewEngagement: { engagementTarget = post },
+            onFollowToggle: { toggleFollowSubmitting(address: post.posterAddress, pubkey: post.posterPubkey) },
+            onOpenProfile: {},
+            onTip: { tip(post.posterAddress) },
+            onLike: { toggleLike(post) },
+            onDislike: { toggleDislike(post) },
+            onRepost: { handleRepostTap(post) },
+            onRepostAction: { handleRepostAction(post, $0) },
+            onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
+        )
+        .equatable()
     }
 
     private var bannerFallback: some View {
@@ -2801,6 +2886,8 @@ struct KaPostsView: View {
                                     avatarURLString: knsService.profileCache[post.posterAddress]?.avatarURL,
                                     isFollowing: followStore.isFollowing(post.posterAddress),
                                     commentCount: commentCount(of: post),
+                                    quotedDisplayName: post.quoted.map { posterDisplayName($0.posterAddress) },
+                                    quotedAvatarURLString: quotedAvatarURL(post),
                                     onComment: nil,
                                     onMute: { moderationStore.mute(post.posterAddress) },
                                     onBlock: { moderationStore.block(post.posterAddress) },
@@ -2816,6 +2903,7 @@ struct KaPostsView: View {
                                 onRepostAction: { handleRepostAction(post, $0) },
                                     onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                                 )
+                                .equatable()
                                 Divider()
                                     .padding(.leading, 68)
                             }
@@ -3058,6 +3146,10 @@ private struct KaPostCellView: View {
     /// Feed cells truncate very long posts behind "Show more" (which opens the full thread view);
     /// detail/comment/bookmark cells show everything.
     var truncatesLongText: Bool = false
+    /// Resolved display bits for the QUOTED post's author, passed in by the parent (which
+    /// observes KNSService) instead of observed here - see the observation note on `body`.
+    var quotedDisplayName: String? = nil
+    var quotedAvatarURLString: String? = nil
     /// nil hides the comment affordance entirely (comment cells - no nested threads).
     let onComment: (() -> Void)?
     let onMute: () -> Void
@@ -3086,8 +3178,15 @@ private struct KaPostCellView: View {
 
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @Environment(\.openURL) private var openURL
+    /// Observed for the 5s undo countdown pills. Deadlines only change when the user arms or
+    /// cancels an action - never while scrolling - so this subscription is cheap.
+    ///
+    /// KNSService is deliberately NOT observed here (it used to be): its whole profileCache
+    /// dictionary is one @Published property, so every avatar/profile arriving anywhere
+    /// re-rendered EVERY visible cell. The parent observes it once and passes the resolved
+    /// name/avatar strings in; combined with the Equatable conformance below, a cache update
+    /// re-renders only the cells whose own inputs actually changed.
     @ObservedObject private var scheduler = KaPostsActionScheduler.shared
-    @ObservedObject private var knsService = KNSService.shared
 
     /// Your own post: no follow affordance (you can't follow yourself).
     private var isOwnPost: Bool {
@@ -3462,9 +3561,38 @@ private struct KaPostCellView: View {
 
     private static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
+    /// Compiled ONCE - this used to be built inline in the linkify pass, i.e. a fresh
+    /// NSRegularExpression compile per cell per render.
+    private static let mentionRegex = try? NSRegularExpression(
+        pattern: "(^|[\\s(\\[{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)",
+        options: [.caseInsensitive]
+    )
+
+    /// AttributedString is a value type, so cache entries ride in a class box for NSCache.
+    private final class LinkifiedBox {
+        let value: AttributedString
+        init(_ value: AttributedString) { self.value = value }
+    }
+    /// Linkified output cached by post text: data detection + mention matching over up to 25k
+    /// characters is far too expensive to redo on every body pass while scrolling. Keyed by
+    /// content, so edits/refreshes that keep the text hit the cache.
+    private static let linkifiedCache: NSCache<NSString, LinkifiedBox> = {
+        let cache = NSCache<NSString, LinkifiedBox>()
+        cache.countLimit = 400
+        return cache
+    }()
+
     /// Post text with detected URLs carrying tappable link attributes (accent + underline);
-    /// everything else stays plain.
+    /// everything else stays plain. Cached by content - see `linkifiedCache`.
     static func linkified(_ text: String) -> AttributedString {
+        let key = text as NSString
+        if let cached = linkifiedCache.object(forKey: key) { return cached.value }
+        let built = buildLinkified(text)
+        linkifiedCache.setObject(LinkifiedBox(built), forKey: key)
+        return built
+    }
+
+    private static func buildLinkified(_ text: String) -> AttributedString {
         var attributed = AttributedString(text)
         guard let detector = linkDetector else { return attributed }
         let nsText = text as NSString
@@ -3482,7 +3610,7 @@ private struct KaPostCellView: View {
         // Highlight @mentions (accent-coloured) and make them TAPPABLE: each carries a
         // kachat-mention:// link that KaPostsView's OpenURLAction resolves to the mentioned
         // user's profile (any KNS domain, contact or not).
-        if let mentionRegex = try? NSRegularExpression(pattern: "(^|[\\s(\\[{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)", options: [.caseInsensitive]) {
+        if let mentionRegex {
             for match in mentionRegex.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length)) {
                 let domainRange = match.range(at: 2)
                 let tokenStart = domainRange.location - 1 // include the '@'
@@ -3504,13 +3632,16 @@ private struct KaPostCellView: View {
         return attributed
     }
 
-    private func quotedDisplayName(_ address: String) -> String {
+    /// Prefers the parent-resolved name; the fallback reads shared services WITHOUT observing
+    /// them (plain singleton reads create no subscription).
+    private func resolvedQuotedName(_ address: String) -> String {
+        if let quotedDisplayName { return quotedDisplayName }
         guard !address.isEmpty else { return "Unknown" }
         if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
            !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return KaPostsView.strippingKasSuffix(alias)
         }
-        if let domain = knsService.profileCache[address]?.domainName,
+        if let domain = KNSService.shared.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return KaPostsView.strippingKasSuffix(domain)
         }
@@ -3521,12 +3652,12 @@ private struct KaPostCellView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 KNSAvatarView(
-                    avatarURLString: knsService.profileCache[quoted.posterAddress]?.avatarURL,
-                    fallbackText: quotedDisplayName(quoted.posterAddress),
+                    avatarURLString: quotedAvatarURLString,
+                    fallbackText: resolvedQuotedName(quoted.posterAddress),
                     size: 20,
                     contactAddress: quoted.posterAddress
                 )
-                Text(quotedDisplayName(quoted.posterAddress))
+                Text(resolvedQuotedName(quoted.posterAddress))
                     .font(.caption.weight(.bold))
                     .lineLimit(1)
                 if let timestamp = quoted.timestamp {
@@ -3551,8 +3682,8 @@ private struct KaPostCellView: View {
         .padding(.top, 2)
         .task(id: quoted.posterAddress) {
             guard !quoted.posterAddress.isEmpty,
-                  knsService.profileCache[quoted.posterAddress] == nil else { return }
-            _ = await knsService.fetchProfile(for: quoted.posterAddress)
+                  KNSService.shared.profileCache[quoted.posterAddress] == nil else { return }
+            _ = await KNSService.shared.fetchProfile(for: quoted.posterAddress)
         }
     }
 
@@ -3639,6 +3770,29 @@ private struct KaPostCellView: View {
 
     private func relativeTime(_ date: Date) -> String {
         Self.relativeFormatter.localizedString(for: date, relativeTo: Date())
+    }
+}
+
+/// Content-based render skipping (used via `.equatable()` at the list call sites): the cell's
+/// ~15 closure parameters defeat SwiftUI's automatic field comparison, so without this every
+/// parent body pass re-ran every visible cell's body. Compare the fields that actually change
+/// pixels; for the optional affordances only PRESENCE matters (nil hides the control).
+extension KaPostCellView: Equatable {
+    static func == (lhs: KaPostCellView, rhs: KaPostCellView) -> Bool {
+        lhs.post == rhs.post &&
+        lhs.displayName == rhs.displayName &&
+        lhs.avatarURLString == rhs.avatarURLString &&
+        lhs.isFollowing == rhs.isFollowing &&
+        lhs.commentCount == rhs.commentCount &&
+        lhs.truncatesLongText == rhs.truncatesLongText &&
+        lhs.quotedDisplayName == rhs.quotedDisplayName &&
+        lhs.quotedAvatarURLString == rhs.quotedAvatarURLString &&
+        (lhs.onComment == nil) == (rhs.onComment == nil) &&
+        (lhs.onRetry == nil) == (rhs.onRetry == nil) &&
+        (lhs.onViewEngagement == nil) == (rhs.onViewEngagement == nil) &&
+        (lhs.onTip == nil) == (rhs.onTip == nil) &&
+        (lhs.onRepostAction == nil) == (rhs.onRepostAction == nil) &&
+        (lhs.onOpenQuoted == nil) == (rhs.onOpenQuoted == nil)
     }
 }
 
