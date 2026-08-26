@@ -275,23 +275,50 @@ struct BroadcastListView: View {
 
     private var combinedList: some View {
         List {
+            // Both section titles are ordinary ROWS rather than `header:` closures: a plain
+            // List pins real section headers to the top while scrolling, so "Popular" and its
+            // retention note used to hover over the list the whole way down. As rows they
+            // scroll away with their content, and the styling is unchanged.
             Section {
-                popularSectionRows
-            } header: {
-                // The retention note lives here since the in-room banner was removed to keep
-                // the chat itself clean.
+                // The retention note lives beside the title since the in-room banner was
+                // removed to keep the chat itself clean.
                 HStack(alignment: .firstTextBaseline) {
                     sectionHeader("Popular")
                     Spacer()
                     Text("All messages persist for 30 days")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                        .textCase(nil)
                         .padding(.trailing, 4)
                 }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
+
+                popularSectionRows
             }
 
             Section {
+                HStack {
+                    sectionHeader("Your Channels")
+                    Spacer()
+                    Button {
+                        Haptics.impact(.light)
+                        joinFieldText = ""
+                        joinError = nil
+                        showJoinAlert = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 4)
+                }
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                // Extra top inset stands in for the spacing the section header used to provide.
+                .listRowInsets(EdgeInsets(top: 20, leading: 16, bottom: 4, trailing: 16))
+
                 // Every curated room (Popular and the language rooms) is already rendered above,
                 // so a joined language room must not also appear here as one of "your" channels.
                 let ownChannels = broadcastService.channels.filter {
@@ -311,23 +338,6 @@ struct BroadcastListView: View {
                     ForEach(ownChannels) { channel in
                         ownChannelRow(channel)
                     }
-                }
-            } header: {
-                HStack {
-                    sectionHeader("Your Channels")
-                    Spacer()
-                    Button {
-                        Haptics.impact(.light)
-                        joinFieldText = ""
-                        joinError = nil
-                        showJoinAlert = true
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(.accentColor)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.trailing, 4)
                 }
             }
         }
