@@ -151,6 +151,57 @@ actor GRPCStreamConnection {
     /// Queue of pending requests per type (for response matching)
     private var requestQueues: [KaspaRequestType: [UInt64]] = [:]
 
+    /// Callers waiting for their turn to send a request of a given type, and the types whose
+    /// slot has been handed out but not yet entered `requestQueues`. See `awaitTypeSlot`.
+    private var typeSlotWaiters: [KaspaRequestType: [CheckedContinuation<Void, Never>]] = [:]
+    private var reservedTypes: Set<KaspaRequestType> = []
+
+    /// ONE request per type may be in flight per connection.
+    ///
+    /// `handleResponse` matches an incoming message to a request by TYPE, taking the oldest
+    /// entry in that type's queue - kaspad's KaspadMessage carries only a payload oneof, with
+    /// no request id to correlate on, so FIFO-by-type is the only correlation available. That
+    /// is correct only while a single request of a type is outstanding: with two concurrent
+    /// ones, whichever response arrives first is handed to whichever request was sent first,
+    /// so the answers cross. Two balance reads issued together (the chatting address and the
+    /// spending address, both `getUtxosByAddresses`) could therefore each receive the other's
+    /// UTXOs, which is what made the two balances swap on screen.
+    ///
+    /// Gating here keeps the existing FIFO matching provably correct instead of guessing at a
+    /// correlation the wire format cannot provide. Different types still overlap freely, and
+    /// different connections are unaffected, so hedged requests keep racing as before.
+    private func awaitTypeSlot(_ type: KaspaRequestType) async {
+        // Loops rather than waits once: a resumed waiter has no guarantee the slot is still
+        // free by the time it runs, since resuming is a hop and another caller can arrive.
+        while requestQueues[type]?.isEmpty == false || reservedTypes.contains(type) {
+            await withCheckedContinuation { continuation in
+                typeSlotWaiters[type, default: []].append(continuation)
+            }
+        }
+        // Synchronous with the loop's exit (no await between), so the slot cannot be taken
+        // in the gap before the request reaches `requestQueues`.
+        reservedTypes.insert(type)
+    }
+
+    /// Hands the type's slot to the next waiter, if the type is genuinely free again.
+    private func releaseTypeSlot(_ type: KaspaRequestType) {
+        guard requestQueues[type]?.isEmpty != false, !reservedTypes.contains(type) else { return }
+        guard var waiters = typeSlotWaiters[type], !waiters.isEmpty else { return }
+        let next = waiters.removeFirst()
+        typeSlotWaiters[type] = waiters.isEmpty ? nil : waiters
+        next.resume()
+    }
+
+    /// Teardown: every waiter must be released or it hangs forever on a dead connection.
+    private func releaseAllTypeSlots() {
+        reservedTypes.removeAll()
+        let waiters = typeSlotWaiters
+        typeSlotWaiters.removeAll()
+        for (_, list) in waiters {
+            for continuation in list { continuation.resume() }
+        }
+    }
+
     /// Notification handlers
     private var notificationHandlers: [UUID: NotificationHandler] = [:]
 
@@ -393,6 +444,7 @@ actor GRPCStreamConnection {
         }
         pendingRequests.removeAll()
         requestQueues.removeAll()
+        releaseAllTypeSlots()
 
         // Close stream and channel (group is shared, don't shut it down)
         stream?.sendEnd(promise: nil)
@@ -440,6 +492,9 @@ actor GRPCStreamConnection {
             AppLog.log("[GRPCStream] Reset circuit breaker for live connection %@", endpoint.key)
         }
 
+        // At most one request of this type in flight - see `awaitTypeSlot`.
+        await awaitTypeSlot(type)
+
         // Generate request ID
         requestIdCounter += 1
         let requestId = requestIdCounter
@@ -466,11 +521,12 @@ actor GRPCStreamConnection {
             )
             pendingRequests[requestId] = pending
 
-            // Add to type queue
+            // Add to type queue, handing the reservation over to the queue entry itself.
             if requestQueues[type] == nil {
                 requestQueues[type] = []
             }
             requestQueues[type]?.append(requestId)
+            reservedTypes.remove(type)
 
             // Send message
             let promise = stream.eventLoop.makePromise(of: Void.self)
@@ -536,6 +592,8 @@ actor GRPCStreamConnection {
         if requestQueues[type]?.isEmpty == true {
             requestQueues.removeValue(forKey: type)
         }
+        // Let the next same-type caller through, before the early return below.
+        releaseTypeSlot(type)
 
         // Get pending request
         guard let pending = pendingRequests.removeValue(forKey: requestId) else {
@@ -574,6 +632,7 @@ actor GRPCStreamConnection {
                 requestQueues[pending.type] = queue
             }
         }
+        releaseTypeSlot(pending.type)
 
         // Track this type as recently timed out (to silently ignore late responses)
         recentlyTimedOutTypes.insert(pending.type)
@@ -612,6 +671,7 @@ actor GRPCStreamConnection {
                 requestQueues[pending.type] = queue
             }
         }
+        releaseTypeSlot(pending.type)
 
         // Record failure
         consecutiveSuccesses = 0
@@ -657,6 +717,7 @@ actor GRPCStreamConnection {
         }
         pendingRequests.removeAll()
         requestQueues.removeAll()
+        releaseAllTypeSlots()
     }
 
     /// Determine the request type from a response message
