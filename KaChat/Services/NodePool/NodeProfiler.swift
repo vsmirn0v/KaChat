@@ -527,8 +527,14 @@ actor NodeProfiler {
             return cached
         }
 
-        // Get dynamic low-latency threshold based on network quality
-        let lowLatencyThreshold = await MainActor.run { epochMonitor.networkQuality.lowLatencyThresholdMs }
+        // Get dynamic low-latency threshold based on network quality. On expensive
+        // (cellular/metered) paths the conservative-entry bar is raised to 350ms - cellular
+        // RTTs rarely clear the 200ms .good bar, which kept phones on cellular in AGGRESSIVE
+        // probe mode (10s cycles) indefinitely, burning metered data on probing.
+        let (baseThreshold, expensivePath) = await MainActor.run {
+            (epochMonitor.networkQuality.lowLatencyThresholdMs, epochMonitor.isExpensivePath)
+        }
+        let lowLatencyThreshold = expensivePath ? max(baseThreshold, 350.0) : baseThreshold
 
         let records = await registry.allRecords()
         let activeNodes = records.filter { $0.state == .active }
@@ -542,6 +548,24 @@ actor NodeProfiler {
             return false
         }
         let lowLatencyCount = lowLatencyNodes.count
+
+        // On an expensive path, force conservative probe intervals as soon as the pool is
+        // minimally serviceable (2+ active nodes: one to serve plus one for failover) rather
+        // than waiting for the usual 5-node bar. Not forced below 2 active nodes: probing is
+        // the only way the pool gets built at all, and a cellular-only user still needs a
+        // working connection - that startup burst is the one aggressive phase cellular keeps.
+        if expensivePath && activeCount >= 2 {
+            let minLatency = activeNodes.compactMap { $0.health.latencyMs.value ?? $0.health.globalLatencyMs.value }.min() ?? 999.0
+            let result = (isConservative: true, activeCount: activeCount, minLatency: minLatency, lowLatencyCount: lowLatencyCount)
+            cachedProbeMode = result
+            lastProbeModeCheck = now
+            if lastLoggedProbeMode != "conservative-expensive" {
+                AppLog.log("[NodeProfiler] Probe mode: CONSERVATIVE (expensive path) - %d active nodes, min latency: %.0fms",
+                      activeCount, minLatency)
+                lastLoggedProbeMode = "conservative-expensive"
+            }
+            return result
+        }
 
         guard activeCount >= 5 else {
             let result = (isConservative: false, activeCount: activeCount, minLatency: 999.0, lowLatencyCount: lowLatencyCount)
@@ -588,7 +612,12 @@ actor NodeProfiler {
             return cached
         }
 
-        let thresholdMs = await MainActor.run { epochMonitor.networkQuality.lowLatencyThresholdMs }
+        // Same expensive-path bar as getProbeMode: cellular latencies rarely clear the 200ms
+        // .good threshold, which kept discovery hard-pause unreachable on metered paths.
+        let (basePauseThreshold, expensivePausePath) = await MainActor.run {
+            (epochMonitor.networkQuality.lowLatencyThresholdMs, epochMonitor.isExpensivePath)
+        }
+        let thresholdMs = expensivePausePath ? max(basePauseThreshold, 350.0) : basePauseThreshold
         let activeNodes = await registry.records(inState: .active)
         let fastNodes = activeNodes.filter { $0.effectiveLatencyMs <= thresholdMs }
         let hasErrors = activeNodes.contains { record in
@@ -1010,12 +1039,21 @@ actor NodeProfiler {
             // DPI check: Request connected peer info (10-20KB payload)
             // This detects DPI-blocked nodes where large transfers fail
             // Only run once per epoch to avoid redundant checks
-            let currentEpochId = await MainActor.run { epochMonitor.epochId }
+            let (currentEpochId, expensiveEpochPath) = await MainActor.run {
+                (epochMonitor.epochId, epochMonitor.isExpensivePath)
+            }
             let existingRecord = await registry.get(endpoint)
             let alreadyCheckedInEpoch = existingRecord?.profile.peerInfoEpochId == currentEpochId
 
+            // On an expensive path, don't re-burn 10-20KB per node just because the epoch
+            // changed (every WiFi<->cellular flip is a new epoch): a node that already PASSED
+            // the check in an earlier epoch keeps its result. Nodes never checked, or that
+            // failed, still get their check even on cellular - isActiveEligible requires
+            // peerInfoOk == true, so skipping those would silently block pool building.
+            let skipRecheckOnExpensivePath = expensiveEpochPath && existingRecord?.profile.peerInfoOk == true
+
             // Skip check if already performed in this epoch
-            if !alreadyCheckedInEpoch {
+            if !alreadyCheckedInEpoch && !skipRecheckOnExpensivePath {
                 var peerInfoOk = false
                 var peerInfoBytes = 0
 

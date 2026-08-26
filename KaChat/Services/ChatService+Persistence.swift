@@ -919,17 +919,24 @@ extension ChatService {
         return key
     }
 
-    func syncStartBlockTime(for objectKey: String, fallbackBlockTime: UInt64, nowMs: UInt64) -> UInt64 {
+    /// `rewindMs` parameterizes the reorg rewind window by caller: the high-frequency live-tail
+    /// paths (open-chat poll, foreground sweep) pass `liveTailReorgBufferMs` (90s) so they stop
+    /// re-downloading the same 10-minute window every few seconds; catch-up syncs omit it and
+    /// keep the full `syncReorgBufferMs`. Cursors still only ever ADVANCE (see
+    /// `advanceSyncCursor`) - this only changes where a fetch STARTS, and txId dedupe at insert
+    /// remains the safety net either way.
+    func syncStartBlockTime(for objectKey: String, fallbackBlockTime: UInt64, nowMs: UInt64, rewindMs: UInt64? = nil) -> UInt64 {
+        let reorgRewindMs = rewindMs ?? syncReorgBufferMs
         guard let cursor = syncObjectCursors[objectKey], cursor.lastFetchedBlockTime > 0 else {
             return fallbackBlockTime
         }
 
         let lastFetchedBlockTime = cursor.lastFetchedBlockTime
-        if nowMs > lastFetchedBlockTime, nowMs - lastFetchedBlockTime > syncReorgBufferMs {
+        if nowMs > lastFetchedBlockTime, nowMs - lastFetchedBlockTime > reorgRewindMs {
             return lastFetchedBlockTime == UInt64.max ? UInt64.max : lastFetchedBlockTime + 1
         }
 
-        return lastFetchedBlockTime > syncReorgBufferMs ? lastFetchedBlockTime - syncReorgBufferMs : 0
+        return lastFetchedBlockTime > reorgRewindMs ? lastFetchedBlockTime - reorgRewindMs : 0
     }
 
     func advanceSyncCursor(for objectKey: String, maxBlockTime: UInt64?) {

@@ -10,7 +10,7 @@ import UserNotifications
 /// rotation) and sending/receiving `gcomm` group messages.
 ///
 /// Architecturally self-contained, like `BroadcastService`: owns its own block-scan discovery
-/// (`NodePoolService.shared.subscribeBlockAdded()`) rather than threading group state through
+/// (`NodePoolService.shared.subscribeBlockAdded(client:)`) rather than threading group state through
 /// `ChatService`'s 1:1 contact/conversation machinery, so this feature can't regress existing
 /// 1:1 messaging. Reuses `ChatService`'s UTXO reservation coordination
 /// (`prepareMessageUtxos`/`enqueueOutgoingTxOperation`/etc.) since that's shared, correctness-
@@ -209,6 +209,15 @@ final class GroupChatService: ObservableObject {
         // gating on activeNodeCount for why this needs to be reactive, not just re-checked at
         // wallet-load time (activeNodeCount is almost always still 0 right then, at cold start).
         NodePoolService.shared.$activeNodeCount
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateScanningStateIfNeeded()
+            }
+            .store(in: &cancellables)
+        // Block streaming is disabled on expensive (cellular/metered) paths - re-evaluate when
+        // the path flips either way so WiFi->cellular stops the stream and cellular->WiFi
+        // restores it. See updateScanningStateIfNeeded.
+        NetworkEpochMonitor.shared.expensivePathPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.updateScanningStateIfNeeded()
@@ -1730,12 +1739,22 @@ final class GroupChatService: ObservableObject {
     // MARK: - Block-scan discovery lifecycle
 
     private func updateScanningStateIfNeeded() {
-        // Must scan whenever a wallet is loaded, not just when we already know about a group -
-        // a `gctl_root` direct-add (createGroup/addMember) is a push from an admin who may be
-        // adding us to a group we've never heard of before, so there's no local state to gate
-        // discovery on until group-chat support lands in the indexer (deferred, see plan Phase
-        // 4). gcomm matches are still cheap no-ops when irrelevant, since they're filtered
-        // against `groups` downstream regardless.
+        // Scan only when this wallet actually HAS at least one group. The block stream is the
+        // single biggest data consumer in the app (~every block, ~10x/sec, full transaction
+        // payloads), and a wallet with zero groups was paying that cost purely for `gctl_root`
+        // direct-add invite discovery. That discovery no longer needs the stream:
+        // `performCatchUpSync` runs `catchUpGroupControlByRecipient` UNCONDITIONALLY (even with
+        // zero local groups, cursor-based, addressed to our own wallet), on every app-active
+        // AND at most once a minute via the foreground sweep ride-along (see
+        // `ChatService.startForegroundContactSweep`), so an invite lands within ~60s while the
+        // app is open instead of instantly - an accepted tradeoff for not streaming every block.
+        // Every group create/join/leave path already calls this method, so the stream starts
+        // with the first group and stops with the last.
+        //
+        // On an expensive (cellular/hotspot/Low Data Mode) path, never stream blocks at all,
+        // groups or not - the same 60s cursored catch-up carries group MESSAGES too, so group
+        // chat on cellular is up to ~60s latent unless a push delivers sooner. WiFi keeps the
+        // live stream. The expensive-path sink in `init` re-evaluates this on path changes.
         //
         // Also gated on activeNodeCount > 0: starting the instant the wallet loads (right at cold
         // app launch, before the pool has found any healthy node yet) forced subscribeBlockAdded
@@ -1743,7 +1762,10 @@ final class GroupChatService: ObservableObject {
         // real contention that visibly delayed the app connecting to any nodes at all (found via
         // the same issue on Android's mirrored GroupScanningService). Waiting for at least one
         // active node means this only starts once there's already a healthy connection to piggyback on.
-        let shouldScan = hasActiveWallet && NodePoolService.shared.activeNodeCount > 0
+        let shouldScan = hasActiveWallet
+            && !groups.isEmpty
+            && !NetworkEpochMonitor.shared.isExpensivePath
+            && NodePoolService.shared.activeNodeCount > 0
         guard shouldScan != isScanningActive else { return }
         isScanningActive = shouldScan
         isScanningActiveMirror = shouldScan
@@ -1770,9 +1792,9 @@ final class GroupChatService: ObservableObject {
                     }
                 }
             }
-            Task { await NodePoolService.shared.subscribeBlockAdded() }
+            Task { await NodePoolService.shared.subscribeBlockAdded(client: "group-scan") }
         } else {
-            Task { await NodePoolService.shared.unsubscribeBlockAdded() }
+            Task { await NodePoolService.shared.unsubscribeBlockAdded(client: "group-scan") }
         }
     }
 

@@ -2072,9 +2072,12 @@ extension ChatService {
     }
 
     /// Fetch contextual messages from a specific contact (triggered by UTXO notification)
-    /// Returns true if any new messages were added
+    /// Returns true if any new messages were added.
+    /// `reorgRewindMs`: high-frequency live-tail callers (open-chat poll, foreground sweep)
+    /// pass `liveTailReorgBufferMs` to avoid re-downloading a 10-minute window every few
+    /// seconds; catch-up/notification callers omit it for the full reorg buffer.
     @discardableResult
-    func fetchContextualMessagesFromContact(contactAddress: String, myAddress: String, privateKey: Data) async -> ContactFetchResult {
+    func fetchContextualMessagesFromContact(contactAddress: String, myAddress: String, privateKey: Data, reorgRewindMs: UInt64? = nil) async -> ContactFetchResult {
         // Get incoming aliases for this contact (deterministic + legacy)
         let aliases = incomingAliases(for: contactAddress)
         guard !aliases.isEmpty else {
@@ -2097,7 +2100,8 @@ extension ChatService {
                 let startBlockTime = syncStartBlockTime(
                     for: syncObjectKey,
                     fallbackBlockTime: fallbackSince,
-                    nowMs: nowMs
+                    nowMs: nowMs,
+                    rewindMs: reorgRewindMs
                 )
                 let effectiveSince = applyMessageRetention(to: startBlockTime)
                 let fetchKey = contextualFetchKey(address: contactAddress, alias: alias, limit: 10, since: effectiveSince)

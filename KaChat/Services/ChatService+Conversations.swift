@@ -129,7 +129,8 @@ extension ChatService {
                    let wallet = WalletManager.shared.currentWallet,
                    let privateKey = WalletManager.shared.getPrivateKey() {
                     _ = await self.fetchContextualMessagesFromContact(
-                        contactAddress: address, myAddress: wallet.publicAddress, privateKey: privateKey
+                        contactAddress: address, myAddress: wallet.publicAddress, privateKey: privateKey,
+                        reorgRewindMs: self.liveTailReorgBufferMs
                     )
                 }
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -157,10 +158,13 @@ extension ChatService {
         if let task = foregroundSweepTask, !task.isCancelled { return }
         guard WalletManager.shared.currentWallet != nil else { return }
         AppLog.log("[ChatService] Foreground contact sweep started (%.0fs, cap %d)",
-                   foregroundSweepBaseInterval, foregroundSweepMaxContacts)
+                   currentForegroundSweepBaseInterval, foregroundSweepMaxContacts)
         foregroundSweepTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            var interval = self.foregroundSweepBaseInterval
+            // Base interval resolves per iteration: 5s on WiFi, 15s on expensive
+            // (cellular/metered) paths - the sweep is a backstop, not the primary path, so
+            // cellular trades a little freshness for a third of the requests.
+            var interval = self.currentForegroundSweepBaseInterval
             // Seed the group-catch-up clock: scenePhase .active just ran its own
             // GroupChatService.performCatchUpSync(), so the ride-along below should first
             // fire an interval from now, not duplicate that round trip immediately.
@@ -168,18 +172,19 @@ extension ChatService {
             while !Task.isCancelled {
                 let swept = await self.runForegroundContactSweep()
                 if Task.isCancelled { return }
+                let base = self.currentForegroundSweepBaseInterval
                 switch swept {
                 case .failed:
-                    let next = min(interval * 2, self.foregroundSweepMaxInterval)
+                    let next = min(max(interval, base) * 2, self.foregroundSweepMaxInterval)
                     if next != interval {
                         AppLog.log("[ChatService] Foreground contact sweep backing off to %.0fs after indexer failure", next)
                     }
                     interval = next
                 case .succeeded:
-                    if interval != self.foregroundSweepBaseInterval {
-                        AppLog.log("[ChatService] Foreground contact sweep recovered - back to %.0fs", self.foregroundSweepBaseInterval)
+                    if interval != base {
+                        AppLog.log("[ChatService] Foreground contact sweep recovered - back to %.0fs", base)
                     }
-                    interval = self.foregroundSweepBaseInterval
+                    interval = base
                 case .skipped:
                     break  // gated out (inactive / syncing / not ready) - keep the current interval
                 }
@@ -198,6 +203,14 @@ extension ChatService {
                 try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             }
         }
+    }
+
+    /// The sweep's base interval for the current network path: `foregroundSweepBaseInterval`
+    /// (5s) on WiFi, `foregroundSweepExpensiveInterval` (15s) on cellular/metered paths.
+    private var currentForegroundSweepBaseInterval: TimeInterval {
+        NetworkEpochMonitor.shared.isExpensivePath
+            ? foregroundSweepExpensiveInterval
+            : foregroundSweepBaseInterval
     }
 
     /// Cancel the foreground sweep (app backgrounded, wallet switch/teardown, logout).
@@ -238,7 +251,8 @@ extension ChatService {
             guard isActiveWallet(myAddress) else { return .skipped }
             if activeConversationAddress == address { continue }
             let result = await fetchContextualMessagesFromContact(
-                contactAddress: address, myAddress: myAddress, privateKey: privateKey
+                contactAddress: address, myAddress: myAddress, privateKey: privateKey,
+                reorgRewindMs: liveTailReorgBufferMs
             )
             if case .failure = result { return .failed }
             // Gentle pacing between contacts so a sweep is a trickle, not a burst.

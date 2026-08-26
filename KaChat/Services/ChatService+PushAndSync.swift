@@ -453,6 +453,7 @@ extension ChatService {
         stopPollingTimerOnly()
         subscriptionRetryTask?.cancel()
         subscriptionRetryTask = nil
+        subscriptionRetryAttempts = 0
         pendingResubscriptionTask?.cancel()
         pendingResubscriptionTask = nil
         subscriptionBalanceRefreshTask?.cancel()
@@ -635,6 +636,7 @@ extension ChatService {
 
             isUtxoSubscribed = true
             hasEverBeenSubscribed = true
+            subscriptionRetryAttempts = 0
             subscriptionRetryTask?.cancel()
             subscriptionRetryTask = nil
 
@@ -682,9 +684,16 @@ extension ChatService {
         // Cancel existing retry if any
         subscriptionRetryTask?.cancel()
 
+        // Capped exponential backoff (1s -> 2s -> 4s ... 30s cap), mirroring
+        // GRPCStreamConnection.scheduleAutoReconnect. The old fixed 1s forever meant a dead
+        // pool (airplane mode, captive portal, node outage) burned a full-pool subscription
+        // attempt every second indefinitely - real data on metered paths. The counter resets
+        // on the next successful subscription.
+        let delaySeconds = min(30.0, pow(2.0, Double(subscriptionRetryAttempts)))
+        subscriptionRetryAttempts += 1
+
         subscriptionRetryTask = Task {
-            // Wait 1 second before retrying with all nodes from pool again
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
 
             guard !Task.isCancelled else { return }
 
@@ -695,7 +704,7 @@ extension ChatService {
 
             // If still not subscribed after retry, schedule another retry
             if !isUtxoSubscribed {
-                AppLog.log("[ChatService] All pool nodes failed, retrying in 1s...")
+                AppLog.log("[ChatService] All pool nodes failed, retrying with backoff...")
                 scheduleSubscriptionRetry()
             }
         }

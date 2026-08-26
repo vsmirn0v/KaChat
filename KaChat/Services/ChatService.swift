@@ -273,6 +273,13 @@ final class ChatService: ObservableObject {
     let pushLastReregisterAtKey = "kachat_push_last_reregister_at"
     let hiddenPaymentTxIdsKey = "kachat_hidden_payment_tx_ids_v1"
     let syncReorgBufferMs: UInt64 = 600_000
+    /// Short reorg rewind for the HIGH-FREQUENCY live-tail fetch paths (the ~2s open-chat poll
+    /// and the 5s foreground contact sweep). Rewinding the cursor a full 10 minutes on every
+    /// one of those fetches re-downloaded the same recent window hundreds of times per hour;
+    /// 90s still comfortably covers real reorg depth for a poll that just ran seconds ago, and
+    /// the txId dedupe in `addMessageToConversation` remains the safety net. Catch-up syncs
+    /// (subscription restore, app-active, push-triggered) keep the full `syncReorgBufferMs`.
+    let liveTailReorgBufferMs: UInt64 = 90_000
 
     var activeContacts: [Contact] {
         contactsManager.activeContacts
@@ -300,6 +307,11 @@ final class ChatService: ObservableObject {
     /// Interval between full foreground sweeps; doubled (up to 60s) after a failed sweep so an
     /// unreachable indexer is never hammered in a tight loop, reset to 5s on the next success.
     let foregroundSweepBaseInterval: TimeInterval = 5.0
+    /// Sweep base interval on expensive (cellular/metered) paths - the sweep is defense in
+    /// depth behind the utxosChanged push and the open-chat poll, so cellular can afford a
+    /// slower walk. Resolved fresh each loop iteration, so a WiFi/cellular flip takes effect
+    /// on the next sweep.
+    let foregroundSweepExpensiveInterval: TimeInterval = 15.0
     let foregroundSweepMaxInterval: TimeInterval = 60.0
     /// Per-sweep contact cap: the most recently active contacts (by `Contact.lastMessageAt`)
     /// that already have an incoming alias. Beyond this the push + catch-up sync still cover
@@ -723,6 +735,10 @@ final class ChatService: ObservableObject {
     /// Setup UTXO subscription for real-time payment and message notifications
     /// Task for subscription retry
     var subscriptionRetryTask: Task<Void, Never>?
+    /// Consecutive failed subscription retry rounds - drives the capped exponential backoff in
+    /// `scheduleSubscriptionRetry` (1s doubling to a 30s cap, mirroring GRPCStreamConnection's
+    /// auto-reconnect). Reset to 0 whenever the subscription comes up.
+    var subscriptionRetryAttempts = 0
     var startPollingWhenStoreReadyTask: Task<Void, Never>?
     var suppressChatListSnapshotPersistence = false
 

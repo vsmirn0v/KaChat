@@ -54,9 +54,19 @@ final class BroadcastService: ObservableObject {
     private nonisolated static let bcastPrefixHex: String = hexOf("kchat:1:bcast:")        // write + read
     private nonisolated static let legacyBcastPrefixHex: String = hexOf("ciph_msg:1:bcast:") // read-only
 
+    private var cancellables = Set<AnyCancellable>()
+
     private init() {
         let defaults = UserDefaults.standard
         showKnsAvatarsEnabled = (defaults.object(forKey: showKnsAvatarsEnabledKey) as? Bool) ?? true
+        // On expensive (cellular/metered) paths, indexer-covered rooms stop block-streaming
+        // (see scanWantedChannels) - re-evaluate whenever the path flips either way.
+        NetworkEpochMonitor.shared.expensivePathPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.updateScanningStateIfNeeded()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Settings
@@ -221,7 +231,16 @@ final class BroadcastService: ObservableObject {
 
     private func fetchFromIndexerAndMerge(baseURL: String, channel: String) async {
         do {
-            var messages = try await BroadcastIndexerClient.fetchHistoryPage(baseURL: baseURL, channel: channel)
+            // Steady-state polls only need the newest few rows (everything older is already in
+            // the store, txid-deduped); re-fetching 200 rows every 8s was pure re-download. The
+            // one-shot deep backfill below keeps the full 200-row pages. The indexer's `before`
+            // parameter pages OLDER history, so it cannot act as a newest-side floor - the
+            // small limit is the mechanism. A burst larger than 30 between two polls is
+            // recovered on the next room open (deep backfill re-runs per session).
+            let steadyStateLimit = deepBackfilledChannels.contains(channel) ? 30 : 200
+            var messages = try await BroadcastIndexerClient.fetchHistoryPage(
+                baseURL: baseURL, channel: channel, limit: steadyStateLimit
+            )
             // One-shot deep backfill per room per session: page older history with `before`
             // until the indexer runs out or we reach its 30-day window. Without this, rooms
             // only ever showed the newest single page (200 rows) — busy rooms like
@@ -844,8 +863,26 @@ final class BroadcastService: ObservableObject {
 
     // MARK: - Block scanning lifecycle
 
+    /// The channels that justify the block stream on the CURRENT network path. On WiFi this is
+    /// every wanted channel. On an expensive (cellular/metered) path, featured rooms are
+    /// dropped when the KaChat broadcast indexer is configured: an OPEN featured room is kept
+    /// fresh by the existing 8s indexer poll (`startIndexerPollingIfConfigured`), and a closed
+    /// one is covered by remote push - so streaming every block for them is pure duplicate
+    /// cost. Non-indexed rooms (user-added channels with alwaysListen, or open non-featured
+    /// rooms) have NO other delivery path, so they keep the stream even on cellular.
+    private var scanWantedChannels: Set<String> {
+        var wanted = wantedChannels
+        guard NetworkEpochMonitor.shared.isExpensivePath else { return wanted }
+        let indexerConfigured = !AppSettings.load().broadcastIndexerURL
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if indexerConfigured {
+            wanted.subtract(Set(Self.featuredChannels))
+        }
+        return wanted
+    }
+
     private func updateScanningStateIfNeeded() {
-        let shouldScan = !wantedChannels.isEmpty
+        let shouldScan = !scanWantedChannels.isEmpty
         guard shouldScan != isScanningActive else { return }
         isScanningActive = shouldScan
         if shouldScan {
@@ -909,11 +946,11 @@ final class BroadcastService: ObservableObject {
                 }
             }
         }
-        Task { await NodePoolService.shared.subscribeBlockAdded() }
+        Task { await NodePoolService.shared.subscribeBlockAdded(client: "broadcast-scan") }
     }
 
     private func stopScanning() {
-        Task { await NodePoolService.shared.unsubscribeBlockAdded() }
+        Task { await NodePoolService.shared.unsubscribeBlockAdded(client: "broadcast-scan") }
         // The notification handler stays registered - see NodePoolService.unsubscribeBlockAdded
         // for why there's no protocol-level way to actually stop the node from pushing them.
         // handleBlockAddedData() bails out immediately when wantedChannels is empty, so this

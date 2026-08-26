@@ -285,6 +285,14 @@ final class NextcloudService: ObservableObject {
     /// each time the timer is armed, so further activity re-reads the open-chat state.
     nonisolated static let inChatSyncDebounceInterval: TimeInterval = 5
     nonisolated static let idleSyncDebounceInterval: TimeInterval = 15
+    /// Floor between AUTOMATIC merge uploads (the manual backup button calls `runBackup`
+    /// directly and is unaffected). The debounce above decides WHEN a burst has settled; this
+    /// decides how often settled bursts may actually upload. A debounce that fires earlier
+    /// re-arms itself to the earliest allowed time instead of dropping the sync (the dirty
+    /// flag stays set until an upload succeeds), so nothing is ever lost - a busy chat just
+    /// coalesces into one upload per floor interval.
+    nonisolated static let autoSyncMinInterval: TimeInterval = 90
+    nonisolated static let autoSyncMinIntervalExpensive: TimeInterval = 300
     /// Foreground change-watcher cadence: how often the shared file's ETag is polled while
     /// the app is active (a tiny Depth-0 PROPFIND, no body). Same two tiers: the fast poll
     /// runs only while a chat is actually open on screen; the rest of the app gets the
@@ -292,6 +300,12 @@ final class NextcloudService: ObservableObject {
     /// entering a chat wakes it for an immediate poll (see `noteChatOpened`).
     nonisolated static let inChatChangeWatchInterval: TimeInterval = 5
     nonisolated static let idleChangeWatchInterval: TimeInterval = 30
+    /// Relaxed watcher tiers for expensive (cellular/metered) paths - the Depth-0 PROPFIND is
+    /// tiny, but at 5s forever it still adds up on a metered plan, and a changed ETag triggers
+    /// a full archive download. Resolved per tick like the tier itself, so a WiFi/cellular
+    /// flip takes effect on the next loop iteration.
+    nonisolated static let inChatChangeWatchIntervalExpensive: TimeInterval = 30
+    nonisolated static let idleChangeWatchIntervalExpensive: TimeInterval = 60
     /// Failed polls back off from the CURRENT tier's base (x3 per consecutive failure,
     /// interval capped here) and snap back to the tier cadence on the next success.
     private nonisolated static let changeWatchBackoffMax: TimeInterval = 60
@@ -557,8 +571,12 @@ final class NextcloudService: ObservableObject {
     }
 
     /// The change watcher's base cadence for the CURRENT tier, resolved fresh per tick.
+    /// Expensive (cellular/metered) paths get the relaxed tier pair.
     private var currentChangeWatchInterval: TimeInterval {
-        isChatOpenOnScreen ? Self.inChatChangeWatchInterval : Self.idleChangeWatchInterval
+        if NetworkEpochMonitor.shared.isExpensivePath {
+            return isChatOpenOnScreen ? Self.inChatChangeWatchIntervalExpensive : Self.idleChangeWatchIntervalExpensive
+        }
+        return isChatOpenOnScreen ? Self.inChatChangeWatchInterval : Self.idleChangeWatchInterval
     }
 
     /// The upload debounce for the CURRENT tier, resolved fresh at each arm.
@@ -594,6 +612,20 @@ final class NextcloudService: ObservableObject {
     /// swallow that signal - and re-marked on any failure so a later trigger retries.
     private func performAutomaticSync(walletAtStart: String) async {
         guard currentWalletAddress == walletAtStart, autoBackupEnabled, isConnected else { return }
+        // Automatic-sync floor (see `autoSyncMinInterval`): if the last successful automatic
+        // upload is too recent, re-arm the debounce to the earliest allowed moment instead of
+        // uploading now. The dirty flag has NOT been cleared yet, so the re-armed timer still
+        // fires; the manual backup button bypasses this entirely (it calls runBackup directly).
+        if let last = lastAutoSyncAt {
+            let floorInterval = NetworkEpochMonitor.shared.isExpensivePath
+                ? Self.autoSyncMinIntervalExpensive
+                : Self.autoSyncMinInterval
+            let elapsed = Date().timeIntervalSince(last)
+            if elapsed < floorInterval {
+                armSyncDebounce(for: walletAtStart, after: floorInterval - elapsed)
+                return
+            }
+        }
         guard !syncInFlight,
               !BackupRestoreCoordinator.shared.isRunning,
               !IncomingResyncCoordinator.shared.isRunning else {
@@ -1090,15 +1122,35 @@ final class NextcloudService: ObservableObject {
         guard let walletAddress = walletAtStart, let key = backupEncryptionKey() else {
             throw BackupEnvelope.EnvelopeError.keyUnavailable
         }
+        // ETag short-circuit: if the server file's ETag still equals the one THIS device wrote
+        // last (recorded after every PUT and every watcher import), the remote content is our
+        // own last upload - already merged locally, and kept a local superset by the change
+        // watcher's imports. Downloading it back just to merge a guaranteed no-op wasted a
+        // full archive transfer per automatic sync; skip straight to building and uploading
+        // the fresh local archive. Any doubt (no stored ETag, PROPFIND failure, or a
+        // different ETag meaning another device wrote in between) falls through to the full
+        // download+merge exactly as before.
+        var skipDownload = false
+        if let ownWriteETag = lastKnownBackupETag,
+           let remoteETag = try? await fetchBackupETag(),
+           remoteETag == ownWriteETag {
+            skipDownload = true
+        }
+        guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
+
         let existing: Data?
-        do {
-            // A failed decrypt (wrong seed's file, corrupt envelope) throws HERE - before the
-            // merge and before any PUT - so the server copy is never overwritten.
-            existing = try await BackupEnvelope.decryptIfEnvelopedDetached(
-                try await downloadBackup(), key: key, walletAddress: walletAddress
-            )
-        } catch NextcloudError.backupNotFound {
+        if skipDownload {
             existing = nil
+        } else {
+            do {
+                // A failed decrypt (wrong seed's file, corrupt envelope) throws HERE - before the
+                // merge and before any PUT - so the server copy is never overwritten.
+                existing = try await BackupEnvelope.decryptIfEnvelopedDetached(
+                    try await downloadBackup(), key: key, walletAddress: walletAddress
+                )
+            } catch NextcloudError.backupNotFound {
+                existing = nil
+            }
         }
         guard !Task.isCancelled, currentWalletAddress == walletAtStart else { throw CancellationError() }
         let merged = try await ChatService.shared.buildBackupArchiveData(mergingRemote: existing)

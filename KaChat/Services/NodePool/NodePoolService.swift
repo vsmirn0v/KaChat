@@ -70,6 +70,8 @@ final class NodePoolService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var statsUpdateTask: Task<Void, Never>?
     private var previousPoolHealth: PoolHealth?
+    /// Client tokens currently wanting block-added notifications - see subscribeBlockAdded.
+    private var blockAddedClients: Set<String> = []
 
     // MARK: - Initialization
 
@@ -777,13 +779,26 @@ final class NodePoolService: ObservableObject {
     }
 
     /// Subscribe to block-added notifications (piggybacks on the primary UTXO connection).
-    /// Used by broadcast channel scanning; reference-counted by the caller.
-    func subscribeBlockAdded() async {
+    /// Tracked per client token: GroupChatService and BroadcastService gate their block scans
+    /// independently (group count, open rooms, expensive-path state), and the underlying
+    /// wanted-flag is a single bool - without the token set, one client unsubscribing would
+    /// silently stop re-registration for the other on the next reconnect.
+    func subscribeBlockAdded(client: String) async {
+        blockAddedClients.insert(client)
         await subscriptionManager?.setBlockAddedWanted(true)
     }
 
-    /// Stop wanting block-added notifications (see UtxoSubscriptionManager for caveats).
-    func unsubscribeBlockAdded() async {
+    /// Stop wanting block-added notifications for one client; the wanted-flag only drops when
+    /// no client is left. Protocol wrinkle (see UtxoSubscriptionManager.setBlockAddedWanted):
+    /// there is no notify-STOP for block-added, so a connection that already registered keeps
+    /// receiving block pushes until it naturally reconnects (failover, network path change,
+    /// app background/foreground - all frequent on iOS). Deliberately NOT force-closing that
+    /// connection here: it is the primary utxosChanged subscription channel, and recycling it
+    /// would drop live DM delivery and force a full UTXO state resync. The win is that fresh
+    /// connections (and every reconnect) never register for blocks in the first place.
+    func unsubscribeBlockAdded(client: String) async {
+        blockAddedClients.remove(client)
+        guard blockAddedClients.isEmpty else { return }
         await subscriptionManager?.setBlockAddedWanted(false)
     }
 
@@ -894,7 +909,9 @@ final class NodePoolService: ObservableObject {
         // Take top 3 after sorting
         let selectedEndpoints = Array(sortedEndpoints.prefix(3))
 
-        let hedgeDelay = epochMonitor.networkQuality.hedgeDelayMs * 1_000_000
+        // effectiveHedgeDelayMs: on expensive paths the hedge never fires sooner than on WiFi,
+        // so metered connections don't pay for duplicate racing requests.
+        let hedgeDelay = epochMonitor.effectiveHedgeDelayMs * 1_000_000
 
         let value = await withTaskGroup(of: Result<T, Error>.self, returning: Result<T, Error>.self) { group in
             for (index, endpoint) in selectedEndpoints.enumerated() {
