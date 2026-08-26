@@ -145,6 +145,14 @@ Bundle identifiers used by the app:
 
 </details>
 
+### Security Notes
+
+The at-rest model, plainly:
+
+- Message history lives in the app sandbox, protected by iOS file-based encryption (Data Protection). Message content is additionally encrypted at rest with a key derived from the wallet, so the local database never holds plaintext messages and any device backup of it carries only ciphertext.
+- Cloud copies are end-to-end encrypted with the wallet key: CloudKit syncs only the wallet-encrypted content, and Nextcloud backup archives are sealed in the encrypted backup envelope (see MESSAGING.md) before upload. Without the wallet, cloud copies are ciphertext.
+- Seed phrases and private keys are wrapped by this device's Secure Enclave and stored in the Keychain. They never leave the device and are not included in any backup.
+
 ## Push Notifications
 
 <details>

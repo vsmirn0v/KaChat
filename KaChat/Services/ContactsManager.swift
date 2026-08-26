@@ -411,6 +411,15 @@ final class ContactsManager: ObservableObject {
         return contacts.first { $0.address == address }
     }
 
+    /// The accepted/established-contact predicate shared by the stranger-gating features:
+    /// true for contacts the user added themselves, or ones the user has ever sent a message
+    /// to (which includes accepting their handshake - the handshake response IS an outgoing
+    /// message). False only for auto-added, never-replied-to strangers. Used by the photo
+    /// auto-display gate below and by link-preview auto-fetch gating (Decision 5A).
+    func isAcceptedContact(_ contact: Contact) -> Bool {
+        !contact.isAutoAdded || contact.hasSentOutgoingMessage
+    }
+
     /// Whether photo bubbles from this contact should auto-decode and render, vs. staying
     /// hidden behind a "Show Photo" tap. Defaults to trusting contacts you added yourself or
     /// have ever messaged; untrusted (auto-added, never-replied-to) contacts are hidden by
@@ -423,7 +432,7 @@ final class ContactsManager: ObservableObject {
             return false
         case .automatic, nil:
             guard settings.requirePhotoApprovalForNewContacts else { return true }
-            return !contact.isAutoAdded || contact.hasSentOutgoingMessage
+            return isAcceptedContact(contact)
         }
     }
 

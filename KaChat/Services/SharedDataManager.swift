@@ -35,6 +35,10 @@ final class SharedDataManager {
         static let unreadCount = "shared_unread_count"
         static let incomingNotificationSoundEnabled = "incoming_notification_sound_enabled"
         static let incomingNotificationVibrationEnabled = "incoming_notification_vibration_enabled"
+        /// Mirror of `AppSettings.verboseAPILogging` for the Notification Service Extension,
+        /// which cannot read standard UserDefaults. Gates the NSE's push-payload debug residue
+        /// (`storeLastPushDebug` + the payload-prefix os_log line). Absent key = off.
+        static let verboseAPILogging = "shared_verbose_api_logging"
         static let groupMentionsOnlyNotifications = "shared_group_mentions_only"
         static let groupOwnTxIds = "shared_group_own_txids"
         static let ownPrimaryKNSDomain = "shared_own_kns_domain"
@@ -185,10 +189,18 @@ final class SharedDataManager {
 
     /// Sync notification defaults used by the notification service extension.
     @MainActor
-    static func syncNotificationSettingsForExtension() {
-        let settings = AppSettings.load()
+    /// Callers that just saved should pass the settings they saved - `AppSettings.load()` at
+    /// that moment can still return the pre-save cached copy (the cache only invalidates on the
+    /// `.settingsDidChange` post, which happens after this runs in the save paths).
+    static func syncNotificationSettingsForExtension(_ settings: AppSettings = AppSettings.load()) {
         sharedDefaults?.set(settings.incomingNotificationSoundEnabled, forKey: Keys.incomingNotificationSoundEnabled)
         sharedDefaults?.set(settings.incomingNotificationVibrationEnabled, forKey: Keys.incomingNotificationVibrationEnabled)
+        sharedDefaults?.set(settings.verboseAPILogging, forKey: Keys.verboseAPILogging)
+        if !settings.verboseAPILogging {
+            // Turning verbose logging off also clears the last captured push payload, so no
+            // encrypted-payload residue outlives the diagnostics session that recorded it.
+            sharedDefaults?.removeObject(forKey: "last_push_payload")
+        }
     }
 
     /// Sync wallet address for notification extension (used to suppress outgoing pushes)

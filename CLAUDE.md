@@ -301,8 +301,9 @@ Implementation uses:
 | `KAPOSTS_INDEXER.md` | Handoff/build guide for the KaChat-owned KaPosts indexer (protocol, API compatibility bar, required extensions) |
 | `BROADCAST_INDEXER.md` | Handoff/build guide for the KaChat broadcast indexer (#kaspa / #kachat-bugs history, REST spec, Docker) |
 | `PUSH_EXTENSIONS.md` | Server handoff: remote push for broadcasts + KaPosts (registration fields, APNs payload specs, routing contracts) |
+| `DETERMINISTIC_ALIASES.md` | Deterministic alias derivation (shipped protocol - see `Utilities/DeterministicAlias.swift`): algorithm, migration notes, legacy-alias compatibility |
 
-Other root-level `*.md` files (`CHAT_HISTORY_v2.md`, `CLOUDKIT_IMPROVEMENT_v2.md`, `DETERMINISTIC_ALIASES.md`, `GIFT.md`, `IMPROVE_POOL_SEARCH_GEO.md`, `KEYSTONE_QR_INTEGRATION_ANALYSIS.md`, `KNS_PROFILE_INTEGRATION_PLAN.md`, `OLDER_IOS_SUPPORT.md`, `PERFORMANCE_IMPROVEMENTS.md`) are design/plan documents for specific features; treat shipped code as the source of truth where they disagree.
+Historical plan/design documents were removed from the repo in the 4.0 hygiene pass; shipped code is the source of truth for those features.
 
 ## External References
 

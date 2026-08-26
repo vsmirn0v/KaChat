@@ -79,6 +79,7 @@ extension Array where Element == NextcloudFile {
 
 enum NextcloudError: LocalizedError {
     case invalidServerURL
+    case httpNotSupported
     case badCredentials
     case httpError(Int)
     case malformedResponse
@@ -89,6 +90,8 @@ enum NextcloudError: LocalizedError {
         switch self {
         case .invalidServerURL:
             return "That doesn't look like a valid server URL."
+        case .httpNotSupported:
+            return "Use https. Unencrypted connections are not supported."
         case .badCredentials:
             return "Nextcloud rejected the username or app password."
         case .noActiveWallet:
@@ -913,6 +916,11 @@ final class NextcloudService: ObservableObject {
         }
         guard let server = Self.normalizedServerURL(from: serverInput) else {
             throw NextcloudError.invalidServerURL
+        }
+        // Decision 3A: https-only transport. The connect screen rejects http:// inline before
+        // calling here; this guard is the backstop for any other path into connect().
+        guard server.scheme?.lowercased() == "https" else {
+            throw NextcloudError.httpNotSupported
         }
         let user = username.trimmingCharacters(in: .whitespacesAndNewlines)
         let password = appPassword.trimmingCharacters(in: .whitespacesAndNewlines)

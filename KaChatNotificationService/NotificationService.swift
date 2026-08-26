@@ -34,6 +34,14 @@ class NotificationService: UNNotificationServiceExtension {
     private let secureEnclaveHeader = Data([0x4B, 0x53, 0x45, 0x31]) // "KSE1"
     private let unreadCountKey = "shared_unread_count"
     private let incomingNotificationSoundEnabledKey = "incoming_notification_sound_enabled"
+    /// Mirror of the main app's Verbose API Logging toggle (Settings > Diagnostics), written to
+    /// the App Group by SharedDataManager.syncNotificationSettingsForExtension - the NSE cannot
+    /// read standard UserDefaults. Gates the push-payload debug residue below. Default off.
+    private let verboseAPILoggingKey = "shared_verbose_api_logging"
+
+    private var verboseLoggingEnabled: Bool {
+        UserDefaults(suiteName: appGroupIdentifier)?.bool(forKey: verboseAPILoggingKey) ?? false
+    }
 
     private enum EffectiveNotificationMode: String {
         case off
@@ -120,23 +128,27 @@ class NotificationService: UNNotificationServiceExtension {
         content.sound = (effectiveMode == .sound) ? .default : nil
 
         let payloadHex = userInfo["payload"] as? String
-        if let payloadHex {
-            let prefix = payloadHex.prefix(200)
-            logger.info("payload len=\(payloadHex.count, privacy: .public) prefix=\(prefix, privacy: .public)")
-            storeLastPushDebug(
-                payload: payloadHex,
-                messageType: messageType,
-                sender: senderAddress,
-                txId: txId
-            )
-        } else {
-            logger.info("payload=nil")
-            storeLastPushDebug(
-                payload: nil,
-                messageType: messageType,
-                sender: senderAddress,
-                txId: txId
-            )
+        // Debug residue (last_push_* app-group keys + the ciphertext-prefix log line) only
+        // exists while the user has Verbose API Logging switched on for a diagnostics session.
+        if verboseLoggingEnabled {
+            if let payloadHex {
+                let prefix = payloadHex.prefix(200)
+                logger.info("payload len=\(payloadHex.count, privacy: .public) prefix=\(prefix, privacy: .public)")
+                storeLastPushDebug(
+                    payload: payloadHex,
+                    messageType: messageType,
+                    sender: senderAddress,
+                    txId: txId
+                )
+            } else {
+                logger.info("payload=nil")
+                storeLastPushDebug(
+                    payload: nil,
+                    messageType: messageType,
+                    sender: senderAddress,
+                    txId: txId
+                )
+            }
         }
 
         let shouldIncrementUnread = defaults.map { !hasStoredTxId(txId: txId, defaults: $0) } ?? false
@@ -994,7 +1006,9 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     private func storeLastPushDebug(payload: String?, messageType: String, sender: String, txId: String) {
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        // Belt and braces: the call site is already gated on verboseLoggingEnabled, but keep
+        // the guard here too so no future caller can store push payloads with the flag off.
+        guard verboseLoggingEnabled, let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
         defaults.set(payload, forKey: "last_push_payload")
         defaults.set(payload?.count ?? 0, forKey: "last_push_payload_len")
         defaults.set(messageType, forKey: "last_push_type")

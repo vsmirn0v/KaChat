@@ -27,20 +27,31 @@ struct LinkPreviewCardView: View {
     /// reply), exactly like double-tapping a normal message bubble. Nil disables it. Single tap
     /// still opens the link.
     var onDoubleTap: (() -> Void)?
+    /// Whether the preview fetch may start on render. True (the default) for accepted 1:1
+    /// contacts and for group chats (members chose each other); false for non-accepted senders
+    /// and for broadcast rooms (anyone can post there), where the card renders as a
+    /// "Tap to load preview" placeholder and only fetches - and therefore only touches the
+    /// link's server - when the user explicitly taps it. A URL that already resolved this
+    /// session shows its cached result either way, since no new fetch is involved.
+    var autoFetch: Bool = true
 
     @State private var preview: LinkPreviewData?
     @State private var hasFinishedLoading: Bool
+    /// Set when the user taps the tap-to-load placeholder of a non-`autoFetch` card - flips the
+    /// `.task(id:)` below so the gated fetch runs exactly once, on demand.
+    @State private var loadRequested = false
     /// Non-nil while the full-screen Nextcloud media viewer is up (tap on a Nextcloud card).
     @State private var nextcloudViewerTarget: NextcloudViewerTarget?
     @Environment(\.openURL) private var openURL
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
 
-    init(url: URL, txId: String, fallbackText: String? = nil, onSelect: (() -> Void)? = nil, onDoubleTap: (() -> Void)? = nil) {
+    init(url: URL, txId: String, fallbackText: String? = nil, onSelect: (() -> Void)? = nil, onDoubleTap: (() -> Void)? = nil, autoFetch: Bool = true) {
         self.url = url
         self.txId = txId
         self.fallbackText = fallbackText
         self.onSelect = onSelect
         self.onDoubleTap = onDoubleTap
+        self.autoFetch = autoFetch
         // If this exact URL was already resolved earlier (e.g. scrolled past once already, or
         // another row with the same link), seed state with the final result immediately instead
         // of starting in the "loading" state and waiting for `.task` to come back - avoids a
@@ -75,16 +86,22 @@ struct LinkPreviewCardView: View {
                 cardBody(preview)
             } else if hasFinishedLoading, let fallbackText {
                 fallbackBubble(fallbackText)
+            } else if !autoFetch && !loadRequested {
+                tapToLoadCard
             } else {
                 Color.clear
                     .frame(width: 0, height: 0)
             }
         }
-        .task(id: url) {
+        // `loadRequested` is part of the id so tapping the gated placeholder re-runs this task
+        // and performs the on-demand fetch (a `.task(id:)` body only re-executes when its id
+        // changes).
+        .task(id: "\(url.absoluteString)|\(loadRequested)") {
             // Already seeded synchronously from the cache in `init` - skip re-running the fetch
             // (which would flip `hasFinishedLoading` false then true again, causing exactly the
-            // late height-change flicker this seeding exists to avoid).
-            guard !hasFinishedLoading else { return }
+            // late height-change flicker this seeding exists to avoid). Non-`autoFetch` cards
+            // additionally wait for an explicit tap before fetching anything.
+            guard !hasFinishedLoading, autoFetch || loadRequested else { return }
             preview = await LinkPreviewService.shared.preview(for: url)
             hasFinishedLoading = true
         }
@@ -278,6 +295,45 @@ struct LinkPreviewCardView: View {
             .onTapGesture(count: 2) { onDoubleTap?() }
             .onTapGesture { openURL(url) }
             .contextMenu { contextMenuItems }
+    }
+
+    /// Shown instead of an automatic fetch when `autoFetch` is false (non-accepted 1:1 senders
+    /// and broadcast rooms): a neutral card naming the link's host, fetched only on tap. The
+    /// long-press menu still offers Copy Link / View in Explorer / Select, so the message stays
+    /// fully usable without ever loading the preview.
+    @ViewBuilder
+    private var tapToLoadCard: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "link")
+                .font(.system(size: 20))
+                .foregroundColor(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Tap to load preview")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.primary)
+                if let host = url.host {
+                    Text(host)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: 260, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.regularMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+                )
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onTapGesture(count: 2) { onDoubleTap?() }
+        .onTapGesture { loadRequested = true }
+        .contextMenu { contextMenuItems }
     }
 
     @ViewBuilder

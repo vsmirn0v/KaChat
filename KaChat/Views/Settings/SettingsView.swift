@@ -1911,6 +1911,37 @@ struct ConnectionSettingsView: View {
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
 
+    /// Decision 3A: every endpoint field on this page is https-only. Shown inline under any
+    /// field whose value starts with http://, and Save refuses to persist while one remains.
+    private static let httpsRequiredError = "Use https. Unencrypted connections are not supported."
+
+    /// True when the field value explicitly asks for cleartext http. Bare hostnames (no scheme)
+    /// are fine - they are normalized to https:// on save, matching
+    /// `NextcloudService.normalizedServerURL`.
+    private func isCleartextHTTP(_ raw: String) -> Bool {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("http://")
+    }
+
+    /// Inline red caption shown under a URL field while it holds an http:// value.
+    @ViewBuilder
+    private func httpsInlineError(for value: String) -> some View {
+        if isCleartextHTTP(value) {
+            Text(Self.httpsRequiredError)
+                .font(.caption)
+                .foregroundColor(.red)
+        }
+    }
+
+    /// Normalizes a saved endpoint: trims whitespace and defaults a scheme-less value
+    /// ("kachat.duckdns.org") to https://, so bare hostnames keep working exactly like the
+    /// Nextcloud server field already did. http:// never reaches here - Save rejects it first.
+    private func normalizedHTTPSURL(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        if trimmed.lowercased().hasPrefix("https://") { return trimmed }
+        return "https://" + trimmed
+    }
+
     var body: some View {
         Form {
             Section {
@@ -1923,6 +1954,7 @@ struct ConnectionSettingsView: View {
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                    httpsInlineError(for: indexerURL)
                 }
             } header: {
                 Text("KaChat Indexer")
@@ -1940,6 +1972,7 @@ struct ConnectionSettingsView: View {
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                    httpsInlineError(for: kaPostIndexerURL)
                 }
             } header: {
                 Text("KaPost Indexer")
@@ -1957,6 +1990,7 @@ struct ConnectionSettingsView: View {
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                    httpsInlineError(for: broadcastIndexerURL)
                 }
             } header: {
                 Text("Broadcast Indexer")
@@ -1974,6 +2008,7 @@ struct ConnectionSettingsView: View {
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                    httpsInlineError(for: pushIndexerURL)
                 }
             } header: {
                 Text("Push Registration")
@@ -1991,6 +2026,7 @@ struct ConnectionSettingsView: View {
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                    httpsInlineError(for: knsBaseURL)
                 }
             } header: {
                 Text("Kaspa Name Service")
@@ -2008,6 +2044,7 @@ struct ConnectionSettingsView: View {
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
+                    httpsInlineError(for: kaspaRestAPIURL)
                 }
             } header: {
                 Text("Kaspa Explorer API")
@@ -2129,8 +2166,9 @@ struct ConnectionSettingsView: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
-                    saveSettings()
-                    dismiss()
+                    if saveSettings() {
+                        dismiss()
+                    }
                 }
             }
         }
@@ -2199,14 +2237,25 @@ struct ConnectionSettingsView: View {
         kaspaRestAPIURL = settingsViewModel.settings.kaspaRestAPIURL
     }
 
-    private func saveSettings() {
-        settingsViewModel.settings.indexerURL = indexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        settingsViewModel.settings.kaPostIndexerURL = kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AppSettings.defaultKaPostIndexerURL : kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        settingsViewModel.settings.broadcastIndexerURL = broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AppSettings.defaultBroadcastIndexerURL : broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        settingsViewModel.settings.pushIndexerURL = pushIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        settingsViewModel.settings.knsBaseURL = knsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        settingsViewModel.settings.kaspaRestAPIURL = kaspaRestAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Persists the endpoint fields, or returns false without saving anything when any field
+    /// still holds an http:// value (its inline error is already visible; a toast repeats the
+    /// reason so the refusal can't be missed). Non-empty scheme-less values are normalized to
+    /// https:// (Decision 3A).
+    @discardableResult
+    private func saveSettings() -> Bool {
+        let allFields = [indexerURL, kaPostIndexerURL, broadcastIndexerURL, pushIndexerURL, knsBaseURL, kaspaRestAPIURL]
+        guard !allFields.contains(where: isCleartextHTTP) else {
+            showToast(Self.httpsRequiredError, style: .error)
+            return false
+        }
+        settingsViewModel.settings.indexerURL = normalizedHTTPSURL(indexerURL)
+        settingsViewModel.settings.kaPostIndexerURL = normalizedHTTPSURL(kaPostIndexerURL).isEmpty ? AppSettings.defaultKaPostIndexerURL : normalizedHTTPSURL(kaPostIndexerURL)
+        settingsViewModel.settings.broadcastIndexerURL = normalizedHTTPSURL(broadcastIndexerURL).isEmpty ? AppSettings.defaultBroadcastIndexerURL : normalizedHTTPSURL(broadcastIndexerURL)
+        settingsViewModel.settings.pushIndexerURL = normalizedHTTPSURL(pushIndexerURL)
+        settingsViewModel.settings.knsBaseURL = normalizedHTTPSURL(knsBaseURL)
+        settingsViewModel.settings.kaspaRestAPIURL = normalizedHTTPSURL(kaspaRestAPIURL)
         settingsViewModel.saveSettings()
+        return true
     }
 
     private enum NodeChoice: Hashable {
@@ -3371,6 +3420,14 @@ struct NextcloudSettingsView: View {
                         .keyboardType(.URL)
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
+                    // Decision 3A: https-only. Bare hostnames are fine (normalizedServerURL
+                    // defaults them to https); an explicit http:// is rejected inline here and
+                    // again in connect() below.
+                    if serverInput.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("http://") {
+                        Text("Use https. Unencrypted connections are not supported.")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
                     TextField("Username", text: $usernameInput)
                         .autocapitalization(.none)
                         .autocorrectionDisabled()
@@ -3467,6 +3524,11 @@ struct NextcloudSettingsView: View {
 
     private func connect() {
         guard !isConnecting else { return }
+        // Decision 3A: refuse cleartext servers outright instead of attempting a connection.
+        if serverInput.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("http://") {
+            errorMessage = "Use https. Unencrypted connections are not supported."
+            return
+        }
         isConnecting = true
         errorMessage = nil
         Task {

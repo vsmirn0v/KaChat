@@ -1314,7 +1314,11 @@ private struct BroadcastMessageRow: View {
             LinkPreviewCardView(
                 url: linkURL,
                 txId: message.id,
-                onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil
+                onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil,
+                // Broadcast rooms are open to anyone, so previews never auto-fetch here - each
+                // card is tap-to-load (Decision 5A), including the local user's own posts for
+                // one consistent rule in public rooms.
+                autoFetch: false
             )
         }
     }
@@ -1339,7 +1343,10 @@ private struct BroadcastMessageRow: View {
                     url: loneLinkURL,
                     txId: message.id,
                     fallbackText: displayText,
-                    onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil
+                    onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil,
+                    // Broadcast rooms are open to anyone, so previews never auto-fetch here -
+                    // each card is tap-to-load (Decision 5A).
+                    autoFetch: false
                 )
             } else {
                 bubbleContent(voicePayload: voicePayload)

@@ -181,6 +181,9 @@ extension AppSettings {
         guard let data = try? JSONEncoder().encode(settings) else { return }
         UserDefaults.standard.set(data, forKey: "kachat_app_settings")
         persistDockOverlay(settings)
+        // Keep the app-group mirror current on this path too - the Diagnostics page's Verbose
+        // API Logging toggle saves through here, and the NSE reads that flag from the mirror.
+        SharedDataManager.syncNotificationSettingsForExtension(settings)
         NotificationCenter.default.post(name: .settingsDidChange, object: settings)
     }
 }
@@ -216,7 +219,7 @@ final class SettingsViewModel: ObservableObject {
         guard let data = try? JSONEncoder().encode(settings) else { return }
         userDefaults.set(data, forKey: settingsKey)
         AppSettings.persistDockOverlay(settings)
-        SharedDataManager.syncNotificationSettingsForExtension()
+        SharedDataManager.syncNotificationSettingsForExtension(settings)
 
         // Notify other services of settings changes
         NotificationCenter.default.post(name: .settingsDidChange, object: settings)

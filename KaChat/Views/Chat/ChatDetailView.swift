@@ -2790,6 +2790,7 @@ struct ChatDetailView: View {
             revealOffset: revealOffset,
             maxRevealOffset: maxRevealOffset,
             photosBlocked: !contactsManager.shouldAutoDisplayPhotos(for: contact, settings: settingsViewModel.settings),
+            linkPreviewsAutoLoad: contactsManager.isAcceptedContact(contact),
             chessEnvelope: chessEnvelope,
             chessSummary: chessSummary,
             isLatestChessMessage: isLatestChess,

@@ -27,8 +27,10 @@ enum NextcloudMediaKind: String, Equatable {
     case file
 }
 
-/// Fetches Open Graph preview metadata for links sent in chat messages (private/group only -
-/// broadcast rooms never call this). Each recipient's own device does this fetch when the message
+/// Fetches Open Graph preview metadata for links sent in chat messages. Auto-fetch on render is
+/// gated by sender trust (see `LinkPreviewCardView.autoFetch`): accepted 1:1 contacts and group
+/// chats fetch automatically; non-accepted senders and broadcast rooms fetch only when the user
+/// taps the placeholder card. Each recipient's own device does this fetch when the message
 /// renders, rather than the sender embedding preview data in the encrypted message payload, so
 /// link previews never bloat the on-chain/indexer payload. Mirrors `KNSService`'s async-fetch
 /// shape (`KNSService.swift` `fetchPrimaryNameResult`) and `MessageTextRenderPlan`'s `NSCache`

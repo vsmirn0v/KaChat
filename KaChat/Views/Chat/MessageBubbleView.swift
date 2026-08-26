@@ -66,6 +66,11 @@ struct MessageBubbleView: View {
     /// When true, an incoming photo from this contact stays hidden behind a "Show Photo" tap
     /// instead of auto-decoding - driven by `ContactsManager.shouldAutoDisplayPhotos(for:settings:)`.
     var photosBlocked: Bool = false
+    /// When false, incoming link previews from this contact render as a "Tap to load preview"
+    /// placeholder instead of auto-fetching - driven by `ContactsManager.isAcceptedContact(_:)`
+    /// (the same accepted/established predicate the stranger photo gating builds on). The local
+    /// user's own outgoing links always auto-load.
+    var linkPreviewsAutoLoad: Bool = true
     @State private var shimmerPhase: CGFloat = -1
     @State private var showFullText = false
     /// Long-pressing a link surfaces this instead of `.contextMenu` (which never fires there -
@@ -95,6 +100,7 @@ struct MessageBubbleView: View {
         revealOffset: CGFloat = 0,
         maxRevealOffset: CGFloat = 64,
         photosBlocked: Bool = false,
+        linkPreviewsAutoLoad: Bool = true,
         chessEnvelope: ChessEnvelope? = nil,
         chessSummary: ChessGameSummary? = nil,
         isLatestChessMessage: Bool = false,
@@ -121,6 +127,7 @@ struct MessageBubbleView: View {
         self.revealOffset = revealOffset
         self.maxRevealOffset = maxRevealOffset
         self.photosBlocked = photosBlocked
+        self.linkPreviewsAutoLoad = linkPreviewsAutoLoad
         self.chessEnvelope = chessEnvelope
         self.chessSummary = chessSummary
         self.isLatestChessMessage = isLatestChessMessage
@@ -256,7 +263,7 @@ struct MessageBubbleView: View {
                             // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
                             // keeps the raw link visible/tappable if no preview data is ever found,
                             // rather than the message rendering as nothing at all.
-                            LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil)
+                            LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil, autoFetch: linkPreviewsAutoLoad || message.isOutgoing)
                         } else if message.messageType == .payment, let paymentParts = paymentCardParts {
                             // Rich Apple-Pay-in-iMessage style card replacing the plain
                             // "Sent/Received X KAS" text bubble. Unparseable/legacy payment
@@ -286,7 +293,7 @@ struct MessageBubbleView: View {
                     if media == nil,
                        !MessageTextRenderPlan.isEntirelyLink(displayText),
                        let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
-                        LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil)
+                        LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil, autoFetch: linkPreviewsAutoLoad || message.isOutgoing)
                     }
                 }
 
