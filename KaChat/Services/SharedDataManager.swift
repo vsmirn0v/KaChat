@@ -188,7 +188,8 @@ final class SharedDataManager {
     }
 
     /// Sync notification defaults used by the notification service extension.
-    @MainActor
+    /// Deliberately nonisolated: UserDefaults is thread-safe and AppSettings.save is
+    /// documented as callable from any context.
     /// Callers that just saved should pass the settings they saved - `AppSettings.load()` at
     /// that moment can still return the pre-save cached copy (the cache only invalidates on the
     /// `.settingsDidChange` post, which happens after this runs in the save paths).
