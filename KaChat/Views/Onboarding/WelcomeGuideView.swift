@@ -151,19 +151,8 @@ struct WelcomeGuideView: View {
                             Button("Skip") { onFinished() }
                         }
                     }
-                    // Previous-step navigation: every run (onboarding included) can go BACK —
-                    // only skipping forward stays forbidden. Backing INTO the Adult/Child step
-                    // is not allowed once it's been answered (the choice applies immediately),
-                    // so from Language the button returns to Welcome.
-                    if step != .welcome {
-                        ToolbarItem(placement: .navigationBarLeading) {
-                            Button {
-                                goBack()
-                            } label: {
-                                Label("Previous", systemImage: "chevron.left")
-                            }
-                        }
-                    }
+                    // Previous-step navigation lives in the bottom bar next to Next (see
+                    // guideBottomBar) - only skipping forward stays forbidden.
                 }
         }
         .toast(message: toastMessage)
@@ -263,8 +252,35 @@ struct WelcomeGuideView: View {
                 .padding(.horizontal, 24)
             extra()
             Spacer()
+            guideBottomBar(title: buttonTitle, action: action)
+        }
+    }
+
+    // MARK: - Shared bottom bar (Previous + Next)
+
+    /// The fixed two-button bar every step ends with: Previous on the left, Next (or Finish)
+    /// on the right, always in the exact same position so the guide can be tapped through
+    /// without chasing buttons. Previous goes back one step (Language returns to Welcome -
+    /// backing INTO the answered Adult/Child step stays forbidden, see goBack()); on the
+    /// Welcome step it renders disabled and dimmed rather than vanishing, so Next never moves.
+    private func guideBottomBar(title: String = "Next", action: @escaping () -> Void) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                goBack()
+            } label: {
+                Text("Previous")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color(.systemGray5))
+                    .foregroundColor(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .disabled(step == .welcome)
+            .opacity(step == .welcome ? 0.35 : 1)
+
             Button(action: action) {
-                Text(LocalizedStringKey(buttonTitle))
+                Text(LocalizedStringKey(title))
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
@@ -272,9 +288,9 @@ struct WelcomeGuideView: View {
                     .foregroundColor(.white)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
         }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
     }
 
     // MARK: - Who-will-use step (Child Mode)
@@ -357,19 +373,7 @@ struct WelcomeGuideView: View {
             }
 
             Spacer()
-            Button {
-                applyUserTypeChoice()
-            } label: {
-                Text("Next")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+            guideBottomBar { applyUserTypeChoice() }
         }
     }
 
@@ -490,7 +494,7 @@ struct WelcomeGuideView: View {
             .padding(.horizontal, 24)
 
             Spacer()
-            Button {
+            guideBottomBar(title: "Finish") {
                 applyPaymentPrivacyChoice()
                 // The guide is done: the one-shot import marker (funding step's "Change
                 // Chatting Address" option) has served its purpose, and a completed onboarding
@@ -498,17 +502,7 @@ struct WelcomeGuideView: View {
                 walletManager.justImportedWallet = false
                 Self.clearOnboardingRunPending()
                 onFinished()
-            } label: {
-                Text("Finish")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
         }
     }
 
@@ -588,19 +582,7 @@ struct WelcomeGuideView: View {
                 .padding(.vertical, 4)
             }
 
-            Button {
-                step = .currency
-            } label: {
-                Text("Next")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+            guideBottomBar { step = .currency }
         }
     }
 
@@ -660,19 +642,7 @@ struct WelcomeGuideView: View {
                 .padding(.vertical, 4)
             }
 
-            Button {
-                step = .fees
-            } label: {
-                Text("Next")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+            guideBottomBar { step = .fees }
         }
     }
 
@@ -891,19 +861,7 @@ struct WelcomeGuideView: View {
             }
 
             Spacer()
-            Button {
-                applyNodeChoice()
-            } label: {
-                Text("Next")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+            guideBottomBar { applyNodeChoice() }
         }
     }
 
@@ -1003,19 +961,7 @@ struct WelcomeGuideView: View {
             .padding(.horizontal, 24)
 
             Spacer()
-            Button {
-                step = .chatting
-            } label: {
-                Text("Next")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+            guideBottomBar { step = .chatting }
         }
     }
 
