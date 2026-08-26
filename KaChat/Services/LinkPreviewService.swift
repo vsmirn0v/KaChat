@@ -7,10 +7,30 @@ struct LinkPreviewData: Equatable {
     let description: String?
     let imageURLString: String?
     let siteName: String?
+    /// Set only for Nextcloud public-share media links (see
+    /// KaChat-Desktop/docs/NEXTCLOUD_MEDIA_PREVIEW.md): tells the card this link is directly
+    /// viewable media and which kind, so tapping opens the in-app viewer instead of Safari.
+    var nextcloudMedia: NextcloudMediaKind? = nil
+    /// The share's raw-file `/download` URL (streams via range requests) — the viewer's source.
+    var mediaDownloadURLString: String? = nil
+    /// Content-Length from the type-detection HEAD — shown on attachment cards.
+    var mediaByteSize: Int64? = nil
 }
 
-/// Fetches Open Graph preview metadata for links sent in chat messages (private/group only -
-/// broadcast rooms never call this). Each recipient's own device does this fetch when the message
+enum NextcloudMediaKind: String, Equatable {
+    case image
+    case video
+    case audio
+    case pdf
+    /// Anything else (Office docs, archives, …) — rendered as an attachment card that opens
+    /// in Nextcloud's own web viewer; no native inline rendering exists for these.
+    case file
+}
+
+/// Fetches Open Graph preview metadata for links sent in chat messages. Auto-fetch on render is
+/// gated by sender trust (see `LinkPreviewCardView.autoFetch`): accepted 1:1 contacts and group
+/// chats fetch automatically; non-accepted senders and broadcast rooms fetch only when the user
+/// taps the placeholder card. Each recipient's own device does this fetch when the message
 /// renders, rather than the sender embedding preview data in the encrypted message payload, so
 /// link previews never bloat the on-chain/indexer payload. Mirrors `KNSService`'s async-fetch
 /// shape (`KNSService.swift` `fetchPrimaryNameResult`) and `MessageTextRenderPlan`'s `NSCache`
@@ -40,14 +60,16 @@ actor LinkPreviewService {
     /// `Referer` (the page the image belongs to). Image CDNs like cdninstagram/fbcdn reject bare
     /// requests (no browser UA / no Referer) with a 403, which is why `AsyncImage` - which sends
     /// neither - silently failed for Instagram. Returns nil on any failure (card shows no image).
-    func imageData(_ url: URL, referer: URL) async -> Data? {
+    /// `maxBytes` overrides the default 5 MB cap — the Nextcloud full-quality photo viewer
+    /// passes a much higher limit since it deliberately fetches the original file.
+    func imageData(_ url: URL, referer: URL, maxBytes: Int? = nil) async -> Data? {
         // First: browser UA (session default) + Referer. Fallback: Meta's crawler UA with no Referer -
         // some cdninstagram/fbcdn image URLs 403 the browser-UA/Referer combo but serve that crawler.
-        if let data = await fetchImageBytes(url, userAgentOverride: nil, referer: referer) { return data }
-        return await fetchImageBytes(url, userAgentOverride: Self.facebookExternalHitUserAgent, referer: nil)
+        if let data = await fetchImageBytes(url, userAgentOverride: nil, referer: referer, maxBytes: maxBytes) { return data }
+        return await fetchImageBytes(url, userAgentOverride: Self.facebookExternalHitUserAgent, referer: nil, maxBytes: maxBytes)
     }
 
-    private func fetchImageBytes(_ url: URL, userAgentOverride: String?, referer: URL?) async -> Data? {
+    private func fetchImageBytes(_ url: URL, userAgentOverride: String?, referer: URL?, maxBytes: Int? = nil) async -> Data? {
         var request = URLRequest(url: url)
         if let userAgentOverride { request.setValue(userAgentOverride, forHTTPHeaderField: "User-Agent") }
         if let referer { request.setValue(referer.absoluteString, forHTTPHeaderField: "Referer") }
@@ -56,7 +78,7 @@ actor LinkPreviewService {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode),
-                  data.count <= maxImageBytes else { return nil }
+                  data.count <= (maxBytes ?? maxImageBytes) else { return nil }
             return data
         } catch {
             return nil
@@ -103,11 +125,22 @@ actor LinkPreviewService {
 
     private static let syncCache = SyncCacheMirror()
 
+    /// Pre-seeds the cache with preview data the caller already knows to be true — the media
+    /// send paths use this right after uploading, so the sender's own bubble renders instantly
+    /// with zero network instead of waiting on the type probe.
+    func seed(_ data: LinkPreviewData) {
+        store(data, forKey: data.url.absoluteString)
+    }
+
     func preview(for url: URL) async -> LinkPreviewData? {
         let key = url.absoluteString
         if let cached = cache[key] {
             AppLog.log("[LinkPreview] cache hit for %@ -> %@", key, cached == nil ? "no data" : "has data")
             return cached
+        }
+        // Failed share probes wait out the cooldown before re-hitting the server.
+        if let failedAt = nextcloudFailureAt[key], Date().timeIntervalSince(failedAt) < nextcloudRetryCooldown {
+            return nil
         }
 
         if let existing = inFlight[key] {
@@ -127,7 +160,21 @@ actor LinkPreviewService {
         return result
     }
 
+    /// Share URLs whose probe recently failed, with the failure time — retried after a
+    /// cooldown rather than on every render. Unbounded caching of the failure would pin the
+    /// message to a bare link forever; retrying every render hammers the server anonymously,
+    /// which can trip Nextcloud's brute-force throttle and take ALL previews down with it.
+    private var nextcloudFailureAt: [String: Date] = [:]
+    private let nextcloudRetryCooldown: TimeInterval = 60
+
     private func store(_ value: LinkPreviewData?, forKey key: String) {
+        if let url = URL(string: key), Self.nextcloudShareEndpoints(for: url) != nil {
+            if value == nil {
+                nextcloudFailureAt[key] = Date()
+                return
+            }
+            nextcloudFailureAt.removeValue(forKey: key)
+        }
         if cache[key] == nil {
             cacheOrder.append(key)
         }
@@ -141,10 +188,132 @@ actor LinkPreviewService {
 
     private static let youTubeHosts: Set<String> = ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"]
 
+    // MARK: - Nextcloud public shares (docs: KaChat-Desktop/docs/NEXTCLOUD_MEDIA_PREVIEW.md)
+
+    struct NextcloudShareEndpoints: Equatable {
+        let downloadURL: URL
+        let previewURL: URL
+    }
+
+    /// `https://host/s/TOKEN` (or `/index.php/s/TOKEN`, token 10+ url-safe chars) -> the share's
+    /// raw-file `/download` and thumbnail `/preview` endpoints; nil for any other URL.
+    nonisolated static func nextcloudShareEndpoints(for url: URL) -> NextcloudShareEndpoints? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return nil }
+        let path = url.path
+        guard let regex = try? NSRegularExpression(pattern: #"^(/index\.php)?/s/([A-Za-z0-9_-]{10,})/?$"#) else { return nil }
+        let range = NSRange(path.startIndex..<path.endIndex, in: path)
+        guard let match = regex.firstMatch(in: path, options: [], range: range),
+              let tokenRange = Range(match.range(at: 2), in: path),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let prefix = match.range(at: 1).location != NSNotFound ? "/index.php" : ""
+        components.path = "\(prefix)/s/\(path[tokenRange])"
+        components.query = nil
+        components.fragment = nil
+        guard let base = components.url else { return nil }
+        return NextcloudShareEndpoints(
+            downloadURL: base.appendingPathComponent("download"),
+            previewURL: base.appendingPathComponent("preview")
+        )
+    }
+
+    /// The share link itself carries no file type, so `HEAD` the `/download` URL (native HTTP,
+    /// no CORS constraints) and branch on `Content-Type`. Non-media shares return nil, which
+    /// renders as a plain link. The card's poster is the share's `/preview` thumbnail; the
+    /// full-quality fetch/stream only happens when the user taps the card.
+    private func fetchNextcloudPreview(for url: URL, endpoints: NextcloudShareEndpoints) async -> LinkPreviewData? {
+        do {
+            // HEAD first (cheapest); some servers/reverse proxies reject HEAD on public
+            // downloads, so fall back to a 2-byte ranged GET — either way we only need the
+            // response headers, never the body.
+            // A 2-byte ranged GET is the primary probe — universally supported and exactly one
+            // round trip (HEAD-then-GET doubled the wait on servers that dislike HEAD). HEAD
+            // remains as the rare fallback for servers that mishandle Range.
+            var http: HTTPURLResponse?
+            var rangeRequest = URLRequest(url: endpoints.downloadURL)
+            rangeRequest.setValue("bytes=0-1", forHTTPHeaderField: "Range")
+            if let (_, rangeResponse) = try? await session.data(for: rangeRequest),
+               let rangeHTTP = rangeResponse as? HTTPURLResponse, (200..<300).contains(rangeHTTP.statusCode) {
+                http = rangeHTTP
+            } else {
+                var headRequest = URLRequest(url: endpoints.downloadURL)
+                headRequest.httpMethod = "HEAD"
+                let (_, headResponse) = try await session.data(for: headRequest)
+                if let headHTTP = headResponse as? HTTPURLResponse, (200..<300).contains(headHTTP.statusCode) {
+                    http = headHTTP
+                }
+            }
+            guard let http else {
+                AppLog.log("[LinkPreview] Nextcloud HEAD+ranged-GET both failed for %@", url.absoluteString)
+                return nil
+            }
+            let contentType = (http.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased()
+            let kind: NextcloudMediaKind
+            if contentType.hasPrefix("image/") { kind = .image }
+            else if contentType.hasPrefix("video/") { kind = .video }
+            else if contentType.hasPrefix("audio/") { kind = .audio }
+            else if contentType.contains("pdf") { kind = .pdf }
+            else { kind = .file }
+            let filename = Self.filename(fromContentDisposition: http.value(forHTTPHeaderField: "Content-Disposition"))
+            let fallbackTitle: String
+            switch kind {
+            case .image: fallbackTitle = "Photo"
+            case .video: fallbackTitle = "Video"
+            case .audio: fallbackTitle = "Audio"
+            case .pdf: fallbackTitle = "PDF"
+            case .file: fallbackTitle = "File"
+            }
+            // Via the ranged-GET fallback, Content-Length is the 2-byte slice — the real size
+            // lives in Content-Range ("bytes 0-1/12345").
+            let byteSize: Int64?
+            if let contentRange = http.value(forHTTPHeaderField: "Content-Range"),
+               let totalPart = contentRange.split(separator: "/").last, let total = Int64(totalPart) {
+                byteSize = total
+            } else {
+                byteSize = http.value(forHTTPHeaderField: "Content-Length").flatMap { Int64($0) }
+            }
+            return LinkPreviewData(
+                url: url,
+                title: filename ?? fallbackTitle,
+                description: nil,
+                imageURLString: endpoints.previewURL.absoluteString,
+                siteName: url.host.map { "Nextcloud · \($0)" } ?? "Nextcloud",
+                nextcloudMedia: kind,
+                mediaDownloadURLString: endpoints.downloadURL.absoluteString,
+                mediaByteSize: byteSize
+            )
+        } catch {
+            AppLog.log("[LinkPreview] Nextcloud HEAD failed for %@: %@", url.absoluteString, error.localizedDescription)
+            return nil
+        }
+    }
+
+    /// Pulls the shared file's name out of `Content-Disposition: attachment; filename="x.jpg"`
+    /// (or the RFC 5987 `filename*=UTF-8''x.jpg` form) for the card title.
+    private nonisolated static func filename(fromContentDisposition header: String?) -> String? {
+        guard let header else { return nil }
+        if let range = header.range(of: #"filename\*=UTF-8''([^;]+)"#, options: .regularExpression) {
+            let raw = String(header[range]).replacingOccurrences(of: "filename*=UTF-8''", with: "")
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            return trimmed.removingPercentEncoding ?? trimmed
+        }
+        if let range = header.range(of: #"filename="([^"]+)""#, options: .regularExpression) {
+            var raw = String(header[range]).replacingOccurrences(of: "filename=\"", with: "")
+            if raw.hasSuffix("\"") { raw.removeLast() }
+            return raw.isEmpty ? nil : raw
+        }
+        return nil
+    }
+
     private func fetchPreview(for url: URL) async -> LinkPreviewData? {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
             AppLog.log("[LinkPreview] rejected non-http(s) scheme for %@", url.absoluteString)
             return nil
+        }
+
+        // Nextcloud public shares are media files, not pages — no Open Graph to scrape. Type
+        // comes from a HEAD on the raw-file endpoint instead (see fetchNextcloudPreview).
+        if let endpoints = Self.nextcloudShareEndpoints(for: url) {
+            return await fetchNextcloudPreview(for: url, endpoints: endpoints)
         }
 
         // YouTube serves a cookie-consent-wall page (no Open Graph tags at all) to plain scraper

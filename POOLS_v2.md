@@ -1004,18 +1004,49 @@ This covers:
 
 ### DNS Seed Resolution
 
-DNS seeds are resolved using `getaddrinfo()` to get all A records (not just the first one):
+DNS seeds are resolved using `getaddrinfo()` to get all A and AAAA records (not just the first one):
 
 ```swift
 // In NodeProfiler.resolveDNSSeed()
 var hints = addrinfo()
-hints.ai_family = AF_INET  // IPv4 only
+hints.ai_family = AF_UNSPEC  // IPv4 + IPv6 (incl. DNS64-synthesized AAAA on IPv6-only networks)
 hints.ai_socktype = SOCK_STREAM
 let status = getaddrinfo(seed.hostname, String(seed.port), &hints, &result)
 // Iterate through all results...
 ```
 
-This ensures we discover all available seed IPs, not just one.
+This ensures we discover all available seed IPs, not just one, and that IPv6-only (NAT64/DNS64)
+networks get dialable addresses. Scoped link-local v6 addresses are skipped.
+
+**Bootstrap fallback (censored/blocked DNS):** when EVERY seed hostname fails to resolve, a small
+bundled list of last-resort node IPs (`mainnetBootstrapFallbackIPs` in `NodeModels.swift` -
+seeder-derived, TCP-verified on 16110 when last refreshed) is upserted as ordinary `.seed`
+candidates. Whenever DNS works, real seeder results are used and persisted instead.
+
+### Instant Connect Paths (bootstrapProbe)
+
+`NodeProfiler.bootstrapProbe(_:)` races a set of known endpoints in parallel (happy-eyeballs,
+bounded chunks) and probes each responder a second time immediately, so the first responder clears
+`rebalanceActivePool()`'s two-consecutive-success bar and becomes `.active` right away instead of
+waiting for the next probe-loop pass. Used by:
+
+- **Cold start** (`quickBoot`): persisted active/verified nodes are raced in parallel; with an
+  empty registry, freshly DNS-resolved seeds are raced the same way.
+- **Pinned -> Automatic Scan** (`NodePoolService.setTrustedNodeAddress("")`): pinning stashes the
+  pre-pin registry (`com.kachat.nodepool.records.prepin`); unpinning restores it and immediately
+  races the best-known nodes. With nothing to restore, a full `quickBoot` runs instead. Previously
+  this transition probed an empty registry and never re-resolved DNS, leaving the app nodeless
+  until the next cold launch.
+
+### Blocked-Network Detection & REST Fallback
+
+`NodePoolService.nodeNetworkBlockedSuspected` turns on when the device is online, zero nodes are
+active, and 8+ distinct nodes failed recently with no successes - the signature of gRPC being
+blocked wholesale (DPI/corporate firewall), surfaced honestly in the connection status screen.
+`getUtxosByAddresses` falls back to the Kaspa REST API (HTTPS) when every gRPC endpoint fails, so
+balances/fee estimation keep working; receiving messages already flows over the indexer's REST.
+Transaction submission remains gRPC-only (the REST submit schema cannot carry the message payload
+field), and the UI copy says so.
 
 ### Peer Discovery Optimizations
 

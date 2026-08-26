@@ -28,6 +28,15 @@ final class PushNotificationManager: ObservableObject {
 
     private let tokenDefaultsKey = "push_device_token"
     private let registeredDefaultsKey = "push_registered"
+    /// Base URL of the service the device last successfully registered with - lets a push-URL
+    /// change unregister from the OLD service (both kept pushing = duplicate notifications).
+    private let registeredBaseURLDefaultsKey = "push_registered_base_url"
+    /// APNs environment ("development"/"production") the device last successfully registered
+    /// with. A token minted for one environment is rejected by the other (`BadDeviceToken`), so
+    /// installing a TestFlight build over an Xcode build must force a FULL re-registration
+    /// rather than reusing the stale server record.
+    private let registeredApnsEnvironmentDefaultsKey = "push_registered_apns_environment"
+    private let legacyKasiaUnregisterDoneKey = "push_legacy_kasia_unregister_done"
     private let deviceAuthCounterDefaultsKey = "push_device_auth_counter"
 
     private var deviceToken: String?
@@ -70,8 +79,8 @@ final class PushNotificationManager: ObservableObject {
     private let updateEndpoint = "/v1/push/update"
     private let unregisterEndpoint = "/v1/push/unregister"
     private let challengeEndpoint = "/v1/push/challenge"
-    private let pushAuthDomain = "kasia-push-auth:v1"
-    private let pushDeviceAuthDomain = "kasia-push-device-auth:v1"
+    private let pushAuthDomain = "kchat-push-auth:v1"
+    private let pushDeviceAuthDomain = "kchat-push-device-auth:v1"
     private let pushDeviceAuthScheme = "device_key_v1"
 
     // MARK: - Initialization
@@ -281,6 +290,7 @@ final class PushNotificationManager: ObservableObject {
 
     /// Register device with indexer, including watched addresses
     func registerWithIndexer() async throws {
+        await unregisterFromSupersededServiceIfNeeded()
         guard let token = deviceToken else {
             throw PushError.noDeviceToken
         }
@@ -369,8 +379,12 @@ final class PushNotificationManager: ObservableObject {
             platform: platform,
             watchedAddresses: watchedAddresses,
             watchedGroupIds: watchedGroupIds,
+            watchedBroadcastChannels: collectWatchedBroadcastChannels(),
+            hiddenBroadcastSenders: collectHiddenBroadcastSenders(),
+            kapostsPubkey: collectKaPostsPubkey(),
             primaryAddress: primaryAddress,
             aliases: aliases,
+            apnsEnvironment: ApnsEnvironment.current.rawValue,
             auth: auth
         )
 
@@ -397,6 +411,8 @@ final class PushNotificationManager: ObservableObject {
         isRegistered = true
         lastError = nil
         persistRegistrationStatus(true)
+        UserDefaults.standard.set(AppSettings.load().pushIndexerURL, forKey: registeredBaseURLDefaultsKey)
+        UserDefaults.standard.set(ApnsEnvironment.current.rawValue, forKey: registeredApnsEnvironmentDefaultsKey)
         clearWalletBindingConflictCooldown()
         lastWatchedSignature = buildWatchedSignature(
             watchedAddresses: watchedAddresses,
@@ -644,8 +660,12 @@ final class PushNotificationManager: ObservableObject {
             deviceToken: token,
             watchedAddresses: watchedAddresses,
             watchedGroupIds: watchedGroupIds,
+            watchedBroadcastChannels: collectWatchedBroadcastChannels(),
+            hiddenBroadcastSenders: collectHiddenBroadcastSenders(),
+            kapostsPubkey: collectKaPostsPubkey(),
             primaryAddress: primaryAddress,
             aliases: aliases,
+            apnsEnvironment: ApnsEnvironment.current.rawValue,
             auth: auth
         )
 
@@ -746,10 +766,48 @@ final class PushNotificationManager: ObservableObject {
         let groupIds = (watchedGroupIds ?? collectWatchedGroupIds() ?? []).sorted()
         let aliasList = (aliases ?? collectAliases(forWatchedAddresses: addrs)).sorted()
         let primary = primaryAddress ?? collectPrimaryAddress() ?? ""
-        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary]).joined(separator: ",")
+        let broadcastChannels = collectWatchedBroadcastChannels()
+        let kapostsKey = collectKaPostsPubkey() ?? ""
+        let hiddenBroadcast = collectHiddenBroadcastSenders()
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key):\($0.value.joined(separator: "+"))" }
+        let apnsEnvironment = ApnsEnvironment.current.rawValue
+        return (addrs + ["|"] + groupIds + ["|"] + aliasList + ["|", primary] + ["|"] + broadcastChannels + ["|"] + hiddenBroadcast + ["|", kapostsKey] + ["|", apnsEnvironment]).joined(separator: ",")
     }
 
     /// Unregister device (call on logout/wallet delete)
+    /// The push URL changed (e.g. the kasia.wtf -> kachat.duckdns.org default migration) but
+    /// the OLD service still has this device registered and keeps pushing - the source of
+    /// duplicated notifications. One best-effort DELETE against the old base before
+    /// registering with the new one; unsigned (legacy backends accept it), single attempt.
+    private func unregisterFromSupersededServiceIfNeeded() async {
+        guard let token = deviceToken else { return }
+        let currentBase = AppSettings.load().pushIndexerURL
+        var storedOldBase = UserDefaults.standard.string(forKey: registeredBaseURLDefaultsKey)
+        // Devices that migrated BEFORE base-URL tracking existed (the kasia.wtf ->
+        // kachat.duckdns.org default flip) have no stored value - sweep the known legacy
+        // host once so it stops double-pushing.
+        if storedOldBase == nil,
+           !UserDefaults.standard.bool(forKey: legacyKasiaUnregisterDoneKey),
+           UserDefaults.standard.bool(forKey: registeredDefaultsKey) {
+            storedOldBase = "https://indexer.kasia.wtf"
+        }
+        UserDefaults.standard.set(true, forKey: legacyKasiaUnregisterDoneKey)
+        guard let oldBase = storedOldBase,
+              !oldBase.isEmpty,
+              oldBase != currentBase,
+              let url = URL(string: "\(oldBase)\(unregisterEndpoint)") else { return }
+        // Clear first - one attempt per supersession, a dead old host must not retry forever.
+        UserDefaults.standard.removeObject(forKey: registeredBaseURLDefaultsKey)
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "DELETE"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try? JSONEncoder().encode(PushUnregisterRequest(deviceToken: token, auth: nil))
+        urlRequest.timeoutInterval = 20
+        _ = try? await URLSession.shared.data(for: urlRequest)
+        AppLog.log("[Push] Sent unregister to superseded push service: %@", oldBase)
+    }
+
     func unregister() async {
         guard let token = deviceToken else { return }
 
@@ -1065,6 +1123,21 @@ final class PushNotificationManager: ObservableObject {
         }
         let storedRegistered = UserDefaults.standard.bool(forKey: registeredDefaultsKey)
         isRegistered = storedRegistered && deviceToken != nil
+
+        // A device that crossed APNs environments (developer installs a TestFlight build over an
+        // Xcode build, or vice versa) holds a server record pinned to the OLD environment and a
+        // token the old endpoint will reject. `refreshRegistrationIfNeeded()` would only PUT an
+        // update in that state; invalidate the cached status so it performs a FULL re-register.
+        let storedEnvironment = UserDefaults.standard.string(forKey: registeredApnsEnvironmentDefaultsKey)
+        if isRegistered,
+           let storedEnvironment,
+           storedEnvironment != ApnsEnvironment.current.rawValue {
+            AppLog.log("[Push] APNs environment changed (%@ -> %@) - forcing re-registration",
+                       storedEnvironment,
+                       ApnsEnvironment.current.rawValue)
+            isRegistered = false
+            persistRegistrationStatus(false)
+        }
     }
 
     private func persistDeviceToken(_ token: String) {
@@ -1207,6 +1280,44 @@ final class PushNotificationManager: ObservableObject {
                 guard settings.notificationMode == .remotePush else { return }
                 Task { await self.updateWatchedAddresses() }
             }
+    }
+
+    /// Indexer-tracked broadcast channels (#kaspa/#kachat-bugs) whose bell is on - the push
+    /// service sends broadcast-room pushes for these while the app is closed. Bell off =
+    /// channel excluded = no push.
+    private func collectWatchedBroadcastChannels() -> [String] {
+        // Child Mode: no broadcast channels registered with the push service at all. Toggling
+        // the mode posts .settingsDidChange -> refreshRegistrationIfNeeded -> updateWatchedAddresses,
+        // whose fingerprint includes this list, so the re-registration happens automatically.
+        guard !AppSettings.load().childModeEnabled else { return [] }
+        return BroadcastService.shared.channels
+            .filter { BroadcastService.featuredChannels.contains($0.channelName) && $0.notifyEnabled }
+            .map(\.channelName)
+            .sorted()
+    }
+
+    /// Per-room hidden senders for the watched (indexed) channels - the push service must not
+    /// send pushes from these senders to this device. Legacy global hides apply to every
+    /// watched channel.
+    private func collectHiddenBroadcastSenders() -> [String: [String]] {
+        let hidden = BroadcastService.shared.hiddenSendersByChannel()
+        var result: [String: [String]] = [:]
+        for channel in collectWatchedBroadcastChannels() {
+            let combined = hidden.global.union(hidden.perChannel[channel] ?? [])
+            if !combined.isEmpty {
+                result[channel] = combined.sorted()
+            }
+        }
+        return result
+    }
+
+    /// The wallet's K (KaPosts) identity - the push service sends "actions on your content"
+    /// pushes for it while the app is closed. Nil when no wallet is loaded.
+    private func collectKaPostsPubkey() -> String? {
+        // Child Mode: no KaPosts identity registered with the push service - same auto
+        // re-registration path as collectWatchedBroadcastChannels above.
+        guard !AppSettings.load().childModeEnabled else { return nil }
+        return try? KaPostsAPIClient.shared.requesterPubkey()
     }
 
     private func collectWatchedAddresses() -> [String] {
@@ -1692,7 +1803,7 @@ final class PushNotificationManager: ObservableObject {
         }
 
         if let payloadString = decodePayloadString(from: payload),
-           payloadString.hasPrefix("ciph_msg:1:comm:") {
+           (payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:")) {
             let parts = payloadString.split(separator: ":", maxSplits: 4, omittingEmptySubsequences: false)
             guard parts.count >= 5 else { return nil }
             let base64String = String(parts[4])
@@ -1710,7 +1821,7 @@ final class PushNotificationManager: ObservableObject {
                     return decryptEncryptedBytes(hexData, privateKey: privateKey)
                 }
                 if let payloadString = decodePayloadString(from: utf8),
-                   payloadString.hasPrefix("ciph_msg:1:comm:") {
+                   (payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:")) {
                     let parts = payloadString.split(separator: ":", maxSplits: 4, omittingEmptySubsequences: false)
                     if parts.count >= 5,
                        let nestedEncrypted = Data(base64Encoded: String(parts[4])) {
@@ -1732,7 +1843,7 @@ final class PushNotificationManager: ObservableObject {
            let payloadString = String(data: payloadData, encoding: .utf8) {
             return payloadString
         }
-        if payload.hasPrefix("ciph_msg:") {
+        if payload.hasPrefix("kchat:") || payload.hasPrefix("ciph_msg:") {
             return payload
         }
         return nil
@@ -1818,6 +1929,66 @@ final class PushNotificationManager: ObservableObject {
     }
 }
 
+// MARK: - APNs Environment
+
+/// Which APNs endpoint the device token issued to THIS build belongs to.
+///
+/// APNs tokens are environment-scoped. A build installed from Xcode gets a *sandbox* token
+/// (`api.sandbox.push.apple.com`); TestFlight and App Store builds get a *production* token
+/// (`api.push.apple.com`). Sending a token to the wrong endpoint fails silently per device -
+/// Apple answers `BadDeviceToken` and nothing is delivered - which is exactly how TestFlight
+/// installs ended up receiving no pushes at all while a dev build on the same phone worked.
+/// A single global server setting cannot serve both populations, so the app reports its own
+/// environment at registration and the server routes per device.
+enum ApnsEnvironment: String {
+    case development
+    case production
+
+    /// Resolved once per process - the answer cannot change without a reinstall.
+    static let current: ApnsEnvironment = resolve()
+
+    private static func resolve() -> ApnsEnvironment {
+        switch apsEnvironmentEntitlement() {
+        case "development": return .development
+        case "production": return .production
+        default:
+            // No embedded profile (or an unexpected value): fall back to the build config.
+            #if DEBUG
+            return .development
+            #else
+            return .production
+            #endif
+        }
+    }
+
+    /// Reads `aps-environment` out of the embedded provisioning profile - the accurate runtime
+    /// signal for how this binary was signed. (`SecTaskCopyValueForEntitlement` is not public
+    /// API on iOS, so the profile is the only supported way to read our own entitlements.)
+    ///
+    /// `embedded.mobileprovision` is a CMS blob with the profile plist stored as plain XML
+    /// inside it, so the plist is sliced out between the XML prologue and the final `</plist>`.
+    private static func apsEnvironmentEntitlement() -> String? {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url),
+              let start = data.range(of: Data("<?xml".utf8)),
+              let end = data.range(of: Data("</plist>".utf8), options: [.backwards]),
+              start.lowerBound < end.upperBound else {
+            return nil
+        }
+        let plistData = Data(data[start.lowerBound..<end.upperBound])
+        guard let plist = try? PropertyListSerialization.propertyList(
+                from: plistData,
+                options: [],
+                format: nil
+              ) as? [String: Any],
+              let entitlements = plist["Entitlements"] as? [String: Any],
+              let apsEnvironment = entitlements["aps-environment"] as? String else {
+            return nil
+        }
+        return apsEnvironment
+    }
+}
+
 // MARK: - Request Models
 
 struct PushRegistrationRequest: Codable {
@@ -1825,8 +1996,13 @@ struct PushRegistrationRequest: Codable {
     let platform: String
     let watchedAddresses: [String]
     let watchedGroupIds: [String]
+    let watchedBroadcastChannels: [String]
+    let hiddenBroadcastSenders: [String: [String]]
+    let kapostsPubkey: String?
     let primaryAddress: String?
     let aliases: [String]
+    /// "development" | "production" - which APNs endpoint this device's token is valid for.
+    let apnsEnvironment: String
     let auth: PushAuthRequest?
 
     enum CodingKeys: String, CodingKey {
@@ -1834,8 +2010,12 @@ struct PushRegistrationRequest: Codable {
         case platform
         case watchedAddresses = "watched_addresses"
         case watchedGroupIds = "watched_group_ids"
+        case watchedBroadcastChannels = "watched_broadcast_channels"
+        case hiddenBroadcastSenders = "hidden_broadcast_senders"
+        case kapostsPubkey = "kaposts_pubkey"
         case primaryAddress = "primary_address"
         case aliases
+        case apnsEnvironment = "apns_environment"
         case auth
     }
 }
@@ -1844,16 +2024,25 @@ struct PushUpdateRequest: Codable {
     let deviceToken: String
     let watchedAddresses: [String]
     let watchedGroupIds: [String]
+    let watchedBroadcastChannels: [String]
+    let hiddenBroadcastSenders: [String: [String]]
+    let kapostsPubkey: String?
     let primaryAddress: String?
     let aliases: [String]
+    /// "development" | "production" - which APNs endpoint this device's token is valid for.
+    let apnsEnvironment: String
     let auth: PushAuthRequest?
 
     enum CodingKeys: String, CodingKey {
         case deviceToken = "device_token"
         case watchedAddresses = "watched_addresses"
         case watchedGroupIds = "watched_group_ids"
+        case watchedBroadcastChannels = "watched_broadcast_channels"
+        case hiddenBroadcastSenders = "hidden_broadcast_senders"
+        case kapostsPubkey = "kaposts_pubkey"
         case primaryAddress = "primary_address"
         case aliases
+        case apnsEnvironment = "apns_environment"
         case auth
     }
 }

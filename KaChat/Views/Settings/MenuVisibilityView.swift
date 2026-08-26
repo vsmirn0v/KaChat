@@ -2,9 +2,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 import Foundation
 
-/// Settings > Customization > Menu — which bottom tabs show up, and in what order. Chats/Profile
-/// are permanently on (Settings itself is reached from Profile now, not its own tab);
-/// Portfolio/Cold Storage/Swap can each be hidden, all defaulting to shown for a new install. A
+/// Settings > Customization > Customize Dock — which bottom tabs show up, and in what order. Chats/Profile
+/// are permanently on (Settings itself is reached from Profile now, not its own tab); everything
+/// else can each be hidden, all defaulting to shown for a new install (4.0). A
 /// live preview of the real tab bar is pinned to the bottom of this screen specifically (it isn't
 /// visible otherwise, since Settings now opens as a sheet over the real TabView) - press-and-drag
 /// a pill in the preview to reorder it, matching Android's own "reorder by dragging the bar
@@ -15,6 +15,40 @@ struct MenuVisibilityView: View {
 
     private var visibleTabs: [AppTab] {
         AppTab.visible(from: settingsViewModel.settings)
+    }
+
+    /// Child Mode removes Swaps, KaPosts and Broadcasts from the whole app - their toggles
+    /// disappear from this screen too so they can't even be flipped "for later" while it's on.
+    private var childModeOn: Bool {
+        settingsViewModel.settings.childModeEnabled
+    }
+
+    /// KaPosts is on but the dock is full, so it opens via re-tapping the Chats tab - surfaced as
+    /// a hint on its row so the behavior is discoverable right where it was toggled on.
+    private var kaPostsReTapHint: String? {
+        let settings = settingsViewModel.settings
+        guard !settings.hideKaPostsTab else { return nil }
+        return AppTab.kaPostsAccessibleViaChatsTab(from: settings)
+            ? "Dock is full - open it by tapping the Chats tab again" : nil
+    }
+
+    /// Same discoverability hint for Broadcasts when it's masked behind the Chats-tab cycle.
+    private var broadcastsReTapHint: String? {
+        let settings = settingsViewModel.settings
+        guard !settings.hideBroadcasts else { return nil }
+        return AppTab.broadcastsAccessibleViaChatsTab(from: settings)
+            ? "Dock is full - open it by tapping the Chats tab again" : nil
+    }
+
+    /// Apps doesn't ride the Chats-tab cycle - it's a regular dock tab that needs a free slot.
+    /// Enabled but not visible means the dock is full: tell the user to free a slot. While it
+    /// actually sits in the dock, note that it moved off the Profile screen instead.
+    private var appsHint: String? {
+        let settings = settingsViewModel.settings
+        guard !settings.hideAppsTab else { return nil }
+        return AppTab.visible(from: settings).contains(.apps)
+            ? "Moved out of Profile while on the dock"
+            : "Dock is full - turn another tab off to show Apps"
     }
 
     var body: some View {
@@ -42,41 +76,77 @@ struct MenuVisibilityView: View {
                     ),
                     locked: false
                 )
+                if !childModeOn {
+                    menuRow(
+                        icon: AppTab.swap.icon,
+                        label: AppTab.swap.label,
+                        isOn: Binding(
+                            get: { !settingsViewModel.settings.hideSwapTab },
+                            set: { settingsViewModel.settings.hideSwapTab = !$0; settingsViewModel.saveSettings() }
+                        ),
+                        locked: false
+                    )
+                    menuRow(
+                        icon: AppTab.kaposts.icon,
+                        label: AppTab.kaposts.label,
+                        isOn: Binding(
+                            get: { !settingsViewModel.settings.hideKaPostsTab },
+                            set: { settingsViewModel.settings.hideKaPostsTab = !$0; settingsViewModel.saveSettings() }
+                        ),
+                        locked: false,
+                        hint: kaPostsReTapHint
+                    )
+                }
                 menuRow(
-                    icon: AppTab.swap.icon,
-                    label: AppTab.swap.label,
+                    icon: AppTab.apps.icon,
+                    label: AppTab.apps.label,
                     isOn: Binding(
-                        get: { !settingsViewModel.settings.hideSwapTab },
-                        set: { settingsViewModel.settings.hideSwapTab = !$0; settingsViewModel.saveSettings() }
+                        get: { !settingsViewModel.settings.hideAppsTab },
+                        set: { settingsViewModel.settings.hideAppsTab = !$0; settingsViewModel.saveSettings() }
                     ),
-                    locked: false
+                    locked: false,
+                    hint: appsHint
                 )
-                menuRow(
-                    icon: "dot.radiowaves.left.and.right",
-                    label: "Broadcasts",
-                    isOn: Binding(
-                        get: { !settingsViewModel.settings.hideBroadcasts },
-                        set: { settingsViewModel.settings.hideBroadcasts = !$0; settingsViewModel.saveSettings() }
-                    ),
-                    locked: false
-                )
+                if !childModeOn {
+                    menuRow(
+                        icon: AppTab.broadcasts.icon,
+                        label: AppTab.broadcasts.label,
+                        isOn: Binding(
+                            get: { !settingsViewModel.settings.hideBroadcasts },
+                            set: { settingsViewModel.settings.hideBroadcasts = !$0; settingsViewModel.saveSettings() }
+                        ),
+                        locked: false,
+                        hint: broadcastsReTapHint
+                    )
+                }
             } header: {
-                Text("Choose which tabs appear in your bottom menu.")
+                Text("Choose which tabs appear in your dock.")
             } footer: {
-                Text("Press and drag a tab in the preview below to reorder it.")
+                if childModeOn {
+                    Text("Press and drag a tab in the preview below to reorder it. The dock shows up to \(AppTab.maxDockItems) items. Swap, KaPosts and Broadcasts are unavailable while Child Mode is on (Settings > Security > Child Mode).")
+                } else {
+                    Text("Press and drag a tab in the preview below to reorder it. The dock shows up to \(AppTab.maxDockItems) items - if it's full, KaPosts and Broadcasts stay available by tapping the Chats tab to cycle through them; other tabs need a free slot to appear.")
+                }
             }
         }
-        .navigationTitle("Menu")
+        .navigationTitle("Customize Dock")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
             tabOrderPreview
         }
     }
 
-    private func menuRow(icon: String, label: String, isOn: Binding<Bool>, locked: Bool) -> some View {
+    private func menuRow(icon: String, label: String, isOn: Binding<Bool>, locked: Bool, hint: String? = nil) -> some View {
         HStack {
-            Label(label, systemImage: icon)
-                .foregroundColor(.primary)
+            VStack(alignment: .leading, spacing: 2) {
+                Label(label, systemImage: icon)
+                    .foregroundColor(.primary)
+                if let hint {
+                    Text(hint)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
             Spacer()
             if locked {
                 Text("Always shown")

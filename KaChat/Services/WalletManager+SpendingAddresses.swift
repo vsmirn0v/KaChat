@@ -129,6 +129,22 @@ extension WalletManager {
         }
     }
 
+    // Snapshot of the last fully-loaded Manage Addresses list, persisted per wallet so the
+    // screen can render INSTANTLY from cache while the live network refresh runs behind it.
+    // Balances in the snapshot may be stale for a moment — the refresh replaces them.
+    func cachedSpendingAddressList() -> [SpendingAddressEntry] {
+        guard let key = spendingDefaultsKey("entries_cache"),
+              let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([SpendingAddressEntry].self, from: data) else { return [] }
+        return decoded
+    }
+
+    func storeSpendingAddressListCache(_ entries: [SpendingAddressEntry]) {
+        guard let key = spendingDefaultsKey("entries_cache"),
+              let data = try? JSONEncoder().encode(entries) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
     private var spendingLabels: [Int: String] {
         get {
             guard let key = spendingDefaultsKey("labels"),
@@ -175,11 +191,38 @@ extension WalletManager {
 
     // MARK: - Derivation
 
+    /// Cache of derived spending ADDRESSES (never keys), persisted per wallet + network.
+    /// Two reasons:
+    /// 1. Correctness — `spendingPrivateKey(at:)` needs the seed from the keychain, which can
+    ///    transiently fail (cold launch / before protected data unlocks). Every caller that did
+    ///    `currentSpendingAddress() ?? wallet.publicAddress` then briefly showed the CHATTING
+    ///    address under the spending role until a later render resolved it — the "chatting
+    ///    balance shows under spending then reverts" flicker. Addresses are deterministic, so a
+    ///    cached value is always correct and never needs invalidation.
+    /// 2. Speed — skips Secure Enclave decrypt + PBKDF2 + 5 HMAC derivations per lookup.
+    private func spendingAddressCacheKey() -> String? {
+        guard let base = spendingDefaultsKey("derived_addresses") else { return nil }
+        return "\(base)_\(SettingsViewModel.loadSettings().networkType.rawValue)"
+    }
+
     func spendingAddress(at index: Int) -> String? {
+        guard index >= 0 else { return nil }
+        let cacheKey = spendingAddressCacheKey()
+        if let cacheKey,
+           let cached = UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String],
+           let address = cached[String(index)] {
+            return address
+        }
         guard let privateKey = spendingPrivateKey(at: index) else { return nil }
         guard let publicKeyData = try? deriveSchnorrPublicKey(from: privateKey) else { return nil }
         let network = SettingsViewModel.loadSettings().networkType
-        return KaspaAddress.fromPublicKey(publicKeyData, network: network).address
+        let address = KaspaAddress.fromPublicKey(publicKeyData, network: network).address
+        if let cacheKey {
+            var cached = (UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String]) ?? [:]
+            cached[String(index)] = address
+            UserDefaults.standard.set(cached, forKey: cacheKey)
+        }
+        return address
     }
 
     func spendingPrivateKey(at index: Int) -> Data? {
@@ -224,10 +267,22 @@ extension WalletManager {
 
     private func spendingAddress(at index: Int, changeKey: (key: Data, chainCode: Data)) -> String? {
         guard index >= 0 else { return nil }
+        let cacheKey = spendingAddressCacheKey()
+        if let cacheKey,
+           let cached = UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String],
+           let address = cached[String(index)] {
+            return address
+        }
         let privateKey = deriveChildKey(from: changeKey, index: UInt32(index)).key
         guard let publicKeyData = try? deriveSchnorrPublicKey(from: privateKey) else { return nil }
         let network = SettingsViewModel.loadSettings().networkType
-        return KaspaAddress.fromPublicKey(publicKeyData, network: network).address
+        let address = KaspaAddress.fromPublicKey(publicKeyData, network: network).address
+        if let cacheKey {
+            var cached = (UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String]) ?? [:]
+            cached[String(index)] = address
+            UserDefaults.standard.set(cached, forKey: cacheKey)
+        }
+        return address
     }
 
     // MARK: - Mutation
@@ -236,8 +291,15 @@ extension WalletManager {
     /// Also extends `maxSpendingAddressIndex` if this index hasn't been revealed yet.
     func setActiveSpendingAddress(_ index: Int) async {
         guard index >= 0 else { return }
+        let changed = index != currentSpendingAddressIndex
         let newMax = index > maxSpendingAddressIndex ? index : nil
         await updateSpendingBounds(index: index, maxIndex: newMax)
+        // Let open screens (Manage Addresses) refresh which row is primary immediately -
+        // a payment send rotates the primary through here, and without this the old primary's
+        // row kept its stale star (and hid its Hide action) until the next full reload.
+        if changed {
+            NotificationCenter.default.post(name: .spendingPrimaryChanged, object: nil)
+        }
     }
 
     /// Reveals a new, never-used spending address slot (extends `maxSpendingAddressIndex` by
@@ -246,12 +308,156 @@ extension WalletManager {
         await updateSpendingBounds(maxIndex: maxSpendingAddressIndex + 1)
     }
 
+    /// "Generate New Spending Address" - a SEQUENCE, not a single answer: every press yields
+    /// the NEXT fresh address, forever. The chosen index is the lowest one that is truly
+    /// unused (zero balance, no on-chain history, not the primary, never offered to a contact
+    /// as a payment-pool reservation) AND currently hidden - i.e. not already sitting in the
+    /// Manage Addresses list. Recycling un-hides it. An index that is already visible is never
+    /// picked (that was the old stall: the lowest unused index, once revealed, satisfied every
+    /// check again on the next press, so Generate kept returning the same row and appeared to
+    /// stop working). When no hidden unused index remains, the chain extends by one past the
+    /// all-time max, which is always safe. A probe failure (used-ness unknown) skips that
+    /// index rather than recycling it. Returns the chosen index.
+    func lowestUnusedSpendingAddress() async -> Int {
+        let entries = await getSpendingAddressList().sorted { $0.index < $1.index }
+        // Only ACTIVE live-pool offers are excluded from recycling: a reverted reservation
+        // (revoked, superseded, or funded-and-swept) that the user has since hidden is a
+        // legitimate recycle candidate again.
+        let reserved: Set<String> = {
+            guard let wallet = currentWallet else { return [] }
+            return Set(PaymentPoolStore.shared.activeOfferedReservationAddresses(wallet: wallet.publicAddress))
+        }()
+        for entry in entries {
+            guard entry.hidden else { continue } // already visible - the user has it; move on
+            if entry.isCurrent { continue }
+            if entry.balanceSompi > 0 { continue }
+            if reserved.contains(entry.address) { continue }
+            // Recycle only on a CONFIRMED-unused probe; nil (probe failed) skips the index -
+            // extending the chain below is always safe, recycling an unknown one is not.
+            let usedState = await ChatService.shared.spendingAddressUsedState(entry.address)
+            if usedState == false {
+                _ = await setSpendingAddressHidden(index: entry.index, hidden: false)
+                if let wallet = currentWallet {
+                    PaymentPoolStore.shared.markReclaimed(address: entry.address, wallet: wallet.publicAddress)
+                }
+                return entry.index
+            }
+        }
+        await generateNextSpendingAddress()
+        let newIndex = maxSpendingAddressIndex
+        _ = await setSpendingAddressHidden(index: newIndex, hidden: false)
+        return newIndex
+    }
+
+    /// Reveals a specific index from the Address Visibility pager, extending the chain when the
+    /// index is beyond the current max - intermediate newly-covered indices are marked hidden so
+    /// checking ONE far-out row doesn't flood the main list with everything below it.
+    func revealSpendingAddress(at index: Int) async {
+        let currentMax = maxSpendingAddressIndex
+        if index > currentMax {
+            await updateSpendingBounds(maxIndex: index)
+            if index - 1 > currentMax {
+                var hiddenSet = hiddenSpendingIndices
+                for i in (currentMax + 1)..<index { hiddenSet.insert(i) }
+                hiddenSpendingIndices = hiddenSet
+            }
+        }
+        _ = await setSpendingAddressHidden(index: index, hidden: false)
+    }
+
+    /// Reveals and returns `count` brand-new spending-chain slots in one step - used by the
+    /// fresh-address payment pool feature (`ChatService+PaymentPools`) to reserve addresses to
+    /// offer a contact. Indices start strictly past `maxSpendingAddressIndex`, and the max is
+    /// bumped to cover them before returning, so: (a) they have never been revealed, funded, or
+    /// offered before, and (b) no later payment-change address or reservation can ever land on
+    /// the same index (`sendPaymentInternal`'s fresh change index and this both always start at
+    /// max+1). The addresses stay listed in Manage Addresses like any other revealed slot - the
+    /// per-contact reservation itself lives in `PaymentPoolStore`, not here.
+    ///
+    /// Returns an empty array (reserving nothing, bumping nothing) if derivation fails.
+    func reserveFreshSpendingAddresses(count: Int) async -> [(index: Int, address: String)] {
+        guard count > 0, let changeKey = spendingChangeKey() else { return [] }
+        let base = maxSpendingAddressIndex + 1
+        var result: [(index: Int, address: String)] = []
+        for offset in 0..<count {
+            let index = base + offset
+            guard let address = spendingAddress(at: index, changeKey: changeKey) else { return [] }
+            result.append((index: index, address: address))
+        }
+        await updateSpendingBounds(maxIndex: base + count - 1)
+        return result
+    }
+
+    /// Derives the spending addresses for an arbitrary index range with a SINGLE seed decrypt
+    /// (shared change-node key), reading/filling the persistent per-index address cache.
+    /// Built for the Address Visibility pager's beyond-revealed pages: calling the public
+    /// `spendingAddress(at:)` once per row re-did the Secure Enclave decrypt + PBKDF2 per
+    /// index, which froze (or, on a transient keychain failure, blanked) a whole 50-row page.
+    /// Returns an empty map when the seed is unavailable this instant - callers should treat
+    /// that as "try again", never as "these indices don't exist".
+    func spendingAddresses(inRange range: Range<Int>) -> [Int: String] {
+        guard !range.isEmpty else { return [:] }
+        // Serve fully-cached ranges without touching the keychain at all.
+        var result: [Int: String] = [:]
+        var missing: [Int] = []
+        if let cacheKey = spendingAddressCacheKey(),
+           let cached = UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: String] {
+            for index in range {
+                if let address = cached[String(index)] {
+                    result[index] = address
+                } else {
+                    missing.append(index)
+                }
+            }
+        } else {
+            missing = Array(range)
+        }
+        guard !missing.isEmpty else { return result }
+        guard let changeKey = spendingChangeKey() else { return result }
+        for index in missing {
+            if let address = spendingAddress(at: index, changeKey: changeKey) {
+                result[index] = address
+            }
+        }
+        return result
+    }
+
+    /// True if `address` is one of this wallet's own revealed spending-chain addresses
+    /// (0...maxSpendingAddressIndex) - used to reject a received pool that tries to feed our own
+    /// addresses back to us. One seed decrypt + one derivation per revealed index; call off the
+    /// hot path.
+    func isOwnSpendingAddress(_ address: String) -> Bool {
+        guard let changeKey = spendingChangeKey() else { return false }
+        for index in 0...maxSpendingAddressIndex {
+            if spendingAddress(at: index, changeKey: changeKey) == address {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Every revealed spending-chain address (0...maxSpendingAddressIndex), derived with a
+    /// single seed decrypt via the shared change-node key - for callers that need the whole
+    /// set WITHOUT balances (e.g. AddressActivityNotifier's own-address watch set), unlike
+    /// `getSpendingAddressList()` which also fires a UTXO fetch.
+    func allSpendingAddresses() -> [String] {
+        guard let changeKey = spendingChangeKey() else { return [] }
+        return (0...maxSpendingAddressIndex).compactMap { spendingAddress(at: $0, changeKey: changeKey) }
+    }
+
     /// Hides a spending address from the main Manage Addresses list. Refused (returns false)
-    /// for the current primary address or one with a nonzero balance - re-enforced here
-    /// server-side regardless of what the UI already checked.
+    /// for the current primary address, one with a nonzero balance, or one ACTIVELY offered to
+    /// a contact in a live payment pool (those stay visible so the user always sees which
+    /// addresses are held ready for contacts to pay into) - re-enforced here server-side
+    /// regardless of what the UI already checked. A reservation that reverted (revoked,
+    /// superseded, or funded-and-swept) is a normal address again and hides fine.
     func setSpendingAddressHidden(index: Int, hidden: Bool) async -> Bool {
         guard index != currentSpendingAddressIndex else { return false }
         if hidden, let address = spendingAddress(at: index) {
+            if let walletAddress = currentWallet?.publicAddress,
+               PaymentPoolStore.shared.activeOfferedReservationAddresses(wallet: walletAddress).contains(address) {
+                return false
+            }
             let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
             let balance = utxos.reduce(UInt64(0)) { $0 + $1.amount }
             guard balance == 0 else { return false }
@@ -264,6 +470,50 @@ extension WalletManager {
         }
         hiddenSpendingIndices = current
         return true
+    }
+
+    /// Read-only snapshot of the hidden set, so Manage Addresses can apply bulk
+    /// visibility edits to its already-loaded rows instantly on sheet dismiss
+    /// (before the full balance/used reload finishes).
+    func hiddenSpendingIndexSet() -> Set<Int> {
+        hiddenSpendingIndices
+    }
+
+    /// Removes payment-pool reservation indices from the hidden set, bypassing the async
+    /// balance path (unhiding needs no network guard). Reservations are born VISIBLE - fresh
+    /// indices start past the all-time max and were never hidden - so for new offers this is a
+    /// no-op; it matters for reservations recorded under the old born-hidden design (before
+    /// the product change that surfaces them in Manage Addresses) that get (re-)offered now.
+    func unhideReservedIndices(_ indices: [Int]) {
+        var current = hiddenSpendingIndices
+        let before = current.count
+        for index in indices { current.remove(index) }
+        guard current.count != before else { return }
+        hiddenSpendingIndices = current
+    }
+
+    /// One-shot repair for the old born-hidden payment-pool design: any address in an ACTIVE
+    /// live pool that is still sitting in the hidden set becomes visible, so users with
+    /// outstanding pools see them in Manage Addresses without re-offering. Deliberately scoped
+    /// to the active set - a reservation that already reverted (revoked, superseded, funded)
+    /// is a normal address and stays however the user left it. Cheap set intersection - safe
+    /// to call on every Manage Addresses load and on wallet load.
+    func unhideOfferedReservationsIfNeeded() {
+        guard let walletAddress = currentWallet?.publicAddress else { return }
+        let offered = PaymentPoolStore.shared.activeOfferedReservationAddresses(wallet: walletAddress)
+        guard !offered.isEmpty else { return }
+        var hidden = hiddenSpendingIndices
+        var unhidden = 0
+        for address in offered {
+            if let index = PaymentPoolStore.shared.reservationIndex(for: address, wallet: walletAddress),
+               hidden.contains(index) {
+                hidden.remove(index)
+                unhidden += 1
+            }
+        }
+        guard unhidden > 0 else { return }
+        hiddenSpendingIndices = hidden
+        AppLog.log("[WalletManager] Un-hid %d offered payment-pool addresses (legacy born-hidden migration)", unhidden)
     }
 
     func setSpendingAddressLabel(index: Int, label: String) {
@@ -341,4 +591,13 @@ extension WalletManager {
         await updateSpendingBounds(maxIndex: highestFound)
         return revealed
     }
+}
+
+extension Notification.Name {
+    /// Posted after the primary spending address pointer changes - a manual "Set as Primary"
+    /// or the automatic post-send rotation (`ChatService.sendPaymentInternal` calling
+    /// `setActiveSpendingAddress` with the fresh change index). Open screens that render an
+    /// `isCurrent` star or gate actions on "not the primary" reload on it so the old primary
+    /// row becomes hideable right away.
+    static let spendingPrimaryChanged = Notification.Name("spendingPrimaryChanged")
 }

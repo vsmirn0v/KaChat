@@ -1,5 +1,6 @@
 import Foundation
 import Contacts
+import UIKit
 
 @MainActor
 final class ContactsManager: ObservableObject {
@@ -42,7 +43,6 @@ final class ContactsManager: ObservableObject {
     private let systemContactLinkTargetsTimeout: TimeInterval = 8.0
     private let systemContactLinkWriteTimeout: TimeInterval = 6.0
     private var syncSystemContactsEnabled = AppSettings.load().syncSystemContacts
-    private var autoCreateSystemContactsEnabled = AppSettings.load().autoCreateSystemContacts
     private var didBootstrapSystemContacts = false
     private var settingsObserver: NSObjectProtocol?
     private var isSystemContactRefreshInProgress = false
@@ -80,6 +80,12 @@ final class ContactsManager: ObservableObject {
 
     func isAddressDeleted(_ address: String) -> Bool {
         deletedAddresses.contains(address)
+    }
+
+    /// Snapshot of every deletion tombstone, carried in chat-history backups so a restore on
+    /// any device (fresh install included) skips chats the user deleted.
+    var deletedAddressSnapshot: [String] {
+        Array(deletedAddresses)
     }
 
     // MARK: - KNS Integration
@@ -362,7 +368,6 @@ final class ContactsManager: ObservableObject {
             if contact.alias != previous.alias,
                let sysId = contact.systemContactId,
                contact.systemContactLinkSource == .autoCreated,
-               autoCreateSystemContactsEnabled,
                allowAutomaticSystemContactWrites {
                 Task {
                     try? await systemContactsService.updateAutoCreatedContactName(
@@ -406,6 +411,15 @@ final class ContactsManager: ObservableObject {
         return contacts.first { $0.address == address }
     }
 
+    /// The accepted/established-contact predicate shared by the stranger-gating features:
+    /// true for contacts the user added themselves, or ones the user has ever sent a message
+    /// to (which includes accepting their handshake - the handshake response IS an outgoing
+    /// message). False only for auto-added, never-replied-to strangers. Used by the photo
+    /// auto-display gate below and by link-preview auto-fetch gating (Decision 5A).
+    func isAcceptedContact(_ contact: Contact) -> Bool {
+        !contact.isAutoAdded || contact.hasSentOutgoingMessage
+    }
+
     /// Whether photo bubbles from this contact should auto-decode and render, vs. staying
     /// hidden behind a "Show Photo" tap. Defaults to trusting contacts you added yourself or
     /// have ever messaged; untrusted (auto-added, never-replied-to) contacts are hidden by
@@ -418,7 +432,7 @@ final class ContactsManager: ObservableObject {
             return false
         case .automatic, nil:
             guard settings.requirePhotoApprovalForNewContacts else { return true }
-            return !contact.isAutoAdded || contact.hasSentOutgoingMessage
+            return isAcceptedContact(contact)
         }
     }
 
@@ -517,6 +531,9 @@ final class ContactsManager: ObservableObject {
         }
 
         await refreshSystemContactLinks(promptIfNeeded: false, force: true)
+        // Links are settled: pull the Contacts-app photos for everyone now linked so the
+        // avatar fallback (KNS avatar -> device photo -> glyph) has them ready.
+        SystemContactAvatarStore.shared.prefetchPhotos(for: contacts)
     }
 
     func loadSystemContactCandidates(promptIfNeeded: Bool = false) async -> [SystemContactCandidate] {
@@ -541,10 +558,7 @@ final class ContactsManager: ObservableObject {
         }
 
         do {
-            let rawCandidates = try await systemContactsService.fetchCandidates()
-            let candidates = autoCreateSystemContactsEnabled
-                ? rawCandidates
-                : rawCandidates.filter { !$0.isAutoCreated }
+            let candidates = try await systemContactsService.fetchCandidates()
             systemContactCandidates = candidates
             return candidates
         } catch {
@@ -625,20 +639,7 @@ final class ContactsManager: ObservableObject {
         let contactIds = contacts.map(\.id)
         for contactId in contactIds {
             guard let index = contacts.firstIndex(where: { $0.id == contactId }) else { continue }
-            var current = contacts[index]
-
-            if !autoCreateSystemContactsEnabled, current.systemContactLinkSource == .autoCreated {
-                if let previousId = current.systemContactId {
-                    staleAutoCreatedIds.append((contactIdentifier: previousId, appContactId: current.id))
-                }
-                contacts[index].systemContactId = nil
-                contacts[index].systemDisplayNameSnapshot = nil
-                contacts[index].systemContactLinkSource = nil
-                contacts[index].systemMatchConfidence = nil
-                contacts[index].systemLastSyncedAt = now
-                updated = true
-                current = contacts[index]
-            }
+            let current = contacts[index]
 
             let addressKey = current.address.lowercased()
             if let candidate = contactsByAddress[addressKey] {
@@ -686,32 +687,6 @@ final class ContactsManager: ObservableObject {
                             updated = true
                         }
                     }
-                }
-            } else if autoCreateSystemContactsEnabled &&
-                        allowAutomaticSystemContactWrites &&
-                        current.systemContactId == nil {
-                // No existing link and no non-duplicate match in system contacts:
-                // auto-create a dedicated system contact and link to it.
-                let domains = await fetchKNSInfo(for: current)?.allDomains.map { $0.fullName } ?? []
-                do {
-                    let created = try await systemContactsService.createKaChatContact(
-                        displayName: current.alias,
-                        address: current.address,
-                        domains: domains,
-                        appContactId: current.id
-                    )
-                    if !created.contactIdentifier.isEmpty,
-                       let writeIndex = contacts.firstIndex(where: { $0.id == contactId }),
-                       contacts[writeIndex].systemContactId == nil {
-                        contacts[writeIndex].systemContactId = created.contactIdentifier
-                        contacts[writeIndex].systemDisplayNameSnapshot = created.displayName
-                        contacts[writeIndex].systemContactLinkSource = .autoCreated
-                        contacts[writeIndex].systemMatchConfidence = 1.0
-                        contacts[writeIndex].systemLastSyncedAt = now
-                        updated = true
-                    }
-                } catch {
-                    // Best effort only.
                 }
             }
 
@@ -907,8 +882,6 @@ final class ContactsManager: ObservableObject {
         saveContacts(syncShared: true, updatePush: false, publishContacts: true)
 
         let contactId = contact.id
-        let alias = contact.alias
-        let address = contact.address
         Task {
             if let previousId {
                 if previousSource == .autoCreated {
@@ -924,29 +897,35 @@ final class ContactsManager: ObservableObject {
                     )
                 }
             }
-            // Re-create a shadow auto-created contact for cross-device sync.
-            guard autoCreateSystemContactsEnabled, allowAutomaticSystemContactWrites else { return }
-            let domains = await fetchKNSInfo(for: contact)?.allDomains.map { $0.fullName } ?? []
-            do {
-                let created = try await systemContactsService.createKaChatContact(
-                    displayName: alias,
-                    address: address,
-                    domains: domains,
-                    appContactId: contactId
-                )
-                if !created.contactIdentifier.isEmpty,
-                   let writeIndex = contacts.firstIndex(where: { $0.id == contactId }),
-                   contacts[writeIndex].systemContactId == nil {
-                    contacts[writeIndex].systemContactId = created.contactIdentifier
-                    contacts[writeIndex].systemDisplayNameSnapshot = created.displayName
-                    contacts[writeIndex].systemContactLinkSource = .autoCreated
-                    contacts[writeIndex].systemMatchConfidence = 1.0
-                    contacts[writeIndex].systemLastSyncedAt = Date()
-                    saveContacts(syncShared: true, updatePush: false, publishContacts: true)
-                }
-            } catch {
-                // Best effort only.
-            }
+        }
+    }
+
+    /// Manual "Create System Contact" (Chat Info): creates a dedicated entry in the iOS
+    /// Contacts app for this KaChat contact and links it. Replaces the removed auto-create
+    /// setting - system-contact creation is user-initiated per contact now.
+    func createSystemContact(for contact: Contact) async -> Contact? {
+        guard contact.systemContactId == nil else { return nil }
+        guard await systemContactsService.requestAccessIfNeeded() else { return nil }
+        await updateSystemContactsAuthorization()
+        let domains = await fetchKNSInfo(for: contact)?.allDomains.map { $0.fullName } ?? []
+        do {
+            let created = try await systemContactsService.createKaChatContact(
+                displayName: contact.alias,
+                address: contact.address,
+                domains: domains,
+                appContactId: contact.id
+            )
+            guard !created.contactIdentifier.isEmpty,
+                  let index = contacts.firstIndex(where: { $0.id == contact.id }) else { return nil }
+            contacts[index].systemContactId = created.contactIdentifier
+            contacts[index].systemDisplayNameSnapshot = created.displayName
+            contacts[index].systemContactLinkSource = .autoCreated
+            contacts[index].systemMatchConfidence = 1.0
+            contacts[index].systemLastSyncedAt = Date()
+            saveContacts(syncShared: true, updatePush: false, publishContacts: true)
+            return contacts[index]
+        } catch {
+            return nil
         }
     }
 
@@ -1093,65 +1072,15 @@ final class ContactsManager: ObservableObject {
             guard let self else { return }
             guard let settings = notification.object as? AppSettings else { return }
             Task { @MainActor [weak self] in
-                self?.applySystemContactsSetting(
-                    syncEnabled: settings.syncSystemContacts,
-                    autoCreateEnabled: settings.autoCreateSystemContacts
-                )
+                self?.applySystemContactsSetting(syncEnabled: settings.syncSystemContacts)
             }
         }
     }
 
-    private func applySystemContactsSetting(syncEnabled: Bool, autoCreateEnabled: Bool) {
-        let previousAutoCreate = autoCreateSystemContactsEnabled
+    private func applySystemContactsSetting(syncEnabled: Bool) {
         syncSystemContactsEnabled = syncEnabled
-        autoCreateSystemContactsEnabled = autoCreateEnabled
         if !syncEnabled {
             systemContactCandidates = []
-        }
-        if previousAutoCreate && !autoCreateEnabled {
-            Task { @MainActor [weak self] in
-                await self?.disableAutoCreatedSystemContacts()
-            }
-        }
-    }
-
-    private func disableAutoCreatedSystemContacts() async {
-        let now = Date()
-        var linkedAutoCreatedContacts: [(contactIdentifier: String, appContactId: UUID)] = []
-        var updated = false
-
-        for index in contacts.indices {
-            guard contacts[index].systemContactLinkSource == .autoCreated else { continue }
-            if let systemId = contacts[index].systemContactId {
-                linkedAutoCreatedContacts.append((contactIdentifier: systemId, appContactId: contacts[index].id))
-            }
-            contacts[index].systemContactId = nil
-            contacts[index].systemDisplayNameSnapshot = nil
-            contacts[index].systemContactLinkSource = nil
-            contacts[index].systemMatchConfidence = nil
-            contacts[index].systemLastSyncedAt = now
-            updated = true
-        }
-
-        if updated {
-            saveContacts(syncShared: true, updatePush: false, publishContacts: true)
-        }
-
-        guard allowAutomaticSystemContactWrites else { return }
-        await updateSystemContactsAuthorization()
-        guard systemContactsAuthorized else { return }
-
-        for linked in linkedAutoCreatedContacts {
-            _ = try? await systemContactsService.deleteAutoCreatedKaChatContact(
-                contactIdentifier: linked.contactIdentifier,
-                appContactId: linked.appContactId
-            )
-        }
-
-        _ = await systemContactsService.removeOrphanedAutoCreatedContacts(activeLinks: [:])
-
-        if syncSystemContactsEnabled {
-            await refreshSystemContactLinks(promptIfNeeded: false, force: true)
         }
     }
 
@@ -1782,4 +1711,116 @@ actor SystemContactsService {
         return normalizeKnsDomain(value)
     }
 
+}
+
+
+// MARK: - System-contact avatar store
+
+/// Photos from the iOS Contacts app for linked contacts, cached in memory + on disk.
+///
+/// Avatar resolution order, applied identically everywhere by `KNSAvatarView` (pass it
+/// `contactAddress:` - never re-implement this per call site):
+///   1. KNS avatar, when the contact has one
+///   2. the linked Contacts-app photo
+///   3. the person-glyph fallback
+/// The per-contact Chat Info "Avatar" picker (`Contact.preferKNSAvatar`) is the explicit
+/// override: `false` promotes the Contacts-app photo above the KNS avatar, `true`/nil keep
+/// the default order above.
+@MainActor
+final class SystemContactAvatarStore: ObservableObject {
+    static let shared = SystemContactAvatarStore()
+
+    /// systemContactId -> thumbnail. Published so avatar views refresh when a fetch lands.
+    @Published private(set) var images: [String: UIImage] = [:]
+    /// Ids already attempted this session (including photo-less contacts) - one CN fetch each.
+    private var attemptedIds = Set<String>()
+
+    private init() {}
+
+    private var diskDirectory: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("ContactAvatars", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func diskURL(for id: String) -> URL {
+        let safe = id.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_")
+        return diskDirectory.appendingPathComponent(safe + ".jpg")
+    }
+
+    /// The Contacts-app photo regardless of the user's per-contact choice (Chat Info picker
+    /// availability check + preview). Triggers a lazy fetch on first ask; views observing the
+    /// store re-render when it lands.
+    func rawImage(for contact: Contact?) -> UIImage? {
+        guard let id = contact?.systemContactId else { return nil }
+        if let image = images[id] { return image }
+        fetchIfNeeded(id: id)
+        return nil
+    }
+
+    /// Address-keyed variant used by `KNSAvatarView` so any avatar in the app can fall back to
+    /// the device-contact photo just by naming the address it represents. Returns nil when the
+    /// address isn't in the address book, isn't linked to a system contact, or has no photo.
+    func photo(forAddress address: String?) -> UIImage? {
+        guard let contact = contact(forAddress: address) else { return nil }
+        return rawImage(for: contact)
+    }
+
+    /// True only when the user explicitly picked "Contacts Photo" for this contact in Chat Info;
+    /// that's the one case where the device photo outranks a KNS avatar.
+    func prefersContactPhotoOverKNS(forAddress address: String?) -> Bool {
+        contact(forAddress: address)?.preferKNSAvatar == false
+    }
+
+    private func contact(forAddress address: String?) -> Contact? {
+        guard let address, !address.isEmpty else { return nil }
+        return ContactsManager.shared.getContact(byAddress: address)
+    }
+
+    /// Overwrites the cached photo (memory + disk) - used after writing a new photo into the
+    /// system contact so the in-app avatar updates immediately.
+    func storeImage(_ image: UIImage, data: Data, forSystemContactId id: String) {
+        images[id] = image
+        attemptedIds.insert(id)
+        try? data.write(to: diskURL(for: id))
+    }
+
+    /// Warms the cache for every linked contact once, right after a system-contacts bootstrap,
+    /// so chat lists render photos on first paint instead of popping them in row by row. Each id
+    /// still costs at most one CN fetch (`attemptedIds`), and each fetch is off the main thread.
+    func prefetchPhotos(for contacts: [Contact]) {
+        for id in Set(contacts.compactMap(\.systemContactId)) {
+            fetchIfNeeded(id: id)
+        }
+    }
+
+    private func fetchIfNeeded(id: String) {
+        guard !attemptedIds.contains(id) else { return }
+        attemptedIds.insert(id)
+
+        // Everything - including the disk-cache hit - publishes from a detached task, never
+        // synchronously: views ask for avatars during body evaluation, and a synchronous
+        // `images` write there is SwiftUI's "publishing changes from within view updates".
+        let targetURL = diskURL(for: id)
+        let status = CNContactStore.authorizationStatus(for: .contacts)
+        Task.detached(priority: .utility) {
+            if let data = try? Data(contentsOf: targetURL), let image = UIImage(data: data) {
+                await MainActor.run {
+                    SystemContactAvatarStore.shared.images[id] = image
+                }
+                return
+            }
+            guard status == .authorized else { return }
+            let store = CNContactStore()
+            let keys = [CNContactThumbnailImageDataKey as CNKeyDescriptor]
+            guard let cnContact = try? store.unifiedContact(withIdentifier: id, keysToFetch: keys),
+                  let data = cnContact.thumbnailImageData,
+                  let image = UIImage(data: data) else { return }
+            try? data.write(to: targetURL)
+            await MainActor.run {
+                SystemContactAvatarStore.shared.images[id] = image
+            }
+        }
+    }
 }

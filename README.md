@@ -15,28 +15,52 @@ It combines:
 
 ## Project Status
 
+<details>
+<summary>Summary</summary>
 
 This repository contains an actively developed app and companion extensions:
 - Main app target: `KaChat`
 - Notification Service Extension: `KaChatNotificationService`
 - Share Extension: `KaChatShareExtension`
+- Widgets Extension: `KaChatWidgetsExtension`
 
-Current deployment target is iOS 16.0.
+Current deployment target is iOS 16.0 (widgets require iOS 17.0). The current release train is 4.0.
+
+</details>
 
 ## Key Features
 
-- Wallet onboarding/import and secure key handling
+<details>
+<summary>Summary</summary>
+
+- Wallet onboarding/import and secure key handling (Secure Enclave wrapped)
 - One-to-one encrypted chats using handshake + contextual message flow
-- On-chain KAS transfers integrated into conversations
-- Voice message sending/receiving
-- Contact management with aliases and KNS names
+- Encrypted group chats (`kchat:1:gcomm` / `gctl` payloads)
+- Public broadcast channels (for example `#kaspa`) with hideable senders
+- KaPosts: on-chain social posts tied to KNS identities
+- On-chain KAS transfers integrated into conversations, with reactions, image attachments, link previews, and in-chat chess games
+- Fresh-address payment pools for payment privacy (see MESSAGING.md)
+- Voice message sending/receiving (Opus)
+- Contact management with aliases, KNS names, and KNS profile creation
+- Portfolio tracking across multiple coins (CoinGecko pricing) and address import
+- In-app swap via ChangeNow
+- Cold storage accounts with air-gapped signing (KSPT QR flow, KasSigner companion)
+- Gift claim onboarding flow
+- Child Mode (parent-set password gate for sensitive actions)
+- Chat history backup: CloudKit sync plus encrypted Nextcloud backup/auto-sync
+- Home screen widgets, share extension, and App Shortcuts
 - Configurable network endpoints (Kaspa REST API, Indexer, KNS API)
 - Adaptive real-time sync via gRPC UTXO subscriptions and fallback polling
 - Background/terminated delivery via remote push mode
 - Per-wallet CloudKit zones for message isolation
-- Localization support across multiple languages (`*.lproj`)
+- Localization support across 19 languages (`*.lproj`)
+
+</details>
 
 ## Architecture
+
+<details>
+<summary>Summary</summary>
 
 KaChat follows MVVM with singleton services injected through `@EnvironmentObject`.
 
@@ -45,7 +69,7 @@ KaChat follows MVVM with singleton services injected through `@EnvironmentObject
 - View models: `KaChat/ViewModels/*`
 - Core services: `KaChat/Services/*`
 - Node pool subsystem: `KaChat/Services/NodePool/*`
-- Models: `KaChat/Models/Models.swift`
+- Models: `KaChat/Models/*` (`Models.swift`, `PortfolioModels.swift`, `SwapModels.swift`)
 
 Core service responsibilities:
 - `WalletManager`: wallet lifecycle, key derivation, balance
@@ -57,15 +81,20 @@ Core service responsibilities:
 - `MessageStore`: Core Data + CloudKit persistence
 - `PushNotificationManager`: APNs registration and reliability logic
 
+</details>
 
 ## Messaging and Payment Model
 
+<details>
+<summary>Summary</summary>
 
-KaChat uses Kasia protocol payloads embedded in Kaspa transactions:
+KaChat uses Kasia protocol payloads embedded in Kaspa transactions (written with the `kchat:1:` root; the legacy `ciph_msg:1:` root is still accepted on read):
 
-- Handshake: `ciph_msg:1:hs:*`
-- Contextual message: `ciph_msg:1:msg:*`
-- Payment memo: `ciph_msg:1:pay:*`
+- Handshake: `kchat:1:handshake:*`
+- Contextual message: `kchat:1:comm:*`
+- Payment memo: `kchat:1:pay:*`
+- Broadcast post: `kchat:1:bcast:*`
+- Group message/control: `kchat:1:gcomm:*` / `kchat:1:gctl:*`
 
 Contextual messages use a self-stash pattern:
 - Sender spends own UTXOs
@@ -77,8 +106,12 @@ Payments and handshakes are recipient-addressed transactions and require sender 
 
 See [MESSAGING.md](MESSAGING.md) for full protocol details.
 
+</details>
 
 ## Networking and Sync
+
+<details>
+<summary>Summary</summary>
 
 KaChat combines multiple channels:
 - Kaspa gRPC nodes for UTXO subscriptions and transaction operations
@@ -95,9 +128,12 @@ Node connectivity is managed by the POOLS_v2 architecture:
 
 See [POOLS_v2.md](POOLS_v2.md) for details.
 
+</details>
 
 ## Security and Storage
 
+<details>
+<summary>Summary</summary>
 
 - Keys/seeds are wrapped with device-specific Secure Enclave keys
 - Message persistence uses Core Data with CloudKit sync
@@ -109,7 +145,20 @@ Bundle identifiers used by the app:
 - CloudKit container: `iCloud.com.kachat.app`
 - App Group: `group.com.kachat.app`
 
+</details>
+
+### Security Notes
+
+The at-rest model, plainly:
+
+- Message history lives in the app sandbox, protected by iOS file-based encryption (Data Protection). Message content is additionally encrypted at rest with a key derived from the wallet, so the local database never holds plaintext messages and any device backup of it carries only ciphertext.
+- Cloud copies are end-to-end encrypted with the wallet key: CloudKit syncs only the wallet-encrypted content, and Nextcloud backup archives are sealed in the encrypted backup envelope (see MESSAGING.md) before upload. Without the wallet, cloud copies are ciphertext.
+- Seed phrases and private keys are wrapped by this device's Secure Enclave and stored in the Keychain. They never leave the device and are not included in any backup.
+
 ## Push Notifications
+
+<details>
+<summary>Summary</summary>
 
 Push supports background/terminated message delivery using a push-capable Kasia indexer.
 
@@ -118,9 +167,14 @@ Push supports background/terminated message delivery using a push-capable Kasia 
 - Large payloads fall back to tx-id based fetch/decrypt
 - Runtime reliability scoring gates catch-up sync behavior
 
-See [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md) and [PUSH_SECURITY_AUDIT.md](PUSH_SECURITY_AUDIT.md).
+See [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md) and [PUSH_EXTENSIONS.md](PUSH_EXTENSIONS.md).
+
+</details>
 
 ## Repository Structure
+
+<details>
+<summary>Summary</summary>
 
 ```text
 .
@@ -129,23 +183,41 @@ See [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md) and [PUSH_SECURITY_AUDIT.md](
 │   ├── Models/                   # Data models
 │   ├── Services/                 # Business logic, networking, crypto helpers
 │   ├── Services/NodePool/        # gRPC node pool subsystem
+│   ├── Shortcuts/                # App Intents / Shortcuts integration
+│   ├── Generated/                # Generated protobuf/gRPC sources
 │   ├── ViewModels/               # SwiftUI view models
 │   ├── Views/                    # Feature views (Chat, Contacts, Settings, etc.)
 │   └── Utilities/                # Supporting utilities
 ├── KaChatNotificationService/    # Notification Service Extension
 ├── KaChatShareExtension/         # Share Extension
-├── Frameworks/                   # Vendored XCFramework dependencies
-├── external/                     # Reference repos and protocol implementations
-└── *.md                          # Architecture/protocol/security docs
+├── KaChatWidgets/                # Widgets Extension
+├── external/opus/                # Vendored Opus.xcframework (voice codec)
+├── ci_scripts/                   # Xcode Cloud hooks
+├── scripts/                      # Build helpers and script-based tests
+├── web_site/                     # Static marketing/EULA pages
+└── *.md                          # Architecture/protocol docs
 ```
+
+</details>
 
 ## Dependencies
 
-- `P256K.xcframework` for secp256k1 operations/signing
-- `GRPCAll.xcframework` and `SwiftProtobuf.xcframework` for gRPC stack
-- `YbridOpus` Swift package (from `opus-swift`) for voice codec integration
+<details>
+<summary>Summary</summary>
+
+Swift Package Manager (resolved via `Package.resolved`, no manual install needed):
+- `swift-secp256k1` (product `P256K`) for secp256k1 operations/signing
+- `grpc-swift` and `swift-protobuf` for the gRPC stack
+
+Vendored:
+- `external/opus/Opus.xcframework` for the voice codec, linked through the `OpusBridge` Objective-C bridge
+
+</details>
 
 ## Getting Started
+
+<details>
+<summary>Summary</summary>
 
 1. Open `KaChat.xcodeproj` in Xcode.
 2. Configure signing/capabilities for your Apple team.
@@ -157,7 +229,12 @@ See [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md) and [PUSH_SECURITY_AUDIT.md](
 4. Select a simulator/device (iOS 16+).
 5. Build and run.
 
+</details>
+
 ## Build and Test Commands
+
+<details>
+<summary>Summary</summary>
 
 ```bash
 # Open in Xcode
@@ -173,7 +250,12 @@ xcodebuild -project KaChat.xcodeproj -scheme KaChat -destination 'platform=iOS S
 xcodebuild -project KaChat.xcodeproj -scheme KaChat clean
 ```
 
+</details>
+
 ## Configuration
+
+<details>
+<summary>Summary</summary>
 
 Connection settings are user-configurable in-app:
 - Network: mainnet/testnet
@@ -183,18 +265,19 @@ Connection settings are user-configurable in-app:
 
 Defaults are managed via `AppSettings`.
 
+</details>
+
 ## Documentation Map
+
+<details>
+<summary>Summary</summary>
 
 - [CLAUDE.md](CLAUDE.md): architecture and development guidance
 - [MESSAGING.md](MESSAGING.md): protocol and transaction semantics
 - [POOLS_v2.md](POOLS_v2.md): node pool and failover architecture
 - [PUSH_NOTIFICATIONS.md](PUSH_NOTIFICATIONS.md): push delivery design
-- [PUSH_SECURITY_AUDIT.md](PUSH_SECURITY_AUDIT.md): push threat model/mitigations
-
-## Known Limitations
-
-- Per-contact realtime disable path is currently documented as unstable/broken and needs follow-up fixes.
-- TODO: Integrate VCC2 API in a future update; this is strongly desired to provide a more stable messaging pipeline.
+- [PUSH_EXTENSIONS.md](PUSH_EXTENSIONS.md): push server handoff for broadcasts and KaPosts
+- [BROADCAST_INDEXER.md](BROADCAST_INDEXER.md) and [KAPOSTS_INDEXER.md](KAPOSTS_INDEXER.md): indexer build guides
 
 </details>
 

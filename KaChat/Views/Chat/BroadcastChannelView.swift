@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 /// A single broadcast channel's message stream + compose bar.
 /// Public and unencrypted - anyone who has joined the same channel name can read and
@@ -14,7 +15,19 @@ struct BroadcastChannelView: View {
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @ObservedObject private var knsService = KNSService.shared
+    /// Drives the "Send Media via Nextcloud" voice path, mirroring 1:1/group chat: with the
+    /// toggle active, mic captures upload to the server and the room only carries the share link.
+    @ObservedObject private var nextcloudService = NextcloudService.shared
     @StateObject private var recorder = BroadcastAudioRecorder()
+
+    /// Nextcloud-uploaded voice notes aren't payload-bound - only the server carries them - so
+    /// the recording ceiling relaxes to 10 minutes while "Send Media via Nextcloud" is active,
+    /// mirroring `ChatDetailView.effectiveMaxRecordingDuration`.
+    private var effectiveMaxRecordingDuration: TimeInterval {
+        (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+            ? 600
+            : BroadcastAudioRecorder.maxDuration
+    }
 
     @State private var messageText = ""
     @State private var isMessageFocused = false
@@ -42,10 +55,27 @@ struct BroadcastChannelView: View {
     /// identical pair. `BroadcastMessage.id` is already the wire txId, unlike 1:1/group's `UUID`
     /// row ids, so this stays a `String` throughout.
     @State private var pendingJumpToTxId: String?
+    @State private var showHiddenUsers = false
     @State private var highlightedMessageID: String?
+    /// Which message (if any) currently has its double-tap quick-reaction bar open - mirrors
+    /// group chat's identical `GroupChatDetailView.activeQuickReactionMessageId`, except broadcast
+    /// row ids are the wire txId `String` rather than a local `UUID`.
+    @State private var activeQuickReactionMessageId: String?
 
     private var myAddress: String? {
         walletManager.currentWallet?.publicAddress
+    }
+
+    /// Zero-balance compose gate - same trigger as 1:1 chat (confirmed 0 KAS only, never on an
+    /// unknown/still-loading balance). See `WalletManager.hasConfirmedZeroChattingBalance`.
+    private var isChattingBalanceZero: Bool {
+        walletManager.hasConfirmedZeroChattingBalance
+    }
+
+    /// Indexer-tracked curated channel (#kaspa / #kachat-bugs): history comes from the
+    /// broadcast indexer and retention is fixed at 30 days.
+    private var isIndexedChannel: Bool {
+        BroadcastService.featuredChannels.contains(BroadcastChannelName.normalize(channelName))
     }
 
     var body: some View {
@@ -56,11 +86,49 @@ struct BroadcastChannelView: View {
             // uses for keyboard avoidance, so there's no custom math to get wrong. See
             // ChatDetailView's identical fix for why the old floating approach left a gap.
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                composeBar
-                    .padding(.bottom, 2)
+                VStack(spacing: 0) {
+                    if isChattingBalanceZero {
+                        // Zero-balance gate: reading stays fully usable (the card is part of
+                        // the bottom inset, never an overlay on the message list) - only
+                        // composing is blocked. Mirrors 1:1 chat's gate exactly.
+                        ZeroBalanceFundingCardView(
+                            address: myAddress,
+                            onCopied: { showToast($0.addressCopiedToastText) }
+                        )
+                        .padding(.horizontal)
+                        .padding(.bottom, 4)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    composeBar
+                        .disabled(isChattingBalanceZero)
+                        .allowsHitTesting(!isChattingBalanceZero)
+                        .grayscale(isChattingBalanceZero ? 1 : 0)
+                        .opacity(isChattingBalanceZero ? 0.45 : 1)
+                }
+                .animation(.easeInOut(duration: 0.25), value: isChattingBalanceZero)
+                .padding(.bottom, 2)
             }
         .navigationTitle("#\(channelName)")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                ConnectionStatusIndicator()
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showHiddenUsers = true
+                } label: {
+                    Image(systemName: "person.crop.circle.badge.xmark")
+                }
+                .accessibilityLabel("Hidden users in this room")
+            }
+        }
+        .sheet(isPresented: $showHiddenUsers) {
+            NavigationStack {
+                HiddenBroadcastSendersView(channel: channelName)
+            }
+            .presentationDetents([.medium, .large])
+        }
         .navigationDestination(isPresented: Binding(
             get: { openContact != nil },
             set: { if !$0 { openContact = nil } }
@@ -169,9 +237,9 @@ struct BroadcastChannelView: View {
                                         onPayInKaspa: { openChat(with: message.senderAddress, paymentMode: true) },
                                         onCopyAddress: {
                                             UIPasteboard.general.string = message.senderAddress
-                                            showToast("Address copied.")
+                                            showToast(message.senderAddress.addressCopiedToastText)
                                         },
-                                        onHideSender: { broadcastService.hideSender(message.senderAddress) },
+                                        onHideSender: { broadcastService.hideSender(message.senderAddress, inChannel: channelName) },
                                         onReply: { broadcastService.startReplyTo(message) },
                                         onCopyMessage: {
                                             UIPasteboard.general.string = displayContent(for: message).text
@@ -179,6 +247,32 @@ struct BroadcastChannelView: View {
                                         },
                                         onRetry: { broadcastService.retryBroadcast(message) },
                                         onJumpToReply: messageReplyQuote != nil ? { pendingJumpToTxId = messageReplyQuote?.replyToId } : nil,
+                                        reactions: broadcastService.reactions(forChannel: channelName)[message.id] ?? [],
+                                        myReactorAddress: myAddress ?? "",
+                                        onRetryReaction: { reaction in
+                                            Task {
+                                                try? await broadcastService.retryBroadcastReaction(
+                                                    channel: channelName,
+                                                    targetTxId: reaction.targetTxId,
+                                                    emoji: reaction.emoji,
+                                                    action: reaction.failedAction ?? "add"
+                                                )
+                                            }
+                                        },
+                                        onReact: { emoji in
+                                            let existing = broadcastService.reactions(forChannel: channelName)[message.id]?
+                                                .first { $0.reactorAddress == myAddress }
+                                            let action = existing?.emoji == emoji ? "remove" : "add"
+                                            Task {
+                                                try? await broadcastService.sendBroadcastReaction(
+                                                    channel: channelName,
+                                                    targetTxId: message.id,
+                                                    emoji: emoji,
+                                                    action: action
+                                                )
+                                            }
+                                        },
+                                        activeQuickReactionMessageId: $activeQuickReactionMessageId,
                                         revealOffset: revealOffset,
                                         maxRevealOffset: maxRevealOffset
                                     )
@@ -233,6 +327,9 @@ struct BroadcastChannelView: View {
                         .onAppear {
                             scrollToBottom(using: proxy, animated: false)
                         }
+                        // Same interactive drag-down keyboard dismissal as ChatDetailView - the
+                        // room's keyboard had no way down other than sending a message.
+                        .scrollDismissesKeyboard(.interactively)
                         .simultaneousGesture(
                             // Swipe-left-to-reveal-timestamps (iMessage-style), matching Android:
                             // dragging left across the message list shifts every row left by the
@@ -249,6 +346,15 @@ struct BroadcastChannelView: View {
                                         revealOffset = 0
                                     }
                                 }
+                        )
+                        .simultaneousGesture(
+                            // Tapping anywhere in the message list dismisses whichever bubble's
+                            // quick-reaction bar is open - mirrors 1:1/group chat's identical gesture.
+                            TapGesture().onEnded {
+                                if activeQuickReactionMessageId != nil {
+                                    activeQuickReactionMessageId = nil
+                                }
+                            }
                         )
 
                         if !isBottomAnchorVisible {
@@ -435,7 +541,7 @@ struct BroadcastChannelView: View {
         }
         .onChange(of: recorder.elapsedSeconds) { elapsed in
             updateRecordingFeeEstimate(elapsedSeconds: elapsed)
-            guard elapsed >= BroadcastAudioRecorder.maxDuration, recorder.state == .recording else { return }
+            guard elapsed >= effectiveMaxRecordingDuration, recorder.state == .recording else { return }
             stopAndSendRecording()
         }
     }
@@ -590,15 +696,33 @@ struct BroadcastChannelView: View {
                 isEstimatingFee = false
             } catch {
                 guard !Task.isCancelled else { return }
-                feeEstimateSompi = nil
+                // Transient estimation failures (UTXO fetch hiccup, node race with an in-flight
+                // send) must never alarm the user mid-typing: keep showing the last good fee
+                // (or the "--" placeholder if there never was one) and just stop the shimmer.
                 isEstimatingFee = false
             }
         }
     }
 
+    /// A Nextcloud share link's worst-case payload size in bytes - matches
+    /// `ChatDetailView.nextcloudLinkPayloadSize` (private there; small local copy per this
+    /// file's convention).
+    private static let nextcloudLinkPayloadSize = 96
+
     /// Live estimate while a voice message is still being recorded, matching Android's
     /// `VoiceMessage.estimatedWirePayloadSize` heuristic (final size isn't known until encoding).
     private func updateRecordingFeeEstimate(elapsedSeconds: TimeInterval) {
+        // Via Nextcloud, the recording uploads to the server and the chain only carries the
+        // share link - the fee is the link-message fee regardless of recording length,
+        // mirroring 1:1 chat's identical branch.
+        if nextcloudService.isConnected && nextcloudService.mediaSendEnabled {
+            isEstimatingFee = false
+            feeEstimateSompi = broadcastService.estimateBroadcastFee(
+                channel: channelName,
+                payloadByteCount: Self.nextcloudLinkPayloadSize
+            )
+            return
+        }
         let baseOverheadBytes = 150.0
         let bytesPerSecondOfRecording = 2870.0
         let estimatedBytes = Int(baseOverheadBytes + elapsedSeconds * bytesPerSecondOfRecording)
@@ -646,9 +770,71 @@ struct BroadcastChannelView: View {
     }
 
     private func stopAndSendRecording() {
+        // Snapshot once, so the toggle flipping mid-send can't strand the stashed original -
+        // mirrors `GroupChatDetailView.sendRecording`.
+        let nextcloudActive = nextcloudService.mediaSendEnabled && nextcloudService.isConnected
+        let recordedSeconds = recorder.elapsedSeconds
         Task {
+            // Nextcloud mode: stash the full-length original PCM BEFORE the payload-capped WebM
+            // encode - the encode truncates to ~13KB (≈9s), and exporting the M4A from that
+            // would silently re-cap a long recording. The copy lives only for this send; the
+            // defer below is its single cleanup site.
+            let originalPCMURL: URL? = nextcloudActive
+                ? FileManager.default.temporaryDirectory
+                    .appendingPathComponent("kachat-broadcast-voice-original-\(UUID().uuidString).caf")
+                : nil
+            defer {
+                if let originalPCMURL {
+                    try? FileManager.default.removeItem(at: originalPCMURL)
+                }
+            }
             do {
-                let recorded = try await recorder.stopAndEncode()
+                let recorded = try await recorder.stopAndEncode(keepOriginalPCMAt: originalPCMURL)
+
+                // "Send Media via Nextcloud": upload an AAC .m4a of the recording and send the
+                // public share link as a plain text broadcast (the link-preview feature renders
+                // it as a playable audio card). The .m4a re-export matters: the recipients'
+                // audio card streams through AVPlayer, which cannot decode WebM/Opus. Mirrors
+                // `ChatDetailView.sendAudioAsync`/`GroupChatDetailView.sendRecording`.
+                if nextcloudActive {
+                    var shareURL: URL?
+                    var voiceFilename = ""
+                    var uploadedByteCount = 0
+                    do {
+                        let m4aURL = try await exportRecordingAsM4A(originalPCMURL: originalPCMURL, webmData: recorded.data)
+                        let m4aData = try Data(contentsOf: m4aURL)
+                        try? FileManager.default.removeItem(at: m4aURL)
+                        let stamp = Self.mediaTimestampFormatter.string(from: Date())
+                        voiceFilename = "voice_\(stamp).m4a"
+                        uploadedByteCount = m4aData.count
+                        shareURL = try await NextcloudService.shared.uploadMediaAndShare(
+                            data: m4aData,
+                            filename: voiceFilename,
+                            contentType: "audio/mp4"
+                        )
+                    } catch {
+                        AppLog.log("[BroadcastChannelView] Nextcloud audio upload failed, falling back to on-chain: %@",
+                                   error.localizedDescription)
+                        // The on-chain envelope is payload-capped (~9s) - a longer Nextcloud-mode
+                        // recording would arrive silently truncated, so surface an error instead
+                        // of falling back.
+                        if recordedSeconds > BroadcastAudioRecorder.maxDuration {
+                            showToast("Nextcloud upload failed, and the recording is too long to send on-chain.")
+                            return
+                        }
+                        showToast("Nextcloud upload failed — sending on-chain instead")
+                    }
+                    if let shareURL {
+                        // Seed the preview BEFORE the send so the sender's own bubble renders
+                        // the audio card instantly, with zero network - see
+                        // `ChatDetailView.seedNextcloudPreview`.
+                        await seedNextcloudPreview(for: shareURL, kind: .audio, title: voiceFilename, byteSize: uploadedByteCount)
+                        try await broadcastService.sendBroadcast(channel: channelName, content: shareURL.absoluteString)
+                        return
+                    }
+                    // No share link - fall through to the on-chain envelope path.
+                }
+
                 try await broadcastService.sendBroadcastAudio(
                     channel: channelName,
                     audioData: recorded.data,
@@ -659,6 +845,78 @@ struct BroadcastChannelView: View {
                 showToast("Failed to send voice message: \(error.localizedDescription)")
             }
         }
+    }
+
+    // MARK: - Nextcloud media send helpers ("Send Media via Nextcloud" toggle)
+
+    /// Human-sortable timestamp for uploaded media filenames (voice_20260811-101502.m4a) -
+    /// duplicated from `ChatDetailView` (private there), matching this file's convention of
+    /// small local copies over widened access.
+    private static let mediaTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter
+    }()
+
+    /// Pre-seeds the link-preview cache with what we just uploaded - the sender's own bubble
+    /// renders the media card instantly with zero network, no probe round trip needed (we
+    /// KNOW the kind/name/size; only recipients have to discover them). Mirrors
+    /// `ChatDetailView.seedNextcloudPreview`.
+    private func seedNextcloudPreview(for shareURL: URL, kind: NextcloudMediaKind, title: String, byteSize: Int) async {
+        guard let endpoints = LinkPreviewService.nextcloudShareEndpoints(for: shareURL) else { return }
+        await LinkPreviewService.shared.seed(LinkPreviewData(
+            url: shareURL,
+            title: title,
+            description: nil,
+            imageURLString: endpoints.previewURL.absoluteString,
+            siteName: shareURL.host.map { "Nextcloud · \($0)" } ?? "Nextcloud",
+            nextcloudMedia: kind,
+            mediaDownloadURLString: endpoints.downloadURL.absoluteString,
+            mediaByteSize: Int64(byteSize)
+        ))
+    }
+
+    /// Builds an AAC .m4a of the current recording for the Nextcloud upload. PCM source: the
+    /// stashed full-length original (never truncated by the payload cap) when it exists, else
+    /// the WebM payload is decoded on the spot. Mirrors `GroupChatDetailView.exportRecordingAsM4A`.
+    private func exportRecordingAsM4A(originalPCMURL: URL?, webmData: Data) async throws -> URL {
+        let pcmURL: URL
+        let deletePCMAfter: Bool
+        if let originalPCMURL, FileManager.default.fileExists(atPath: originalPCMURL.path) {
+            pcmURL = originalPCMURL
+            deletePCMAfter = false // stopAndSendRecording's defer owns this copy, not here
+        } else {
+            pcmURL = try WebMOpusDecoder.decodeToPCMFile(data: webmData).url
+            deletePCMAfter = true
+        }
+        defer {
+            if deletePCMAfter { try? FileManager.default.removeItem(at: pcmURL) }
+        }
+
+        guard let export = AVAssetExportSession(asset: AVURLAsset(url: pcmURL),
+                                                presetName: AVAssetExportPresetAppleM4A) else {
+            throw KasiaError.networkError("Audio export is unavailable on this device.")
+        }
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kachat-broadcast-voice-\(UUID().uuidString).m4a")
+        export.outputURL = outputURL
+        export.outputFileType = .m4a
+        // AVAssetExportSession isn't Sendable, but this is safe: after exportAsynchronously
+        // starts, the session is only touched from its own one-shot completion callback -
+        // `nonisolated(unsafe)` records that reasoning for the strict-concurrency checker.
+        nonisolated(unsafe) let session = export
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            session.exportAsynchronously {
+                if session.status == .completed {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: session.error
+                        ?? KasiaError.networkError("Audio export failed."))
+                }
+            }
+        }
+        return outputURL
     }
 
     private func replyBanner(for reply: BroadcastMessage) -> some View {
@@ -766,10 +1024,45 @@ private struct BroadcastMessageRow: View {
     /// Tapping the reply quote (if any) jumps to and highlights the original message - nil when
     /// `replyQuote` is nil, since there's nothing to jump to.
     var onJumpToReply: (() -> Void)?
+    /// This message's current reactions (one per reactor), for the pill shown on its corner -
+    /// same `GroupStore.ReactionSnapshot` shape group bubbles use (see `BroadcastStore.fetchReactions`).
+    var reactions: [GroupStore.ReactionSnapshot] = []
+    /// The local wallet's address, used to find *my* reaction among `reactions` so the pill can
+    /// show my reaction's status (pending → nothing, sent → green check, failed → red error + Retry).
+    var myReactorAddress: String = ""
+    /// Retries the local user's failed reaction on this message (nil disables the reaction Retry).
+    var onRetryReaction: ((GroupStore.ReactionSnapshot) -> Void)? = nil
+    /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
+    /// entirely (matches group chat's `GroupMessageBubbleRow.onReact`).
+    var onReact: ((String) -> Void)?
+    /// Shared across every bubble in the room (not per-bubble `@State`) - mirrors group chat's
+    /// identical binding, keyed by the broadcast row's `String` txId.
+    var activeQuickReactionMessageId: Binding<String?> = .constant(nil)
     let revealOffset: CGFloat
     let maxRevealOffset: CGFloat
 
     @State private var showFullText = false
+
+    private var showQuickReactionBar: Bool {
+        activeQuickReactionMessageId.wrappedValue == message.id
+    }
+
+    /// The local user's own reaction on this message, if any - only our own reactions ever carry
+    /// a pending/failed status, so this uniquely finds the one needing the status icon + Retry.
+    private var localReaction: GroupStore.ReactionSnapshot? {
+        reactions.first { $0.reactorAddress == myReactorAddress }
+    }
+
+    /// Status to show on the reaction pill. Same as `localReaction`'s status, except the green
+    /// "sent" checkmark is dropped once the reaction is older than 10 minutes - it's a recent
+    /// confirmation, not a permanent badge (pending/failed are always shown). Matches
+    /// `GroupMessageBubbleRow.pillReactionStatus`.
+    private var pillReactionStatus: ChatMessage.DeliveryStatus? {
+        guard let localReaction else { return nil }
+        guard localReaction.deliveryStatus == .sent else { return localReaction.deliveryStatus }
+        let ageMs = Int64(Date().timeIntervalSince1970 * 1000) - localReaction.blockTime
+        return ageMs < 600_000 ? .sent : nil
+    }
 
     /// See `MessageBubbleView.inlineTextTruncationThreshold`'s doc comment - broadcast rooms are
     /// public/unencrypted, so a huge wall of text (e.g. stray base64) landing here is if anything
@@ -810,6 +1103,24 @@ private struct BroadcastMessageRow: View {
                 }
 
                 VStack(alignment: isOwnMessage ? .trailing : .leading, spacing: 3) {
+                    // Sits directly above the bubble in normal layout flow, same as 1:1/group
+                    // chat - an `.overlay` with a manual offset gets cropped by the ScrollView's
+                    // own clipping instead of rendering cleanly above the row.
+                    if showQuickReactionBar, let onReact {
+                        QuickReactionBarView(
+                            emojis: settingsViewModel.settings.effectiveQuickReactionEmojis,
+                            onReact: { emoji in
+                                onReact(emoji)
+                                activeQuickReactionMessageId.wrappedValue = nil
+                            },
+                            onReply: {
+                                onReply()
+                                activeQuickReactionMessageId.wrappedValue = nil
+                            }
+                        )
+                        .frame(maxWidth: .infinity, alignment: isOwnMessage ? .trailing : .leading)
+                    }
+
                     Text(isOwnMessage ? "You" : displayName)
                         .font(.caption)
                         .fontWeight(.semibold)
@@ -820,6 +1131,18 @@ private struct BroadcastMessageRow: View {
                     }
 
                     bubble
+
+                    trailingLinkPreview
+
+                    // A reaction (not the message) that failed to send - shown for reactions on
+                    // any message (yours or another sender's), matching group chat.
+                    if let localReaction, localReaction.deliveryStatus == .failed {
+                        Text("Retry")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.red)
+                            .contentShape(Rectangle())
+                            .onTapGesture { onRetryReaction?(localReaction) }
+                    }
                 }
 
                 if isOwnMessage {
@@ -872,7 +1195,12 @@ private struct BroadcastMessageRow: View {
                 }
             }
         } label: {
-            KNSAvatarView(avatarURLString: avatarURLString, fallbackText: displayName, size: 32)
+            KNSAvatarView(
+                avatarURLString: avatarURLString,
+                fallbackText: displayName,
+                size: 32,
+                contactAddress: isOwnMessage ? nil : message.senderAddress
+            )
         }
         .tint(.accentColor)
     }
@@ -953,63 +1281,129 @@ private struct BroadcastMessageRow: View {
         }
     }
 
+    /// The trailing preview card for a link embedded in a longer text message - rendered below
+    /// the text bubble, exactly like 1:1/group bubbles. (A message that is NOTHING but a link is
+    /// handled inside `bubble` instead: the card replaces the text bubble entirely.) The
+    /// `{`-prefix guard skips JSON envelopes (voice payloads etc.) without paying their decode.
+    @ViewBuilder
+    private var trailingLinkPreview: some View {
+        if displayText.first != "{",
+           !MessageTextRenderPlan.isEntirelyLink(displayText),
+           let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
+            LinkPreviewCardView(
+                url: linkURL,
+                txId: message.id,
+                onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil,
+                // Broadcast rooms are open to anyone, so previews never auto-fetch here - each
+                // card is tap-to-load (Decision 5A), including the local user's own posts for
+                // one consistent rule in public rooms.
+                autoFetch: false
+            )
+        }
+    }
+
     private var bubble: some View {
         // Computed once here rather than letting `bubbleContent` and this context menu each call
         // the (uncached) `VoiceMessageSniff.decode` independently - that decode does a full
         // JSONSerialization parse + base64 decode of the whole audio payload, so evaluating it
         // twice per row doubled that cost on every render.
         let voicePayload = self.voicePayload
-        return bubbleContent(voicePayload: voicePayload)
-            .background(isOwnMessage ? Color.accentColor : Color(UIColor.secondarySystemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .frame(maxWidth: 280, alignment: isOwnMessage ? .trailing : .leading)
+        // Message is nothing but a link - the preview card replaces the plain-text bubble
+        // entirely (matches iMessage and group/1:1 chat) instead of showing both. `fallbackText`
+        // keeps the raw link visible/tappable if no preview data is ever found.
+        let loneLinkURL: URL? = (voicePayload == nil
+            && displayText.utf8.count <= Self.inlineTextTruncationThreshold
+            && MessageTextRenderPlan.isEntirelyLink(displayText))
+            ? MessageTextRenderPlan.firstHTTPLink(in: displayText)
+            : nil
+        return Group {
+            if let loneLinkURL {
+                LinkPreviewCardView(
+                    url: loneLinkURL,
+                    txId: message.id,
+                    fallbackText: displayText,
+                    onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil,
+                    // Broadcast rooms are open to anyone, so previews never auto-fetch here -
+                    // each card is tap-to-load (Decision 5A).
+                    autoFetch: false
+                )
+            } else {
+                bubbleContent(voicePayload: voicePayload)
+                    .background(isOwnMessage ? Color.accentColor : Color(UIColor.secondarySystemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    // Only the plain bubble gets this menu - `LinkPreviewCardView` carries its
+                    // own (Open Link / Copy Link / View in Explorer), and stacking a second
+                    // `.contextMenu` on top of it would fight it. Matches group bubbles.
+                    .contextMenu {
+                        if let firstLink {
+                            Button {
+                                UIApplication.shared.open(firstLink)
+                            } label: {
+                                Label("Open Link", systemImage: "safari")
+                            }
+                            Button {
+                                UIPasteboard.general.string = firstLink.absoluteString
+                            } label: {
+                                Label("Copy Link", systemImage: "link")
+                            }
+                        }
+                        if voicePayload == nil {
+                            Button {
+                                onCopyMessage()
+                            } label: {
+                                Label("Copy Message", systemImage: "doc.on.doc")
+                            }
+                        }
+                        if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.id) {
+                            Link(destination: url) {
+                                Label("View in Explorer", systemImage: "safari")
+                            }
+                        }
+                        if isOwnMessage && message.deliveryStatus == .failed {
+                            Button {
+                                onRetry()
+                            } label: {
+                                Label("Retry Send", systemImage: "arrow.clockwise")
+                            }
+                        }
+                    }
+            }
+        }
+            // Overlays are attached HERE - to the content-hugging Group, BEFORE the
+            // `.frame(maxWidth: 280)` below - exactly like 1:1's `MessageBubbleView` and group
+            // chat anchor theirs to the bubble itself. That frame EXPANDS to fill up to 280pt
+            // regardless of how narrow the bubble is, so anything overlaid after it anchors to
+            // the frame's screen-side corner and visibly floats away from a short bubble.
             .overlay(alignment: .bottomTrailing) {
                 if isOwnMessage {
                     deliveryBadge
                         .offset(x: 4, y: 4)
                 }
             }
-            .contextMenu {
-                if let firstLink {
-                    Button {
-                        UIApplication.shared.open(firstLink)
-                    } label: {
-                        Label("Open Link", systemImage: "safari")
-                    }
-                    Button {
-                        UIPasteboard.general.string = firstLink.absoluteString
-                    } label: {
-                        Label("Copy Link", systemImage: "link")
-                    }
-                }
-                if voicePayload == nil {
-                    Button {
-                        onCopyMessage()
-                    } label: {
-                        Label("Copy Message", systemImage: "doc.on.doc")
-                    }
-                }
-                if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.id) {
-                    Link(destination: url) {
-                        Label("View in Explorer", systemImage: "safari")
-                    }
-                }
-                if isOwnMessage && message.deliveryStatus == .failed {
-                    Button {
-                        onRetry()
-                    } label: {
-                        Label("Retry Send", systemImage: "arrow.clockwise")
-                    }
+            .overlay(alignment: isOwnMessage ? .bottomLeading : .bottomTrailing) {
+                if !reactions.isEmpty {
+                    ReactionPillView(emojis: reactions.map { $0.emoji }, localReactionStatus: pillReactionStatus)
+                        .offset(y: 10)
                 }
             }
+            // The pill is an overlay (no layout footprint) offset ~10pt below the bubble, so
+            // reserve that space when reactions exist - otherwise it overlaps the next message.
+            .padding(.bottom, reactions.isEmpty ? 0 : 16)
+            .frame(maxWidth: 280, alignment: isOwnMessage ? .trailing : .leading)
             .tint(.accentColor)
             // `.simultaneousGesture` rather than `.onTapGesture(count: 2)`: the latter is a
             // discrete, exclusive gesture that a Button descendant (the truncated-text preview's
             // "Show More" tap target) would always win the race against, since a Button's tap
             // fires immediately on touch-up. Matches the fix already applied to the private-chat
             // text bubble/image bubble for the same reason.
+            // Double-tap opens the quick-reaction bar (reactions + a reply shortcut) instead of
+            // jumping straight into reply mode - matching 1:1/group bubbles' identical change.
             .simultaneousGesture(TapGesture(count: 2).onEnded {
-                onReply()
+                if onReact != nil {
+                    activeQuickReactionMessageId.wrappedValue = message.id
+                } else {
+                    onReply()
+                }
             })
     }
 

@@ -76,7 +76,32 @@ actor NodeRegistry {
         do {
             let loaded = try store.loadAll()
             records = Dictionary(uniqueKeysWithValues: loaded.map { ($0.endpoint.key, $0) })
-            AppLog.log("[NodeRegistry] Loaded %d node records", records.count)
+
+            // Quarantine and circuit-breaker verdicts are in-session protection, not a
+            // permanent blacklist: persisted across launches they can depopulate the boot race
+            // (quickBoot selects by state, and a prior session's failure bursts can leave most
+            // records .quarantined/.suspect for up to an hour of wall-clock time). The runtime
+            // epoch-change reset clears the same fields, but on a cold launch it races
+            // quickBoot's candidate selection nondeterministically - so clear them here,
+            // deterministically, before anything selects. updateState() then lifts the records
+            // back into .candidate/.verified so every persisted node is raceable at boot.
+            var sanitized = 0
+            for (key, record) in records {
+                var fresh = record
+                let wasBlocked = fresh.health.quarantineUntil != nil
+                    || fresh.health.circuitBreakerOpenUntil != nil
+                    || fresh.health.consecutiveFailures > 0
+                fresh.health.quarantineUntil = nil
+                fresh.health.circuitBreakerOpenUntil = nil
+                fresh.health.circuitBreakerFailures = 0
+                fresh.health.consecutiveFailures = 0
+                fresh.updateState()
+                records[key] = fresh
+                if wasBlocked { sanitized += 1 }
+            }
+
+            AppLog.log("[NodeRegistry] Loaded %d node records (%d cleared of stale quarantine/failure state)",
+                  records.count, sanitized)
         } catch {
             AppLog.log("[NodeRegistry] Failed to load records: %@", error.localizedDescription)
         }
@@ -139,6 +164,15 @@ actor NodeRegistry {
                 records.removeValue(forKey: trustedNodeKey)
             }
             trustedNodeKey = nil
+            // Bring back the pool that existed before pinning (stashed below when the pin was
+            // applied) - switching back to Automatic Scan must dial known-good nodes
+            // immediately, not restart discovery from an empty registry (which previously left
+            // the app with NO nodes at all until the next cold launch, because nothing after
+            // this point ever re-resolved DNS seeds).
+            let restored = restoreStashedRecords()
+            if restored > 0 {
+                AppLog.log("[NodeRegistry] Restored %d pre-pin node records for Automatic Scan", restored)
+            }
             scheduleSave()
             return previousEndpoint
         }
@@ -148,6 +182,14 @@ actor NodeRegistry {
             return nil
         }
 
+        // Entering pinned mode from Automatic Scan: stash the discovered pool before wiping it,
+        // so known-good nodes survive the pinned period and can be dialed the instant the user
+        // switches back. Not done when moving pin -> pin (the registry only holds the old pinned
+        // record then, and overwriting the stash with it would destroy the real pre-pin pool).
+        if trustedNodeKey == nil {
+            stashRecordsBeforePinning(excluding: endpoint.key)
+        }
+
         trustedNodeKey = endpoint.key
         records = records.filter { $0.key == endpoint.key }
         if records[endpoint.key] == nil {
@@ -155,6 +197,44 @@ actor NodeRegistry {
         }
         scheduleSave()
         return previousEndpoint
+    }
+
+    /// UserDefaults key holding the pre-pin snapshot of the registry (see setTrustedNode).
+    private static let prePinStashKey = "com.kachat.nodepool.records.prepin"
+
+    /// Snapshot every non-pinned record so the discovered pool survives the pinned period.
+    private func stashRecordsBeforePinning(excluding pinnedKey: String) {
+        let toStash = records.values.filter { $0.endpoint.key != pinnedKey }
+        guard !toStash.isEmpty else { return }
+        if let data = try? JSONEncoder().encode(Array(toStash)) {
+            UserDefaults.standard.set(data, forKey: Self.prePinStashKey)
+            AppLog.log("[NodeRegistry] Stashed %d node records before pinning", toStash.count)
+        }
+    }
+
+    /// Restore the pre-pin snapshot into the live registry (existing keys win). The stash is
+    /// consumed: records rejoin the normal lifecycle and are re-persisted with everything else.
+    /// Stale entries are harmless - they fail their probes like any other node and get pruned.
+    private func restoreStashedRecords() -> Int {
+        guard let data = UserDefaults.standard.data(forKey: Self.prePinStashKey),
+              let stashed = try? JSONDecoder().decode([NodeRecord].self, from: data) else {
+            return 0
+        }
+        UserDefaults.standard.removeObject(forKey: Self.prePinStashKey)
+        var restored = 0
+        for record in stashed where records[record.endpoint.key] == nil {
+            // Same sanitize as load(): quarantine/circuit verdicts from the stash era are not
+            // evidence about the present, and would depopulate the instant-switch race.
+            var fresh = record
+            fresh.health.quarantineUntil = nil
+            fresh.health.circuitBreakerOpenUntil = nil
+            fresh.health.circuitBreakerFailures = 0
+            fresh.health.consecutiveFailures = 0
+            fresh.updateState()
+            records[fresh.endpoint.key] = fresh
+            restored += 1
+        }
+        return restored
     }
 
     /// Insert or update a node record
@@ -548,6 +628,40 @@ actor NodeRegistry {
         }
         let activeCount = records.values.filter { $0.state == .active }.count
         return PoolHealth(activeCount: activeCount)
+    }
+
+    /// Distinct nodes with a recent success/failure, for the blocked-network heuristic
+    /// (see NodePoolService.updatePoolStats): many distinct nodes failing with zero successes
+    /// while the device is online is the signature of gRPC being blocked wholesale
+    /// (firewall/DPI), as opposed to a few individually-bad nodes.
+    ///
+    /// Only events at or after `anchor` count - the caller anchors this to the most recent
+    /// boot / pin-switch / network-epoch change, so failures persisted from a previous launch
+    /// or earned on a previous network path can never contribute to a verdict about this one.
+    /// Chronic dead-weight candidates (known for over an hour, never once answered - e.g.
+    /// seeder entries behind Cloudflare that cannot serve raw gRPC anywhere) are excluded from
+    /// the failed count: they fail on every network and are evidence about nothing. Freshly
+    /// discovered nodes still count, so a first launch under censorship still trips.
+    func connectivitySnapshot(
+        since anchor: Date,
+        window: TimeInterval = 600
+    ) -> (recentFailedNodes: Int, recentSuccessfulNodes: Int, failedKeys: [String]) {
+        let now = Date()
+        let cutoff = max(anchor, now.addingTimeInterval(-window))
+        let chronicCutoff = now.addingTimeInterval(-3600)
+        var failedKeys: [String] = []
+        var succeeded = 0
+        for record in records.values {
+            if let successAt = record.health.lastSuccessAt, successAt >= cutoff {
+                succeeded += 1
+            } else if let failureAt = record.health.lastFailureAt, failureAt >= cutoff {
+                let neverSucceeded = record.health.lastSuccessAt == nil
+                let knownForever = record.firstSeenAt < chronicCutoff
+                if neverSucceeded && knownForever { continue }
+                failedKeys.append(record.endpoint.key)
+            }
+        }
+        return (failedKeys.count, succeeded, failedKeys)
     }
 
     /// Average latency of active nodes

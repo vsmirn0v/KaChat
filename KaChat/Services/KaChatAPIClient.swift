@@ -6,6 +6,64 @@ enum KasiaAPIClientError: Error {
     case dpiPaginationExhausted(endpoint: String)
 }
 
+/// Gate for the per-request [KasiaAPI] log lines. The unified logging system rate-limits (and
+/// eventually quarantines: "QUARANTINED DUE TO HIGH LOGGING VOLUME") processes that log too
+/// much - and with the 5s foreground contact sweep, the 2s open-chat poll and group catch-up
+/// all hitting the indexer, one detailed line per HTTP request was enough to get the whole
+/// process muted, dropping the log lines that actually matter.
+///
+/// Policy:
+/// - Failures (transport error, non-2xx, decode error) always log, with full detail.
+/// - Slow successes (total time above `slowRequestMs`) always log, tagged SLOW.
+/// - All other successes log only while Settings > Diagnostics > "Verbose API Logging" is on;
+///   otherwise they fold into a one-line rollup emitted at most once per 60s (and only when at
+///   least one request happened), so silence still reads as health rather than death.
+private final class APIRequestLogGate: @unchecked Sendable {
+    static let shared = APIRequestLogGate()
+    /// Successful requests slower than this always log (SLOW tag), even when not verbose.
+    static let slowRequestMs = 2000
+
+    private let lock = NSLock()
+    private var okCount = 0
+    private var okTotalMs = 0
+    private var windowStart = Date()
+    private let summaryInterval: TimeInterval = 60
+
+    /// `AppSettings.load()` is cached (see AppSettingsCache) and callable from any context,
+    /// so reading this per request - including from URLSession delegate queues - is cheap.
+    var verboseEnabled: Bool {
+        AppSettings.load().verboseAPILogging
+    }
+
+    /// Counts one successful, non-slow, non-verbose request. At most once per
+    /// `summaryInterval`, returns the rollup line for the window just closed; the caller logs
+    /// it (keeps AppLog usage at the call sites). No timers: the summary rides the next
+    /// request after the window elapses.
+    func recordQuietSuccess(durationMs: Int) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        okCount += 1
+        okTotalMs += max(durationMs, 0)
+        let elapsed = Date().timeIntervalSince(windowStart)
+        guard elapsed >= summaryInterval else { return nil }
+        let line = String(
+            format: "[KasiaAPI] %d requests ok in last %ds (avg %dms)",
+            okCount, Int(elapsed), okTotalMs / okCount
+        )
+        okCount = 0
+        okTotalMs = 0
+        windowStart = Date()
+        return line
+    }
+}
+
+/// FAIL/SLOW lines keep the endpoint path and the leading query params but cap very long query
+/// strings (address lists etc.) so a failure stays one readable log record.
+private func truncatedURLForLog(_ raw: String, maxLength: Int = 200) -> String {
+    guard raw.count > maxLength else { return raw }
+    return String(raw.prefix(maxLength)) + "...(+\(raw.count - maxLength) chars)"
+}
+
 final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
     static let shared = KasiaAPIClient()
 
@@ -108,6 +166,7 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
 
         // Timing breakdown
         var timings: [String] = []
+        var totalMs: Int?
 
         if let fetchStart = transaction.fetchStartDate {
             if let domainEnd = transaction.domainLookupEndDate, let domainStart = transaction.domainLookupStartDate {
@@ -142,8 +201,9 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
             }
 
             if let responseEnd = transaction.responseEndDate {
-                let totalMs = responseEnd.timeIntervalSince(fetchStart) * 1000
-                timings.append(String(format: "TOTAL=%.0fms", totalMs))
+                let total = responseEnd.timeIntervalSince(fetchStart) * 1000
+                totalMs = Int(total)
+                timings.append(String(format: "TOTAL=%.0fms", total))
             }
         }
 
@@ -152,12 +212,29 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
         let timingStr = timings.isEmpty ? "no-timing-data" : timings.joined(separator: " ")
         let taskError = task.error
 
+        // Non-2xx never surfaces as task.error (the HTTP exchange itself succeeded), so read
+        // the status here to classify it as a failure for logging purposes. processResponse's
+        // thrown KasiaError carries the human-readable detail; this line keeps the wire detail.
+        let httpStatus = (transaction.response as? HTTPURLResponse)?.statusCode
+        let isHTTPFailure = httpStatus.map { !(200...299).contains($0) } ?? false
+
+        // Rate-limit policy (see APIRequestLogGate): failures and slow requests always log,
+        // routine successes only when Verbose API Logging is on, otherwise they roll up into
+        // the once-a-minute summary line.
         if let err = taskError {
             AppLog.log("[KasiaAPI] [%@] FAIL | %@ %@%@ | %@:%@ | %@ | err=%@",
-                  endpoint, connProto, connType, proxyStr, remoteAddr, remotePort, timingStr, err.localizedDescription)
-        } else {
+                  truncatedURLForLog(endpoint), connProto, connType, proxyStr, remoteAddr, remotePort, timingStr, err.localizedDescription)
+        } else if isHTTPFailure {
+            AppLog.log("[KasiaAPI] [%@] FAIL | status=%d | %@ %@%@ | %@:%@ | %@",
+                  truncatedURLForLog(endpoint), httpStatus ?? 0, connProto, connType, proxyStr, remoteAddr, remotePort, timingStr)
+        } else if let totalMs, totalMs > APIRequestLogGate.slowRequestMs {
+            AppLog.log("[KasiaAPI] [%@] SLOW | %@ %@%@ | %@:%@ | %@",
+                  truncatedURLForLog(endpoint), connProto, connType, proxyStr, remoteAddr, remotePort, timingStr)
+        } else if APIRequestLogGate.shared.verboseEnabled {
             AppLog.log("[KasiaAPI] [%@] OK | %@ %@%@ | %@:%@ | %@",
                   endpoint, connProto, connType, proxyStr, remoteAddr, remotePort, timingStr)
+        } else if let summary = APIRequestLogGate.shared.recordQuietSuccess(durationMs: totalMs ?? 0) {
+            AppLog.log("%@", summary)
         }
     }
 
@@ -568,9 +645,13 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
             largePayloadBonus: confidenceGainLargeResponseBonus
         )
         #if DEBUG
-        let epochId = await currentEpochId()
-        AppLog.log("[KasiaAPI] HTTP/2 path success (%@, bytes=%d, epoch=%d confidence=%d) %@",
-              source, responseBytes, epochId, confidence, url.absoluteString)
+        // Per-request success chatter - verbose mode only (see APIRequestLogGate). The
+        // confidence bookkeeping above always runs; only the log line is gated.
+        if APIRequestLogGate.shared.verboseEnabled {
+            let epochId = await currentEpochId()
+            AppLog.log("[KasiaAPI] HTTP/2 path success (%@, bytes=%d, epoch=%d confidence=%d) %@",
+                  source, responseBytes, epochId, confidence, url.absoluteString)
+        }
         #endif
     }
 
@@ -679,17 +760,24 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
         let start = Date()
         do {
             let (data, response) = try await http1Client.get(url: url, timeout: 10)
-            #if DEBUG
+            // Decode BEFORE logging so a non-2xx or decode error takes the FAIL path below
+            // instead of logging OK first (same failure/slow/verbose/rollup policy as the
+            // URLSession delegate path - see APIRequestLogGate).
+            let result: T = try processResponse(data: data, response: response, url: url)
             let elapsed = Int(Date().timeIntervalSince(start) * 1000)
-            AppLog.log("[KasiaAPI] [%@] OK | HTTP/1.1 | TOTAL=%dms", url.absoluteString, elapsed)
-            #endif
-            return try processResponse(data: data, response: response, url: url)
+            if elapsed > APIRequestLogGate.slowRequestMs {
+                AppLog.log("[KasiaAPI] [%@] SLOW | HTTP/1.1 | TOTAL=%dms",
+                      truncatedURLForLog(url.absoluteString), elapsed)
+            } else if APIRequestLogGate.shared.verboseEnabled {
+                AppLog.log("[KasiaAPI] [%@] OK | HTTP/1.1 | TOTAL=%dms", url.absoluteString, elapsed)
+            } else if let summary = APIRequestLogGate.shared.recordQuietSuccess(durationMs: elapsed) {
+                AppLog.log("%@", summary)
+            }
+            return result
         } catch {
-            #if DEBUG
             let elapsed = Int(Date().timeIntervalSince(start) * 1000)
             AppLog.log("[KasiaAPI] [%@] FAIL | HTTP/1.1 | TOTAL=%dms | err=%@",
-                  url.absoluteString, elapsed, error.localizedDescription)
-            #endif
+                  truncatedURLForLog(url.absoluteString), elapsed, error.localizedDescription)
             throw error
         }
     }

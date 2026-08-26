@@ -38,6 +38,67 @@ struct SavedAccountSummary: Identifiable, Equatable, Codable {
     }
 }
 
+/// Identity derivation-path family of the wallet a seed phrase was imported from - the
+/// KasWare-style "which wallet is this seed from?" selection. Different Kaspa wallets put the
+/// same seed's funds and KNS domains on different BIP32 branches; picking the right family at
+/// import is what lets KaChat find them. Rules replicated exactly from KasWare's
+/// ADDRESS_TYPES/RESTORE_WALLETS constants and its `hd-keyring.ts` `_pubkeyFromIndex` derivation
+/// switch (see external reference /Users/restosaved/extension):
+///
+/// - `kaspaStandard`: m/44'/111111'/0'/0/{i} (receive chain, normal final index). KaChat's own
+///   family, also KasWare, Kaspium, Core Golang CLI, OKX and Ledger seed imports.
+/// - `kaspaLegacy972`: m/44'/972/0'/0'/{i'} - Kaspanet Web Wallet and KDX. NOTE: 972 is
+///   deliberately NOT hardened (KasWare's hdPath string "m/44'/972/0'" has no apostrophe on 972
+///   and their keyring derives it normally), while the change level and the final index ARE
+///   hardened ("m/44'/972/0'/${dType}'/${i}'").
+/// - `chainge`: m/44'/111111'/0'/0' - a single hardened leaf; Chainge wallets have exactly ONE
+///   address per seed, so no index scanning applies (only index 0 exists).
+/// - `oneKey`: the standard m/44'/111111'/0'/0/{i} key, then a BIP340 taproot-style tweak:
+///   negate the private key if its compressed pubkey has an odd Y (0x03 prefix), then add
+///   taggedHash("TapTweak", xOnlyPubkey) mod n. Address comes from the tweaked key.
+///
+/// Raw values are persisted (UserDefaults, keyed per derived address) - do not rename cases.
+enum WalletSourceFamily: String, Codable, CaseIterable {
+    case kaspaStandard
+    case kaspaLegacy972
+    case chainge
+    case oneKey
+
+    /// True when the family has a whole receive chain to scan; false for single-address
+    /// families (Chainge), where only index 0 exists.
+    var supportsIndexScan: Bool {
+        self != .chainge
+    }
+
+    /// Human-readable base path, for the import chooser UI.
+    var pathDescription: String {
+        switch self {
+        case .kaspaStandard: return "m/44'/111111'/0'"
+        case .kaspaLegacy972: return "m/44'/972/0'"
+        case .chainge: return "m/44'/111111'/0'/0'"
+        case .oneKey: return "m/44'/111111'/0' (OneKey)"
+        }
+    }
+}
+
+/// One scanned identity-chain slot from `WalletManager.scanChattingAddressCandidates` - the
+/// import wizard's "Change Chatting Address" picker lists the interesting ones (balance or
+/// domains), always including index 0.
+struct ChattingAddressCandidate: Identifiable, Equatable {
+    let index: Int
+    let address: String
+    let balanceSompi: UInt64
+    let domains: [KNSDomain]
+    let primaryDomain: String?
+
+    var id: Int { index }
+
+    var shortAddress: String {
+        guard address.count > 16 else { return address }
+        return "\(address.prefix(10))...\(address.suffix(6))"
+    }
+}
+
 @MainActor
 final class WalletManager: ObservableObject {
     static let shared = WalletManager()
@@ -72,6 +133,16 @@ final class WalletManager: ObservableObject {
     /// (typing in an existing phrase needs no review step). Transient/in-memory only, like
     /// `justCreatedNewWallet`.
     @Published var isAwaitingSeedPhraseConfirmation = false
+
+    /// True only when the current session began with a seed IMPORT (`ImportWalletView`), never a
+    /// brand-new create - unlike `justCreatedNewWallet`, which both flows set. The Welcome Guide
+    /// uses it to offer "Change Chatting Address" on the funding step: an imported seed may hold
+    /// its real identity (KNS domains, funded chatting balance) at a nonzero derivation index,
+    /// which is meaningless for a freshly generated seed. Set by `ImportWalletView` right before
+    /// the import commits, cleared when the guide finishes (or the import fails). Transient/
+    /// in-memory only, like `justCreatedNewWallet` - an app kill mid-wizard loses it, which just
+    /// hides the option on the resumed run.
+    @Published var justImportedWallet = false
 
     /// Per-wallet ("account") toggle for whether the "Setup Guide" re-entry points (the Profile
     /// tab's "Welcome Guide" row and the "Edit KNS Profile" screen's "Setup Guide" button) are
@@ -134,7 +205,9 @@ final class WalletManager: ObservableObject {
                     ColdStorageManager.shared.setCurrentWallet(nil)
                     PortfolioManager.shared.setCurrentWallet(nil)
                     PortfolioViewModel.shared.setCurrentWallet(nil)
+                    NextcloudService.shared.setCurrentWallet(nil)
                     SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
                     SharedDataManager.setPrivateKeyAvailable(false)
                     return
                 }
@@ -150,19 +223,28 @@ final class WalletManager: ObservableObject {
                 }
                 self.currentWallet = updated
                 migrateSpendingBoundsIfNeeded()
+                // Legacy payment-pool reservations were born hidden; they are visible product
+                // surface now, so surface any outstanding ones without waiting for a re-offer.
+                unhideOfferedReservationsIfNeeded()
                 isBalanceRefreshing = true
                 ContactsManager.shared.setActiveWalletAddress(canonicalWallet.publicAddress)
                 ChatService.shared.loadChatListSnapshot(for: canonicalWallet.publicAddress)
                 SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
                 SharedDataManager.setPrivateKeyAvailable(true)
                 isLoading = false
                 // Switch MessageStore to this wallet's store and CloudKit zone
                 await MessageStore.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 BroadcastService.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 GroupChatService.shared.setCurrentWallet(canonicalWallet.publicAddress)
+                // Discover group invites for THIS account right away - switching accounts in-app
+                // does not fire a scenePhase .active, so without this a group you were added to
+                // under this account would not appear until the app was backgrounded/foregrounded.
+                Task { await GroupChatService.shared.performCatchUpSync() }
                 ColdStorageManager.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 PortfolioManager.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 PortfolioViewModel.shared.setCurrentWallet(canonicalWallet.publicAddress)
+                NextcloudService.shared.setCurrentWallet(canonicalWallet.publicAddress)
                 await ChatService.shared.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
                 Task { _ = try? await refreshBalance() }
                 return
@@ -181,7 +263,9 @@ final class WalletManager: ObservableObject {
             ColdStorageManager.shared.setCurrentWallet(nil)
             PortfolioManager.shared.setCurrentWallet(nil)
             PortfolioViewModel.shared.setCurrentWallet(nil)
+            NextcloudService.shared.setCurrentWallet(nil)
             SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
             SharedDataManager.setPrivateKeyAvailable(false)
         } catch {
             self.error = .keychainError(error.localizedDescription)
@@ -225,10 +309,23 @@ final class WalletManager: ObservableObject {
         return (wallet, seedPhrase)
     }
 
-    func importWallet(from seedPhrase: SeedPhrase, alias: String = "My Account") async throws -> Wallet {
+    /// - Parameter chattingAddressIndex: derivation index on the identity chain
+    ///   (m/44'/111111'/0'/0/<index>) the chatting address should live at. 0 (the default) is the
+    ///   standard identity every fresh import/create starts from; a nonzero value is only ever
+    ///   passed by `setChattingAddress(index:)` when the user picks a different identity index
+    ///   during the import wizard. Persisted per derived address so key-repair and
+    ///   seed-fallback paths re-derive the same identity.
+    /// - Parameter family: identity derivation-path family of the wallet this seed comes from
+    ///   (the KasWare-style source-wallet selection in the import flow). `.kaspaStandard` for
+    ///   every create and for imports of KaChat/KasWare/Kaspium/Core CLI/OKX/Ledger seeds.
+    ///   Persisted per derived address, exactly like the chatting index.
+    func importWallet(from seedPhrase: SeedPhrase, alias: String = "My Account", chattingAddressIndex: Int = 0, family: WalletSourceFamily = .kaspaStandard) async throws -> Wallet {
         // Validate BIP39 checksum to catch typos in seed phrases
         guard bip39.validateMnemonic(seedPhrase.phrase) else {
             throw KasiaError.invalidSeedPhrase
+        }
+        guard chattingAddressIndex >= 0 else {
+            throw KasiaError.apiError("Invalid chatting address index")
         }
 
         // Stop any in-flight sync/polling for the *previous* wallet before we make this new wallet
@@ -240,7 +337,12 @@ final class WalletManager: ObservableObject {
 
         // Derive keys from seed phrase (once - the private key is reused for storage below and
         // cached in memory so the initial sync doesn't re-read the keychain per message).
-        let (publicKey, publicAddress, privateKeyData) = try deriveKeysFromSeed(seedPhrase)
+        let (publicKey, publicAddress, privateKeyData) = try deriveKeysFromSeed(seedPhrase, chattingIndex: UInt32(chattingAddressIndex), family: family)
+        // Persist the index and family before any consumer can hit a seed-fallback derivation
+        // path for the new address (getPrivateKey / wallet reconciliation look both up per
+        // address).
+        persistChattingAddressIndex(chattingAddressIndex, for: publicAddress)
+        persistWalletSourceFamily(family, for: publicAddress)
         cachedPrivateKey = (publicAddress, privateKeyData)
 
         // Determine whether this import is switching to a different account.
@@ -278,16 +380,25 @@ final class WalletManager: ObservableObject {
         await MessageStore.shared.setCurrentWallet(wallet.publicAddress)
         BroadcastService.shared.setCurrentWallet(wallet.publicAddress)
         GroupChatService.shared.setCurrentWallet(wallet.publicAddress)
+        // Discover group invites for this newly-activated account immediately (see the same
+        // call in loadWallet) - an in-app account activation does not fire scenePhase .active.
+        Task { await GroupChatService.shared.performCatchUpSync() }
         ColdStorageManager.shared.setCurrentWallet(wallet.publicAddress)
         PortfolioManager.shared.setCurrentWallet(wallet.publicAddress)
         PortfolioViewModel.shared.setCurrentWallet(wallet.publicAddress)
+        NextcloudService.shared.setCurrentWallet(wallet.publicAddress)
         SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         SharedDataManager.setPrivateKeyAvailable(true)
 
         // Reset chat and contacts data when importing a new/different wallet
         // This ensures lastPollTime=0 so all historical messages are fetched
         if isNewWallet {
             AppLog.log("%@", "[WalletManager] Importing new wallet, resetting chat and contacts data")
+            // Stamp the import moment BEFORE any sync starts: everything mined earlier is
+            // history the initial sync backfills, and it must land read and silent (no unread
+            // badges, no notifications). See ChatService.walletImportBaselineMs.
+            ChatService.shared.recordWalletImportBaseline(address: wallet.publicAddress)
             // Pass skipStoreClear=true since the new wallet's store is already empty
             ChatService.shared.resetForNewWallet(skipStoreClear: true)
             ContactsManager.shared.deleteAllContacts()
@@ -304,7 +415,7 @@ final class WalletManager: ObservableObject {
     /// - Parameter passphrase: optional BIP39 passphrase the account was created with. Must match
     ///   exactly to restore the same account; a different (or empty) passphrase silently derives a
     ///   different, empty account. Pass "" for none.
-    func importWallet(from phrase: String, alias: String = "My Account", passphrase: String = "") async throws -> Wallet {
+    func importWallet(from phrase: String, alias: String = "My Account", passphrase: String = "", family: WalletSourceFamily = .kaspaStandard) async throws -> Wallet {
         // Debug: count words
         let words = phrase.lowercased()
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -314,7 +425,7 @@ final class WalletManager: ObservableObject {
         guard let seedPhrase = SeedPhrase(phrase: phrase, passphrase: passphrase.isEmpty ? nil : passphrase) else {
             throw KasiaError.seedPhraseParsingFailed(wordCount: words.count)
         }
-        return try await importWallet(from: seedPhrase, alias: alias)
+        return try await importWallet(from: seedPhrase, alias: alias, family: family)
     }
 
     func deleteWallet(preserveOutgoingMessages: Bool = false) async throws {
@@ -343,6 +454,7 @@ final class WalletManager: ObservableObject {
         if let walletAddressToDelete {
             ChatListSnapshotStore.clear(walletAddress: walletAddressToDelete)
             ContactsManager.shared.deletePersistedContacts(forWalletAddress: walletAddressToDelete)
+            NextcloudService.shared.purgeStoredState(forWalletAddress: walletAddressToDelete)
         }
         ContactsManager.shared.setActiveWalletAddress(nil)
 
@@ -353,7 +465,9 @@ final class WalletManager: ObservableObject {
         ColdStorageManager.shared.setCurrentWallet(nil)
         PortfolioManager.shared.setCurrentWallet(nil)
         PortfolioViewModel.shared.setCurrentWallet(nil)
+        NextcloudService.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         SharedDataManager.setPrivateKeyAvailable(false)
     }
 
@@ -379,7 +493,9 @@ final class WalletManager: ObservableObject {
         ColdStorageManager.shared.setCurrentWallet(nil)
         PortfolioManager.shared.setCurrentWallet(nil)
         PortfolioViewModel.shared.setCurrentWallet(nil)
+        NextcloudService.shared.setCurrentWallet(nil)
         SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         SharedDataManager.setPrivateKeyAvailable(false)
     }
 
@@ -449,6 +565,7 @@ final class WalletManager: ObservableObject {
             if !isStoredAccount {
                 try? keychainService.deleteAccountSnapshot(publicAddress: account.publicAddress)
                 ContactsManager.shared.deletePersistedContacts(forWalletAddress: account.publicAddress)
+                NextcloudService.shared.purgeStoredState(forWalletAddress: account.publicAddress)
                 removeSavedAccountFromStorage(account)
                 return
             }
@@ -475,6 +592,7 @@ final class WalletManager: ObservableObject {
         PortfolioManager.shared.clearAllLocalData()
         PortfolioViewModel.shared.setCurrentWallet(account.publicAddress)
         PortfolioViewModel.shared.clearAllLocalData()
+        NextcloudService.shared.purgeStoredState(forWalletAddress: account.publicAddress)
 
         do {
             try keychainService.deleteAccountSnapshot(publicAddress: account.publicAddress)
@@ -497,11 +615,13 @@ final class WalletManager: ObservableObject {
         ColdStorageManager.shared.setCurrentWallet(nil)
         PortfolioManager.shared.setCurrentWallet(nil)
         PortfolioViewModel.shared.setCurrentWallet(nil)
+        NextcloudService.shared.setCurrentWallet(nil)
         ChatService.shared.resetForNewWallet(skipStoreClear: true)
         ContactsManager.shared.deleteAllContacts()
         ContactsManager.shared.setActiveWalletAddress(nil)
         SharedDataManager.clearAllSharedData()
         SharedDataManager.syncWalletAddressForExtension()
+        NotificationCenter.default.post(name: .settingsDidChange, object: nil)
         SharedDataManager.setPrivateKeyAvailable(false)
     }
 
@@ -601,7 +721,7 @@ final class WalletManager: ObservableObject {
     /// If keychain sync returns a stale wallet record from another device/account, prefer
     /// local key material so message decryption and signing keep working on this device.
     private func reconcileWalletWithLocalKeyMaterialIfNeeded(_ wallet: Wallet) -> Wallet {
-        guard let localWallet = walletFromLocalKeyMaterial(alias: wallet.alias, createdAt: wallet.createdAt) else {
+        guard let localWallet = walletFromLocalKeyMaterial(alias: wallet.alias, createdAt: wallet.createdAt, storedAddress: wallet.publicAddress) else {
             return wallet
         }
         guard localWallet.publicKey != wallet.publicKey else {
@@ -621,13 +741,18 @@ final class WalletManager: ObservableObject {
         return localWallet
     }
 
-    private func walletFromLocalKeyMaterial(alias: String, createdAt: Date) -> Wallet? {
+    /// - Parameter storedAddress: the keychain wallet record's address, used to look up its
+    ///   persisted chatting-address index for the seed-fallback derivation. The private-key
+    ///   branch needs no index - the stored key IS the chosen identity's key.
+    private func walletFromLocalKeyMaterial(alias: String, createdAt: Date, storedAddress: String?) -> Wallet? {
         if let privateKey = try? keychainService.loadPrivateKey(),
            let wallet = try? walletFromPrivateKey(privateKey, alias: alias, createdAt: createdAt) {
             return wallet
         }
+        let chattingIndex = storedAddress.map { chattingAddressIndex(for: $0) } ?? 0
+        let family = storedAddress.map { walletSourceFamily(for: $0) } ?? .kaspaStandard
         if let seedPhrase = try? keychainService.loadSeedPhrase(),
-           let keyPair = try? deriveKeysFromSeed(seedPhrase) {
+           let keyPair = try? deriveKeysFromSeed(seedPhrase, chattingIndex: UInt32(chattingIndex), family: family) {
             return Wallet(
                 publicAddress: keyPair.publicAddress,
                 publicKey: keyPair.publicKey,
@@ -722,6 +847,17 @@ final class WalletManager: ObservableObject {
         }
     }
 
+    /// True only when the chatting-address balance is a CONFIRMED zero. `balanceSompi` is `nil`
+    /// until the first UTXO fetch (or cached-balance load) completes, so an unknown/still-loading
+    /// balance never counts as zero - only an actual fetched/cached 0. Reactive: `balanceSompi`
+    /// lives on the published `currentWallet`, so observers re-evaluate the moment any
+    /// refresh/UTXO push reports funds. Drives the zero-balance compose gates in 1:1 chats,
+    /// group chats, broadcast channels, and KaPosts.
+    var hasConfirmedZeroChattingBalance: Bool {
+        guard let balance = currentWallet?.balanceSompi else { return false }
+        return balance == 0
+    }
+
     /// Refresh balance by summing UTXOs for the current wallet
     func refreshBalance() async throws -> UInt64 {
         guard let wallet = currentWallet else {
@@ -782,20 +918,15 @@ final class WalletManager: ObservableObject {
             return nil
         }
 
-        // Derive master key using BIP32
-        let masterKey = deriveMasterKey(from: seed)
-
-        // Derive child key using BIP44 path: m/44'/111111'/0'/0/0
-        let purpose = deriveChildKey(from: masterKey, index: 44 | 0x80000000)
-        let coinType = deriveChildKey(from: purpose, index: 111111 | 0x80000000)
-        let account = deriveChildKey(from: coinType, index: 0 | 0x80000000)
-        let change = deriveChildKey(from: account, index: 0)
-        let addressIndex = deriveChildKey(from: change, index: 0)
-
-        return addressIndex.key
+        // Family + index are the CURRENT wallet's persisted identity parameters (standard
+        // family / index 0 unless the user imported from another wallet type or picked a
+        // different identity index), so this fallback re-derives the key that actually matches
+        // the stored wallet record.
+        let baseNode = identityBaseNode(seed: seed, family: currentWalletSourceFamily)
+        return identityPrivateKey(at: UInt32(currentChattingAddressIndex), baseNode: baseNode, family: currentWalletSourceFamily)
     }
 
-    private func deriveKeysFromSeed(_ seedPhrase: SeedPhrase) throws -> (publicKey: String, publicAddress: String, privateKey: Data) {
+    private func deriveKeysFromSeed(_ seedPhrase: SeedPhrase, chattingIndex: UInt32 = 0, family: WalletSourceFamily = .kaspaStandard) throws -> (publicKey: String, publicAddress: String, privateKey: Data) {
         // Derive seed using BIP39 standard (PBKDF2 with 2048 iterations). The optional BIP39
         // passphrase carried on the SeedPhrase changes the derived account entirely; reading it
         // here (rather than hardcoding "") is what makes relaunch, reconciliation and
@@ -805,18 +936,15 @@ final class WalletManager: ObservableObject {
         }
         defer { seed.zeroOut() }
 
-        // Derive master key using BIP32
-        let masterKey = deriveMasterKey(from: seed)
-
-        // Derive child key using BIP44 path: m/44'/111111'/0'/0/0
-        // 111111 (0x1B207) is Kaspa's coin type
-        let purpose = deriveChildKey(from: masterKey, index: 44 | 0x80000000)       // 44'
-        let coinType = deriveChildKey(from: purpose, index: 111111 | 0x80000000)    // 111111'
-        let account = deriveChildKey(from: coinType, index: 0 | 0x80000000)         // 0'
-        let change = deriveChildKey(from: account, index: 0)                         // 0
-        let addressIndex = deriveChildKey(from: change, index: 0)                    // 0
-
-        let privateKeyData = addressIndex.key
+        // Identity path is family-dependent (see WalletSourceFamily): the standard family is
+        // m/44'/111111'/0'/0/<chattingIndex> (111111 / 0x1B207 is Kaspa's coin type); imported
+        // seeds from other wallets may use the legacy 972 branch, the single Chainge leaf, or
+        // OneKey's tweaked standard key. chattingIndex is 0 for every fresh import/create;
+        // nonzero only when the user chose a different identity index (setChattingAddress).
+        let baseNode = identityBaseNode(seed: seed, family: family)
+        guard let privateKeyData = identityPrivateKey(at: chattingIndex, baseNode: baseNode, family: family) else {
+            throw KasiaError.apiError("This wallet type has no address at index \(chattingIndex).")
+        }
 
         // Derive public key using secp256k1
         let publicKeyData = try deriveSchnorrPublicKey(from: privateKeyData)
@@ -835,6 +963,103 @@ final class WalletManager: ObservableObject {
         // PBKDF2 + BIP32 derivation a second time just to persist it - that double derivation on
         // the main actor was a measurable stutter at sign-in.
         return (publicKeyHex, publicAddress, privateKeyData)
+    }
+
+    // MARK: - Family-aware identity derivation core
+
+    /// The family's shared base node, from which each address index derives with one final step
+    /// (see `identityPrivateKey(at:baseNode:family:)` for how the index applies per family).
+    /// Deriving this once per scan/import is the expensive part (HMAC-SHA512 chain); mirrors the
+    /// `spendingChangeKey()` reuse pattern.
+    private func identityBaseNode(seed: Data, family: WalletSourceFamily) -> (key: Data, chainCode: Data) {
+        let masterKey = deriveMasterKey(from: seed)
+        let purpose = deriveChildKey(from: masterKey, index: 44 | 0x80000000)               // 44'
+        switch family {
+        case .kaspaStandard, .oneKey:
+            // m/44'/111111'/0'/0 - OneKey shares the standard chain; only the final key gets
+            // its tweak.
+            let coinType = deriveChildKey(from: purpose, index: 111111 | 0x80000000)        // 111111'
+            let account = deriveChildKey(from: coinType, index: 0 | 0x80000000)             // 0'
+            return deriveChildKey(from: account, index: 0)                                  // 0 (receive)
+        case .kaspaLegacy972:
+            // m/44'/972/0'/0' - 972 deliberately NOT hardened (replicates KasWare's
+            // "m/44'/972/0'" string exactly); change level hardened, final index hardened too
+            // (applied in identityPrivateKey).
+            let coinType = deriveChildKey(from: purpose, index: 972)                        // 972 (normal!)
+            let account = deriveChildKey(from: coinType, index: 0 | 0x80000000)             // 0'
+            return deriveChildKey(from: account, index: 0 | 0x80000000)                     // 0' (receive)
+        case .chainge:
+            // m/44'/111111'/0' - the single 0' leaf is applied as the "index 0" step below.
+            let coinType = deriveChildKey(from: purpose, index: 111111 | 0x80000000)        // 111111'
+            return deriveChildKey(from: coinType, index: 0 | 0x80000000)                    // 0'
+        }
+    }
+
+    /// Applies the family's index rule to the base node. Returns nil for indexes the family
+    /// does not have (Chainge has exactly one address) or if the OneKey tweak fails.
+    private func identityPrivateKey(at index: UInt32, baseNode: (key: Data, chainCode: Data), family: WalletSourceFamily) -> Data? {
+        switch family {
+        case .kaspaStandard:
+            return deriveChildKey(from: baseNode, index: index).key                          // .../0/{i}
+        case .kaspaLegacy972:
+            guard index < 0x80000000 else { return nil }
+            return deriveChildKey(from: baseNode, index: index | 0x80000000).key             // .../0'/{i'}
+        case .chainge:
+            guard index == 0 else { return nil }
+            return deriveChildKey(from: baseNode, index: 0 | 0x80000000).key                 // .../0' (single)
+        case .oneKey:
+            let raw = deriveChildKey(from: baseNode, index: index).key                       // .../0/{i}, then tweak
+            return oneKeyTweakedPrivateKey(raw)
+        }
+    }
+
+    /// OneKey's BIP340 taproot-style key tweak, replicated from KasWare's
+    /// `_onekeyPrivateKeyFromOriginPrivateKey` (bip340.ts): if the compressed pubkey has an odd
+    /// Y (0x03 prefix), negate the private key mod n; then add
+    /// taggedHash("TapTweak", xOnlyPubkey) mod n. The address derives from the tweaked key.
+    private func oneKeyTweakedPrivateKey(_ privateKey: Data) -> Data? {
+        guard let compressed = try? deriveCompressedPublicKey(from: privateKey), compressed.count == 33 else {
+            return nil
+        }
+        var priv = privateKey
+        if compressed.first == 0x03 {
+            priv = negateModN(priv)
+        }
+        let xOnly = Data(compressed.dropFirst())
+        let tweak = taggedSHA256(tag: "TapTweak", data: xOnly)
+        do {
+            let key = try P256K.Signing.PrivateKey(dataRepresentation: priv)
+            let tweaked = try key.add(Array(tweak))
+            return tweaked.dataRepresentation
+        } catch {
+            return nil
+        }
+    }
+
+    /// BIP340 tagged hash: SHA256(SHA256(tag) || SHA256(tag) || data).
+    private func taggedSHA256(tag: String, data: Data) -> Data {
+        let tagHash = Data(SHA256.hash(data: Data(tag.utf8)))
+        return Data(SHA256.hash(data: tagHash + tagHash + data))
+    }
+
+    /// n - key (big-endian, 32 bytes). Valid private keys are nonzero and < n, so no reduction
+    /// is needed beyond the plain subtraction.
+    private func negateModN(_ key: Data) -> Data {
+        let n = Self.secp256k1_n
+        let keyBytes = [UInt8](key)
+        var result = [UInt8](repeating: 0, count: 32)
+        var borrow: Int16 = 0
+        for i in (0..<32).reversed() {
+            let diff = Int16(n[i]) - Int16(keyBytes[i]) - borrow
+            if diff < 0 {
+                result[i] = UInt8((diff + 256) & 0xFF)
+                borrow = 1
+            } else {
+                result[i] = UInt8(diff & 0xFF)
+                borrow = 0
+            }
+        }
+        return Data(result)
     }
 
     private func logPrivateKeyStorageStatus() {
@@ -994,6 +1219,188 @@ final class WalletManager: ObservableObject {
         let privKey = try P256K.Schnorr.PrivateKey(dataRepresentation: privateKey)
         // Get the x-only public key for Schnorr (32 bytes)
         return Data(privKey.xonly.bytes)
+    }
+
+    // MARK: - Chatting-address index (choose identity at import)
+    //
+    // An imported seed may hold its real identity at a nonzero index on the identity chain
+    // (m/44'/111111'/0'/0/<index>) - e.g. the user's KNS domain sits on index 45 in another
+    // wallet. The Welcome Guide's funding step (import runs only) lets the user scan that chain
+    // and pick a different index as their chatting address. The chosen index is persisted in
+    // UserDefaults keyed by the DERIVED address, so every path that re-derives from the seed
+    // (getPrivateKey's fallback, reconcileWalletWithLocalKeyMaterialIfNeeded's repair) can find
+    // the right index from the wallet record it already has. The keychain-stored private key is
+    // simply the chosen index's key, so normal loads never re-derive at all.
+    //
+    // Collision note: the spending chain lives on a DIFFERENT hardened account branch
+    // (m/44'/111111'/1'/0/<index>, see WalletManager+SpendingAddresses.swift), so a chosen
+    // identity index can never collide with any spending address - no reservation needed.
+    //
+    // DECISION: the spending chain stays on KaChat's own m/44'/111111'/1' branch REGARDLESS of
+    // the imported wallet's source family. Spending addresses are funds KaChat itself controls
+    // and reveals (payment pools, fresh change, reservations) - they are not something the
+    // source wallet ever derived, so there is nothing to "find" on the source family's branch,
+    // and keeping them on the fixed account-1' branch means no source family (standard account
+    // 0', legacy 972, Chainge's single 0' leaf, OneKey's tweaked account-0' keys) can ever
+    // collide with them.
+
+    private func chattingIndexKey(for address: String) -> String {
+        "kachat_chatting_address_index_\(address)"
+    }
+
+    /// Persisted identity-chain index for a derived chatting address (0 when never customized).
+    func chattingAddressIndex(for address: String) -> Int {
+        UserDefaults.standard.object(forKey: chattingIndexKey(for: address)) as? Int ?? 0
+    }
+
+    /// Identity-chain index of the active wallet's chatting address (0 = the standard identity).
+    var currentChattingAddressIndex: Int {
+        guard let address = currentWallet?.publicAddress else { return 0 }
+        return chattingAddressIndex(for: address)
+    }
+
+    private func persistChattingAddressIndex(_ index: Int, for address: String) {
+        if index == 0 {
+            UserDefaults.standard.removeObject(forKey: chattingIndexKey(for: address))
+        } else {
+            UserDefaults.standard.set(index, forKey: chattingIndexKey(for: address))
+        }
+    }
+
+    // MARK: - Source-wallet family persistence (same pattern as the chatting index)
+
+    private func walletSourceFamilyKey(for address: String) -> String {
+        "kachat_wallet_source_family_\(address)"
+    }
+
+    /// Persisted identity path family for a derived address (`.kaspaStandard` when never
+    /// customized - every pre-existing wallet).
+    func walletSourceFamily(for address: String) -> WalletSourceFamily {
+        guard let raw = UserDefaults.standard.string(forKey: walletSourceFamilyKey(for: address)),
+              let family = WalletSourceFamily(rawValue: raw) else {
+            return .kaspaStandard
+        }
+        return family
+    }
+
+    /// Identity path family of the active wallet.
+    var currentWalletSourceFamily: WalletSourceFamily {
+        guard let address = currentWallet?.publicAddress else { return .kaspaStandard }
+        return walletSourceFamily(for: address)
+    }
+
+    private func persistWalletSourceFamily(_ family: WalletSourceFamily, for address: String) {
+        if family == .kaspaStandard {
+            UserDefaults.standard.removeObject(forKey: walletSourceFamilyKey(for: address))
+        } else {
+            UserDefaults.standard.set(family.rawValue, forKey: walletSourceFamilyKey(for: address))
+        }
+    }
+
+    /// Shared identity base node for the ACTIVE wallet's family, derived once for a whole scan -
+    /// mirrors `spendingChangeKey()` in WalletManager+SpendingAddresses.swift (same reasoning:
+    /// the seed decrypt + PBKDF2 + hardened derivations dominate, and only the final per-index
+    /// step differs).
+    private func chattingScanBase() -> (node: (key: Data, chainCode: Data), family: WalletSourceFamily)? {
+        guard let seedPhrase = try? getSeedPhrase() else { return nil }
+        guard var seed = bip39.mnemonicToSeed(seedPhrase.phrase, passphrase: seedPhrase.passphrase ?? "") else { return nil }
+        defer { seed.zeroOut() }
+        let family = currentWalletSourceFamily
+        return (identityBaseNode(seed: seed, family: family), family)
+    }
+
+    private func chattingAddress(at index: Int, baseNode: (key: Data, chainCode: Data), family: WalletSourceFamily) -> String? {
+        guard index >= 0, let privateKey = identityPrivateKey(at: UInt32(index), baseNode: baseNode, family: family) else { return nil }
+        guard let publicKeyData = try? deriveSchnorrPublicKey(from: privateKey) else { return nil }
+        let network = SettingsViewModel.loadSettings().networkType
+        return KaspaAddress.fromPublicKey(publicKeyData, network: network).address
+    }
+
+    /// Derives the given identity-chain index range and checks every address in BATCH for KAS
+    /// balance (one pooled `getUtxosByAddresses` call, gRPC with REST fallback) and KNS domains
+    /// (`KNSService.refreshIfNeeded`, the same capped/debounced batch lookup ContactsManager and
+    /// Manage Addresses use - never 50 raw requests). Returns ALL scanned candidates in index
+    /// order; the caller filters for interesting ones. Nil when derivation fails (no seed).
+    func scanChattingAddressCandidates(indices: Range<Int>) async -> [ChattingAddressCandidate]? {
+        guard !indices.isEmpty, let (baseNode, family) = chattingScanBase() else { return nil }
+
+        // Family-aware: single-address families (Chainge) only ever yield index 0; hardened-index
+        // families (legacy 972) and the OneKey tweak are handled inside chattingAddress.
+        var derived: [(index: Int, address: String)] = []
+        for index in indices {
+            guard family.supportsIndexScan || index == 0 else { break }
+            guard let address = chattingAddress(at: index, baseNode: baseNode, family: family) else { continue }
+            derived.append((index, address))
+        }
+        guard !derived.isEmpty else { return nil }
+        let addresses = derived.map(\.address)
+
+        let utxos = (try? await NodePoolService.shared.getUtxosByAddresses(addresses)) ?? []
+        var balanceByAddress: [String: UInt64] = [:]
+        for utxo in utxos {
+            balanceByAddress[utxo.address, default: 0] += utxo.amount
+        }
+
+        let network = SettingsViewModel.loadSettings().networkType
+        await KNSService.shared.refreshIfNeeded(for: addresses, network: network)
+
+        return derived.map { entry in
+            let info = KNSService.shared.domainCache[entry.address]
+            return ChattingAddressCandidate(
+                index: entry.index,
+                address: entry.address,
+                balanceSompi: balanceByAddress[entry.address] ?? 0,
+                domains: info?.allDomains ?? [],
+                primaryDomain: info?.primaryDomain
+            )
+        }
+    }
+
+    /// Switches the wallet's identity to the chatting address at `index` on the identity chain.
+    ///
+    /// This is a CLEAN identity selection, not a migration: nothing is moved or deleted. If the
+    /// imported seed's current (index-0) identity already synced conversation history, that
+    /// history lives on-chain and in its own address-keyed storage scope (MessageStore SQLite +
+    /// CloudKit zone are keyed by wallet address) - switching simply parks it there, and the UI
+    /// confirms with the user first when any conversations exist (see
+    /// ChattingAddressDetailView). In-flight sync races are handled the same way any account
+    /// switch is: `importWallet` stops polling first, and ChatService's write-time
+    /// `isActiveWallet` guard drops anything that still slips through. It funnels through
+    /// `importWallet(from:alias:chattingAddressIndex:)` with the already-stored seed, so every
+    /// identity consumer switches exactly like an account import does: keychain wallet record +
+    /// private key (re-derived for the chosen index), `currentWallet`/`publicAddress`,
+    /// `getPrivateKey()` (handshakes/ECIES encryption), ContactsManager scope, MessageStore's
+    /// per-wallet SQLite + CloudKit zone (fresh zone keyed by the new address - the old
+    /// address's store was empty since no conversations existed), Broadcast/Group/ColdStorage/
+    /// Portfolio scopes, share-extension shared data, and ChatService polling + UTXO
+    /// subscriptions (restarted for the new address; push registration always reads
+    /// `currentWallet.publicAddress` live at register time).
+    func setChattingAddress(index: Int) async throws {
+        guard index >= 0 else {
+            throw KasiaError.apiError("Invalid chatting address index")
+        }
+        guard index != currentChattingAddressIndex else { return }
+        guard let seedPhrase = try keychainService.loadSeedPhrase() else {
+            throw KasiaError.walletNotFound
+        }
+
+        let alias = currentWallet?.alias ?? "My Account"
+        let previousAddress = currentWallet?.publicAddress
+        // Captured BEFORE the import switches currentWallet: the index moves WITHIN the wallet's
+        // source family (a Kaspanet Web seed keeps scanning/deriving on the 972 branch).
+        let family = currentWalletSourceFamily
+
+        _ = try await importWallet(from: seedPhrase, alias: alias, chattingAddressIndex: index, family: family)
+
+        // The old identity's saved-account entry and snapshot are stale the moment the switch
+        // lands - the account IS the same seed, now living at the new address. Without this the
+        // saved-accounts list keeps a dead index-0 row forever.
+        if let previousAddress, previousAddress != currentWallet?.publicAddress {
+            savedAccounts.removeAll { $0.publicAddress == previousAddress }
+            hasStoredWallet = !savedAccounts.isEmpty
+            persistSavedAccountsToStorage()
+            try? keychainService.deleteAccountSnapshot(publicAddress: previousAddress)
+        }
     }
 
     // MARK: - Storage

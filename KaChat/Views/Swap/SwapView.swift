@@ -11,6 +11,7 @@ struct SwapView: View {
 
     private enum Tab: Int { case swap, history }
     @State private var selectedTab: Tab = .swap
+    @State private var hasReadChangeNowTerms = false
 
     @State private var selectedSwap: SwapTransaction?
     @State private var showToAddressPicker = false
@@ -42,7 +43,15 @@ struct SwapView: View {
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
             .navigationTitle("Swap")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    ConnectionStatusIndicator()
+                }
+                ToolbarItem(placement: .principal) {
+                    BalanceToolbarLabel()
+                }
+            }
             .toast(message: toastMessage)
             .onChange(of: swapService.createSwapState.status) { status in
                 if status == .success {
@@ -53,8 +62,6 @@ struct SwapView: View {
             }
             .sheet(item: $selectedSwap) { swap in
                 SwapDetailView(swap: swap) {
-                    swapService.refreshSwapStatus(id: swap.id)
-                } onAddToPortfolio: {
                     guard let prefill = swapService.portfolioPrefill(for: swap) else {
                         showToast("Couldn't read this swap's amounts")
                         return
@@ -75,14 +82,17 @@ struct SwapView: View {
                     swapService.setOtherCoin(coin)
                 }
             }
-            .alert("Add to Portfolio", isPresented: $showPortfolioConfirm) {
-                Button("Add") {
-                    if let prefill = pendingPortfolioPrefill, let swapId = pendingPortfolioSwapId {
-                        swapService.confirmAddToPortfolio(prefill, swapId: swapId)
-                        showToast("Added to Portfolio")
+            .confirmationDialog("Add to Portfolio", isPresented: $showPortfolioConfirm, titleVisibility: .visible) {
+                // One button per portfolio - the swap lands in the one you pick.
+                ForEach(PortfolioManager.shared.portfolios) { portfolio in
+                    Button(portfolio.name) {
+                        if let prefill = pendingPortfolioPrefill, let swapId = pendingPortfolioSwapId {
+                            swapService.confirmAddToPortfolio(prefill, swapId: swapId, portfolioId: portfolio.id)
+                            showToast("Added to \(portfolio.name)")
+                        }
+                        pendingPortfolioPrefill = nil
+                        pendingPortfolioSwapId = nil
                     }
-                    pendingPortfolioPrefill = nil
-                    pendingPortfolioSwapId = nil
                 }
                 Button("Cancel", role: .cancel) {
                     pendingPortfolioPrefill = nil
@@ -90,7 +100,7 @@ struct SwapView: View {
                 }
             } message: {
                 if let prefill = pendingPortfolioPrefill {
-                    Text("\(prefill.type == .buy ? "Buy" : "Sell") \(formatKas(UInt64((prefill.amountKas * 100_000_000).rounded()))) KAS at \(currencySymbol)\(String(format: "%.2f", prefill.fiatValue)) will be added to your Portfolio ledger.")
+                    Text("\(prefill.type == .buy ? "Buy" : "Sell") \(formatKas(UInt64((prefill.amountKas * 100_000_000).rounded()))) KAS at \(currencySymbol)\(String(format: "%.2f", prefill.fiatValue)) - choose which portfolio to add it to.")
                 }
             }
             .confirmationDialog(
@@ -327,7 +337,7 @@ struct SwapView: View {
                         Button {
                             UIPasteboard.general.string = payinAddress
                             Haptics.success()
-                            showToast("Address copied")
+                            showToast(payinAddress.addressCopiedToastText)
                         } label: {
                             Image(uiImage: qrImage)
                                 .interpolation(.none)
@@ -347,7 +357,7 @@ struct SwapView: View {
             Button {
                 UIPasteboard.general.string = result.payinAddress ?? ""
                 Haptics.success()
-                showToast("Address copied")
+                showToast((result.payinAddress ?? "").addressCopiedToastText)
             } label: {
                 Text(result.payinAddress ?? "")
                     .font(.caption)
@@ -503,9 +513,34 @@ struct SwapView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Before You Swap")
                     .font(.headline.weight(.bold))
-                Text("Swaps are processed by ChangeNOW, a third-party exchange. By continuing, you confirm you've read and agree to ChangeNOW's own Terms of Service. KaChat only submits your swap request and displays its status; KaChat is not responsible for failed, delayed, or lost swaps. If a swap doesn't go through, contact ChangeNOW support directly.")
+                Text("Swaps are processed by ChangeNOW, a third-party exchange. KaChat only submits your swap request and displays its status; KaChat is not responsible for failed, delayed, or lost swaps. If a swap doesn't go through, contact ChangeNOW support directly.")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+                Button {
+                    if let url = URL(string: "https://changenow.io/terms-of-use") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Text("Read ChangeNOW's Terms of Use")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.accentColor)
+                        .underline()
+                }
+                .buttonStyle(.plain)
+                // Agreeing is gated on explicitly confirming the terms were read.
+                Button {
+                    hasReadChangeNowTerms.toggle()
+                } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: hasReadChangeNowTerms ? "checkmark.square.fill" : "square")
+                            .foregroundColor(hasReadChangeNowTerms ? .accentColor : .secondary)
+                        Text("I have read and agree to ChangeNOW's Terms of Use")
+                            .font(.footnote)
+                            .foregroundColor(.primary)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+                .buttonStyle(.plain)
                 HStack {
                     Button("Not Now") {
                         selectedTab = .swap
@@ -516,7 +551,8 @@ struct SwapView: View {
                         swapService.agreeToSwapDisclaimer()
                     }
                     .fontWeight(.bold)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(hasReadChangeNowTerms ? .accentColor : .secondary)
+                    .disabled(!hasReadChangeNowTerms)
                 }
             }
             .padding(24)
@@ -669,12 +705,25 @@ private func statusColor(_ status: String) -> Color {
 /// Full detail for one past swap — its deposit QR again, live-ish status, the ChangeNOW exchange
 /// id, and a link to track it on changenow.io.
 private struct SwapDetailView: View {
-    let swap: SwapTransaction
-    let onRefresh: () -> Void
+    let initialSwap: SwapTransaction
     let onAddToPortfolio: () -> Void
 
+    init(swap: SwapTransaction, onAddToPortfolio: @escaping () -> Void) {
+        self.initialSwap = swap
+        self.onAddToPortfolio = onAddToPortfolio
+    }
+
+    @ObservedObject private var swapService = SwapService.shared
     @Environment(\.dismiss) private var dismiss
     @State private var toastMessage: String?
+    @State private var toastToken = UUID()
+    @State private var isRefreshingStatus = false
+
+    /// The LIVE history entry - the sheet used to render the captured value, so Refresh
+    /// updated storage but the visible status never changed.
+    private var swap: SwapTransaction {
+        swapService.history.first { $0.id == initialSwap.id } ?? initialSwap
+    }
 
     var body: some View {
         NavigationStack {
@@ -708,7 +757,7 @@ private struct SwapDetailView: View {
                     Button {
                         UIPasteboard.general.string = swap.payinAddress
                         Haptics.success()
-                        toastMessage = "Address copied"
+                        showToast(swap.payinAddress.addressCopiedToastText)
                     } label: {
                         Text(swap.payinAddress)
                             .font(.system(.caption, design: .monospaced))
@@ -734,7 +783,7 @@ private struct SwapDetailView: View {
                     Button {
                         UIPasteboard.general.string = swap.id
                         Haptics.success()
-                        toastMessage = "Exchange ID copied"
+                        showToast("Exchange ID copied")
                     } label: {
                         Text(swap.id)
                             .font(.system(.caption, design: .monospaced))
@@ -743,8 +792,25 @@ private struct SwapDetailView: View {
                 }
 
                 Section {
-                    Button("Refresh Status", action: onRefresh)
-                        .foregroundColor(.accentColor)
+                    Button {
+                        guard !isRefreshingStatus else { return }
+                        isRefreshingStatus = true
+                        Task {
+                            let status = await SwapService.shared.refreshSwapStatusAsync(id: swap.id)
+                            isRefreshingStatus = false
+                            showToast(status.map { "Status: \($0.capitalized)" } ?? "Couldn't reach ChangeNOW - try again")
+                        }
+                    } label: {
+                        HStack {
+                            Text("Refresh Status")
+                                .foregroundColor(.accentColor)
+                            Spacer()
+                            if isRefreshingStatus {
+                                ProgressView()
+                                    .scaleEffect(0.85)
+                            }
+                        }
+                    }
                     if let url = URL(string: "https://changenow.io/exchange/txs/\(swap.id)") {
                         Link("View on ChangeNOW", destination: url)
                             .foregroundColor(.accentColor)
@@ -765,6 +831,21 @@ private struct SwapDetailView: View {
     private func formatDecimal(_ text: String) -> String {
         guard let value = Double(text) else { return text }
         return String(format: "%.8f", value)
+    }
+
+    private func showToast(_ message: String) {
+        let token = UUID()
+        toastToken = token
+        withAnimation(.easeOut(duration: 0.2)) {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    toastMessage = nil
+                }
+            }
+        }
     }
 
     private func makeQRCodeImage(from string: String) -> UIImage? {

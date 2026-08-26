@@ -188,6 +188,39 @@ final class GroupStore {
         return inserted
     }
 
+    /// Insert a decrypted plaintext message restored from a backup archive, keyed on the negative
+    /// epoch sentinel (-1) so `messageRows`/`decryptGroupRows` return it verbatim without a group
+    /// key. `content` is stored as UTF-8 bytes in `contentEncrypted`. No-op on a duplicate txId.
+    @discardableResult
+    func insertImportedPlaintextMessage(
+        txId: String, groupId: String, senderAddress: String?, senderIdHex: String,
+        msgIdHex: String, content: String, blockTime: Int64, isOutgoing: Bool
+    ) -> Bool {
+        guard isLoaded else { return false }
+        let context = viewContext
+        var inserted = false
+        context.performAndWait {
+            let request = NSFetchRequest<CDGroupMessage>(entityName: CDGroupMessage.entityName)
+            request.predicate = NSPredicate(format: "txId == %@", txId)
+            request.fetchLimit = 1
+            guard (try? context.fetch(request))?.first == nil else { return }
+            let message = CDGroupMessage(context: context)
+            message.txId = txId
+            message.groupId = groupId
+            message.senderAddress = senderAddress
+            message.senderIdHex = senderIdHex
+            message.epoch = -1
+            message.msgIdHex = msgIdHex
+            message.contentEncrypted = Data(content.utf8)
+            message.blockTime = blockTime
+            message.isOutgoing = isOutgoing
+            message.deliveryStatus = ChatMessage.DeliveryStatus.sent.rawValue
+            save(context)
+            inserted = true
+        }
+        return inserted
+    }
+
     /// Replace an optimistic `pending_<uuid>` row with the real confirmed txId.
     func resolvePendingMessage(pendingId: String, realId: String, blockTime: Int64) {
         let context = viewContext
@@ -245,12 +278,13 @@ final class GroupStore {
                     groupId: row.groupId,
                     senderAddress: row.senderAddress,
                     senderIdHex: row.senderIdHex,
-                    epoch: UInt64(row.epoch),
+                    epoch: row.epoch < 0 ? 0 : UInt64(row.epoch),
                     msgIdHex: row.msgIdHex,
                     contentEncrypted: row.contentEncrypted ?? Data(),
                     blockTime: row.blockTime,
                     isOutgoing: row.isOutgoing,
-                    deliveryStatus: ChatMessage.DeliveryStatus(rawValue: row.deliveryStatus ?? "") ?? .sent
+                    deliveryStatus: ChatMessage.DeliveryStatus(rawValue: row.deliveryStatus ?? "") ?? .sent,
+                    isImportedPlaintext: row.epoch < 0
                 )
             }
         }
@@ -442,6 +476,9 @@ struct CDGroupMessageSnapshot: Sendable {
     let blockTime: Int64
     let isOutgoing: Bool
     let deliveryStatus: ChatMessage.DeliveryStatus
+    // Imported-from-backup rows carry decrypted plaintext under a negative-epoch sentinel;
+    // `contentEncrypted` is then the UTF-8 bytes of the message, not ciphertext.
+    var isImportedPlaintext: Bool = false
 }
 
 // GroupStore only touches Core Data via context.performAndWait on its own contexts;

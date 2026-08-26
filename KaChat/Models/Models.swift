@@ -74,7 +74,7 @@ struct Wallet: Codable, Equatable {
 /// A single derived spending-chain address as shown in Manage Addresses — always re-derived
 /// live from the seed + index rather than persisted, matching Android (only the index bounds
 /// are stored, never the address list itself).
-struct SpendingAddressEntry: Identifiable, Equatable {
+struct SpendingAddressEntry: Identifiable, Equatable, Codable {
     let index: Int
     let address: String
     let balanceSompi: UInt64
@@ -181,10 +181,19 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
     var photoAutoDisplayOverride: PhotoAutoDisplayMode?
     // Local-only enrichment from iOS/macOS system contacts.
     var systemContactId: String?
+    /// Avatar source choice for linked system contacts: nil/false = the Contacts-app photo
+    /// wins (the default whenever one exists); true = the user chose the KNS avatar in Chat
+    /// Info. Optional so contacts stored before this field decode cleanly.
+    var preferKNSAvatar: Bool?
     var systemDisplayNameSnapshot: String?
     var systemContactLinkSource: SystemContactLinkSource?
     var systemMatchConfidence: Double?
     var systemLastSyncedAt: Date?
+    /// A base64 JPEG photo carried in the cross-platform backup, shown as an avatar
+    /// fallback when this device has no system-contact photo or KNS avatar. Lets a photo
+    /// set on another device (e.g. desktop) appear here after a restore. Optional so
+    /// contacts stored before this field decode cleanly.
+    var backupPhoto: String?
 
     init(
         id: UUID = UUID(),
@@ -197,10 +206,12 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         hasSentOutgoingMessage: Bool = false,
         photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil,
         systemContactId: String? = nil,
+        preferKNSAvatar: Bool? = nil,
         systemDisplayNameSnapshot: String? = nil,
         systemContactLinkSource: SystemContactLinkSource? = nil,
         systemMatchConfidence: Double? = nil,
-        systemLastSyncedAt: Date? = nil
+        systemLastSyncedAt: Date? = nil,
+        backupPhoto: String? = nil
     ) {
         self.id = id
         self.address = address
@@ -212,10 +223,12 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         self.hasSentOutgoingMessage = hasSentOutgoingMessage
         self.photoAutoDisplayOverride = photoAutoDisplayOverride
         self.systemContactId = systemContactId
+        self.preferKNSAvatar = preferKNSAvatar
         self.systemDisplayNameSnapshot = systemDisplayNameSnapshot
         self.systemContactLinkSource = systemContactLinkSource
         self.systemMatchConfidence = systemMatchConfidence
         self.systemLastSyncedAt = systemLastSyncedAt
+        self.backupPhoto = backupPhoto
     }
 
     enum CodingKeys: String, CodingKey {
@@ -234,6 +247,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         case systemContactLinkSource
         case systemMatchConfidence
         case systemLastSyncedAt
+        case backupPhoto
     }
 
     // Custom decoding to handle missing fields in existing data
@@ -258,6 +272,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         systemContactLinkSource = try container.decodeIfPresent(SystemContactLinkSource.self, forKey: .systemContactLinkSource)
         systemMatchConfidence = try container.decodeIfPresent(Double.self, forKey: .systemMatchConfidence)
         systemLastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .systemLastSyncedAt)
+        backupPhoto = try container.decodeIfPresent(String.self, forKey: .backupPhoto)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -276,6 +291,7 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         try container.encodeIfPresent(systemContactLinkSource, forKey: .systemContactLinkSource)
         try container.encodeIfPresent(systemMatchConfidence, forKey: .systemMatchConfidence)
         try container.encodeIfPresent(systemLastSyncedAt, forKey: .systemLastSyncedAt)
+        try container.encodeIfPresent(backupPhoto, forKey: .backupPhoto)
     }
 
     /// Matches Android's `KaspaAddress.shortDisplay`: "prefix:xxxx....xxxx" — shown wherever a
@@ -326,6 +342,26 @@ struct ChatMessage: Codable, Identifiable, Equatable {
     let isOutgoing: Bool
     let messageType: MessageType
     let deliveryStatus: DeliveryStatus
+
+    /// Exact content of the cross-device fill-in slot created when this wallet's own outgoing
+    /// message is discovered on-chain by a device that cannot decrypt it (own sends are encrypted
+    /// for the recipient). The row keeps the message's place in the store and in backup archives
+    /// until CloudKit or an archive restore delivers the real text (see
+    /// `ChatService.preferMessage`), but it must NEVER be visible anywhere in the UI - every
+    /// display surface filters with `isSentPlaceholder`. Single source of truth for the literal;
+    /// do not duplicate the string.
+    static let sentViaOtherDevicePlaceholder = "📤 Sent via another device"
+
+    /// True if `content` is exactly the cross-device placeholder above. Use this (or the
+    /// instance property) everywhere the placeholder is created, matched, or hidden.
+    static func isSentPlaceholder(_ content: String) -> Bool {
+        content == sentViaOtherDevicePlaceholder
+    }
+
+    /// See `ChatMessage.isSentPlaceholder(_:)`.
+    var isSentPlaceholder: Bool {
+        Self.isSentPlaceholder(content)
+    }
 
     enum MessageType: String, Codable {
         case handshake
@@ -411,7 +447,11 @@ struct Conversation: Identifiable, Equatable {
     var unreadCount: Int
 
     var lastMessage: ChatMessage? {
-        messages.max { $0.timestamp < $1.timestamp }
+        // Cross-device placeholders are hidden everywhere (see ChatMessage.isSentPlaceholder),
+        // so the chat-list preview shows the newest REAL message. A conversation whose only
+        // messages are placeholders reports nil, exactly like a conversation with no messages,
+        // so the row renders its normal empty state instead of leaking the placeholder.
+        return messages.filter { !$0.isSentPlaceholder }.max { $0.timestamp < $1.timestamp }
     }
 
     init(id: UUID = UUID(), contact: Contact, messages: [ChatMessage] = [], unreadCount: Int = 0) {
@@ -798,12 +838,26 @@ enum MessageReplyCodec {
     /// UTF8 re-encode, and full `JSONDecoder` decode attempt here, just to fail the `type ==
     /// "reply"` check afterward. Scrolling fast through a photo-heavy chat's history - revealing
     /// many such messages at once - made that add up to a real multi-second freeze.
+    // Small content-keyed cache: messageRow calls this (directly and via unwrappedText) several
+    // times per row per frame, and the swipe-to-reveal-timestamps gesture re-runs the whole
+    // body at 60-120 Hz. NSCache is thread-safe and self-evicting under memory pressure.
+    private static let parseCache: NSCache<NSString, ReplyBox> = {
+        let cache = NSCache<NSString, ReplyBox>(); cache.countLimit = 1024; return cache
+    }()
+    private final class ReplyBox { let value: MessageReplyContent?; init(_ v: MessageReplyContent?) { value = v } }
+
     static func parse(_ text: String?) -> MessageReplyContent? {
         guard let text, text.utf8.count < 100_000 else { return nil }
+        let key = text as NSString
+        if let hit = parseCache.object(forKey: key) { return hit.value }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
-        guard let parsed = try? JSONDecoder().decode(MessageReplyContent.self, from: data),
-              parsed.type == "reply" else { return nil }
+        let parsed: MessageReplyContent? = {
+            guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
+            guard let p = try? JSONDecoder().decode(MessageReplyContent.self, from: data),
+                  p.type == "reply" else { return nil }
+            return p
+        }()
+        parseCache.setObject(ReplyBox(parsed), forKey: key)
         return parsed
     }
 
@@ -822,14 +876,30 @@ enum MessageReplyCodec {
     /// and notification bodies.
     static func previewText(for content: String) -> String {
         let unwrapped = unwrappedText(content)
+        if let reaction = MessageReactionCodec.parse(unwrapped) {
+            // Never surface raw reaction JSON in a preview/notification body - humanized the
+            // same way the NSE's `reactionPreviewText` does for push bodies.
+            return "Reacted \(reaction.emoji)"
+        }
         if VoiceMessageSniff.isVoiceMessage(unwrapped) {
             return "🎤 Audio message"
         }
         if InlineFileSniff.isImage(unwrapped) {
             return "📷 Photo"
         }
-        if ChessCodec.parseAny(unwrapped) != nil {
+        if let chessEnvelope = ChessCodec.parseAny(unwrapped) {
+            if case .invite(let invite) = chessEnvelope, let minutes = invite.tcMinutes {
+                return "♟️ Chess - \(minutes) | \(invite.tcIncSeconds ?? 0)"
+            }
             return "♟️ Chess"
+        }
+        // Any other {type:"file"} media envelope (video, documents, or one whose mime the
+        // head-sniff can't pin down) - never leak raw JSON into a preview.
+        if let mime = InlineMediaSniff.mimeType(of: unwrapped) {
+            return mime.lowercased().hasPrefix("video/") ? "🎬 Video" : "📎 File"
+        }
+        if InlineMediaSniff.isFileEnvelope(unwrapped) {
+            return "📎 File"
         }
         return unwrapped
     }
@@ -874,6 +944,88 @@ enum MessageReactionCodec {
     }
 }
 
+// MARK: - Fresh-address payment pools
+
+/// A batch of the SENDER's own fresh receive addresses, shared so the recipient can pay them
+/// there instead of at their chatting address - chain observers then can't link payments to the
+/// chat identity. Embedded as JSON in the normal encrypted contextual content, exactly like
+/// `MessageReactionContent` (no wire-protocol change), and never rendered as a bubble - see the
+/// interception in `ChatService.addMessageToConversation`. `replace == true` means "discard my
+/// previous pool, this list is authoritative"; false/absent means append (deduped). Wire format
+/// documented in MESSAGING.md ("Fresh-Address Payment Pools") - Android/desktop must match
+/// field-for-field.
+struct AddressPoolContent: Codable, Equatable {
+    var type: String = "addr_pool"
+    let addresses: [String]
+    let replace: Bool?
+}
+
+/// "Please send me a fresh pool" - sent when the stored pool for a contact runs low.
+struct AddressPoolRequestContent: Codable, Equatable {
+    var type: String = "addr_pool_request"
+}
+
+/// Sent by the PAYER alongside a pool-address payment: payment detection only watches the
+/// chatting address, so a payment to a pool address would otherwise never surface in the
+/// recipient's chat. The recipient renders a normal payment bubble from this notice (deduped by
+/// `txId`). `amountSompi` is an integer amount in sompi; `address` is the pool address the
+/// payment was sent to.
+struct PaymentNoticeContent: Codable, Equatable {
+    var type: String = "payment_notice"
+    let txId: String
+    let amountSompi: UInt64
+    let address: String
+}
+
+/// Any one of the three payment-pool envelope shapes, parsed generically - mirrors
+/// `ChessEnvelope`'s type-dispatch approach.
+enum PaymentPoolEnvelope {
+    case pool(AddressPoolContent)
+    case request(AddressPoolRequestContent)
+    case notice(PaymentNoticeContent)
+}
+
+/// Same conventions as `MessageReactionCodec`: plain JSON embedded directly as encrypted message
+/// content, with the `{`-prefix + byte-size guard before attempting a full decode since `parse`
+/// runs on every intercepted message's content.
+enum PaymentPoolCodec {
+    static func encode(_ content: AddressPoolContent) -> String { encodeAny(content) }
+    static func encode(_ content: AddressPoolRequestContent) -> String { encodeAny(content) }
+    static func encode(_ content: PaymentNoticeContent) -> String { encodeAny(content) }
+
+    private static func encodeAny<T: Encodable>(_ content: T) -> String {
+        guard let data = try? JSONEncoder().encode(content),
+              let json = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return json
+    }
+
+    static func parse(_ text: String?) -> PaymentPoolEnvelope? {
+        guard let text, text.utf8.count < 100_000 else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
+        guard let typeOnly = try? JSONDecoder().decode(PoolTypeOnly.self, from: data) else { return nil }
+        switch typeOnly.type {
+        case "addr_pool":
+            guard let content = try? JSONDecoder().decode(AddressPoolContent.self, from: data) else { return nil }
+            return .pool(content)
+        case "addr_pool_request":
+            guard let content = try? JSONDecoder().decode(AddressPoolRequestContent.self, from: data) else { return nil }
+            return .request(content)
+        case "payment_notice":
+            guard let content = try? JSONDecoder().decode(PaymentNoticeContent.self, from: data) else { return nil }
+            return .notice(content)
+        default:
+            return nil
+        }
+    }
+
+    private struct PoolTypeOnly: Decodable {
+        let type: String
+    }
+}
+
 // MARK: - Chess
 
 /// Which color the inviter chose to play - picked once (a coin flip) when the invite is sent and
@@ -887,6 +1039,12 @@ struct ChessInviteContent: Codable, Equatable {
     var type: String = "chess_invite"
     let gameId: String
     let inviterColor: ChessInviteColor
+    /// Optional time control: initial minutes per side + per-move increment seconds (e.g. 3/2).
+    /// Both absent = casual untimed game, which is exactly the legacy wire shape - old clients
+    /// on both platforms ignore unknown JSON fields, and synthesized Codable omits nil optionals
+    /// entirely (encodeIfPresent), so cross-version invites stay compatible in both directions.
+    var tcMinutes: Int? = nil
+    var tcIncSeconds: Int? = nil
 }
 
 struct ChessResponseContent: Codable, Equatable {
@@ -901,11 +1059,19 @@ struct ChessMoveContent: Codable, Equatable {
     let from: String
     let to: String
     let promotion: String?
+    /// Timed games only: the mover's remaining clock in milliseconds AFTER this move, with the
+    /// increment already added. Each side's authoritative remaining time is simply the clockMs
+    /// of their own most recent move - no separate clock-sync messages needed. Absent on
+    /// untimed games and on moves from legacy clients.
+    var clockMs: Int64? = nil
 }
 
 struct ChessResignContent: Codable, Equatable {
     var type: String = "chess_resign"
     let gameId: String
+    /// "timeout" when the sender's clock ran out (they flagged) rather than a manual resign.
+    /// Legacy clients ignore this field and render it as a plain resignation.
+    var reason: String? = nil
 }
 
 /// Any one of the four chess envelope shapes, parsed generically - `ChessGameService` uses this
@@ -944,9 +1110,22 @@ enum ChessCodec {
         return json
     }
 
+    private static let parseAnyCache: NSCache<NSString, ChessBox> = {
+        let cache = NSCache<NSString, ChessBox>(); cache.countLimit = 1024; return cache
+    }()
+    private final class ChessBox { let value: ChessEnvelope?; init(_ v: ChessEnvelope?) { value = v } }
+
     /// Parses `text` as any of the four chess envelope shapes, or nil if it isn't one.
     static func parseAny(_ text: String?) -> ChessEnvelope? {
         guard let text, text.utf8.count < 100_000 else { return nil }
+        let key = text as NSString
+        if let hit = parseAnyCache.object(forKey: key) { return hit.value }
+        let result = parseAnyUncached(text)
+        parseAnyCache.setObject(ChessBox(result), forKey: key)
+        return result
+    }
+
+    private static func parseAnyUncached(_ text: String) -> ChessEnvelope? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "{", let data = trimmed.data(using: .utf8) else { return nil }
         guard let typeOnly = try? JSONDecoder().decode(ChessTypeOnly.self, from: data) else { return nil }
@@ -987,17 +1166,74 @@ enum InlineFileSniff {
 /// multi-MB of base64, and the sniffs run inside list-row view bodies (chat-list previews, reply
 /// quotes), costing 10-100ms per call. App-generated inline-media JSON always carries `mimeType`
 /// near the front; 2KB comfortably covers it.
+///
+/// Hardened against two real wire variants that used to defeat the sniff and leak raw JSON into
+/// previews: (1) senders that built the envelope from a `[String: Any]` dictionary serialize the
+/// keys in UNDEFINED order, so `content` can land before `mimeType`, pushing the mime megabytes
+/// past this head window - but the `data:` URL itself names the mime right up front; and
+/// (2) `JSONSerialization` escapes "/" as "\/", so the extracted value must be unescaped before
+/// any `hasPrefix("image/")`-style check can match.
 enum InlineMediaSniff {
     static func mimeType(of text: String) -> String? {
         let head = String(text.prefix(2048)).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard head.first == "{", let keyRange = head.range(of: "\"mimeType\"") else { return nil }
-        let afterKey = head[keyRange.upperBound...]
-        guard let colon = afterKey.firstIndex(of: ":") else { return nil }
-        let afterColon = afterKey[afterKey.index(after: colon)...].drop { $0 == " " }
-        guard afterColon.first == "\"" else { return nil }
-        let valueStart = afterColon.index(after: afterColon.startIndex)
-        guard let endQuote = afterColon[valueStart...].firstIndex(of: "\"") else { return nil }
-        return String(afterColon[valueStart..<endQuote])
+        guard head.first == "{" else { return nil }
+        if let keyRange = head.range(of: "\"mimeType\"") {
+            let afterKey = head[keyRange.upperBound...]
+            if let colon = afterKey.firstIndex(of: ":") {
+                let afterColon = afterKey[afterKey.index(after: colon)...].drop { $0 == " " }
+                if afterColon.first == "\"" {
+                    let valueStart = afterColon.index(after: afterColon.startIndex)
+                    if let endQuote = afterColon[valueStart...].firstIndex(of: "\"") {
+                        return unescaped(String(afterColon[valueStart..<endQuote]))
+                    }
+                }
+            }
+        }
+        // Fallback: `content` serialized before `mimeType` - read the mime out of the data: URL.
+        if let keyRange = head.range(of: "\"content\"") {
+            let afterKey = head[keyRange.upperBound...]
+            if let colon = afterKey.firstIndex(of: ":") {
+                var value = afterKey[afterKey.index(after: colon)...].drop { $0 == " " }
+                if value.hasPrefix("\"data:") {
+                    value = value.dropFirst("\"data:".count)
+                    if let end = value.firstIndex(where: { $0 == ";" || $0 == "\"" || $0 == "," }) {
+                        return unescaped(String(value[..<end]))
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Whether the head looks like the cross-platform `{"type":"file",...}` media envelope at
+    /// all - the last-resort preview catch so raw JSON never shows even when the mime can't be
+    /// determined.
+    static func isFileEnvelope(_ text: String) -> Bool {
+        let head = String(text.prefix(2048)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard head.first == "{" else { return false }
+        return head.range(of: "\"type\"\\s*:\\s*\"file\"", options: .regularExpression) != nil
+    }
+
+    private static func unescaped(_ value: String) -> String {
+        value.replacingOccurrences(of: "\\/", with: "/")
+    }
+}
+
+/// Builds the cross-platform inline-media JSON envelope with a DETERMINISTIC field order:
+/// `type, name, size, mimeType, content` - `mimeType` BEFORE the multi-MB `content`, and no
+/// "\/" escaping. Senders used to build this from a `[String: Any]` + `JSONSerialization`
+/// dictionary, whose undefined key order could push `mimeType` past every client's head-window
+/// preview sniff (showing raw JSON in chat lists). Field order now matches Android's
+/// `VoiceMessage.encode` and desktop's `buildImageEnvelopeJson` exactly.
+enum MediaFileEnvelope {
+    static func json(name: String, size: Int, mimeType: String, dataUrlContent: String) -> String {
+        "{\"type\":\"file\",\"name\":\"\(escape(name))\",\"size\":\(size),\"mimeType\":\"\(escape(mimeType))\",\"content\":\"\(escape(dataUrlContent))\"}"
+    }
+
+    private static func escape(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
     }
 }
 
@@ -1106,7 +1342,7 @@ enum AppAppearance: String, Codable, CaseIterable {
 /// the Settings row that sets this: it always prompts for a restart after changing this value).
 enum AppLanguage: String, Codable, CaseIterable {
     case system
-    case ar, arEG = "ar-EG", bn, de, en, es, fa, fr, he, hi, it, ja, ko, pt, ru, tr, vi
+    case ar, arEG = "ar-EG", bn, de, en, es, fa, fr, he, hi, id, it, ja, ko, pt, ru, tr, vi
     case zhHans = "zh-Hans"
 
     /// Native name, matching how a language picker conventionally presents itself (each language
@@ -1124,6 +1360,7 @@ enum AppLanguage: String, Codable, CaseIterable {
         case .fr: return "Français"
         case .he: return "עברית"
         case .hi: return "हिन्दी"
+        case .id: return "Bahasa Indonesia"
         case .it: return "Italiano"
         case .ja: return "日本語"
         case .ko: return "한국어"
@@ -1169,6 +1406,7 @@ enum AppCurrency: String, Codable, CaseIterable {
     case indianRupee = "inr"
     case southKoreanWon = "krw"
     case singaporeDollar = "sgd"
+    case indonesianRupiah = "idr"
     case newZealandDollar = "nzd"
     case mexicanPeso = "mxn"
     case brazilianReal = "brl"
@@ -1199,6 +1437,7 @@ enum AppCurrency: String, Codable, CaseIterable {
         case .indianRupee: return "Indian Rupee"
         case .southKoreanWon: return "South Korean Won"
         case .singaporeDollar: return "Singapore Dollar"
+        case .indonesianRupiah: return "Indonesian Rupiah"
         case .newZealandDollar: return "New Zealand Dollar"
         case .mexicanPeso: return "Mexican Peso"
         case .brazilianReal: return "Brazilian Real"
@@ -1222,6 +1461,14 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case chats
     case swap
     case profile
+    case kaposts
+    case broadcasts
+    case apps
+    /// RETIRED (4.0): the "+ More" dock item was removed - Customize Dock is reached via
+    /// Settings > Customization instead. The case survives only so saved `tabOrder` /
+    /// per-account `DockOverlay` blobs that contain "more" still decode; `isEnabled` hard-codes
+    /// it hidden so it can never render in the dock again.
+    case more
 
     var id: String { rawValue }
 
@@ -1232,6 +1479,10 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .chats: return "Chats"
         case .swap: return "Swap"
         case .profile: return "Profile"
+        case .kaposts: return "KaPosts"
+        case .broadcasts: return "Broadcasts"
+        case .apps: return "Apps"
+        case .more: return "More"
         }
     }
 
@@ -1242,6 +1493,10 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .chats: return "bubble.left.and.bubble.right"
         case .swap: return "arrow.left.arrow.right"
         case .profile: return "person.crop.circle"
+        case .kaposts: return "square.and.pencil"
+        case .broadcasts: return "dot.radiowaves.left.and.right"
+        case .apps: return "square.grid.2x2"
+        case .more: return "plus.circle"
         }
     }
 
@@ -1252,6 +1507,10 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .portfolio: return 3
         case .coldStorage: return 4
         case .swap: return 5
+        case .kaposts: return 6
+        case .more: return 7
+        case .broadcasts: return 8
+        case .apps: return 9
         }
     }
 
@@ -1260,11 +1519,18 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     var canHide: Bool {
         switch self {
         case .chats, .profile: return false
-        case .portfolio, .coldStorage, .swap: return true
+        case .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .apps, .more: return true
         }
     }
 
-    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .swap, .profile]
+    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .swap, .profile, .kaposts, .broadcasts, .apps]
+
+    /// The dock renders at most this many items (the iPhone tab bar's hard limit); anything past
+    /// it falls off rather than letting the system TabView spawn its own "More" list. KaPosts and
+    /// Broadcasts drop out first (in that order) when over the cap - they stay reachable by
+    /// re-tapping the Chats tab (see MainTabView.handleChatsTabReselection). Any other enabled
+    /// tab that still doesn't fit (e.g. Apps) tail-drops until the user frees a slot.
+    static let maxDockItems = 5
 
     /// `settings.tabOrder`, resolved into real cases with any missing/unknown entries (a fresh
     /// install, or a tab added after some users already saved a custom order) appended at the
@@ -1277,17 +1543,72 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         return order
     }
 
-    /// The resolved order, filtered down to only the tabs the user hasn't hidden - what
-    /// MainTabView actually renders and what the Menu Visibility preview strip shows.
-    static func visible(from settings: AppSettings) -> [AppTab] {
-        resolvedOrder(from: settings).filter { tab in
-            switch tab {
-            case .portfolio: return !settings.hidePortfolioTab
-            case .coldStorage: return !settings.hideColdStorageTab
-            case .swap: return !settings.hideSwapTab
-            case .chats, .profile: return true
+    /// True when this tab is enabled (not hidden) in settings, independent of dock capacity.
+    ///
+    /// Child Mode (Settings > Security) hard-hides Swaps, KaPosts and Broadcasts here - this is
+    /// the single choke point every dock consumer flows through (`visible`, `chatsSlotCycle`,
+    /// `kaPostsAccessibleViaChatsTab`, `broadcastsAccessibleViaChatsTab`), so while it's on those
+    /// tabs can't render in the dock NOR ride the Chats-slot cycle, regardless of dock settings.
+    func isEnabled(in settings: AppSettings) -> Bool {
+        if settings.childModeEnabled {
+            switch self {
+            case .swap, .kaposts, .broadcasts: return false
+            default: break
             }
         }
+        switch self {
+        case .portfolio: return !settings.hidePortfolioTab
+        case .coldStorage: return !settings.hideColdStorageTab
+        case .swap: return !settings.hideSwapTab
+        case .kaposts: return !settings.hideKaPostsTab
+        case .broadcasts: return !settings.hideBroadcasts
+        case .apps: return !settings.hideAppsTab
+        // "+ More" is retired from the dock entirely (Customize Dock lives in Settings now) -
+        // hard-hidden regardless of what an old saved blob says.
+        case .more: return false
+        case .chats, .profile: return true
+        }
+    }
+
+    /// The resolved order, filtered down to only the tabs the user hasn't hidden and clamped to
+    /// the dock capacity - what MainTabView actually renders and what the Menu Visibility preview
+    /// strip shows. When over capacity, KaPosts drops out first (it stays reachable via re-tapping
+    /// Chats); after that the tail of the order falls off.
+    static func visible(from settings: AppSettings) -> [AppTab] {
+        var tabs = resolvedOrder(from: settings).filter { $0.isEnabled(in: settings) }
+        // Over capacity: KaPosts drops out first, then Broadcasts - both stay reachable by
+        // cycling the Chats tab (see MainTabView.handleChatsTabReselection). After that the
+        // tail of the order silently falls off: a non-cyclable tab (e.g. Apps) that's toggled
+        // on but doesn't fit just doesn't appear until the user frees a slot.
+        for cyclable in [AppTab.kaposts, .broadcasts] where tabs.count > maxDockItems {
+            if let index = tabs.firstIndex(of: cyclable) {
+                tabs.remove(at: index)
+            }
+        }
+        if tabs.count > maxDockItems {
+            tabs = Array(tabs.prefix(maxDockItems))
+        }
+        return tabs
+    }
+
+    /// KaPosts is enabled but didn't fit in the dock - it joins the Chats-tab cycle.
+    static func kaPostsAccessibleViaChatsTab(from settings: AppSettings) -> Bool {
+        AppTab.kaposts.isEnabled(in: settings) && !visible(from: settings).contains(.kaposts)
+    }
+
+    /// Broadcasts is enabled but didn't fit in the dock - it joins the Chats-tab cycle.
+    static func broadcastsAccessibleViaChatsTab(from settings: AppSettings) -> Bool {
+        AppTab.broadcasts.isEnabled(in: settings) && !visible(from: settings).contains(.broadcasts)
+    }
+
+    /// What re-tapping the Chats tab cycles through: always Chats itself, then whichever of
+    /// KaPosts/Broadcasts are enabled but masked out of the full dock. Apps is deliberately NOT
+    /// part of the cycle - it's a regular dock tab that must claim a free slot to appear.
+    static func chatsSlotCycle(from settings: AppSettings) -> [AppTab] {
+        var cycle: [AppTab] = [.chats]
+        if kaPostsAccessibleViaChatsTab(from: settings) { cycle.append(.kaposts) }
+        if broadcastsAccessibleViaChatsTab(from: settings) { cycle.append(.broadcasts) }
+        return cycle
     }
 }
 
@@ -1398,11 +1719,26 @@ struct AppSettings: Codable {
     var networkType: NetworkType
     var autoAddContacts: Bool
     var syncSystemContacts: Bool
-    var autoCreateSystemContacts: Bool
     var notificationMode: NotificationMode
     var notificationPermissionRequested: Bool
     var incomingNotificationSoundEnabled: Bool
     var incomingNotificationVibrationEnabled: Bool
+    /// Settings > Notifications > "Address Activity" (default ON): local notifications when
+    /// any of the wallet's own NON-chatting addresses - spending-chain (Manage Addresses) or
+    /// watch-only cold storage - receives Kaspa from an external source. Gates both the live
+    /// UTXO-subscription path and the foreground catch-up diff (see AddressActivityNotifier).
+    /// Deliberately not gated by Child Mode - these are wallet notifications, and Portfolio /
+    /// Cold Storage remain available there.
+    var addressActivityNotificationsEnabled: Bool
+    /// Settings > Notifications > KaPosts: per-event-type gates for KaPosts notification
+    /// pings (all default ON). Mapped from the K notifications API's `contentType` /
+    /// `voteType` fields via `shouldNotifyKaPostsAction` - a disabled type is silently
+    /// skipped, never queued. Orthogonal to Child Mode (which suppresses ALL KaPosts pings).
+    var kaPostsNotifyLikes: Bool
+    var kaPostsNotifyReposts: Bool
+    var kaPostsNotifyFollows: Bool
+    var kaPostsNotifyDislikes: Bool
+    var kaPostsNotifyComments: Bool
     var messagePollInterval: TimeInterval
     var liveUpdatesEnabled: Bool
     var chatPhotoQualityPreset: ChatPhotoQualityPreset
@@ -1422,15 +1758,28 @@ struct AppSettings: Codable {
     var hidePortfolioTab: Bool
     var hideSwapTab: Bool
     var hideColdStorageTab: Bool
+    var hideKaPostsTab: Bool
+    /// RETIRED (4.0): the "+ More" dock item is gone (`AppTab.isEnabled` hard-hides `.more`).
+    /// Kept only so existing saved blobs that contain the key keep decoding/encoding cleanly.
+    var hideMoreItem: Bool
     /// Broadcasts isn't a tab (it's an entry row inside the Chats list, see `ChatListView`'s
     /// `chatsTabContent`) but is still user-hideable from Settings > Customization > Menu, so it
     /// gets its own flag here rather than a case in `AppTab`.
     var hideBroadcasts: Bool
+    /// Apps (ecosystem link bubbles) as a dock tab. Hidden (default) = the Apps row lives on
+    /// the Profile screen instead; toggled on = dock tab, Profile row disappears.
+    var hideAppsTab: Bool
     /// Raw values of `AppTab`, in display order - user-customizable via Settings > Customization
     /// > Menu's drag-to-reorder preview strip.
     var tabOrder: [String]
 
     // Security
+    /// Child Mode (Settings > Security): while on, the app is strictly Chats, Group Chats,
+    /// Portfolio and Cold Storage - Swaps, KaPosts and Broadcasts are removed from every access
+    /// point (dock, Chats-slot cycle, deep links, notifications, push registration). Turning it
+    /// OFF is validated against the salted password hash in the Keychain (see ChildModeService) -
+    /// this flag alone is just the fast-path gate the UI reads.
+    var childModeEnabled: Bool
     var biometricSeedPhraseEnabled: Bool
     var biometricAccountLoginEnabled: Bool
     /// Gates the "Export" button on a spending address's own screen (Manage Addresses > tap an
@@ -1443,8 +1792,22 @@ struct AppSettings: Codable {
     // Swap (ChangeNOW)
     var swapDisclaimerAgreed: Bool
 
+    // Diagnostics
+    /// Settings > Diagnostics > "Verbose API Logging" (default OFF): restores the per-request
+    /// [KasiaAPI] success log lines (full URL, connection kind, IP, timing breakdown). While
+    /// off, the API client only logs failures and slow requests plus a once-a-minute rollup.
+    /// The unified logging system rate-limits and eventually quarantines processes that log
+    /// too much, which was silencing the log lines that actually matter (see KasiaAPIClient's
+    /// APIRequestLogGate).
+    var verboseAPILogging: Bool
+
     // Connection settings
     var indexerURL: String
+    /// K social-network indexer powering KaPosts (reusing the already-running public K indexer).
+    var kaPostIndexerURL: String
+    /// KaChat-owned broadcast indexer (tracks #kaspa and #kachat-bugs history) - served from
+    /// the same box/domain as the KaPosts indexer.
+    var broadcastIndexerURL: String
     var pushIndexerURL: String
     var knsBaseURL: String
     var kaspaRestAPIURL: String
@@ -1466,12 +1829,24 @@ struct AppSettings: Codable {
     var lastPoolPersistDate: Date?       // Track when pool was last saved
 
     // Default URLs per network
-    static let defaultIndexerURL = "https://indexer.kasia.wtf"
+    static let defaultIndexerURL = "https://kachat.duckdns.org"
+    static let defaultKaPostIndexerURL = "https://kachat.duckdns.org"
+    static let defaultBroadcastIndexerURL = defaultKaPostIndexerURL
+    /// Retired default - the public K social indexer (`mainnet.kaspatalk.net`). KaPosts now
+    /// runs on KaChat's own indexer, which enforces two-way KaChat-only exclusivity server-side
+    /// and is a fresh network with no relation to the K social graph. Anyone still on the old
+    /// default is migrated in `SettingsViewModel.load()`.
+    static let legacyDefaultKaPostIndexerURL = "https://mainnet.kaspatalk.net"
     /// Retired default - `indexer.kasia.fyi` doesn't run the group-chat REST endpoints
-    /// (`/group-messages/...`, `/group-control/...`), only `indexer.kasia.wtf` does. See
-    /// `AppSettings.load()`'s one-time migration off this value.
+    /// (`/group-messages/...`, `/group-control/...`). See `AppSettings.load()`'s one-time migration.
     static let legacyDefaultIndexerURL = "https://indexer.kasia.fyi"
-    static let defaultPushIndexerURL = "https://indexer.kasia.wtf"
+    /// The previous shipped default (the community `indexer.kasia.wtf`), now replaced by KaChat's
+    /// own indexer (`kachat.duckdns.org`). Swept in `SettingsViewModel.load()` like kasia.fyi.
+    static let legacyDefaultIndexerURLKasiaWtf = "https://indexer.kasia.wtf"
+    /// Our own push service (chat/group push + the broadcast/KaPosts extensions - see
+    /// PUSH_EXTENSIONS.md). Superseded the community indexer.kasia.wtf once kachat.duckdns.org
+    /// went live.
+    static let defaultPushIndexerURL = "https://kachat.duckdns.org"
     static let defaultKNSMainnetURL = "https://api.knsdomains.org/mainnet/api/v1"
     static let defaultKNSTestnetURL = "https://api.knsdomains.org/tn10/api/v1"
     static let defaultKaspaMainnetURL = "https://api.kaspa.org"
@@ -1513,11 +1888,16 @@ struct AppSettings: Codable {
             networkType: .mainnet,
             autoAddContacts: true,
             syncSystemContacts: true,
-            autoCreateSystemContacts: true,
             notificationMode: .remotePush,
             notificationPermissionRequested: false,
             incomingNotificationSoundEnabled: true,
             incomingNotificationVibrationEnabled: true,
+            addressActivityNotificationsEnabled: true,
+            kaPostsNotifyLikes: true,
+            kaPostsNotifyReposts: true,
+            kaPostsNotifyFollows: true,
+            kaPostsNotifyDislikes: true,
+            kaPostsNotifyComments: true,
             messagePollInterval: 10.0,
             liveUpdatesEnabled: false,
             chatPhotoQualityPreset: .default,
@@ -1527,16 +1907,30 @@ struct AppSettings: Codable {
             appearance: .system,
             language: .system,
             currency: .usDollar,
+            // Fresh-install dock: EVERYTHING on (4.0). The dock renders as many as fit
+            // (maxDockItems): KaPosts/Broadcasts ride the Chats slot when it's full (re-tap the
+            // Chats tab to cycle); any other enabled tab that doesn't fit (Apps, by default)
+            // tail-drops until the user frees a slot in Customize Dock. Existing users are
+            // unaffected: their saved settings decode with their own explicit values (or the ??
+            // fallbacks in init(from:) for keys that predate them). "+ More" no longer exists
+            // as a dock item.
             hidePortfolioTab: false,
             hideSwapTab: false,
             hideColdStorageTab: false,
+            hideKaPostsTab: false,
+            hideMoreItem: true,
             hideBroadcasts: false,
+            hideAppsTab: false,
             tabOrder: AppTab.defaultOrder.map { $0.rawValue },
+            childModeEnabled: false,
             biometricSeedPhraseEnabled: true,
-            biometricAccountLoginEnabled: true,
+            // Account-login biometrics are opt-in (off by default) on every platform.
+            biometricAccountLoginEnabled: false,
             biometricSpendingKeyEnabled: true,
             swapDisclaimerAgreed: false,
             indexerURL: defaultIndexerURL,
+            kaPostIndexerURL: defaultKaPostIndexerURL,
+            broadcastIndexerURL: defaultBroadcastIndexerURL,
             pushIndexerURL: defaultPushIndexerURL,
             knsBaseURL: defaultKNSMainnetURL,
             kaspaRestAPIURL: defaultKaspaMainnetURL,
@@ -1556,11 +1950,16 @@ struct AppSettings: Codable {
         case networkType
         case autoAddContacts
         case syncSystemContacts
-        case autoCreateSystemContacts
         case notificationMode
         case notificationPermissionRequested
         case incomingNotificationSoundEnabled
         case incomingNotificationVibrationEnabled
+        case addressActivityNotificationsEnabled
+        case kaPostsNotifyLikes
+        case kaPostsNotifyReposts
+        case kaPostsNotifyFollows
+        case kaPostsNotifyDislikes
+        case kaPostsNotifyComments
         case messagePollInterval
         case liveUpdatesEnabled
         case chatPhotoQualityPreset
@@ -1573,13 +1972,20 @@ struct AppSettings: Codable {
         case hidePortfolioTab
         case hideSwapTab
         case hideColdStorageTab
+        case hideKaPostsTab
+        case hideMoreItem
         case hideBroadcasts
+        case hideAppsTab
         case tabOrder
+        case childModeEnabled
         case biometricSeedPhraseEnabled
         case biometricAccountLoginEnabled
         case biometricSpendingKeyEnabled
         case swapDisclaimerAgreed
+        case verboseAPILogging
         case indexerURL
+        case kaPostIndexerURL
+        case broadcastIndexerURL
         case pushIndexerURL
         case knsBaseURL
         case kaspaRestAPIURL
@@ -1607,11 +2013,16 @@ struct AppSettings: Codable {
         networkType: NetworkType,
         autoAddContacts: Bool,
         syncSystemContacts: Bool,
-        autoCreateSystemContacts: Bool,
         notificationMode: NotificationMode,
         notificationPermissionRequested: Bool = false,
         incomingNotificationSoundEnabled: Bool = true,
         incomingNotificationVibrationEnabled: Bool = true,
+        addressActivityNotificationsEnabled: Bool = true,
+        kaPostsNotifyLikes: Bool = true,
+        kaPostsNotifyReposts: Bool = true,
+        kaPostsNotifyFollows: Bool = true,
+        kaPostsNotifyDislikes: Bool = true,
+        kaPostsNotifyComments: Bool = true,
         messagePollInterval: TimeInterval,
         liveUpdatesEnabled: Bool,
         chatPhotoQualityPreset: ChatPhotoQualityPreset = .default,
@@ -1624,13 +2035,20 @@ struct AppSettings: Codable {
         hidePortfolioTab: Bool = false,
         hideSwapTab: Bool = false,
         hideColdStorageTab: Bool = false,
+        hideKaPostsTab: Bool = false,
+        hideMoreItem: Bool = true,
         hideBroadcasts: Bool = false,
+        hideAppsTab: Bool = false,
         tabOrder: [String] = AppTab.defaultOrder.map { $0.rawValue },
+        childModeEnabled: Bool = false,
         biometricSeedPhraseEnabled: Bool = true,
-        biometricAccountLoginEnabled: Bool = true,
+        biometricAccountLoginEnabled: Bool = false,
         biometricSpendingKeyEnabled: Bool = true,
         swapDisclaimerAgreed: Bool = false,
+        verboseAPILogging: Bool = false,
         indexerURL: String,
+        kaPostIndexerURL: String = AppSettings.defaultKaPostIndexerURL,
+        broadcastIndexerURL: String = AppSettings.defaultBroadcastIndexerURL,
         pushIndexerURL: String,
         knsBaseURL: String,
         kaspaRestAPIURL: String,
@@ -1648,11 +2066,16 @@ struct AppSettings: Codable {
         // Auto-add contacts is always enabled.
         self.autoAddContacts = true
         self.syncSystemContacts = syncSystemContacts
-        self.autoCreateSystemContacts = autoCreateSystemContacts
         self.notificationMode = notificationMode
         self.notificationPermissionRequested = notificationPermissionRequested
         self.incomingNotificationSoundEnabled = incomingNotificationSoundEnabled
         self.incomingNotificationVibrationEnabled = incomingNotificationVibrationEnabled
+        self.addressActivityNotificationsEnabled = addressActivityNotificationsEnabled
+        self.kaPostsNotifyLikes = kaPostsNotifyLikes
+        self.kaPostsNotifyReposts = kaPostsNotifyReposts
+        self.kaPostsNotifyFollows = kaPostsNotifyFollows
+        self.kaPostsNotifyDislikes = kaPostsNotifyDislikes
+        self.kaPostsNotifyComments = kaPostsNotifyComments
         self.messagePollInterval = messagePollInterval
         self.liveUpdatesEnabled = liveUpdatesEnabled
         self.chatPhotoQualityPreset = chatPhotoQualityPreset
@@ -1665,13 +2088,20 @@ struct AppSettings: Codable {
         self.hidePortfolioTab = hidePortfolioTab
         self.hideSwapTab = hideSwapTab
         self.hideColdStorageTab = hideColdStorageTab
+        self.hideKaPostsTab = hideKaPostsTab
+        self.hideMoreItem = hideMoreItem
         self.hideBroadcasts = hideBroadcasts
+        self.hideAppsTab = hideAppsTab
         self.tabOrder = tabOrder
+        self.childModeEnabled = childModeEnabled
         self.biometricSeedPhraseEnabled = biometricSeedPhraseEnabled
         self.biometricAccountLoginEnabled = biometricAccountLoginEnabled
         self.biometricSpendingKeyEnabled = biometricSpendingKeyEnabled
         self.swapDisclaimerAgreed = swapDisclaimerAgreed
+        self.verboseAPILogging = verboseAPILogging
         self.indexerURL = indexerURL
+        self.kaPostIndexerURL = kaPostIndexerURL
+        self.broadcastIndexerURL = broadcastIndexerURL
         self.pushIndexerURL = pushIndexerURL
         self.knsBaseURL = knsBaseURL
         self.kaspaRestAPIURL = kaspaRestAPIURL
@@ -1688,11 +2118,14 @@ struct AppSettings: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         storeMessagesInICloud = try container.decodeIfPresent(Bool.self, forKey: .storeMessagesInICloud) ?? false
         messageRetention = try container.decodeIfPresent(MessageRetention.self, forKey: .messageRetention) ?? .forever
-        networkType = try container.decodeIfPresent(NetworkType.self, forKey: .networkType) ?? .mainnet
+        // Testnet is no longer selectable anywhere in the app - always run mainnet. Installs
+        // that previously switched to testnet get migrated back (network-scoped URLs that
+        // still match the testnet defaults snap back to mainnet defaults below).
+        let storedNetworkType = try container.decodeIfPresent(NetworkType.self, forKey: .networkType) ?? .mainnet
+        networkType = .mainnet
         // Ignore persisted value and keep this feature always enabled.
         autoAddContacts = true
         syncSystemContacts = try container.decodeIfPresent(Bool.self, forKey: .syncSystemContacts) ?? true
-        autoCreateSystemContacts = try container.decodeIfPresent(Bool.self, forKey: .autoCreateSystemContacts) ?? true
         if let storedModeRaw = try container.decodeIfPresent(String.self, forKey: .notificationMode) {
             switch storedModeRaw {
             case NotificationMode.disabled.rawValue:
@@ -1718,6 +2151,12 @@ struct AppSettings: Codable {
         notificationPermissionRequested = try container.decodeIfPresent(Bool.self, forKey: .notificationPermissionRequested) ?? false
         incomingNotificationSoundEnabled = try container.decodeIfPresent(Bool.self, forKey: .incomingNotificationSoundEnabled) ?? true
         incomingNotificationVibrationEnabled = try container.decodeIfPresent(Bool.self, forKey: .incomingNotificationVibrationEnabled) ?? true
+        addressActivityNotificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .addressActivityNotificationsEnabled) ?? true
+        kaPostsNotifyLikes = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyLikes) ?? true
+        kaPostsNotifyReposts = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyReposts) ?? true
+        kaPostsNotifyFollows = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyFollows) ?? true
+        kaPostsNotifyDislikes = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyDislikes) ?? true
+        kaPostsNotifyComments = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyComments) ?? true
         messagePollInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .messagePollInterval) ?? 10.0
         liveUpdatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .liveUpdatesEnabled) ?? false
         chatPhotoQualityPreset = try container.decodeIfPresent(
@@ -1733,12 +2172,21 @@ struct AppSettings: Codable {
         hidePortfolioTab = try container.decodeIfPresent(Bool.self, forKey: .hidePortfolioTab) ?? false
         hideSwapTab = try container.decodeIfPresent(Bool.self, forKey: .hideSwapTab) ?? false
         hideColdStorageTab = try container.decodeIfPresent(Bool.self, forKey: .hideColdStorageTab) ?? false
+        // 4.0 seeding for EXISTING users (blobs saved before these keys existed): KaPosts,
+        // Broadcasts and "+More" all land ENABLED. With a full 5-tab dock the cap drops
+        // KaPosts/Broadcasts into the Chats-slot cycle (dock unchanged); with a free slot,
+        // "+More" fills it (KaPosts/Broadcasts still cycle - see AppTab.visible).
+        hideKaPostsTab = try container.decodeIfPresent(Bool.self, forKey: .hideKaPostsTab) ?? false
+        hideMoreItem = try container.decodeIfPresent(Bool.self, forKey: .hideMoreItem) ?? false
         hideBroadcasts = try container.decodeIfPresent(Bool.self, forKey: .hideBroadcasts) ?? false
+        hideAppsTab = try container.decodeIfPresent(Bool.self, forKey: .hideAppsTab) ?? true
         tabOrder = try container.decodeIfPresent([String].self, forKey: .tabOrder) ?? AppTab.defaultOrder.map { $0.rawValue }
+        childModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .childModeEnabled) ?? false
         biometricSeedPhraseEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSeedPhraseEnabled) ?? true
-        biometricAccountLoginEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricAccountLoginEnabled) ?? true
+        biometricAccountLoginEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricAccountLoginEnabled) ?? false
         biometricSpendingKeyEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSpendingKeyEnabled) ?? true
         swapDisclaimerAgreed = try container.decodeIfPresent(Bool.self, forKey: .swapDisclaimerAgreed) ?? false
+        verboseAPILogging = try container.decodeIfPresent(Bool.self, forKey: .verboseAPILogging) ?? false
 
         // Handle migration from old settings
         if let customIndexer = try container.decodeIfPresent(String.self, forKey: .customIndexerURL), !customIndexer.isEmpty {
@@ -1746,9 +2194,22 @@ struct AppSettings: Codable {
         } else {
             indexerURL = try container.decodeIfPresent(String.self, forKey: .indexerURL) ?? AppSettings.defaultIndexerURL
         }
+        // Old-default migration: stored values pointing at superseded default hosts follow the
+        // default forward; custom URLs are untouched.
+        let storedKaPostIndexer = try container.decodeIfPresent(String.self, forKey: .kaPostIndexerURL) ?? AppSettings.defaultKaPostIndexerURL
+        let supersededIndexerDefaults = ["https://kaposts.duckdns.org", "https://mainnet.kaspatalk.net"]
+        kaPostIndexerURL = supersededIndexerDefaults.contains(storedKaPostIndexer)
+            ? AppSettings.defaultKaPostIndexerURL : storedKaPostIndexer
+        let storedBroadcastIndexer = try container.decodeIfPresent(String.self, forKey: .broadcastIndexerURL) ?? ""
+        broadcastIndexerURL = storedBroadcastIndexer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || storedBroadcastIndexer == "https://kaposts.duckdns.org"
+            ? AppSettings.defaultBroadcastIndexerURL : storedBroadcastIndexer
 
         if let customPushIndexer = try container.decodeIfPresent(String.self, forKey: .pushIndexerURL),
-           !customPushIndexer.isEmpty {
+           !customPushIndexer.isEmpty,
+           customPushIndexer != "https://indexer.kasia.wtf" {
+            // Stored custom URLs are honored; the superseded kasia.wtf default migrates
+            // forward to our own push service.
             pushIndexerURL = customPushIndexer
         } else {
             pushIndexerURL = AppSettings.defaultPushIndexerURL
@@ -1756,6 +2217,14 @@ struct AppSettings: Codable {
 
         knsBaseURL = try container.decodeIfPresent(String.self, forKey: .knsBaseURL) ?? AppSettings.defaultKNSURL(for: networkType)
         kaspaRestAPIURL = try container.decodeIfPresent(String.self, forKey: .kaspaRestAPIURL) ?? AppSettings.defaultKaspaRestURL(for: networkType)
+        if storedNetworkType == .testnet {
+            if knsBaseURL == AppSettings.defaultKNSURL(for: .testnet) {
+                knsBaseURL = AppSettings.defaultKNSURL(for: .mainnet)
+            }
+            if kaspaRestAPIURL == AppSettings.defaultKaspaRestURL(for: .testnet) {
+                kaspaRestAPIURL = AppSettings.defaultKaspaRestURL(for: .mainnet)
+            }
+        }
         kaspaExplorer = try container.decodeIfPresent(KaspaExplorer.self, forKey: .kaspaExplorer) ?? .default
         trustedNodeAddress = try container.decodeIfPresent(String.self, forKey: .trustedNodeAddress) ?? AppSettings.defaultTrustedNodeAddress
         savedNodeAddresses = try container.decodeIfPresent([SavedNodeAddress].self, forKey: .savedNodeAddresses) ?? []
@@ -1783,11 +2252,16 @@ struct AppSettings: Codable {
         // Persist as enabled for forward/backward compatibility.
         try container.encode(true, forKey: .autoAddContacts)
         try container.encode(syncSystemContacts, forKey: .syncSystemContacts)
-        try container.encode(autoCreateSystemContacts, forKey: .autoCreateSystemContacts)
         try container.encode(notificationMode, forKey: .notificationMode)
         try container.encode(notificationPermissionRequested, forKey: .notificationPermissionRequested)
         try container.encode(incomingNotificationSoundEnabled, forKey: .incomingNotificationSoundEnabled)
         try container.encode(incomingNotificationVibrationEnabled, forKey: .incomingNotificationVibrationEnabled)
+        try container.encode(addressActivityNotificationsEnabled, forKey: .addressActivityNotificationsEnabled)
+        try container.encode(kaPostsNotifyLikes, forKey: .kaPostsNotifyLikes)
+        try container.encode(kaPostsNotifyReposts, forKey: .kaPostsNotifyReposts)
+        try container.encode(kaPostsNotifyFollows, forKey: .kaPostsNotifyFollows)
+        try container.encode(kaPostsNotifyDislikes, forKey: .kaPostsNotifyDislikes)
+        try container.encode(kaPostsNotifyComments, forKey: .kaPostsNotifyComments)
         try container.encode(messagePollInterval, forKey: .messagePollInterval)
         try container.encode(liveUpdatesEnabled, forKey: .liveUpdatesEnabled)
         try container.encode(chatPhotoQualityPreset, forKey: .chatPhotoQualityPreset)
@@ -1800,13 +2274,20 @@ struct AppSettings: Codable {
         try container.encode(hidePortfolioTab, forKey: .hidePortfolioTab)
         try container.encode(hideSwapTab, forKey: .hideSwapTab)
         try container.encode(hideColdStorageTab, forKey: .hideColdStorageTab)
+        try container.encode(hideKaPostsTab, forKey: .hideKaPostsTab)
+        try container.encode(hideMoreItem, forKey: .hideMoreItem)
         try container.encode(hideBroadcasts, forKey: .hideBroadcasts)
+        try container.encode(hideAppsTab, forKey: .hideAppsTab)
         try container.encode(tabOrder, forKey: .tabOrder)
+        try container.encode(childModeEnabled, forKey: .childModeEnabled)
         try container.encode(biometricSeedPhraseEnabled, forKey: .biometricSeedPhraseEnabled)
         try container.encode(biometricAccountLoginEnabled, forKey: .biometricAccountLoginEnabled)
         try container.encode(biometricSpendingKeyEnabled, forKey: .biometricSpendingKeyEnabled)
         try container.encode(swapDisclaimerAgreed, forKey: .swapDisclaimerAgreed)
+        try container.encode(verboseAPILogging, forKey: .verboseAPILogging)
         try container.encode(indexerURL, forKey: .indexerURL)
+        try container.encode(kaPostIndexerURL, forKey: .kaPostIndexerURL)
+        try container.encode(broadcastIndexerURL, forKey: .broadcastIndexerURL)
         try container.encode(pushIndexerURL, forKey: .pushIndexerURL)
         try container.encode(knsBaseURL, forKey: .knsBaseURL)
         try container.encode(kaspaRestAPIURL, forKey: .kaspaRestAPIURL)
@@ -1839,6 +2320,23 @@ struct AppSettings: Codable {
     var notificationsEnabled: Bool {
         get { notificationMode != .disabled }
         set { notificationMode = newValue ? .remotePush : .disabled }
+    }
+
+    /// Per-event-type gate for KaPosts notification pings, keyed off the K notifications
+    /// API's fields (see KaPostsAPIClient.KNotification / KaPostsNotificationService.postLocal):
+    /// `contentType` is "vote" (with `voteType` "upvote"/"downvote"), "reply", "quote"
+    /// (K's repost mechanism - quotes-with-text included), or "follow". Unknown kinds always
+    /// notify rather than silently vanishing behind a toggle that doesn't name them.
+    func shouldNotifyKaPostsAction(contentType: String?, voteType: String?) -> Bool {
+        switch contentType {
+        case "vote": return voteType == "downvote" ? kaPostsNotifyDislikes : kaPostsNotifyLikes
+        case "reply": return kaPostsNotifyComments
+        case "quote": return kaPostsNotifyReposts
+        case "follow": return kaPostsNotifyFollows
+        // Being @mentioned always pings - deliberate, not the unknown-kind fallback.
+        case "mention": return true
+        default: return true
+        }
     }
 
     var backgroundFetchEnabled: Bool {
@@ -2151,6 +2649,9 @@ struct GroupBag: Codable, Sendable {
     var currentEpoch: UInt64
     var deviceId: String             // hex, 16 bytes
     var msgCounter: UInt64           // monotonic per (group_id, epoch, device_id)
+    /// Epoch for which this admin has published its self-addressed recovery invite (nil = none
+    /// yet). Drives the backfill so pre-existing admin groups become seed-recoverable.
+    var selfInviteEpoch: UInt64? = nil
 }
 
 /// Non-secret group metadata - the in-memory/view-facing model backed by GroupStore.

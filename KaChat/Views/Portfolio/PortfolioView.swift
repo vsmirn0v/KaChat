@@ -1,98 +1,60 @@
 import SwiftUI
-
-private enum PortfolioContentTab: Hashable {
-    case data
-    case transactions
-}
+import Charts
 
 struct PortfolioView: View {
     @ObservedObject private var viewModel = PortfolioViewModel.shared
     @ObservedObject private var portfolioManager = PortfolioManager.shared
     @EnvironmentObject var settingsViewModel: SettingsViewModel
-    @State private var scrubbedValuePoint: PricePoint?
-    @State private var selectedContentTab: PortfolioContentTab = .data
+    @State private var showPriceChart = false
+    @State private var showValueChart = false
+
+    private var currency: AppCurrency { settingsViewModel.settings.currency }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                PortfolioPickerHeader(
-                    portfolios: portfolioManager.portfolios,
-                    activePortfolioId: portfolioManager.activePortfolioId,
-                    cardModel: cardModel(for:),
-                    formatCurrency: formatCurrency,
-                    onSelect: { portfolioManager.setActivePortfolio($0) },
-                    onAdd: { portfolioManager.addPortfolio(name: $0) },
-                    onRename: { portfolioManager.renamePortfolio($0, to: $1) },
-                    onDelete: { portfolioManager.deletePortfolio($0) }
-                )
-                contentTabBar
-
-                // .page style gives left/right swipe between tabs for free, kept in sync with
-                // contentTabBar's buttons via the shared $selectedContentTab binding; index dots
-                // are hidden since that tab bar is already the visible selector.
-                TabView(selection: $selectedContentTab) {
-                    dataTabContent
-                        .tag(PortfolioContentTab.data)
-                    PortfolioTransactionsView(viewModel: viewModel)
-                        .tag(PortfolioContentTab.transactions)
+            // One continuous page: portfolio picker cards, then the two launcher squares, then the
+            // Transactions section - no Data/Transactions tabs. Everything lives in the
+            // transactions view's List, so scrolling flows straight from cards into
+            // transactions, the picker cards scroll away (collapse) cleanly, and the large
+            // nav title tracks the scroll natively.
+            PortfolioTransactionsView(viewModel: viewModel) {
+                Section {
+                    PortfolioPickerHeader(
+                        portfolios: portfolioManager.portfolios,
+                        activePortfolioId: portfolioManager.activePortfolioId,
+                        cardModel: cardModel(for:),
+                        formatCurrency: { PortfolioFormat.currency($0, currency) },
+                        onSelect: { portfolioManager.setActivePortfolio($0) },
+                        onAdd: { portfolioManager.addPortfolio(name: $0) },
+                        onRename: { portfolioManager.renamePortfolio($0, to: $1) },
+                        onDelete: { portfolioManager.deletePortfolio($0) }
+                    )
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+
+                Section {
+                    // Two tappable squares: KAS price (left) and portfolio value (right). Each
+                    // opens its own full-screen chart screen. The old inline price/value
+                    // sparkline sliders were removed - those views now live behind these squares.
+                    launcherSquares
+                }
+                .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
             .navigationTitle("Portfolio")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-    }
-
-    private var dataTabContent: some View {
-        ScrollView {
-            // Matches Android's Data tab spacing (12.dp outer padding, 10.dp between cards) -
-            // this was previously 16pt everywhere, tall enough to force a scroll on most iPhones
-            // even though every card's content already fits without it.
-            VStack(spacing: 10) {
-                summaryCard
-                priceChartCard
-                if viewModel.valueHistory.count >= 2 {
-                    valueChartCard
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    ConnectionStatusIndicator()
+                }
+                ToolbarItem(placement: .principal) {
+                    BalanceToolbarLabel()
                 }
             }
-            .padding(12)
         }
-        .refreshable {
-            await viewModel.refreshPriceAsync()
-        }
-    }
-
-    // MARK: - Data / Transactions tab bar (styled like ChatListView's Chats/Group Chats tabs)
-
-    private var contentTabBar: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                contentTabButton("Data", tab: .data)
-                contentTabButton("Transactions", tab: .transactions)
-            }
-            Divider()
-        }
-        .background(.ultraThinMaterial)
-    }
-
-    private func contentTabButton(_ title: String, tab: PortfolioContentTab) -> some View {
-        let isSelected = selectedContentTab == tab
-        return Button {
-            withAnimation(.easeInOut(duration: 0.2)) { selectedContentTab = tab }
-        } label: {
-            VStack(spacing: 8) {
-                Text(title)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundColor(isSelected ? .accentColor : .accentColor.opacity(0.5))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 10)
-
-                Rectangle()
-                    .fill(isSelected ? Color.accentColor : Color.clear)
-                    .frame(height: 2.5)
-            }
-        }
-        .buttonStyle(.plain)
     }
 
     private func cardModel(for portfolio: Portfolio) -> PortfolioCardModel {
@@ -106,100 +68,313 @@ struct PortfolioView: View {
         )
     }
 
-    private func rangeLabel(_ days: Int) -> String {
-        switch days {
-        case 1: return "1d"
-        case 7: return "7d"
-        default: return "30d"
+    // MARK: - Launcher squares
+
+    private var launcherSquares: some View {
+        HStack(spacing: 10) {
+            Button {
+                Haptics.impact(.light)
+                showPriceChart = true
+            } label: {
+                priceSquare
+            }
+            .buttonStyle(.plain)
+            .navigationDestination(isPresented: $showPriceChart) {
+                KasPriceChartScreen(viewModel: viewModel)
+            }
+
+            Button {
+                Haptics.impact(.light)
+                showValueChart = true
+            } label: {
+                valueSquare
+            }
+            .buttonStyle(.plain)
+            .navigationDestination(isPresented: $showValueChart) {
+                PortfolioValueChartScreen(viewModel: viewModel)
+            }
         }
     }
 
-    // MARK: - Summary card (price header + holdings/value + invested/P&L)
-
-    private var summaryCard: some View {
-        let summary = viewModel.summary
-        return VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                if let scrub = viewModel.scrubbedPricePoint {
-                    Text(scrub.timestamp, format: .dateTime.month().day().hour().minute())
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    Text(formatPrice(scrub.value))
-                        .font(.system(size: 26, weight: .bold))
-                } else {
-                    Text("KAS Price")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(viewModel.currentPriceUsd.map(formatPrice) ?? "—")
-                            .font(.system(size: 26, weight: .bold))
-                        if let change = viewModel.priceChange24h {
-                            HStack(spacing: 2) {
-                                Image(systemName: change >= 0 ? "arrow.up" : "arrow.down")
-                                    .font(.caption2)
-                                Text("\(String(format: "%.2f", abs(change)))%")
-                                    .font(.subheadline)
-                                    .fontWeight(.semibold)
-                            }
-                            .foregroundColor(change >= 0 ? .green : .red)
-                        }
-                    }
-                }
-            }
-
-            HStack(alignment: .top) {
-                statColumn(label: "Holdings", value: Self.formatKas(summary.holdingsKas), alignment: .leading)
+    private var priceSquare: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image("KaspaLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 26, height: 26)
+                Text("Kaspa")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(.secondary)
                 Spacer()
-                statColumn(label: "Current Value", value: formatCurrency(summary.currentValue), alignment: .trailing)
+                Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
             }
-
-            Divider()
-
-            HStack(alignment: .top) {
-                statColumn(label: "Total Invested", value: formatCurrency(summary.totalInvested), alignment: .leading)
-                Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("Total P&L")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    HStack(spacing: 4) {
-                        Image(systemName: summary.totalPL >= 0 ? "arrow.up.right" : "arrow.down.right")
-                            .font(.subheadline)
-                        Text("\(formatCurrency(summary.totalPL)) (\(String(format: "%.1f", summary.totalPLPercent))%)")
-                            .font(.title3)
-                            .fontWeight(.bold)
-                    }
-                    .foregroundColor(summary.totalPL >= 0 ? .green : .red)
-                }
-            }
-
-            if let averageBuyPriceUsd = summary.averageBuyPriceUsd {
-                Divider()
-                HStack(alignment: .top) {
-                    statColumn(label: "Avg. Buy Price", value: formatPrice(averageBuyPriceUsd), alignment: .leading)
-                    Spacer()
-                }
+            Spacer(minLength: 0)
+            Text(viewModel.currentPriceUsd.map { PortfolioFormat.price($0, currency: currency) } ?? "—")
+                .font(.system(size: 22, weight: .bold))
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+            if let change = viewModel.priceChange24h {
+                changeBadge(percent: change, positive: change >= 0)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 128)
         .padding(14)
-        .background(glassBackground(cornerRadius: 18))
+        .background(portfolioGlassBackground(cornerRadius: 18))
     }
 
-    private func statColumn(label: String, value: String, alignment: HorizontalAlignment) -> some View {
-        VStack(alignment: alignment, spacing: 2) {
-            Text(label)
+    private var valueSquare: some View {
+        let summary = viewModel.summary
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Text("Value")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
+            }
+            Spacer(minLength: 0)
+            Text(PortfolioFormat.currency(summary.currentValue, currency))
+                .font(.system(size: 22, weight: .bold))
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
+            changeBadge(percent: summary.totalPLPercent, positive: summary.totalPL >= 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 128)
+        .padding(14)
+        .background(portfolioGlassBackground(cornerRadius: 18))
+    }
+
+    private func changeBadge(percent: Double, positive: Bool) -> some View {
+        HStack(spacing: 2) {
+            Image(systemName: positive ? "arrow.up" : "arrow.down").font(.caption2)
+            Text("\(String(format: "%.2f", abs(percent)))%")
+                .font(.footnote).fontWeight(.semibold)
+        }
+        .foregroundColor(positive ? .green : .red)
+    }
+}
+
+// MARK: - KAS price full-screen chart
+
+private struct KasPriceChartScreen: View {
+    @ObservedObject var viewModel: PortfolioViewModel
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @State private var scrubbed: PricePoint?
+
+    private var currency: AppCurrency { settingsViewModel.settings.currency }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                chart
+                PortfolioRangePicker(viewModel: viewModel, onChange: { scrubbed = nil })
+                aboutKaspa
+            }
+            .padding(16)
+        }
+        .refreshable { await viewModel.refreshPriceAsync() }
+        .navigationTitle("KAS Price")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // The Kaspa logo + name stay put while scrubbing - only the date + scrubbed price change.
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image("KaspaLogo").resizable().scaledToFit().frame(width: 30, height: 30)
+                Text("Kaspa").font(.title3).fontWeight(.semibold)
+                Spacer()
+            }
+            if let scrub = scrubbed {
+                Text(scrub.timestamp, format: .dateTime.month().day().year().hour().minute())
+                    .font(.subheadline).foregroundColor(.secondary)
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text((scrubbed?.value ?? viewModel.currentPriceUsd).map { PortfolioFormat.price($0, currency: currency) } ?? "—")
+                    .font(.system(size: 34, weight: .bold))
+                if scrubbed == nil, let change = viewModel.priceChange24h {
+                    HStack(spacing: 3) {
+                        Image(systemName: change >= 0 ? "arrow.up" : "arrow.down").font(.footnote)
+                        Text("\(String(format: "%.2f", abs(change)))% (24h)")
+                            .font(.subheadline).fontWeight(.semibold)
+                    }
+                    .foregroundColor(change >= 0 ? .green : .red)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var chart: some View {
+        if viewModel.priceHistory.count >= 2 {
+            PortfolioAreaChart(points: viewModel.priceHistory, onScrub: { scrubbed = $0 })
+                .frame(height: 260)
+        } else {
+            ProgressView()
+                .frame(height: 260)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var aboutKaspa: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("About Kaspa").font(.headline)
+            Text(Self.kaspaDescription)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-            Text(value)
-                .font(.title3)
-                .fontWeight(.bold)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(portfolioGlassBackground(cornerRadius: 18))
     }
 
-    private static func currencySymbol(for currency: AppCurrency) -> String {
-        // Not ISO 4217 - NumberFormatter's fallback behavior for an unrecognized currency code
-        // isn't reliably "show the code", so this is spelled out explicitly rather than trusted
-        // to the formatter below.
+    // Original factual summary (paraphrased, not copied from any single source).
+    private static let kaspaDescription = """
+    Kaspa is a decentralized, open-source, proof-of-work cryptocurrency. It is built on the \
+    GHOSTDAG protocol - a generalization of Nakamoto consensus that, instead of discarding blocks \
+    created in parallel, orders them together in a blockDAG. This lets Kaspa reach very high block \
+    rates and near-instant transaction confirmation while keeping the security guarantees of \
+    proof of work. Kaspa launched in November 2021 with a fair release: no pre-mine, no pre-sale, \
+    and no coin allocations. Its native coin is KAS.
+    """
+}
+
+// MARK: - Portfolio value full-screen chart + stats
+
+private struct PortfolioValueChartScreen: View {
+    @ObservedObject var viewModel: PortfolioViewModel
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @State private var scrubbed: PricePoint?
+
+    private var currency: AppCurrency { settingsViewModel.settings.currency }
+
+    var body: some View {
+        let summary = viewModel.summary
+        let history = viewModel.valueHistory
+
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                header(currentValue: summary.currentValue)
+
+                if history.count >= 2 {
+                    PortfolioAreaChart(points: history, onScrub: { scrubbed = $0 })
+                        .frame(height: 240)
+                } else {
+                    Text("Not enough history yet - check back after a few days of activity.")
+                        .font(.subheadline).foregroundColor(.secondary)
+                        .frame(height: 240)
+                        .frame(maxWidth: .infinity)
+                }
+
+                PortfolioRangePicker(viewModel: viewModel, onChange: { scrubbed = nil })
+
+                statsCard(summary)
+            }
+            .padding(16)
+        }
+        .refreshable { await viewModel.refreshPriceAsync() }
+        .navigationTitle("Value Over Time")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func header(currentValue: Double) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Portfolio Value").font(.title3).fontWeight(.semibold)
+                Spacer()
+            }
+            if let scrub = scrubbed {
+                Text(scrub.timestamp, format: .dateTime.month().day().year())
+                    .font(.subheadline).foregroundColor(.secondary)
+            }
+            Text(PortfolioFormat.currency(scrubbed?.value ?? currentValue, currency))
+                .font(.system(size: 34, weight: .bold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func statsCard(_ summary: PortfolioSummary) -> some View {
+        VStack(spacing: 0) {
+            statRow("Holdings", PortfolioFormat.kas(summary.holdingsKas))
+            Divider()
+            statRow("Current Value", PortfolioFormat.currency(summary.currentValue, currency))
+            Divider()
+            statRow("Total Invested", PortfolioFormat.currency(summary.totalInvested, currency))
+            Divider()
+            statRow(
+                "Total P&L",
+                "\(PortfolioFormat.currency(summary.totalPL, currency)) (\(String(format: "%.1f", summary.totalPLPercent))%)",
+                color: summary.totalPL >= 0 ? .green : .red
+            )
+            if let averageBuyPriceUsd = summary.averageBuyPriceUsd {
+                Divider()
+                statRow("Avg. Buy Price", PortfolioFormat.price(averageBuyPriceUsd, currency: currency))
+            }
+        }
+        .padding(.vertical, 4)
+        .background(portfolioGlassBackground(cornerRadius: 18))
+    }
+
+    private func statRow(_ label: String, _ value: String, color: Color = .primary) -> some View {
+        HStack {
+            Text(label).font(.subheadline).foregroundColor(.secondary)
+            Spacer()
+            Text(value).font(.body).fontWeight(.semibold).foregroundColor(color)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+}
+
+// MARK: - Shared range picker (1D / 1W / 1M / 3M / 1Y)
+
+/// Drives `PortfolioViewModel.priceRangeDays`, which both the KAS price history AND the derived
+/// portfolio value-over-time series read from, so this one control ranges both charts.
+private struct PortfolioRangePicker: View {
+    @ObservedObject var viewModel: PortfolioViewModel
+    var onChange: () -> Void = {}
+
+    private let ranges: [(label: String, days: Int)] = [("1D", 1), ("1W", 7), ("1M", 30), ("3M", 90), ("1Y", 365)]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(ranges, id: \.days) { range in
+                Button {
+                    Haptics.impact(.light)
+                    onChange()
+                    viewModel.setPriceRangeDays(range.days)
+                } label: {
+                    Text(range.label)
+                        .font(.subheadline).fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(viewModel.priceRangeDays == range.days ? Color.accentColor.opacity(0.2) : Color.clear)
+                        .foregroundColor(viewModel.priceRangeDays == range.days ? .accentColor : .secondary)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+// MARK: - Shared formatting + styling
+
+/// Currency/price/KAS formatting shared by the portfolio squares and both chart screens. Built
+/// manually via `currencySymbol(for:)` rather than `.formatted(.currency(code:))` - the latter is
+/// Foundation's ISO-4217-driven `FormatStyle`, whose behavior for a non-ISO-4217 code like
+/// `.bitcoin`'s "BTC" isn't something to rely on sight-unseen.
+enum PortfolioFormat {
+    static func currencySymbol(for currency: AppCurrency) -> String {
         if currency == .bitcoin { return "₿" }
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
@@ -207,9 +382,20 @@ struct PortfolioView: View {
         return formatter.currencySymbol ?? currency.code
     }
 
-    private func formatPrice(_ value: Double) -> String {
+    static func price(_ value: Double, currency: AppCurrency) -> String {
         let decimals = value < 1 ? 5 : 2
-        return Self.currencySymbol(for: settingsViewModel.settings.currency) + String(format: "%.\(decimals)f", value)
+        return currencySymbol(for: currency) + String(format: "%.\(decimals)f", value)
+    }
+
+    static func currency(_ value: Double, _ currency: AppCurrency) -> String {
+        let sign = value < 0 ? "-" : ""
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        formatter.usesGroupingSeparator = true
+        let magnitude = formatter.string(from: NSNumber(value: abs(value))) ?? String(format: "%.2f", abs(value))
+        return sign + currencySymbol(for: currency) + magnitude
     }
 
     private static let kasFormatter: NumberFormatter = {
@@ -223,179 +409,121 @@ struct PortfolioView: View {
         return formatter
     }()
 
-    private static func formatKas(_ value: Double) -> String {
+    static func kas(_ value: Double) -> String {
         let text = kasFormatter.string(from: NSNumber(value: value)) ?? String(format: "%.4f", value)
         return text + " KAS"
     }
-
-    /// Builds the string manually via `currencySymbol(for:)` rather than `.formatted(.currency(code:))` -
-    /// the latter is Foundation's ISO-4217-driven `FormatStyle`, whose behavior for a
-    /// non-ISO-4217 code like `.bitcoin`'s "BTC" isn't something to rely on sight-unseen.
-    private func formatCurrency(_ value: Double) -> String {
-        let sign = value < 0 ? "-" : ""
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.minimumFractionDigits = 2
-        formatter.maximumFractionDigits = 2
-        formatter.usesGroupingSeparator = true
-        let magnitude = formatter.string(from: NSNumber(value: abs(value))) ?? String(format: "%.2f", abs(value))
-        return sign + Self.currencySymbol(for: settingsViewModel.settings.currency) + magnitude
-    }
-
-    // MARK: - Price chart card (label left, sparkline right)
-
-    private var priceChartCard: some View {
-        HStack(spacing: 12) {
-            Button {
-                Haptics.impact(.light)
-                viewModel.cyclePriceRange()
-            } label: {
-                Text("Price (\(rangeLabel(viewModel.priceRangeDays)))")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
-
-            if viewModel.priceHistory.count >= 2 {
-                SparklineChart(
-                    points: viewModel.priceHistory,
-                    lineWidth: 2,
-                    onScrub: { viewModel.scrubbedPricePoint = $0 }
-                )
-                .frame(height: 40)
-            } else {
-                Spacer()
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(glassBackground(cornerRadius: 18))
-    }
-
-    // MARK: - Value-over-time chart
-
-    private var valueChartCard: some View {
-        let history = viewModel.valueHistory
-        let displayed = scrubbedValuePoint ?? history.last
-
-        return VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                if let scrubbedValuePoint {
-                    Text("Value on \(scrubbedValuePoint.timestamp.formatted(date: .abbreviated, time: .omitted))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    Text("Value Over Time")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                if let displayed {
-                    Text(formatCurrency(displayed.value))
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                }
-            }
-
-            // Passing `onScrub` (rather than `nil`, as before) is what actually turns on
-            // `SparklineChart`'s own crosshair line+dot - it was previously drawing that overlay
-            // from an internal `scrubIndex` that a `nil` onScrub never let anything set, while
-            // this view instead ran its own separate, redundant drag gesture that only updated
-            // the text label above, never the chart itself. Matches how `priceChartCard` already
-            // does it.
-            SparklineChart(
-                points: history,
-                lineWidth: 3.5,
-                dotRadius: 6,
-                onScrub: { scrubbedValuePoint = $0 }
-            )
-            .frame(height: 90)
-        }
-        .padding(14)
-        .background(glassBackground(cornerRadius: 18))
-    }
-
-    private func glassBackground(cornerRadius: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(.regularMaterial)
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-            )
-            .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
-    }
 }
 
-/// Hand-rolled line chart with optional drag-to-scrub. Normalizes points to the view's frame,
-/// no drawn axes/labels (matches the compact sparkline style used throughout Portfolio).
-private struct SparklineChart: View {
+private func portfolioGlassBackground(cornerRadius: CGFloat) -> some View {
+    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        .fill(.regularMaterial)
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+}
+
+// MARK: - Chart
+
+/// Swift Charts area+line chart with gridlines/axes and drag-to-scrub. Replaces the old bare
+/// sparkline so the full-screen views read like a real price/value graph. `onScrub` fires the
+/// nearest point (or nil on release) so the screen's header can show the selected value/date.
+private struct PortfolioAreaChart: View {
     let points: [PricePoint]
-    var lineWidth: CGFloat = 2.5
-    var dotRadius: CGFloat = 4
     var onScrub: ((PricePoint?) -> Void)?
 
-    @State private var scrubIndex: Int?
+    @State private var selected: PricePoint?
 
     var body: some View {
-        GeometryReader { proxy in
-            chartContent(size: proxy.size)
-        }
-    }
-
-    @ViewBuilder
-    private func chartContent(size: CGSize) -> some View {
         let values = points.map(\.value)
-        let minValue = values.min() ?? 0
-        let maxValue = values.max() ?? 0
-        let range = (maxValue - minValue) > 0 ? (maxValue - minValue) : 1
-        let stepX = points.count > 1 ? size.width / CGFloat(points.count - 1) : 0
+        let minV = values.min() ?? 0
+        let maxV = values.max() ?? 1
+        let span = (maxV - minV) > 0 ? (maxV - minV) : max(abs(maxV), 1)
+        let pad = span * 0.10
+        let lowerBound = minV - pad
+        let upperBound = maxV + pad
 
-        let content = ZStack {
-            Path { path in
-                for (index, point) in points.enumerated() {
-                    let x = CGFloat(index) * stepX
-                    let y = size.height - CGFloat((point.value - minValue) / range) * size.height
-                    if index == 0 {
-                        path.move(to: CGPoint(x: x, y: y))
-                    } else {
-                        path.addLine(to: CGPoint(x: x, y: y))
-                    }
-                }
+        // For a short (intraday, e.g. 1D) span, default date+time labels are wide and collide.
+        // Format those as hours ("3 PM") and longer spans as dates ("Mar 5") so labels stay short.
+        let timeSpan = (points.last?.timestamp ?? Date()).timeIntervalSince(points.first?.timestamp ?? Date())
+        let isIntraday = timeSpan <= 2 * 24 * 60 * 60
+
+        Chart {
+            ForEach(points, id: \.timestamp) { point in
+                AreaMark(
+                    x: .value("Time", point.timestamp),
+                    yStart: .value("Min", lowerBound),
+                    yEnd: .value("Value", point.value)
+                )
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [Color.accentColor.opacity(0.28), Color.accentColor.opacity(0.03)],
+                        startPoint: .top, endPoint: .bottom
+                    )
+                )
+
+                LineMark(
+                    x: .value("Time", point.timestamp),
+                    y: .value("Value", point.value)
+                )
+                .interpolationMethod(.catmullRom)
+                .foregroundStyle(Color.accentColor)
+                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             }
-            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
 
-            if let index = scrubIndex, index < points.count {
-                let x = CGFloat(index) * stepX
-                let y = size.height - CGFloat((points[index].value - minValue) / range) * size.height
-                Path { path in
-                    path.move(to: CGPoint(x: x, y: 0))
-                    path.addLine(to: CGPoint(x: x, y: size.height))
-                }
-                .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
-
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: dotRadius * 2, height: dotRadius * 2)
-                    .position(x: x, y: y)
+            if let selected {
+                RuleMark(x: .value("Time", selected.timestamp))
+                    .foregroundStyle(Color.secondary.opacity(0.35))
+                    .lineStyle(StrokeStyle(lineWidth: 1))
+                PointMark(x: .value("Time", selected.timestamp), y: .value("Value", selected.value))
+                    .foregroundStyle(Color.accentColor)
+                    .symbolSize(120)
             }
         }
-        .contentShape(Rectangle())
-
-        if let onScrub {
-            content.gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        guard stepX > 0 else { return }
-                        let index = min(max(Int((value.location.x / stepX).rounded()), 0), points.count - 1)
-                        scrubIndex = index
-                        onScrub(points[index])
-                    }
-                    .onEnded { _ in
-                        scrubIndex = nil
-                        onScrub(nil)
-                    }
-            )
-        } else {
-            content
+        .chartYScale(domain: lowerBound...upperBound)
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) {
+                AxisGridLine()
+                AxisValueLabel(format: isIntraday
+                    ? Date.FormatStyle().hour()
+                    : Date.FormatStyle().month(.abbreviated).day())
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) {
+                AxisGridLine()
+                AxisValueLabel()
+            }
+        }
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                Rectangle()
+                    .fill(Color.clear)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let plot = geo[proxy.plotAreaFrame]
+                                let xInPlot = value.location.x - plot.minX
+                                guard xInPlot >= 0, xInPlot <= plot.width,
+                                      let date: Date = proxy.value(atX: xInPlot) else { return }
+                                let nearest = points.min(by: {
+                                    abs($0.timestamp.timeIntervalSince(date)) < abs($1.timestamp.timeIntervalSince(date))
+                                })
+                                if selected?.timestamp != nearest?.timestamp {
+                                    selected = nearest
+                                    onScrub?(nearest)
+                                }
+                            }
+                            .onEnded { _ in
+                                selected = nil
+                                onScrub?(nil)
+                            }
+                    )
+            }
         }
     }
 }

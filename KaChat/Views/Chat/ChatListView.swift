@@ -7,7 +7,6 @@ struct ChatListView: View {
     @EnvironmentObject var contactsManager: ContactsManager
     @EnvironmentObject var walletManager: WalletManager
     @EnvironmentObject var settingsViewModel: SettingsViewModel
-    @EnvironmentObject var broadcastService: BroadcastService
     @EnvironmentObject var groupChatService: GroupChatService
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -20,9 +19,9 @@ struct ChatListView: View {
     @State private var selectedGroup: GroupChat?
     @State private var selectedContactStartInPaymentMode = false
     @State private var showAddContact = false
-    @State private var showBroadcastList = false
-    @State private var pendingBroadcastChannel: String?
     @State private var selectedListTab: ChatsListTab = .chats
+    /// The page Select mode started on - page swipes snap back to it while editing.
+    @State private var editModeLockedTab: ChatsListTab?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -37,9 +36,12 @@ struct ChatListView: View {
     @State private var isPullRefreshing = false
     @State private var avatarPrefetchTask: Task<Void, Never>?
     @State private var splitColumnVisibility: NavigationSplitViewVisibility = .all
-    @State private var contactPendingDelete: Contact?
-    @State private var groupPendingDelete: GroupChat?
     @State private var showBulkDeleteConfirmation = false
+    /// Row-level delete targets from the long-press context menu - separate from the Select-mode
+    /// bulk selection state so a context-menu delete never touches (or is blocked by) edit mode.
+    /// Confirmed via their own alerts below, which reuse `deleteConversations`/`deleteGroups`.
+    @State private var rowDeleteContact: Contact?
+    @State private var rowDeleteGroup: GroupChat?
     @State private var editMode: EditMode = .inactive
     @State private var selectedContactIDs: Set<UUID> = []
     @State private var selectedGroupIDs: Set<String> = []
@@ -87,8 +89,8 @@ struct ChatListView: View {
         // expression - that combination is what triggered "unable to type-check in reasonable
         // time" once the third `.alert` (bulk delete) was added.
         let withToolbar = chatListContent
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Chats")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     ConnectionStatusIndicator()
@@ -127,7 +129,16 @@ struct ChatListView: View {
             }
 
         let withPresentation = withToolbar
-            .searchable(text: $searchText, prompt: "Search chats")
+            // placement .always is load-bearing: the chats/groups lists live inside a paging
+            // TabView (chatListContent), so their scrolling no longer drives the navigation
+            // bar — with the default .automatic placement under a .large title, the search
+            // drawer waits for a nav-bar-linked scroll to reveal it and therefore NEVER
+            // appears. Pinning it keeps: bold "Chats" large title, search bar underneath.
+            .searchable(
+                text: $searchText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "Search chats"
+            )
             .refreshable {
                 isPullRefreshing = true
                 await chatService.fetchNewMessages()
@@ -139,19 +150,17 @@ struct ChatListView: View {
             }
             .toast(message: toastMessage, style: toastStyle)
             .sheet(isPresented: $showAddContact) {
-                AddContactView { contact in
+                // Tab-aware: the create button opens the group builder on the Group Chats
+                // tab and the 1:1 create screen on the Chats tab.
+                AddContactView(startInGroupMode: selectedListTab == .groups) { contact in
                     _ = chatService.getOrCreateConversation(for: contact)
                     selectedContactStartInPaymentMode = false
-                    pendingBroadcastChannel = nil
-                    showBroadcastList = false
                     selectedGroup = nil
                     selectedContact = contact
                     selectedListTab = .chats
                     showAddContact = false
                 } onCreateGroup: { group in
                     selectedContactStartInPaymentMode = false
-                    pendingBroadcastChannel = nil
-                    showBroadcastList = false
                     selectedContact = nil
                     selectedGroup = group
                     selectedListTab = .groups
@@ -161,45 +170,6 @@ struct ChatListView: View {
             }
 
         let withAlerts = withPresentation
-            .alert(
-                "Delete Chat with \(contactPendingDelete?.alias ?? "")",
-                isPresented: Binding(
-                    get: { contactPendingDelete != nil },
-                    set: { if !$0 { contactPendingDelete = nil } }
-                )
-            ) {
-                Button("Delete", role: .destructive) {
-                    if let contact = contactPendingDelete {
-                        deleteConversation(contact)
-                    }
-                    contactPendingDelete = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    contactPendingDelete = nil
-                }
-            } message: {
-                Text("This permanently deletes every message with them, including from iCloud, so it's removed from your other devices too. This cannot be undone.")
-            }
-            .alert(
-                "Delete \"\(groupPendingDelete?.name ?? "")\"",
-                isPresented: Binding(
-                    get: { groupPendingDelete != nil },
-                    set: { if !$0 { groupPendingDelete = nil } }
-                )
-            ) {
-                Button("Delete", role: .destructive) {
-                    if let group = groupPendingDelete {
-                        if selectedGroup?.id == group.id { selectedGroup = nil }
-                        groupChatService.deleteGroup(group.id)
-                    }
-                    groupPendingDelete = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    groupPendingDelete = nil
-                }
-            } message: {
-                Text("This removes the group and its messages from this device. This cannot be undone, and other members won't be notified.")
-            }
             .alert(
                 bulkDeleteAlertTitle,
                 isPresented: $showBulkDeleteConfirmation
@@ -221,21 +191,50 @@ struct ChatListView: View {
                 Text(bulkDeleteAlertMessage)
             }
 
-        return withAlerts
-            .modifier(BroadcastListNavigationDestination(
-                mode: BroadcastNavigationPolicy.listPresentationMode(usesSplitLayout: shouldUseSplitLayout),
-                showBroadcastList: $showBroadcastList,
-                pendingBroadcastChannel: $pendingBroadcastChannel
-            ))
+        // Row context-menu deletes confirm through their own alerts (same destructive-confirm
+        // pattern and wording as the bulk alert above, singular) - staged as separate variables
+        // for the same type-checker reason as the rest of this chain.
+        let withRowDeleteAlert = withAlerts
+            .alert(
+                "Delete Chat?",
+                isPresented: Binding(
+                    get: { rowDeleteContact != nil },
+                    set: { if !$0 { rowDeleteContact = nil } }
+                ),
+                presenting: rowDeleteContact
+            ) { contact in
+                Button("Delete", role: .destructive) {
+                    deleteConversations([contact])
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("This permanently deletes every message in this chat, including from iCloud, so it's removed from your other devices too. This cannot be undone.")
+            }
+
+        let withGroupRowDeleteAlert = withRowDeleteAlert
+            .alert(
+                "Delete Group?",
+                isPresented: Binding(
+                    get: { rowDeleteGroup != nil },
+                    set: { if !$0 { rowDeleteGroup = nil } }
+                ),
+                presenting: rowDeleteGroup
+            ) { group in
+                Button("Delete", role: .destructive) {
+                    deleteGroups([group])
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in
+                Text("This removes this group and its messages from this device. This cannot be undone, and other members won't be notified.")
+            }
+
+        return withGroupRowDeleteAlert
             .environment(\EnvironmentValues.editMode, $editMode)
     }
 
     @ViewBuilder
     private var splitDetailPane: some View {
-        if showBroadcastList {
-            BroadcastListView(initialChannel: pendingBroadcastChannel)
-                .id(pendingBroadcastChannel ?? "__broadcasts")
-        } else if let group = selectedGroup {
+        if let group = selectedGroup {
             GroupChatDetailView(group: group, onDeleted: { selectedGroup = nil })
                 .id(group.id)
         } else if let contact = selectedContact {
@@ -250,16 +249,21 @@ struct ChatListView: View {
     private var chatListContent: some View {
         VStack(spacing: 0) {
             chatsTopTabBar
-            // Tap-only, not swipeable - a paging TabView here would fight the row-level
-            // swipe-to-delete/mark-read gestures on both the Chats and Group Chats lists.
-            Group {
-                switch selectedListTab {
-                case .chats:
-                    chatsTabContent
-                case .groups:
-                    groupsTabContent
-                }
+                // The whole tab-bar strip is swipeable left/right - no row gestures up here to
+                // fight with.
+                .contentShape(Rectangle())
+                .gesture(listTabSwipe())
+            // A REAL page-style TabView (same as the KaPosts feeds): interactive, finger-
+            // tracked paging in both directions - far smoother than the transition-based slide
+            // this replaced. Safe now that rows have no swipe actions to fight with (delete/
+            // read live in Select mode). Edit mode pins the page via editModeLockedTab.
+            TabView(selection: $selectedListTab) {
+                chatsTabContent
+                    .tag(ChatsListTab.chats)
+                groupsTabContent
+                    .tag(ChatsListTab.groups)
             }
+            .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .safeAreaInset(edge: .bottom) {
             if editMode == .active {
@@ -275,20 +279,26 @@ struct ChatListView: View {
             if newValue == .inactive {
                 selectedContactIDs = []
                 selectedGroupIDs = []
+                editModeLockedTab = nil
+            } else if newValue == .active {
+                editModeLockedTab = selectedListTab
+            }
+        }
+        .onChange(of: selectedListTab) { newValue in
+            // Selection mode is scoped to the list it started on (see chatsTabButton) - a page
+            // swipe mid-select snaps back to the locked page.
+            if let locked = editModeLockedTab, newValue != locked {
+                selectedListTab = locked
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
             handleOpenChatNotification(notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { notification in
-            handleOpenBroadcastNotification(notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openGroup)) { notification in
             handleOpenGroupNotification(notification)
         }
         .onAppear {
             checkPendingNavigation()
-            checkPendingBroadcastNavigation()
             checkPendingGroupNavigation()
             requestNotificationPermissionIfNeeded()
             loadedConversationCount = conversationPageSize
@@ -327,11 +337,6 @@ struct ChatListView: View {
                 checkPendingNavigation()
             }
         }
-        .onChange(of: broadcastService.pendingBroadcastNavigation) { newValue in
-            if newValue != nil {
-                checkPendingBroadcastNavigation()
-            }
-        }
         .onChange(of: groupChatService.pendingGroupNavigation) { newValue in
             if newValue != nil {
                 checkPendingGroupNavigation()
@@ -356,17 +361,6 @@ struct ChatListView: View {
         navigateToChat(address: contactAddress)
     }
 
-    private func handleOpenBroadcastNotification(_ notification: Notification) {
-        guard let channel = notification.userInfo?["channel"] as? String else { return }
-        navigateToBroadcast(channel: channel)
-    }
-
-    private func checkPendingBroadcastNavigation() {
-        guard let channel = broadcastService.pendingBroadcastNavigation else { return }
-        broadcastService.pendingBroadcastNavigation = nil
-        navigateToBroadcast(channel: channel)
-    }
-
     private func handleOpenGroupNotification(_ notification: Notification) {
         guard let groupId = notification.userInfo?["groupId"] as? String else { return }
         navigateToGroup(groupId: groupId)
@@ -383,20 +377,10 @@ struct ChatListView: View {
         navigateToGroup(groupId: groupId)
     }
 
-    /// Opens the broadcast list already pushed one level deeper into the tapped room, matching
-    /// `navigateToChat`'s cold-start/already-running handling for 1:1 chats.
-    private func navigateToBroadcast(channel: String) {
-        pendingBroadcastChannel = channel
-        selectedContact = nil
-        showBroadcastList = true
-    }
-
     private func navigateToGroup(groupId: String) {
         guard let target = groupChatService.groups.first(where: { $0.id == groupId }) else { return }
         selectedListTab = .groups
         selectedContact = nil
-        pendingBroadcastChannel = nil
-        showBroadcastList = false
         selectedGroup = target
     }
 
@@ -416,8 +400,6 @@ struct ChatListView: View {
 
         if shouldUseSplitLayout {
             selectedContactStartInPaymentMode = startInPaymentMode
-            pendingBroadcastChannel = nil
-            showBroadcastList = false
             selectedContact = target
             return
         }
@@ -426,8 +408,6 @@ struct ChatListView: View {
         // in-place via its own .onReceive(.openChat) handler.
         if selectedContact == nil {
             selectedContactStartInPaymentMode = startInPaymentMode
-            pendingBroadcastChannel = nil
-            showBroadcastList = false
             selectedContact = target
         }
     }
@@ -492,8 +472,7 @@ struct ChatListView: View {
     }
 
     /// Underline-style tab bar (bold labels, teal indicator bar under the selected tab) - same
-    /// visual language as `BroadcastListView.broadcastTabBar`'s own Channels/Popular sub-tabs.
-    /// Tap-only (see `chatListContent`) - Broadcasts isn't one of these tabs, it's the first row
+    /// visual language as the app's other underline tab bars. Tap-only (see `chatListContent`).
     /// inside the Chats tab's own list (see `chatsTabContent`), matching its original
     /// placement/behavior (a pushed screen reached from a chat-like row, not a tab).
     private var chatsTopTabBar: some View {
@@ -504,6 +483,26 @@ struct ChatListView: View {
             }
             Divider()
         }
+    }
+
+    /// Horizontal swipe that switches the Chats/Groups tab - attached to the tab bar and the
+    /// full list surface alike.
+    private func listTabSwipe() -> some Gesture {
+        DragGesture(minimumDistance: 25, coordinateSpace: .global)
+            .onEnded { value in
+                guard editMode != .active else { return }
+                let dx = value.translation.width
+                let dy = value.translation.height
+                // Decisively horizontal only, so vertical list scrolling never trips it.
+                guard abs(dx) > 50, abs(dx) > abs(dy) * 1.5 else { return }
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    if dx < 0, selectedListTab == .chats {
+                        selectedListTab = .groups
+                    } else if dx > 0, selectedListTab == .groups {
+                        selectedListTab = .chats
+                    }
+                }
+            }
     }
 
     private func chatsTabButton(_ title: String, tab: ChatsListTab) -> some View {
@@ -575,7 +574,11 @@ struct ChatListView: View {
                 return true
             }
             return (groupChatService.groupMessages[group.id] ?? []).contains { message in
-                message.content.range(of: query, options: .caseInsensitive) != nil
+                // Skip media envelopes: a photo/voice message's content is a multi-KB base64
+                // blob, and substring-scanning those froze the search field on media-heavy
+                // histories (nobody is searching for base64 fragments).
+                message.content.utf8.count <= 4096 &&
+                    message.content.range(of: query, options: .caseInsensitive) != nil
             }
         }
     }
@@ -596,8 +599,6 @@ struct ChatListView: View {
                                 selectedGroupIDs.insert(group.id)
                             }
                         } else {
-                            pendingBroadcastChannel = nil
-                            showBroadcastList = false
                             selectedContact = nil
                             selectedGroup = group
                         }
@@ -605,36 +606,15 @@ struct ChatListView: View {
                         GroupChatRow(group: group)
                     }
                     .buttonStyle(ChatRowPressStyle())
+                    .contextMenu {
+                        groupRowMenu(for: group)
+                    }
                     .tag(group.id)
                     .listRowBackground(
                         shouldUseSplitLayout && selectedGroup?.id == group.id
                             ? Color.accentColor.opacity(0.14)
                             : Color.clear
                     )
-                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                        Button {
-                            if groupChatService.unreadCount(for: group) > 0 {
-                                groupChatService.markGroupAsRead(group.id)
-                            } else {
-                                groupChatService.markGroupAsUnread(group.id)
-                            }
-                        } label: {
-                            if groupChatService.unreadCount(for: group) > 0 {
-                                Label("Read", systemImage: "envelope.open")
-                            } else {
-                                Label("Unread", systemImage: "envelope.badge")
-                            }
-                        }
-                        .tint(.accentColor)
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            groupPendingDelete = group
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                        .tint(.red)
-                    }
                 }
 
                 Text("\(groups.count) group\(groups.count == 1 ? "" : "s")")
@@ -684,25 +664,6 @@ struct ChatListView: View {
         }
 
         return List(selection: $selectedContactIDs) {
-            // Restored to its original placement: a row inside the Chats list itself (so it
-            // reads as "just another chat"), not a standalone element above the tabs - only
-            // shown while not searching, matching every other non-conversation row here.
-            if searchText.isEmpty && !settingsViewModel.settings.hideBroadcasts {
-                Button {
-                    pendingBroadcastChannel = nil
-                    selectedContact = nil
-                    selectedGroup = nil
-                    showBroadcastList = true
-                } label: {
-                    BroadcastEntryRow()
-                }
-                .listRowBackground(
-                    shouldUseSplitLayout && showBroadcastList
-                        ? Color.accentColor.opacity(0.14)
-                        : Color.clear
-                )
-            }
-
             if !displayed.isEmpty {
                 ForEach(Array(displayed.enumerated()), id: \.element.id) { index, conversation in
                     Button {
@@ -717,8 +678,6 @@ struct ChatListView: View {
                             }
                         } else {
                             selectedContactStartInPaymentMode = false
-                            pendingBroadcastChannel = nil
-                            showBroadcastList = false
                             selectedGroup = nil
                             selectedContact = conversation.contact
                         }
@@ -726,38 +685,15 @@ struct ChatListView: View {
                         ConversationRow(conversation: conversation)
                     }
                     .buttonStyle(ChatRowPressStyle())
+                    .contextMenu {
+                        conversationRowMenu(for: conversation)
+                    }
                     .tag(conversation.contact.id)
                     .listRowBackground(
                         shouldUseSplitLayout && selectedContact?.address == conversation.contact.address
                             ? Color.accentColor.opacity(0.14)
                             : Color.clear
                     )
-                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                        Button {
-                            if conversation.unreadCount > 0 {
-                                Task {
-                                    await chatService.markConversationAsRead(conversation)
-                                }
-                            } else {
-                                chatService.markConversationAsUnread(conversation)
-                            }
-                        } label: {
-                            if conversation.unreadCount > 0 {
-                                Label("Read", systemImage: "envelope.open")
-                            } else {
-                                Label("Unread", systemImage: "envelope.badge")
-                            }
-                        }
-                        .tint(.accentColor)
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            contactPendingDelete = conversation.contact
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                        .tint(.red)
-                    }
                     .onAppear {
                         maybeLoadMoreConversations(
                             currentIndex: index,
@@ -777,11 +713,8 @@ struct ChatListView: View {
         }
         .listStyle(.plain)
         .overlay {
-            // Rendered as an overlay rather than a List row: as a row, it sat right after the
-            // Broadcasts row with no content to expand into the remaining space, which left a
-            // stray-looking separator line floating above Broadcasts with a large dead gap below
-            // it instead of a normal centered empty state. An overlay isn't subject to List's
-            // row/separator layout at all, so it can just center properly over the whole list area.
+            // Rendered as an overlay rather than a List row so it can center properly over the
+            // whole list area instead of being subject to List's row/separator layout.
             if displayed.isEmpty && searchText.isEmpty {
                 emptyStateView
             }
@@ -865,10 +798,17 @@ struct ChatListView: View {
     private var balanceToolbarView: some View {
         let sompi = walletManager.currentWallet?.balanceSompi
         let exact = sompi.map(formatKaspaExact) ?? "--"
-        return Text("\(exact) KAS")
-            .font(.caption)
-            .monospacedDigit()
-            .foregroundColor(.secondary)
+        // Kaspa logo + bold, matching KaPosts' balance header style.
+        return HStack(spacing: 6) {
+            Image("KaspaLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 15, height: 15)
+            Text("\(exact) KAS")
+                .font(.footnote.weight(.semibold))
+                .monospacedDigit()
+                .foregroundColor(.secondary)
+        }
         .onTapGesture {
             guard sompi != nil else { return }
             UIPasteboard.general.string = exact
@@ -962,11 +902,9 @@ struct ChatListView: View {
                 .filter { conversation in
                     chatService.isConversationVisibleInChatList(conversation, settings: settings)
                 }
-                .sorted { conv1, conv2 in
-                    let time1 = conv1.lastMessage?.timestamp ?? Date.distantPast
-                    let time2 = conv2.lastMessage?.timestamp ?? Date.distantPast
-                    return time1 > time2
-                }
+                .map { (key: $0.lastMessage?.timestamp ?? Date.distantPast, value: $0) }
+                .sorted { $0.key > $1.key }
+                .map(\.value)
             return
         }
 
@@ -976,11 +914,9 @@ struct ChatListView: View {
                 .filter { conversation in
                     chatService.isConversationVisibleInChatList(conversation, settings: settings)
                 }
-                .sorted { conv1, conv2 in
-                    let time1 = conv1.lastMessage?.timestamp ?? Date.distantPast
-                    let time2 = conv2.lastMessage?.timestamp ?? Date.distantPast
-                    return time1 > time2
-                }
+                .map { (key: $0.lastMessage?.timestamp ?? Date.distantPast, value: $0) }
+                .sorted { $0.key > $1.key }
+                .map(\.value)
             return
         }
 
@@ -993,16 +929,14 @@ struct ChatListView: View {
                 return true
             }
             return conv.messages.contains { message in
-                message.content.range(of: query, options: .caseInsensitive) != nil
+                // Same media-envelope guard as the group search above. Cross-device placeholders
+                // are hidden from every surface, so a query matching their fixed text must not
+                // surface the conversation either.
+                !message.isSentPlaceholder &&
+                    message.content.utf8.count <= 4096 &&
+                    message.content.range(of: query, options: .caseInsensitive) != nil
             }
         }
-    }
-
-    private func deleteConversation(_ contact: Contact) {
-        chatService.removeConversation(for: contact.address)
-        contactsManager.deleteContact(contact)
-        chatService.checkAndResubscribeIfNeeded()
-        showToast("Chat deleted.")
     }
 
     /// Pulled out of the `.alert(...)` call site as a plain computed property - an inline ternary
@@ -1022,8 +956,64 @@ struct ChatListView: View {
             : "This removes each selected group and its messages from this device. This cannot be undone, and other members won't be notified."
     }
 
-    /// Bulk multi-select delete - same per-contact cleanup as `deleteConversation`, just
-    /// resubscribing and toasting once at the end instead of once per contact.
+    /// Long-press context menu for a 1:1 conversation row. Read/Unread show contextually (the
+    /// relevant one only, matching Mail) and reuse the exact same service calls as the Select-mode
+    /// bulk bar; Delete routes through its own confirmation alert, which then reuses
+    /// `deleteConversations`. Empty while Select mode is active - the bulk bar owns actions there.
+    @ViewBuilder
+    private func conversationRowMenu(for conversation: Conversation) -> some View {
+        if editMode != .active {
+            if conversation.unreadCount > 0 {
+                Button {
+                    Task {
+                        await chatService.markConversationAsRead(conversation)
+                    }
+                } label: {
+                    Label("Mark as Read", systemImage: "envelope.open")
+                }
+            } else {
+                Button {
+                    chatService.markConversationAsUnread(conversation)
+                } label: {
+                    Label("Mark as Unread", systemImage: "envelope.badge")
+                }
+            }
+            Button(role: .destructive) {
+                rowDeleteContact = conversation.contact
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    /// Group-row counterpart to `conversationRowMenu` - same three actions on the group's own
+    /// `groupLastReadAt` badge mechanism and delete flow.
+    @ViewBuilder
+    private func groupRowMenu(for group: GroupChat) -> some View {
+        if editMode != .active {
+            if groupChatService.unreadCount(for: group) > 0 {
+                Button {
+                    groupChatService.markGroupAsRead(group.id)
+                } label: {
+                    Label("Mark as Read", systemImage: "envelope.open")
+                }
+            } else {
+                Button {
+                    groupChatService.markGroupAsUnread(group.id)
+                } label: {
+                    Label("Mark as Unread", systemImage: "envelope.badge")
+                }
+            }
+            Button(role: .destructive) {
+                rowDeleteGroup = group
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    /// Shared delete path for both Select-mode bulk deletes and single-row context-menu deletes
+    /// (row swipes are gone) - per-contact cleanup with one resubscribe and toast at the end.
     private func deleteConversations(_ contacts: [Contact]) {
         guard !contacts.isEmpty else { return }
         for contact in contacts {
@@ -1147,32 +1137,6 @@ private struct GroupChatDetailNavigationDestination: ViewModifier {
     }
 }
 
-private struct BroadcastListNavigationDestination: ViewModifier {
-    let mode: BroadcastListPresentationMode
-    @Binding var showBroadcastList: Bool
-    @Binding var pendingBroadcastChannel: String?
-
-    @ViewBuilder
-    func body(content: Content) -> some View {
-        switch mode {
-        case .splitDetail:
-            content
-        case .navigationDestination:
-            content.navigationDestination(isPresented: Binding(
-                get: { showBroadcastList },
-                set: { isPresented in
-                    showBroadcastList = isPresented
-                    if !isPresented {
-                        pendingBroadcastChannel = nil
-                    }
-                }
-            )) {
-                BroadcastListView(initialChannel: pendingBroadcastChannel)
-            }
-        }
-    }
-}
-
 struct ConversationRow: View {
     let conversation: Conversation
     @EnvironmentObject var chatService: ChatService
@@ -1196,7 +1160,8 @@ struct ConversationRow: View {
             KNSAvatarView(
                 avatarURLString: avatarURLString,
                 fallbackText: conversation.contact.alias,
-                size: 50
+                size: 50,
+                contactAddress: conversation.contact.address
             )
 
             // Content
@@ -1324,6 +1289,10 @@ struct ConversationRow: View {
     }
 
     private func formatPreview(_ content: String) -> String {
+        // Cross-device placeholders never surface anywhere (see ChatMessage.isSentPlaceholder).
+        // Conversation.lastMessage already skips them; this is a defensive backstop in case a
+        // placeholder's content reaches the preview through any other route.
+        if ChatMessage.isSentPlaceholder(content) { return "" }
         // `content.utf8.count` (not `.count`, which does a full Unicode grapheme-cluster scan)
         // - a chat's last message can be a multi-MB base64 photo/audio payload, and this cache
         // key has to be computed before the cache can even be checked. With `.count` (and the
@@ -1349,8 +1318,12 @@ struct ConversationRow: View {
             return result
         }
 
-        if ChessCodec.parseAny(unwrapped) != nil {
-            result = "♟️ Chess game"
+        if let chessEnvelope = ChessCodec.parseAny(unwrapped) {
+            if case .invite(let invite) = chessEnvelope, let minutes = invite.tcMinutes {
+                result = "♟️ Chess game - \(minutes) | \(invite.tcIncSeconds ?? 0)"
+            } else {
+                result = "♟️ Chess game"
+            }
             Self.previewCache.setObject(result as NSString, forKey: key)
             return result
         }
@@ -1399,103 +1372,41 @@ private struct ChatRowPressStyle: ButtonStyle {
     }
 }
 
-struct ShimmeringText: View {
-    let text: String
-    let font: Font
-    let color: Color
-    let isShimmering: Bool
-
-    @State private var phase: CGFloat = -1
-
-    private var baseText: Text {
-        Text(text)
-            .font(font)
-            .monospacedDigit()
-    }
-
-    var body: some View {
-        baseText
-            .foregroundColor(color)
-            .overlay {
-                if isShimmering {
-                    ShimmerOverlay(phase: phase)
-                        .mask(baseText)
-                }
-            }
-            .onAppear {
-                updateShimmer()
-            }
-            .onChange(of: isShimmering) { _ in
-                updateShimmer()
-            }
-    }
-
-    private func updateShimmer() {
-        if isShimmering {
-            phase = -1
-            withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
-                phase = 1
-            }
-        } else {
-            phase = -1
-        }
-    }
-}
-
-private struct ShimmerOverlay: View {
-    let phase: CGFloat
-
-    var body: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.0),
-                            Color.white.opacity(0.24),
-                            Color.white.opacity(0.0)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .rotationEffect(.degrees(20))
-                .offset(x: phase * width * 1.4)
-        }
-    }
-}
-
-struct BroadcastEntryRow: View {
-    var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(Color.accentColor.opacity(0.2))
-                .frame(width: 50, height: 50)
-                .overlay(
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.system(size: 20))
-                        .foregroundColor(.accentColor)
-                )
-
-            Text("Broadcasts")
-                .font(.headline)
-
-            Spacer()
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-    }
-}
-
 struct GroupChatRow: View {
     let group: GroupChat
     @EnvironmentObject var groupChatService: GroupChatService
     @EnvironmentObject var contactsManager: ContactsManager
+    @EnvironmentObject var walletManager: WalletManager
     @ObservedObject private var knsService = KNSService.shared
 
     private var lastMessage: GroupMessage? {
         groupChatService.groupMessages[group.id]?.max { $0.timestamp < $1.timestamp }
+    }
+
+    /// Group mirror of ConversationRow.reactionPreviewText: a reaction newer than the last
+    /// message becomes the row's preview ("Alice reacted to a message") - reactions never
+    /// become messages (they render as a corner pill), so without this the row would keep
+    /// showing an older message as if nothing happened. `nil` when the newest activity is a
+    /// regular message.
+    private var reactionPreviewText: String? {
+        guard let byTarget = groupChatService.reactionsByGroupId[group.id], !byTarget.isEmpty else { return nil }
+        var newest: (snapshot: GroupStore.ReactionSnapshot, targetIsMine: Bool)?
+        for (targetTxId, snapshots) in byTarget {
+            guard let candidate = snapshots.max(by: { $0.blockTime < $1.blockTime }) else { continue }
+            if newest == nil || candidate.blockTime > newest!.snapshot.blockTime {
+                let targetIsMine = groupChatService.groupMessages[group.id]?
+                    .first(where: { $0.txId == targetTxId })?.isOutgoing == true
+                newest = (candidate, targetIsMine)
+            }
+        }
+        guard let newest else { return nil }
+        let reactionDate = Date(timeIntervalSince1970: TimeInterval(newest.snapshot.blockTime) / 1000.0)
+        if let lastMessage, lastMessage.timestamp >= reactionDate { return nil }
+        if newest.snapshot.reactorAddress == walletManager.currentWallet?.publicAddress {
+            return newest.targetIsMine ? "You reacted to your message" : "You reacted to a message"
+        }
+        let name = resolveDisplayName(for: newest.snapshot.reactorAddress)
+        return newest.targetIsMine ? "\(name) reacted to your message" : "\(name) reacted to a message"
     }
 
     /// Same resolution as `GroupChatDetailView.displayName(for:)`.
@@ -1509,16 +1420,29 @@ struct GroupChatRow: View {
         return Contact.generateDefaultAlias(from: address)
     }
 
+    private var groupPhotoImage: UIImage? {
+        guard let hex = groupChatService.groupPhotos[group.id], let data = Data(hexString: hex) else { return nil }
+        return UIImage(data: data)
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            Circle()
-                .fill(Color.accentColor.opacity(0.2))
-                .frame(width: 50, height: 50)
-                .overlay(
-                    Image(systemName: "person.3.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(.accentColor)
-                )
+            if let img = groupPhotoImage {
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 50, height: 50)
+                    .clipShape(Circle())
+            } else {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.2))
+                    .frame(width: 50, height: 50)
+                    .overlay(
+                        Image(systemName: "person.3.fill")
+                            .font(.system(size: 18))
+                            .foregroundColor(.accentColor)
+                    )
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
@@ -1536,7 +1460,12 @@ struct GroupChatRow: View {
                 }
 
                 HStack {
-                    if let lastMessage {
+                    if let reactionPreview = reactionPreviewText {
+                        Text(reactionPreview)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    } else if let lastMessage {
                         Text(GroupMentionCodec.decodeForDisplay(MessageReplyCodec.previewText(for: lastMessage.content), members: group.members, resolveDisplayName: resolveDisplayName(for:)))
                             .font(.subheadline)
                             .foregroundColor(.secondary)
@@ -1585,5 +1514,4 @@ struct GroupChatRow: View {
         .environmentObject(ChatService.shared)
         .environmentObject(ContactsManager.shared)
         .environmentObject(WalletManager.shared)
-        .environmentObject(BroadcastService.shared)
 }

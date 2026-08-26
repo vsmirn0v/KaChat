@@ -466,6 +466,22 @@ extension ChatService {
             // Case 3: UTXO to unknown address (e.g., change) - skip silently
         }
 
+        // Own-address (spending / cold-storage) receives: wallet notifications, never chats.
+        // Handed the WHOLE batch so one tx paying several of our addresses notifies once,
+        // plus the per-tx removed sets for the self-send fast path (a tx spending FROM any
+        // watched own address is our own change/consolidation/withdrawal - no notification).
+        // The always-post internal event goes out first, independent of the notification
+        // decision/setting - it's what keeps the payment composer's Available pill and the
+        // address list screens live for self-send change too.
+        AddressActivityNotifier.shared.postUtxoActivityEvent(parsed: parsed, removedByTxId: removedByTxId)
+        AddressActivityNotifier.shared.handleLiveUtxoAdditions(parsed: parsed, removedByTxId: removedByTxId)
+
+        // Payment-pool reservation addresses are watched but skipped by the chat classifier
+        // above (Case 3) and excluded from wallet notifications - this is where a receive on
+        // one of them marks the reservation funded and triggers the pool-of-2 auto-replenish,
+        // even when the payer's payment_notice never arrives.
+        handlePoolReservationUtxoAdditions(parsed.added)
+
         if !parsed.added.isEmpty {
             saveMessages()
         }
@@ -1373,9 +1389,17 @@ extension ChatService {
 
         // Race mempool RPC vs REST API for payload
         // For self-stash, we already know the sender - just need payload
-        let payload = await resolvePayloadOnly(txId: txId)
-
-        guard let payloadHex = payload, !payloadHex.isEmpty else {
+        let payloadHex: String
+        switch await resolvePayloadOnly(txId: txId) {
+        case .payload(let hex):
+            payloadHex = hex
+        case .alreadyStored:
+            return
+        case .plainPayment:
+            // Terminal: the mempool proved this transaction carries no payload. No retry, no
+            // escalation to a full sync - the regular payment pipeline handles it.
+            return
+        case .unresolved:
             if await findLocalMessage(txId: txId) != nil {
                 return
             }
@@ -1529,13 +1553,32 @@ extension ChatService {
         return false
     }
 
-    /// Fast payload resolution: try mempool first, fall back to REST API
-    /// Used for self-stash messages where sender is already known
-    func resolvePayloadOnly(txId: String) async -> String? {
+    /// Outcome of `resolvePayloadOnly` - callers must treat `plainPayment` as TERMINAL.
+    enum PayloadResolution {
+        /// The transaction's payload, resolved from mempool or REST.
+        case payload(String)
+        /// The message already exists locally - nothing to do.
+        case alreadyStored
+        /// The mempool holds the transaction with an EMPTY payload: it is a plain payment,
+        /// not a message. Terminal - no REST loop, no retry escalation (the old behavior ran
+        /// a 30-attempt REST poll and then a retry chain ending in a FULL sync, all for a
+        /// transaction that provably carries no payload).
+        case plainPayment
+        /// Not resolved within the attempt budget - the caller may schedule a retry.
+        case unresolved
+    }
+
+    /// Fast payload resolution: try mempool first, fall back to REST API.
+    /// Used for self-stash messages where sender is already known.
+    /// `maxRestAttempts` defaults to 3: the only caller is the subscription-triggered
+    /// self-stash path, whose own retry ladder (`scheduleSelfStashRetry`) already covers the
+    /// slow-indexer case - the old 30-attempt (~80s) in-place REST poll on top of that was
+    /// pure duplicate traffic.
+    func resolvePayloadOnly(txId: String, maxRestAttempts: Int = 3) async -> PayloadResolution {
         let startTime = Date()
 
         if await findLocalMessage(txId: txId) != nil {
-            return nil
+            return .alreadyStored
         }
 
         // Step 1: Single immediate mempool query to all active nodes
@@ -1544,31 +1587,29 @@ extension ChatService {
             if !entry.payload.isEmpty {
                 mempoolPayloadByTxId[txId] = entry.payload
                 if await findLocalMessage(txId: txId) != nil {
-                    return nil
+                    return .alreadyStored
                 }
                 let elapsed = Date().timeIntervalSince(startTime) * 1000
                 AppLog.log("[ChatService] Payload resolved from mempool in %.0fms for %@",
                       elapsed, String(txId.prefix(12)))
-                return entry.payload
+                return .payload(entry.payload)
             }
+            // Mempool HIT with an empty payload: the node holds the full transaction and it
+            // carries no payload - a plain payment. Terminal, by design.
+            AppLog.log("[ChatService] Mempool hit with empty payload for %@ - plain payment, no message to resolve",
+                  String(txId.prefix(12)))
+            return .plainPayment
         }
         AppLog.log("[ChatService] Mempool lookup miss for self-stash %@", String(txId.prefix(12)))
 
-        // Step 2: Fall back to REST API with polling
-        guard let url = kaspaRestURL(path: "/transactions/\(txId)") else { return nil }
+        // Step 2: Fall back to REST API with a short poll (see maxRestAttempts)
+        guard let url = kaspaRestURL(path: "/transactions/\(txId)") else { return .unresolved }
 
-        for attempt in 1...30 {
+        for attempt in 1...max(1, maxRestAttempts) {
             if await findLocalMessage(txId: txId) != nil {
-                return nil
+                return .alreadyStored
             }
-            // Exponential backoff: first 10 attempts = 500ms, then doubles (capped at 5s)
-            let delayMs: UInt64
-            if attempt <= 10 {
-                delayMs = 500
-            } else {
-                let exponent = attempt - 11
-                delayMs = min(UInt64(1000 * (1 << exponent)), 5000)
-            }
+            let delayMs: UInt64 = 500
 
             do {
                 let (data, response) = try await URLSession.shared.data(from: url)
@@ -1584,12 +1625,12 @@ extension ChatService {
                    let payloadHex = json["payload"] as? String,
                    !payloadHex.isEmpty {
                     if await findLocalMessage(txId: txId) != nil {
-                        return nil
+                        return .alreadyStored
                     }
                     let elapsed = Date().timeIntervalSince(startTime) * 1000
                     AppLog.log("[ChatService] Payload resolved from REST in %.0fms (attempt %d) for %@",
                           elapsed, attempt, String(txId.prefix(12)))
-                    return payloadHex
+                    return .payload(payloadHex)
                 }
 
                 try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
@@ -1601,7 +1642,7 @@ extension ChatService {
         let elapsed = Date().timeIntervalSince(startTime) * 1000
         AppLog.log("[ChatService] Payload resolution timeout after %.0fms for %@",
               elapsed, String(txId.prefix(12)))
-        return nil
+        return .unresolved
     }
 
     /// Remove a message by txId (used when payment turns out to be handshake)
@@ -1636,6 +1677,7 @@ extension ChatService {
     func stopPolling() {
         pollTask?.cancel()
         pollTask = nil
+        stopForegroundContactSweep()
         // The initial 4-phase sync task and the debounced message-store writer are not otherwise
         // tracked here; cancel them too so a wallet switch/logout can't leave the previous wallet's
         // sync running and writing into the next wallet's store.

@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import UIKit
@@ -15,6 +16,7 @@ struct ProfileView: View {
     // which was the scroll jank. The connection dot is its own small view with its own observation.
     @EnvironmentObject var giftService: GiftService
     @EnvironmentObject var contactsManager: ContactsManager
+    @EnvironmentObject var settingsViewModel: SettingsViewModel
 
     @State private var editedAlias = ""
     @State private var aliasSaveTask: Task<Void, Never>?
@@ -28,11 +30,9 @@ struct ProfileView: View {
     @State private var knsPrimaryDomain: String?
     @State private var knsProfileInfo: KNSAddressProfileInfo?
     @State private var showMoreProfileInfo = false
-    @State private var showChattingAddressOptions = false
     @State private var showWithdrawSheet = false
     @State private var spendingAddressBalanceSompi: UInt64?
     @State private var isLoadingSpendingBalance = false
-    @State private var showSpendingAddressOptions = false
     @State private var showSpendingAddressWithdraw = false
     @State private var showAvatarPreview = false
     @State private var showKNSEditor = false
@@ -42,9 +42,12 @@ struct ProfileView: View {
     @State private var knsSaveProgressText: String?
     @State private var failedKNSUpdates: [KNSProfileFieldKey: String] = [:]
     @State private var showSettings = false
+    @State private var showNotifCenter = false
+    @ObservedObject private var notifCenter = GlobalNotificationCenter.shared
     @State private var isResolvingDonateAddress = false
     @State private var showLogoutConfirmation = false
     @State private var showWelcomeGuideReplay = false
+    @State private var isEditingAccountName = false
 
     static func preloadQRCode(for address: String) {
         ProfileQRCodeCache.preload(address: address, completion: nil)
@@ -55,16 +58,21 @@ struct ProfileView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if let wallet = walletManager.currentWallet {
-                        accountNameCard(wallet)
-                        if walletManager.showSetupGuides {
-                            welcomeGuideSection
-                        }
-                        knsProfileSection
+                        accountNameRow(wallet)
+                        profileHeroSection(wallet)
                         qrButtonsSection(wallet)
                         addressDropdownsSection(wallet)
-                        aboutSection(wallet)
+                        if !AppTab.visible(from: settingsViewModel.settings).contains(.apps) {
+                            // Apps lives here only while it's NOT actually on the dock - either
+                            // toggled off in Customize Dock, or toggled on but tail-dropped
+                            // because the dock is full (Apps doesn't ride the Chats-tab cycle).
+                            // On the dock, this row disappears.
+                            appsSection
+                        }
+                        helpSection
                         claimGiftSection
                         logOutSection
+                        aboutSection(wallet)
                     } else {
                         Text("No active account")
                             .foregroundColor(.secondary)
@@ -76,23 +84,133 @@ struct ProfileView: View {
                 _ = try? await walletManager.refreshBalance()
                 await loadSpendingAddressBalance()
             }
+            // Pinned large-title header: the system .large title scrolls away with the content,
+            // so the title lives here as fixed chrome instead - same font/weight/leading inset
+            // as the system large title, with the content sliding underneath through the
+            // material (same pinned pattern as BroadcastChannelView's top notice). The nav bar
+            // itself runs .inline, where the principal balance view already occupies the title
+            // slot - identical to what the bar showed mid-scroll before.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HStack {
+                    Text("Profile")
+                        .font(.largeTitle.weight(.bold))
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 2)
+                .padding(.bottom, 8)
+                // Solid screen background, matching the Chats title band: all black in dark
+                // mode, no gray material blur.
+                .background(Color(UIColor.systemBackground))
+            }
+            .navigationTitle("Profile")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // Both sides mirror each other with hidden copies of the opposite side's
+                // items, so the leading and trailing bar groups always occupy the same width
+                // and the principal balance sits at TRUE screen center - two trailing buttons
+                // against one leading dot otherwise shove the title view visibly left.
                 ToolbarItem(placement: .navigationBarLeading) {
-                    ConnectionStatusIndicator()
+                    HStack(spacing: 12) {
+                        ConnectionStatusIndicator()
+                        Image(systemName: "bell").hidden()
+                        Image(systemName: "gear").hidden()
+                    }
                 }
                 ToolbarItem(placement: .principal) {
                     balanceToolbarView
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "gear")
+                    HStack(spacing: 12) {
+                        ConnectionStatusIndicator().hidden()
+                        // Global notification center: KaPosts activity, group @mentions, live
+                        // broadcasts. A plain red DOT (no count) signals unread.
+                        Button {
+                            showNotifCenter = true
+                        } label: {
+                            Image(systemName: "bell")
+                                .overlay(alignment: .topTrailing) {
+                                    if notifCenter.unreadCount > 0 {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 8, height: 8)
+                                            .offset(x: 4, y: -3)
+                                    }
+                                }
+                        }
+                        .accessibilityLabel(Text("Notifications"))
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Image(systemName: "gear")
+                        }
+                        .accessibilityLabel(Text("Settings"))
                     }
-                    .accessibilityLabel(Text("Settings"))
                 }
             }
+            .sheet(isPresented: $showNotifCenter) {
+                GlobalNotificationListView()
+            }
             .toast(message: toastMessage, style: toastStyle)
+            // KNS save progress: a PERSISTENT banner (state-driven, no auto-dismiss timer) that
+            // stays up from "Preparing profile update..." through each "Updating X (n/m)..."
+            // step until the save finishes. If fields failed, it flips into a red banner with
+            // Retry All / dismiss.
+            .overlay(alignment: .bottom) {
+                if isSavingKNSProfile {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .scaleEffect(0.85)
+                        Text(knsSaveProgressText ?? localized("Saving profile..."))
+                            .font(.footnote.weight(.semibold))
+                            .lineLimit(2)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(
+                        Capsule()
+                            .fill(.regularMaterial)
+                            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+                            .shadow(color: Color.black.opacity(0.15), radius: 10, x: 0, y: 4)
+                    )
+                    .padding(.bottom, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if !failedKNSUpdates.isEmpty {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                        Text(localizedFormat("%d profile update(s) failed", failedKNSUpdates.count))
+                            .font(.footnote.weight(.semibold))
+                        Button {
+                            retryAllFailedKNSUpdates()
+                        } label: {
+                            Text("Retry")
+                                .font(.footnote.weight(.bold))
+                                .foregroundColor(.accentColor)
+                                .underline()
+                        }
+                        .buttonStyle(.plain)
+                        Button {
+                            withAnimation(.easeIn(duration: 0.2)) { failedKNSUpdates = [:] }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(
+                        Capsule()
+                            .fill(.regularMaterial)
+                            .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+                            .shadow(color: Color.black.opacity(0.15), radius: 10, x: 0, y: 4)
+                    )
+                    .padding(.bottom, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isSavingKNSProfile)
             .sheet(isPresented: $showSettings) {
                 SettingsView()
             }
@@ -258,47 +376,69 @@ struct ProfileView: View {
     private var balanceToolbarView: some View {
         let sompi = walletManager.currentWallet?.balanceSompi
         let exact = sompi.map(formatKaspaExact) ?? "--"
-        return Text("\(exact) KAS")
-            .font(.caption)
-            .monospacedDigit()
-            .foregroundColor(.secondary)
-            .onTapGesture {
-                guard sompi != nil else { return }
-                UIPasteboard.general.string = exact
-                Haptics.success()
-                showToast("Balance copied to clipboard.")
-            }
-    }
-
-    /// Read-only display of which account is currently active. Renaming stays confined to
-    /// the saved-accounts list in Onboarding (`walletManager.renameSavedAccount`) — this card
-    /// is purely informative so there's no ambiguity about which account is signed in here.
-    private func accountNameCard(_ wallet: Wallet) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Account")
-                .font(.caption)
-                .fontWeight(.medium)
+        // Kaspa logo + bold, matching the KaPosts/Chats balance style.
+        return HStack(spacing: 6) {
+            Image("KaspaLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 15, height: 15)
+            Text("\(exact) KAS")
+                .font(.footnote.weight(.semibold))
+                .monospacedDigit()
                 .foregroundColor(.secondary)
-            Text(wallet.alias)
-                .font(.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(.primary)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(glassBackground(cornerRadius: 18))
+        .onTapGesture {
+            guard sompi != nil else { return }
+            UIPasteboard.general.string = exact
+            Haptics.success()
+            showToast("Balance copied to clipboard.")
+        }
     }
 
-    /// Replays the same first-run walkthrough shown automatically after onboarding a wallet
-    /// (created or imported) - `WelcomeGuideView`, triggered from `MainTabView` via
-    /// `walletManager.justCreatedNewWallet` - distinct `@State` name from `showSetupGuide` below,
-    /// which re-launches the unrelated KNS domain/avatar creation wizard.
-    private var welcomeGuideSection: some View {
-        Button {
-            showWelcomeGuideReplay = true
+    /// Account name sitting right up against the bold Profile title - tap the pencil to
+    /// rename in place (renaming used to live only on the logged-out accounts list).
+    private func accountNameRow(_ wallet: Wallet) -> some View {
+        HStack(spacing: 8) {
+            if isEditingAccountName {
+                TextField("Account name", text: $editedAlias)
+                    .font(.title3.weight(.semibold))
+                    .textFieldStyle(.plain)
+                    .submitLabel(.done)
+                    .onSubmit { commitAccountRename(wallet) }
+                Button {
+                    commitAccountRename(wallet)
+                } label: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text(wallet.alias)
+                    .font(.title3.weight(.semibold))
+                    .lineLimit(1)
+                Button {
+                    editedAlias = wallet.alias
+                    isEditingAccountName = true
+                } label: {
+                    Image(systemName: "pencil.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(.top, -8)
+    }
+
+    /// Entry to the Apps screen: quick bubble launchers for Kaspa ecosystem sites.
+    private var appsSection: some View {
+        NavigationLink {
+            ProfileAppsView()
         } label: {
             HStack {
-                Label("Welcome Guide", systemImage: "sparkles")
+                Label("Apps", systemImage: "square.grid.2x2")
                     .foregroundColor(.primary)
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -310,6 +450,125 @@ struct ProfileView: View {
         }
         .buttonStyle(.plain)
         .background(glassBackground(cornerRadius: 18))
+    }
+
+    /// Entry to the Help screen: every guide in one place.
+    private var helpSection: some View {
+        NavigationLink {
+            ProfileHelpView(
+                onWelcomeGuide: { showWelcomeGuideReplay = true },
+                onKNSSetupGuide: { showCreateKNSProfileFlow = true }
+            )
+        } label: {
+            HStack {
+                Label("Help", systemImage: "questionmark.circle")
+                    .foregroundColor(.primary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(glassBackground(cornerRadius: 18))
+    }
+
+    private func commitAccountRename(_ wallet: Wallet) {
+        let trimmed = editedAlias.trimmingCharacters(in: .whitespacesAndNewlines)
+        isEditingAccountName = false
+        guard !trimmed.isEmpty, trimmed != wallet.alias,
+              let account = walletManager.savedAccounts.first(where: { $0.publicAddress == wallet.publicAddress })
+        else { return }
+        walletManager.renameSavedAccount(account, to: trimmed)
+        showToast("Account renamed.")
+    }
+
+    /// KaPosts-style hero: KNS banner (gradient fallback), overlapping avatar, display name
+    /// (primary KNS domain, .kas dropped, else the account name) and bio.
+    private func profileHeroSection(_ wallet: Wallet) -> some View {
+        let displayName: String = {
+            if let domain = knsPrimaryDomain ?? knsProfileInfo?.domainName,
+               !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return KaPostsView.strippingKasSuffix(domain)
+            }
+            return wallet.alias
+        }()
+        return VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let bannerURL = knsProfileInfo?.profile?.bannerUrl,
+                   KNSProfileLinkBuilder.websiteURL(from: bannerURL) != nil {
+                    KNSBannerImageView(bannerURLString: bannerURL, height: 140, cornerRadius: 0)
+                } else {
+                    LinearGradient(
+                        colors: [Color.accentColor.opacity(0.55), Color.accentColor.opacity(0.15)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .frame(height: 140)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .clipped()
+
+            // Avatar overlaps the banner; the Edit/Create entry sits beside it, bottom-aligned
+            // so the text lands fully below the banner. This hero is only ever built for the
+            // user's own wallet (ProfileView renders walletManager.currentWallet), so the edit
+            // affordance never shows on someone else's profile.
+            HStack(alignment: .bottom) {
+                KNSAvatarView(
+                    avatarURLString: knsProfileInfo?.avatarURL,
+                    fallbackText: displayName,
+                    size: 76
+                )
+                .overlay(Circle().stroke(Color(uiColor: .systemBackground), lineWidth: 3))
+                Spacer()
+                Button {
+                    if hasKNSProfile {
+                        showKNSEditor = true
+                    } else {
+                        showCreateKNSProfileFlow = true
+                    }
+                } label: {
+                    Text(hasKNSProfile ? "Edit KNS Profile" : "Create KNS Profile")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.accentColor)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 4)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, -38)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(displayName)
+                    .font(.title3.weight(.bold))
+                    .lineLimit(1)
+                if let bio = knsProfileInfo?.profile?.bio,
+                   !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(bio)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 14)
+        }
+        .background(glassBackground(cornerRadius: 18))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    /// Single source of truth for "does this wallet have a KNS profile at all?" - a registered
+    /// domain is what the editor needs (see `showKNSEditor`'s `assetId != nil` guard), so the same
+    /// predicate decides both the destination (editor vs. guided creation flow) and the wording of
+    /// every affordance that offers it. Reads `knsProfileInfo` (@State, refreshed by
+    /// `refreshKNSData`) so the label flips from "Create" to "Edit" as soon as a profile is
+    /// created - no app restart required.
+    private var hasKNSProfile: Bool {
+        !(knsProfileInfo?.domainName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func setPrimaryDomain(_ domain: KNSDomain) async {
@@ -506,6 +765,7 @@ struct ProfileView: View {
     }
 
     private func knsProfileHeaderRow(_ profileInfo: KNSAddressProfileInfo) -> some View {
+        // Same predicate as `hasKNSProfile` (this variant is passed the profile explicitly).
         let hasDomain = !(profileInfo.domainName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         return Button {
             if hasDomain {
@@ -613,11 +873,22 @@ struct ProfileView: View {
         HStack(spacing: 24) {
             Spacer()
             NavigationLink {
-                ChattingAddressQRView(
-                    address: walletManager.currentSpendingAddress() ?? wallet.publicAddress,
-                    balanceSompi: spendingAddressBalanceSompi,
-                    subtitle: "Only accept Kaspa you intend to use as money to this address."
-                )
+                // Never substitute the CHATTING address for the spending role — that was the
+                // "chatting balance under spending" flicker. If the spending address can't
+                // resolve this instant (locked keychain), show a retry note instead of the
+                // wrong address. (Rare now: derived addresses are persistently cached.)
+                if let spendingAddress = walletManager.currentSpendingAddress() {
+                    ChattingAddressQRView(
+                        address: spendingAddress,
+                        balanceSompi: spendingAddressBalanceSompi,
+                        subtitle: "Only accept Kaspa you intend to use as money to this address."
+                    )
+                } else {
+                    Text("Spending address is unlocking — go back and try again.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding()
+                }
             } label: {
                 VStack(spacing: 8) {
                     qrCircleIcon
@@ -651,202 +922,138 @@ struct ProfileView: View {
             .background(Circle().fill(Color.accentColor))
     }
 
-    // MARK: - Address dropdown rows (Chatting Address / Spending Address)
+    // MARK: - Address action rows (Chatting Address / Spending Address)
 
+    /// Two single-line rows, one per address role, sitting directly on the screen background
+    /// (no card) - same treatment as the big QR buttons above them. Each shows the role title
+    /// and balance on the left and three large icon-only buttons on the right: Copy, Send,
+    /// Manage. Replaces the old expanding dropdowns that hid the same three actions behind a
+    /// chevron tap.
     private func addressDropdownsSection(_ wallet: Wallet) -> some View {
-        VStack(spacing: 12) {
-            chattingAddressDropdown(wallet)
-            spendingAddressRow()
+        VStack(spacing: 20) {
+            addressActionRow(
+                title: "Chatting",
+                address: wallet.publicAddress,
+                balanceText: wallet.balanceSompi.map { "\(formatKaspaExact($0)) KAS" },
+                onSend: { showWithdrawSheet = true }
+            ) {
+                ChattingAddressManageView(address: wallet.publicAddress)
+            }
+            addressActionRow(
+                title: "Spending",
+                address: walletManager.currentSpendingAddress(),
+                balanceText: spendingAddressBalanceSompi.map { "\(formatKaspaExact($0)) KAS" },
+                isLoadingBalance: isLoadingSpendingBalance,
+                onSend: { showSpendingAddressWithdraw = true }
+            ) {
+                ManageAddressesView()
+            }
         }
     }
 
-    private func spendingAddressRow() -> some View {
-        VStack(spacing: 0) {
+    /// One address row: role title + balance on the left, three large icon-only circles on
+    /// the right (Copy, Send, Manage - the icons alone carry the meaning; VoiceOver reads the
+    /// accessibility labels). No shortened address, no card background - the row sits on the
+    /// screen background like the QR buttons. `address` is optional because the current
+    /// spending address can be momentarily unresolvable while the keychain unlocks; in that
+    /// state a small "Address unlocking..." note shows and the Copy and Send actions are
+    /// inert guards rather than the wrong address.
+    private func addressActionRow<Destination: View>(
+        title: String,
+        address: String?,
+        balanceText: String?,
+        isLoadingBalance: Bool = false,
+        onSend: @escaping () -> Void,
+        @ViewBuilder manageDestination: @escaping () -> Destination
+    ) -> some View {
+        // Two buttons instead of three now, so the row centers as one cluster instead of
+        // splitting to the screen edges.
+        HStack(spacing: 24) {
+            // The title + balance block IS the copy affordance: tapping it copies the
+            // address, replacing the old dedicated Copy button.
             Button {
-                Haptics.impact(.light)
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showSpendingAddressOptions.toggle()
-                }
+                guard let address else { return }
+                UIPasteboard.general.string = address
+                Haptics.success()
+                showToast(address.addressCopiedToastText)
             } label: {
-                HStack {
-                    Text("Spending Address")
-                        .font(.body)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundColor(.primary)
-                    Spacer()
-                    if isLoadingSpendingBalance {
-                        ProgressView().scaleEffect(0.75)
-                    } else {
-                        Text(spendingAddressBalanceSompi.map { "\(formatKaspaExact($0)) KAS" } ?? "—")
-                            .font(.subheadline)
+                        .lineLimit(1)
+                    if address == nil {
+                        Text("Address unlocking...")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    if isLoadingBalance {
+                        ProgressView()
+                            .scaleEffect(0.6, anchor: .leading)
+                            .frame(height: 14, alignment: .leading)
+                    } else if let balanceText {
+                        Text(balanceText)
+                            .font(.caption)
                             .fontWeight(.semibold)
                             .foregroundColor(.accentColor)
+                            .lineLimit(1)
                     }
-                    Image(systemName: showSpendingAddressOptions ? "chevron.up" : "chevron.down")
-                        .font(.caption)
-                        .foregroundColor(.accentColor)
                 }
-                .padding(16)
+                // Fixed width so the Send/Manage buttons land in the same column on both
+                // cards regardless of title and balance text width.
+                .frame(width: 140, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-
-            if showSpendingAddressOptions {
-                Divider()
-                    .padding(.leading, 16)
-                Button {
-                    guard let address = walletManager.currentSpendingAddress() else { return }
-                    UIPasteboard.general.string = address
-                    Haptics.success()
-                    showToast("Address copied to clipboard.")
-                } label: {
-                    HStack {
-                        Text("Copy Address")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "doc.on.doc")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Divider()
-                    .padding(.leading, 16)
-                Button {
-                    showSpendingAddressWithdraw = true
-                } label: {
-                    HStack {
-                        Text("Send Kaspa")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Divider()
-                    .padding(.leading, 16)
-                NavigationLink {
-                    ManageAddressesView()
-                } label: {
-                    HStack {
-                        Text("Manage Addresses")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+            .accessibilityLabel(Text("Copy \(title) address"))
+            addressRowIconButton(icon: "arrow.up.circle.fill", label: "Send") {
+                guard address != nil else { return }
+                onSend()
             }
+            NavigationLink {
+                manageDestination()
+            } label: {
+                addressRowIconLabel(icon: "gearshape", label: "Manage")
+            }
+            .buttonStyle(.plain)
         }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .background(glassBackground(cornerRadius: 18))
     }
 
+    private func addressRowIconButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            addressRowIconLabel(icon: icon, label: label)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// A large icon-only circle, no caption - the caption text became the accessibility label.
+    private func addressRowIconLabel(icon: String, label: String) -> some View {
+        Image(systemName: icon)
+            .font(.system(size: 22, weight: .medium))
+            .foregroundColor(.accentColor)
+            .frame(width: 54, height: 54)
+            .background(Circle().fill(.regularMaterial))
+            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+            .contentShape(Circle())
+            .accessibilityLabel(Text(label))
+    }
+
     private func loadSpendingAddressBalance() async {
-        guard let address = walletManager.currentSpendingAddress() else { return }
+        guard let address = walletManager.currentSpendingAddress() else {
+            // Unresolvable this instant — show "—" rather than leaving a stale number on screen.
+            spendingAddressBalanceSompi = nil
+            isLoadingSpendingBalance = false
+            return
+        }
         isLoadingSpendingBalance = true
         let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
         spendingAddressBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
         isLoadingSpendingBalance = false
-    }
-
-    private func chattingAddressDropdown(_ wallet: Wallet) -> some View {
-        VStack(spacing: 0) {
-            Button {
-                Haptics.impact(.light)
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showChattingAddressOptions.toggle()
-                }
-            } label: {
-                HStack {
-                    Text("Chatting Address")
-                        .font(.body)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.primary)
-                    Spacer()
-                    Text(wallet.balanceSompi.map { "\(formatKaspaExact($0)) KAS" } ?? "—")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.accentColor)
-                    Image(systemName: showChattingAddressOptions ? "chevron.up" : "chevron.down")
-                        .font(.caption)
-                        .foregroundColor(.accentColor)
-                }
-                .padding(16)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if showChattingAddressOptions {
-                Divider()
-                    .padding(.leading, 16)
-                Button {
-                    UIPasteboard.general.string = wallet.publicAddress
-                    Haptics.success()
-                    showToast("Address copied to clipboard.")
-                } label: {
-                    HStack {
-                        Text("Copy Address")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "doc.on.doc")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Divider()
-                    .padding(.leading, 16)
-                Button {
-                    showWithdrawSheet = true
-                } label: {
-                    HStack {
-                        Text("Send Kaspa")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Divider()
-                    .padding(.leading, 16)
-                NavigationLink {
-                    ChattingAddressManageView(address: wallet.publicAddress)
-                } label: {
-                    HStack {
-                        Text("Manage Address")
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(16)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .background(glassBackground(cornerRadius: 18))
     }
 
     private func glassBackground(cornerRadius: CGFloat) -> some View {
@@ -1543,6 +1750,25 @@ struct ProfileView: View {
         guard parts.count == 2 else { return false }
         guard !parts[0].isEmpty, !parts[1].isEmpty else { return false }
         return parts[1].contains(".")
+    }
+
+    /// Banner's Retry: replays every failed field sequentially through the same single-field
+    /// retry path (which itself updates isSavingKNSProfile/progress, so the banner shows the
+    /// per-field progress again).
+    private func retryAllFailedKNSUpdates() {
+        guard let profileInfo = knsProfileInfo,
+              let assetId = profileInfo.assetId, !assetId.isEmpty else { return }
+        let pending = failedKNSUpdates
+        Task {
+            for (key, value) in pending {
+                await retryFailedKNSField(
+                    key: key,
+                    value: value,
+                    assetId: assetId,
+                    domainName: profileInfo.domainName
+                )
+            }
+        }
     }
 
     private func retryFailedKNSField(
@@ -2246,13 +2472,16 @@ private struct KNSDomainsListView: View {
             Button {
                 showInscribeSheet = true
             } label: {
+                // Deliberately NOT the accent fill - the domain cards above are accent-filled,
+                // so the action button gets a contrasting glass capsule with a teal outline.
                 Text("Inscribe New Domain")
                     .font(.subheadline)
                     .fontWeight(.bold)
-                    .foregroundColor(.black)
+                    .foregroundColor(.accentColor)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
-                    .background(Capsule().fill(Color.accentColor))
+                    .background(Capsule().fill(.regularMaterial))
+                    .overlay(Capsule().stroke(Color.accentColor, lineWidth: 1.5))
             }
             .padding(.horizontal)
             .padding(.bottom, 16)
@@ -2697,9 +2926,15 @@ struct KNSDomainDetailView: View {
 /// Sends (transfers) a single KNS domain inscription to a recipient address or KNS domain -
 /// same UX conventions as the app's KAS send flows (KNS-domain-aware recipient, editable
 /// network fee) but with no amount field or coin control, since a domain transfer moves the
-/// whole inscription rather than a chosen KAS amount.
-private struct KNSDomainSendView: View {
+/// whole inscription rather than a chosen KAS amount. Not `private`: ManageAddressesView's
+/// per-spending-address "KNS Domains" tab reuses this exact sheet, passing
+/// `spendingAddressIndex` so the transfer is owned/funded/signed by that spending address's
+/// derived key instead of the identity/chatting address.
+struct KNSDomainSendView: View {
     let domain: KNSDomain
+    /// When non-nil, the domain lives on this spending-chain address index and the transfer
+    /// spends/signs from that address's own derivation (see KNSDomainTransferService).
+    var spendingAddressIndex: Int? = nil
     let onComplete: (KNSDomainTransferResult) -> Void
 
     @EnvironmentObject var settingsViewModel: SettingsViewModel
@@ -3016,7 +3251,8 @@ private struct KNSDomainSendView: View {
                     domain: domain.fullName,
                     assetId: domain.inscriptionId,
                     to: recipient,
-                    priorityFeeSompi: fee
+                    priorityFeeSompi: fee,
+                    fromSpendingAddressIndex: spendingAddressIndex
                 )
                 await MainActor.run {
                     isSubmitting = false
@@ -3490,8 +3726,13 @@ private struct ChattingAddressPrivateKeyView: View {
         }
     }
 
+    /// Sensitive copy: hard 30s system expiration + localOnly (no Universal Clipboard sync);
+    /// the asyncAfter wipe is an in-app belt-and-suspenders clear (see SettingsView's twin).
     private func copySensitiveToClipboard(_ value: String) {
-        UIPasteboard.general.string = value
+        UIPasteboard.general.setItems(
+            [["public.utf8-plain-text": value]],
+            options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(30)]
+        )
         let copiedValue = value
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
             if UIPasteboard.general.string == copiedValue {
@@ -3573,20 +3814,16 @@ struct ChattingAddressQRView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 40)
 
-                    Button {
-                        UIPasteboard.general.string = address
-                        Haptics.success()
-                        showToast("Address copied to clipboard.")
-                    } label: {
-                        Label("Copy Address", systemImage: "doc.on.doc")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(.accentColor)
-                    }
+                    Text("Tap anywhere to copy")
+                        .font(.footnote)
+                        .foregroundColor(Color.black.opacity(0.4))
 
                     Spacer()
                     Spacer()
                 }
             )
+            .contentShape(Rectangle())
+            .onTapGesture { copyAddress() }
             .toast(message: toastMessage)
             .toolbar {
                 ToolbarItem(placement: .principal) {
@@ -3604,6 +3841,12 @@ struct ChattingAddressQRView: View {
                     qrImage = image
                 }
             }
+    }
+
+    private func copyAddress() {
+        UIPasteboard.general.string = address
+        Haptics.success()
+        showToast(address.addressCopiedToastText)
     }
 
     private func showToast(_ message: String) {
@@ -4545,4 +4788,287 @@ struct SystemContactLinkPickerSheet: View {
         .environmentObject(ContactsManager.shared)
         .environmentObject(ChatService.shared)
         .environmentObject(GiftService.shared)
+}
+
+
+// MARK: - Profile Help screen
+
+/// All the app's guides in one place, reached from Profile > Help: the first-run Welcome
+/// Guide, the KNS profile setup wizard, and the 4.0 dock walkthrough (Chats-tab cycling).
+/// Welcome/KNS replay through ProfileView's own covers (callbacks); the dock guide presents
+/// right here.
+struct ProfileHelpView: View {
+    let onWelcomeGuide: () -> Void
+    let onKNSSetupGuide: () -> Void
+
+    @State private var showDockGuide = false
+
+    var body: some View {
+        List {
+            Section {
+                helpRow(
+                    icon: "sparkles",
+                    title: "Welcome Guide",
+                    subtitle: "The full first-run tour: wallet, chats, payments and more."
+                ) {
+                    onWelcomeGuide()
+                }
+                helpRow(
+                    icon: "person.text.rectangle",
+                    title: "KNS Profile Setup Guide",
+                    subtitle: "Set up your KNS domain, avatar, banner and bio step by step."
+                ) {
+                    onKNSSetupGuide()
+                }
+                helpRow(
+                    icon: "hand.tap",
+                    title: "Dock Guide",
+                    subtitle: "How KaPosts and Broadcasts ride the Chats tab - tap to cycle, hold to jump."
+                ) {
+                    showDockGuide = true
+                }
+            }
+        }
+        .navigationTitle("Help")
+        .navigationBarTitleDisplayMode(.large)
+        .sheet(isPresented: $showDockGuide) {
+            DockWizardView()
+                .presentationDetents([.large])
+        }
+    }
+
+    private func helpRow(
+        icon: String,
+        title: String,
+        subtitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+
+// MARK: - Profile Apps screen (Kaspa ecosystem quick links)
+
+/// Bubble-style launchers for Kaspa ecosystem sites, each opening in an IN-APP browser
+/// (SFSafariViewController) rather than kicking the user out to Safari.
+struct ProfileAppsView: View {
+    struct EcosystemApp: Identifiable {
+        let name: String
+        let icon: String
+        let usesKaspaLogo: Bool
+        let url: URL
+        var id: String { name }
+    }
+
+    private let apps: [EcosystemApp] = [
+        EcosystemApp(name: "Kaspa.org", icon: "", usesKaspaLogo: true, url: URL(string: "https://kaspa.org")!),
+        EcosystemApp(name: "Kaspa Stream", icon: "waveform.path.ecg", usesKaspaLogo: false, url: URL(string: "https://kaspa.stream")!),
+        EcosystemApp(name: "Kaspa Explorer", icon: "magnifyingglass", usesKaspaLogo: false, url: URL(string: "https://explorer.kaspa.org")!),
+        EcosystemApp(name: "KasMap", icon: "map", usesKaspaLogo: false, url: URL(string: "https://kasmap.org")!),
+        EcosystemApp(name: "KasShi", icon: "play.rectangle.fill", usesKaspaLogo: false, url: URL(string: "https://kasshi.io")!),
+        EcosystemApp(name: "Kaspa News", icon: "newspaper", usesKaspaLogo: false, url: URL(string: "https://kaspa.news")!),
+        EcosystemApp(name: "KasPlay", icon: "gamecontroller", usesKaspaLogo: false, url: URL(string: "https://kasplay.fun")!),
+        EcosystemApp(name: "KasMart", icon: "cart", usesKaspaLogo: false, url: URL(string: "https://kasmart.org")!),
+        EcosystemApp(name: "KasMedia", icon: "doc.text.image", usesKaspaLogo: false, url: URL(string: "https://kasmedia.com")!),
+        EcosystemApp(name: "Kaspalytics", icon: "chart.bar", usesKaspaLogo: false, url: URL(string: "https://www.kaspalytics.com")!),
+        EcosystemApp(name: "Kas-Smiths", icon: "hammer", usesKaspaLogo: false, url: URL(string: "https://kas-smiths.org")!),
+        EcosystemApp(name: "Kaspa Core R&D", icon: "atom", usesKaspaLogo: false, url: URL(string: "https://t.me/kasparnd")!)
+    ]
+
+    @State private var browserURL: URL?
+
+    private let columns = [GridItem(.adaptive(minimum: 96), spacing: 20)]
+
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 24) {
+                ForEach(apps) { app in
+                    Button {
+                        Haptics.impact(.light)
+                        browserURL = app.url
+                    } label: {
+                        VStack(spacing: 8) {
+                            Group {
+                                if app.usesKaspaLogo {
+                                    Image("KaspaLogo")
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 34, height: 34)
+                                } else {
+                                    Image(systemName: app.icon)
+                                        .font(.system(size: 28, weight: .semibold))
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                            .frame(width: 68, height: 68)
+                            .background(
+                                Circle()
+                                    .fill(.regularMaterial)
+                                    .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
+                                    .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
+                            )
+                            Text(app.name)
+                                .font(.caption.weight(.semibold))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(24)
+        }
+        .navigationTitle("Apps")
+        .navigationBarTitleDisplayMode(.large)
+        .fullScreenCover(isPresented: Binding(
+            get: { browserURL != nil },
+            set: { if !$0 { browserURL = nil } }
+        )) {
+            if let browserURL {
+                InAppBrowserScreen(url: browserURL) {
+                    self.browserURL = nil
+                }
+            }
+        }
+    }
+}
+
+/// Full-screen in-app browser: the X in the top-left is the ONLY way out (full-screen cover,
+/// so there's no slide-down to dismiss).
+///
+/// While the browser is up, the app powers down like it was backgrounded: node discovery
+/// pauses, the chat poll timer stops, the KaPosts notification poller stops, and (in
+/// remote-push mode) the UTXO subscription is released so notifications arrive via push -
+/// exactly the closed-app path. All of it resumes when the X is tapped.
+struct InAppBrowserScreen: View {
+    let url: URL
+    let onClose: () -> Void
+
+    @State private var isLoading = true
+
+    private func powerDownForBrowsing() {
+        Task { @MainActor in
+            await NodePoolService.shared.pauseDiscovery()
+            ChatService.shared.stopPollingTimerOnly()
+            KaPostsNotificationService.shared.stop()
+            if AppSettings.load().notificationMode == .remotePush {
+                ChatService.shared.pauseUtxoSubscriptionForRemotePush()
+            }
+        }
+    }
+
+    private func powerUpAfterBrowsing() {
+        Task { @MainActor in
+            await NodePoolService.shared.resumeDiscovery()
+            ChatService.shared.startPolling()
+            KaPostsNotificationService.shared.start()
+            if AppSettings.load().notificationMode == .remotePush {
+                await ChatService.shared.resumeUtxoSubscriptionForRemotePush()
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Button {
+                    Haptics.impact(.light)
+                    onClose()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(.regularMaterial))
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Text(url.host ?? "")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer()
+                if isLoading {
+                    ProgressView()
+                        .frame(width: 34, height: 34)
+                } else {
+                    Color.clear
+                        .frame(width: 34, height: 34)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            Divider()
+            InAppWebView(url: url, isLoading: $isLoading)
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .background(Color(uiColor: .systemBackground))
+        .onAppear { powerDownForBrowsing() }
+        .onDisappear { powerUpAfterBrowsing() }
+    }
+}
+
+private struct InAppWebView: UIViewRepresentable {
+    let url: URL
+    @Binding var isLoading: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        let webView = WKWebView()
+        webView.navigationDelegate = context.coordinator
+        webView.allowsBackForwardNavigationGestures = true
+        webView.load(URLRequest(url: url))
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {}
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        private let parent: InAppWebView
+
+        init(_ parent: InAppWebView) {
+            self.parent = parent
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            parent.isLoading = true
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            parent.isLoading = false
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            parent.isLoading = false
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            parent.isLoading = false
+        }
+    }
 }

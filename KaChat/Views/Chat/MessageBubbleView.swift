@@ -66,6 +66,11 @@ struct MessageBubbleView: View {
     /// When true, an incoming photo from this contact stays hidden behind a "Show Photo" tap
     /// instead of auto-decoding - driven by `ContactsManager.shouldAutoDisplayPhotos(for:settings:)`.
     var photosBlocked: Bool = false
+    /// When false, incoming link previews from this contact render as a "Tap to load preview"
+    /// placeholder instead of auto-fetching - driven by `ContactsManager.isAcceptedContact(_:)`
+    /// (the same accepted/established predicate the stranger photo gating builds on). The local
+    /// user's own outgoing links always auto-load.
+    var linkPreviewsAutoLoad: Bool = true
     @State private var shimmerPhase: CGFloat = -1
     @State private var showFullText = false
     /// Long-pressing a link surfaces this instead of `.contextMenu` (which never fires there -
@@ -95,6 +100,7 @@ struct MessageBubbleView: View {
         revealOffset: CGFloat = 0,
         maxRevealOffset: CGFloat = 64,
         photosBlocked: Bool = false,
+        linkPreviewsAutoLoad: Bool = true,
         chessEnvelope: ChessEnvelope? = nil,
         chessSummary: ChessGameSummary? = nil,
         isLatestChessMessage: Bool = false,
@@ -121,6 +127,7 @@ struct MessageBubbleView: View {
         self.revealOffset = revealOffset
         self.maxRevealOffset = maxRevealOffset
         self.photosBlocked = photosBlocked
+        self.linkPreviewsAutoLoad = linkPreviewsAutoLoad
         self.chessEnvelope = chessEnvelope
         self.chessSummary = chessSummary
         self.isLatestChessMessage = isLatestChessMessage
@@ -161,7 +168,14 @@ struct MessageBubbleView: View {
     }
 
     private var avatarView: some View {
-        KNSAvatarView(avatarURLString: avatarURLString, fallbackText: avatarDisplayName, size: 32)
+        // contactAddress lets KNSAvatarView fall back to the sender's Contacts-app photo when
+        // they have no KNS avatar (shown for incoming messages only).
+        KNSAvatarView(
+            avatarURLString: avatarURLString,
+            fallbackText: avatarDisplayName,
+            size: 32,
+            contactAddress: message.isOutgoing ? nil : message.senderAddress
+        )
     }
 
     @ViewBuilder
@@ -249,7 +263,15 @@ struct MessageBubbleView: View {
                             // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
                             // keeps the raw link visible/tappable if no preview data is ever found,
                             // rather than the message rendering as nothing at all.
-                            LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil)
+                            LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayText, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil, autoFetch: linkPreviewsAutoLoad || message.isOutgoing)
+                        } else if message.messageType == .payment, let paymentParts = paymentCardParts {
+                            // Rich Apple-Pay-in-iMessage style card replacing the plain
+                            // "Sent/Received X KAS" text bubble. Unparseable/legacy payment
+                            // content falls through to the classic text bubble below (which
+                            // then also keeps its "Payment" capsule - see
+                            // shouldShowMessageTypeIndicator).
+                            paymentCardBubble(paymentParts)
+                                .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
                         } else {
                             messageTextBubble(isSingleEmojiOnly: isSingleEmojiOnly)
                                 .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
@@ -271,7 +293,7 @@ struct MessageBubbleView: View {
                     if media == nil,
                        !MessageTextRenderPlan.isEntirelyLink(displayText),
                        let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
-                        LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil)
+                        LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil, autoFetch: linkPreviewsAutoLoad || message.isOutgoing)
                     }
                 }
 
@@ -324,7 +346,10 @@ struct MessageBubbleView: View {
     }
 
     private var shouldShowMessageTypeIndicator: Bool {
-        message.messageType != .contextual || isKNSTransferMessage
+        // Payments render as the rich payment card, which carries its own identity - the
+        // orange "Payment" capsule only remains for odd/legacy content the card can't parse.
+        if message.messageType == .payment { return paymentCardParts == nil }
+        return message.messageType != .contextual || isKNSTransferMessage
     }
 
     private var isKNSTransferMessage: Bool {
@@ -682,6 +707,9 @@ struct MessageBubbleView: View {
         let showsResponseButtons = !message.isOutgoing
             && onRespondToChessInvite != nil
             && chessSummary?.status == .pendingResponse
+        // "3 | 2"-style chip when the invite carries a time control; nil (no chip) for casual
+        // games and every invite from a legacy client.
+        let timeControlLabel: String? = content.tcMinutes.map { "\($0) | \(content.tcIncSeconds ?? 0)" }
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text("♟️")
@@ -689,6 +717,18 @@ struct MessageBubbleView: View {
                 Text(message.isOutgoing ? "Chess game invite sent" : "Invited you to a game of chess")
                     .font(.subheadline)
                     .foregroundColor(.primary)
+            }
+
+            if let timeControlLabel {
+                HStack(spacing: 4) {
+                    Image(systemName: "timer")
+                    Text(timeControlLabel)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.accentColor)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(Color.accentColor.opacity(0.12)))
             }
 
             if showsResponseButtons {
@@ -738,12 +778,28 @@ struct MessageBubbleView: View {
     }
 
     private func chessLiveCard(_ summary: ChessGameSummary) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ChessBoardThumbnail(board: summary.board)
-            Text(summary.statusText)
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(summary.status.isGameOver ? .secondary : .primary)
+        // The status row is pinned to the board's width: its Spacer must push the timer chip
+        // to the board's right edge, not stretch the whole card to the bubble's max width
+        // (which left a wide dark void beside the board).
+        let boardSize: CGFloat = 160
+        return VStack(alignment: .leading, spacing: 8) {
+            ChessBoardThumbnail(board: summary.board, size: boardSize)
+            HStack(spacing: 6) {
+                Text(summary.statusText)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(summary.status.isGameOver ? .secondary : .primary)
+                if let timeControl = summary.timeControl {
+                    Spacer(minLength: 4)
+                    HStack(spacing: 3) {
+                        Image(systemName: "timer")
+                        Text(timeControl.label)
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(.secondary)
+                }
+            }
+            .frame(width: boardSize)
         }
         .padding(10)
         .background(Color(.systemGray6))
@@ -790,13 +846,142 @@ struct MessageBubbleView: View {
         case .move(let content):
             let promotionSuffix = content.promotion.map { " (\($0.uppercased()))" } ?? ""
             return "\(content.from) → \(content.to)\(promotionSuffix)"
-        case .resign:
-            return "Resigned"
+        case .resign(let content):
+            return content.reason == "timeout" ? "Lost on time" : "Resigned"
         case .response(let content):
             return content.accepted ? "Accepted the game" : "Declined the game"
         case .invite:
             return "Chess invite"
         }
+    }
+
+    // MARK: - Payment card
+
+    /// Amount + optional note pulled out of a payment message's display text ("Sent 0.2 KAS",
+    /// "Received 0.2 KAS — thanks!" and their localized equivalents). Both regular detected
+    /// payments and pool payment_notice bubbles produce this exact shape (ChatService formats
+    /// them from the same "Sent/Received %@ KAS" templates), so one parser covers both paths.
+    private struct PaymentCardParts {
+        let amountText: String
+        let note: String?
+    }
+
+    /// nil when the content doesn't look like a standard payment phrase (foreign/legacy data) -
+    /// the bubble then falls back to the classic text rendering with its "Payment" capsule.
+    private var paymentCardParts: PaymentCardParts? {
+        guard message.messageType == .payment else { return nil }
+        guard message.content.utf8.count <= 512 else { return nil }
+        // Note separator matches the "Sent %@ KAS — %@" template family.
+        let pieces = message.content.components(separatedBy: " — ")
+        let head = pieces[0]
+        let noteRaw = pieces.count > 1 ? pieces.dropFirst().joined(separator: " — ") : nil
+        guard let amountToken = head
+            .components(separatedBy: .whitespaces)
+            .first(where: { Double($0.replacingOccurrences(of: ",", with: ".")) != nil }) else {
+            return nil
+        }
+        let note = noteRaw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return PaymentCardParts(amountText: amountToken, note: (note?.isEmpty == false) ? note : nil)
+    }
+
+    /// Apple-Pay-in-iMessage style payment card: KaspaLogo leading, the amount large and bold,
+    /// a smaller Sent/Received line, optional note. Direction is carried by the fill - outgoing
+    /// uses a richer teal gradient (anchored on the app's own-bubble kaspaBubbleColor), incoming
+    /// stays neutral glass with teal accents. Same pending shimmer, context menu items, and
+    /// double-tap-to-react behavior as the text bubble it replaces; reaction pill/status/time
+    /// layout are untouched since the card sits in the exact same slot of messageContent.
+    private func paymentCardBubble(_ parts: PaymentCardParts) -> some View {
+        let outgoing = message.isOutgoing
+        return HStack(spacing: 12) {
+            Image("KaspaLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 34, height: 34)
+                .padding(6)
+                .background(
+                    // Outgoing rides a teal gradient — a translucent white circle left the teal
+                    // logo nearly invisible (teal on teal). Solid white gives the brand mark its
+                    // natural contrast; incoming keeps the subtle accent tint on neutral glass.
+                    Circle().fill(outgoing ? Color.white : Color.accentColor.opacity(0.12))
+                )
+                .shadow(color: outgoing ? Color.black.opacity(0.12) : .clear, radius: 3, y: 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(outgoing ? "Sent" : "Received")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(outgoing ? Color.white.opacity(0.85) : .secondary)
+                Text("\(parts.amountText) KAS")
+                    .font(.title3.weight(.bold))
+                    .foregroundColor(outgoing ? .white : .primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                if let note = parts.note {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundColor(outgoing ? Color.white.opacity(0.8) : .secondary)
+                        .lineLimit(2)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(minWidth: 170, alignment: .leading)
+        .background {
+            if outgoing {
+                LinearGradient(
+                    colors: [kaspaBubbleColor, kaspaBubbleColor.opacity(0.78)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            } else {
+                Rectangle().fill(.regularMaterial)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(outgoing ? Color.white.opacity(0.22) : Color.accentColor.opacity(0.35), lineWidth: 0.8)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+        .overlay {
+            if shouldShowResolvingOverlay {
+                ShimmerOverlay(phase: shimmerPhase)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .allowsHitTesting(false)
+            }
+        }
+        .contextMenu {
+            Button {
+                handleCopy(displayText, toast: "Message copied to clipboard.")
+            } label: {
+                Label("Copy Message", systemImage: "doc.on.doc")
+            }
+
+            if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
+                Link(destination: url) {
+                    Label("View in Explorer", systemImage: "safari")
+                }
+            }
+
+            if let onReply {
+                Button {
+                    onReply()
+                } label: {
+                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                }
+            }
+
+            if let onSelect {
+                Button {
+                    onSelect()
+                } label: {
+                    Label("Select", systemImage: "checkmark.circle")
+                }
+            }
+        }
+        .tint(.accentColor)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text(displayText))
     }
 
     @ViewBuilder
@@ -1215,7 +1400,31 @@ private enum PhotoRevealStore {
 /// to 1:1 ones instead of duplicating this (thumbnail caching, reveal-gating, share sheet) logic.
 struct LazyImageBubble: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    // Fixed size for the placeholder / "Show Photo" states (no image loaded yet). Once the image
+    // is loaded, the bubble takes the image's natural aspect ratio within these max bounds — so a
+    // tall screenshot shows tall and a wide photo shows wide, instead of a fixed letterboxed box.
     private static let thumbnailDisplaySize = CGSize(width: 220, height: 160)
+    private static let maxThumbnailWidth: CGFloat = 240
+    private static let maxThumbnailHeight: CGFloat = 320
+
+    /// The image's natural aspect ratio, fit within the max bounds (never upscaled past its own
+    /// pixels), so the bubble matches the picture instead of forcing a fixed rectangle.
+    private var thumbnailAspectSize: CGSize {
+        guard let img = thumbnailState?.image, img.size.width > 0, img.size.height > 0 else {
+            return Self.thumbnailDisplaySize
+        }
+        let aspect = img.size.width / img.size.height
+        var w = Self.maxThumbnailWidth
+        var h = w / aspect
+        if h > Self.maxThumbnailHeight { h = Self.maxThumbnailHeight; w = h * aspect }
+        w = min(w, img.size.width); h = min(h, img.size.height)
+        return CGSize(width: max(w, 80), height: max(h, 80))
+    }
+
+    /// Aspect size once the thumbnail is loaded, else the fixed placeholder size.
+    private var currentDisplaySize: CGSize {
+        (thumbnailState?.txId == txId) ? thumbnailAspectSize : Self.thumbnailDisplaySize
+    }
 
     let media: MediaFile
     let txId: String
@@ -1314,15 +1523,15 @@ struct LazyImageBubble: View {
         // swipe-to-reply drag. Attaching both tap counts directly to this same view lets SwiftUI
         // properly wait to see whether a second tap follows before firing the single-tap action.
         ZStack {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.secondarySystemBackground))
-
             if let thumbnailState, thumbnailState.txId == txId {
+                // Fill the aspect-sized frame exactly (frame already matches the image ratio), so
+                // there are no gray letterbox bars — the bubble is the shape of the picture.
                 Image(uiImage: thumbnailState.image)
                     .resizable()
-                    .scaledToFit()
-                    .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+                    .scaledToFill()
             } else {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.secondarySystemBackground))
                 placeholder
             }
 
@@ -1334,7 +1543,7 @@ struct LazyImageBubble: View {
                     .clipShape(Circle())
             }
         }
-        .frame(width: Self.thumbnailDisplaySize.width, height: Self.thumbnailDisplaySize.height)
+        .frame(width: currentDisplaySize.width, height: currentDisplaySize.height)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
@@ -2727,7 +2936,10 @@ private struct ImagePreviewView: View {
 
 }
 
-private struct ZoomableImageView: UIViewRepresentable {
+/// Pinch-zoomable full-screen image host. Internal (not private) because the Nextcloud media
+/// viewer (`LinkPreviewCardView.swift`) reuses it for remote photos — same zoom behavior as
+/// the local chat-photo preview.
+struct ZoomableImageView: UIViewRepresentable {
     let image: UIImage
     @Binding var isZoomed: Bool
 

@@ -29,12 +29,19 @@ final class SharedDataManager {
         static let pendingMessages = "pending_messages"
         static let storedMessages = "stored_messages"
         static let outboundShares = "outbound_shares"
+        static let recentConversations = "kachat_recent_conversations"
         static let privateKeyAvailable = "private_key_available"
         static let walletAddress = "wallet_address"
         static let unreadCount = "shared_unread_count"
         static let incomingNotificationSoundEnabled = "incoming_notification_sound_enabled"
         static let incomingNotificationVibrationEnabled = "incoming_notification_vibration_enabled"
+        /// Mirror of `AppSettings.verboseAPILogging` for the Notification Service Extension,
+        /// which cannot read standard UserDefaults. Gates the NSE's push-payload debug residue
+        /// (`storeLastPushDebug` + the payload-prefix os_log line). Absent key = off.
+        static let verboseAPILogging = "shared_verbose_api_logging"
         static let groupMentionsOnlyNotifications = "shared_group_mentions_only"
+        static let groupOwnTxIds = "shared_group_own_txids"
+        static let ownPrimaryKNSDomain = "shared_own_kns_domain"
     }
 
     // MARK: - Contact Sync
@@ -57,6 +64,52 @@ final class SharedDataManager {
 
         sharedDefaults?.set(data, forKey: Keys.contacts)
         AppLog.log("[SharedData] Synced %d contacts to shared container", contacts.count)
+    }
+
+    // MARK: - Recent Conversations (Share Extension direct targets)
+
+    /// Most-recently-used 1:1 conversation list surfaced by the Share Extension's "Recent"
+    /// section. Kept fresh from chat opens and message sends (see `ChatService`). Newest first.
+    static let maxRecentConversations = 8
+
+    static func recordRecentConversation(address: String, alias: String) {
+        let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedAddress.isEmpty else { return }
+
+        var recents = getRecentConversations().filter { $0.address != trimmedAddress }
+        recents.insert(
+            SharedRecentConversation(
+                address: trimmedAddress,
+                alias: alias.trimmingCharacters(in: .whitespacesAndNewlines),
+                lastUsedMs: Int64(Date().timeIntervalSince1970 * 1000)
+            ),
+            at: 0
+        )
+        if recents.count > maxRecentConversations {
+            recents = Array(recents.prefix(maxRecentConversations))
+        }
+
+        guard let data = try? JSONEncoder().encode(recents) else { return }
+        sharedDefaults?.set(data, forKey: Keys.recentConversations)
+    }
+
+    static func getRecentConversations() -> [SharedRecentConversation] {
+        guard let data = sharedDefaults?.data(forKey: Keys.recentConversations),
+              let recents = try? JSONDecoder().decode([SharedRecentConversation].self, from: data) else {
+            return []
+        }
+        return recents
+    }
+
+    static func removeRecentConversation(address: String) {
+        let recents = getRecentConversations()
+        let filtered = recents.filter { $0.address != address }
+        guard filtered.count != recents.count else { return }
+        if filtered.isEmpty {
+            sharedDefaults?.removeObject(forKey: Keys.recentConversations)
+        } else if let data = try? JSONEncoder().encode(filtered) {
+            sharedDefaults?.set(data, forKey: Keys.recentConversations)
+        }
     }
 
     // MARK: - Group Sync
@@ -92,6 +145,37 @@ final class SharedDataManager {
         if let mentionsData = try? JSONEncoder().encode(GroupChatService.shared.groupMentionsOnlyNotifications) {
             sharedDefaults?.set(mentionsData, forKey: Keys.groupMentionsOnlyNotifications)
         }
+
+        syncOwnGroupTxIdsForExtension()
+        syncOwnKNSDomainForExtension()
+    }
+
+    /// The wallet's own recent outgoing group-message txIds. A group reaction envelope carries
+    /// its target's txId, so with this list the NSE can apply the mentions-only rule's personal
+    /// exception - a reaction to MY message still notifies in a mentions-only group - and word
+    /// the banner "to your message" when it knows the target is mine. Refreshed on every group
+    /// sync, at wallet load (once history is in memory), and when an outgoing send resolves to
+    /// its real txId.
+    @MainActor
+    static func syncOwnGroupTxIdsForExtension() {
+        sharedDefaults?.set(GroupChatService.shared.ownOutgoingGroupTxIds(), forKey: Keys.groupOwnTxIds)
+    }
+
+    /// The wallet's own primary KNS domain (bare, lowercased) for the extension's mentions-only
+    /// gate: Android's composer writes mentions as `@{primaryKNSDomain}` in the wire plaintext
+    /// (not iOS's `@{address}` form), so the NSE must recognize that token too. Refreshed by
+    /// `KNSService.updateCache` whenever the wallet's own KNS info (re)loads. Skips when nothing
+    /// is cached yet - "not loaded" must not erase a previously shared domain - and clears when
+    /// the lookup is loaded but finds no explicit primary.
+    @MainActor
+    static func syncOwnKNSDomainForExtension() {
+        guard let address = WalletManager.shared.currentWallet?.publicAddress,
+              KNSService.shared.domainCache[address] != nil else { return }
+        if let domain = KNSService.shared.barePrimaryDomain(for: address) {
+            sharedDefaults?.set(domain, forKey: Keys.ownPrimaryKNSDomain)
+        } else {
+            sharedDefaults?.removeObject(forKey: Keys.ownPrimaryKNSDomain)
+        }
     }
 
     /// Get all groups from shared container (called from notification extension)
@@ -104,11 +188,20 @@ final class SharedDataManager {
     }
 
     /// Sync notification defaults used by the notification service extension.
-    @MainActor
-    static func syncNotificationSettingsForExtension() {
-        let settings = AppSettings.load()
+    /// Deliberately nonisolated: UserDefaults is thread-safe and AppSettings.save is
+    /// documented as callable from any context.
+    /// Callers that just saved should pass the settings they saved - `AppSettings.load()` at
+    /// that moment can still return the pre-save cached copy (the cache only invalidates on the
+    /// `.settingsDidChange` post, which happens after this runs in the save paths).
+    static func syncNotificationSettingsForExtension(_ settings: AppSettings = AppSettings.load()) {
         sharedDefaults?.set(settings.incomingNotificationSoundEnabled, forKey: Keys.incomingNotificationSoundEnabled)
         sharedDefaults?.set(settings.incomingNotificationVibrationEnabled, forKey: Keys.incomingNotificationVibrationEnabled)
+        sharedDefaults?.set(settings.verboseAPILogging, forKey: Keys.verboseAPILogging)
+        if !settings.verboseAPILogging {
+            // Turning verbose logging off also clears the last captured push payload, so no
+            // encrypted-payload residue outlives the diagnostics session that recorded it.
+            sharedDefaults?.removeObject(forKey: "last_push_payload")
+        }
     }
 
     /// Sync wallet address for notification extension (used to suppress outgoing pushes)
@@ -188,6 +281,18 @@ final class SharedDataManager {
     /// Clear all shared secrets (call on wallet delete)
     static func clearSharedSecrets() {
         sharedDefaults?.removeObject(forKey: Keys.sharedSecrets)
+    }
+
+    /// One-time hygiene at launch: `storeSharedSecret` has no callers anywhere in the app
+    /// anymore (the NSE derives per-message secrets from the Keychain private key instead),
+    /// but earlier releases DID write per-contact ECDH shared secrets into this plain-plist
+    /// App Group key. Those bytes are message-decryption key material and have no business
+    /// sitting in a UserDefaults plist, so wipe any legacy residue unconditionally.
+    static func purgeLegacySharedSecretsIfPresent() {
+        guard let defaults = sharedDefaults,
+              defaults.object(forKey: Keys.sharedSecrets) != nil else { return }
+        defaults.removeObject(forKey: Keys.sharedSecrets)
+        AppLog.log("[SharedData] Purged legacy shared-secret blob from App Group defaults")
     }
 
     // MARK: - Pending Messages (txId only, need to fetch payload)
@@ -419,6 +524,7 @@ final class SharedDataManager {
         sharedDefaults?.removeObject(forKey: Keys.storedMessages)
         sharedDefaults?.removeObject(forKey: Keys.privateKeyAvailable)
         sharedDefaults?.removeObject(forKey: Keys.outboundShares)
+        sharedDefaults?.removeObject(forKey: Keys.recentConversations)
         sharedDefaults?.removeObject(forKey: Keys.unreadCount)
         sharedDefaults?.removeObject(forKey: Keys.incomingNotificationSoundEnabled)
         sharedDefaults?.removeObject(forKey: Keys.incomingNotificationVibrationEnabled)
@@ -475,6 +581,13 @@ struct SharedGroupMember: Codable {
     /// `GroupMember.displayName`) - lets the notification extension show a real name for the
     /// sender of a group message instead of falling back to their raw address.
     let displayName: String?
+}
+
+/// Recent conversation entry shared with the Share Extension (see `recordRecentConversation`).
+struct SharedRecentConversation: Codable {
+    let address: String
+    let alias: String
+    let lastUsedMs: Int64
 }
 
 /// Pending message that needs to be fetched

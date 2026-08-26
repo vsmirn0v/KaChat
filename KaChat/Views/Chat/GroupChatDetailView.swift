@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import AVFoundation
 
 /// `@mention` support for group chat - no protocol/wire-format change: a mention is embedded in
 /// the plaintext as `@{fullKaspaAddress}` (unambiguous - real addresses always carry a
@@ -43,6 +44,12 @@ enum GroupMentionCodec {
 /// `BroadcastAudioRecorder`'s simpler engine (broadcast already proved out group-shaped media
 /// without 1:1's payment-integrated fee-estimation machinery).
 struct GroupChatDetailView: View {
+    /// Hoisted out of the body chain - an inline service call in .onChange tipped the
+    /// compiler's type-check budget for this (large) body expression.
+    private var currentGroupUnreadCount: Int {
+        groupChatService.unreadCount(for: group)
+    }
+
     let group: GroupChat
     var onDeleted: (() -> Void)? = nil
     @EnvironmentObject var groupChatService: GroupChatService
@@ -52,6 +59,7 @@ struct GroupChatDetailView: View {
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @State private var draft = ""
+    @State private var reactiveReadMarkPending = false
     @State private var showInfo = false
     /// Local-only multi-select for deleting individual messages (never the whole group - see
     /// `GroupChatInfoView`'s delete for that) - toggled from the toolbar's "Select" button.
@@ -60,6 +68,9 @@ struct GroupChatDetailView: View {
     @State private var showDeleteMessagesConfirmation = false
     @State private var errorMessage: String?
     @State private var toastMessage: String?
+    /// Mirrors `ChatDetailView.toastStyle` - the Nextcloud upload-failure toast renders as an
+    /// error, everything else keeps the success look the modifier previously hardcoded.
+    @State private var toastStyle: ToastStyle = .success
     @State private var toastToken = UUID()
     // Plain @State (not @FocusState) - ComposerTextView takes a normal `Binding<Bool>` for focus
     // itself (matching 1:1/broadcast's identical `isMessageFocused`), it doesn't use the
@@ -126,8 +137,27 @@ struct GroupChatDetailView: View {
     @State private var showPhotoPicker = false
     @State private var showCamera = false
     @State private var pendingPhotoImage: UIImage?
+    /// The exact bytes the pending photo was attached from (picker/camera/paste), kept so
+    /// "Send Media via Nextcloud" can upload the untouched original (HEIC/PNG/JPEG, full
+    /// resolution) instead of a re-encode of the decoded UIImage. Cleared with the pending
+    /// photo - mirrors `ChatDetailView.pendingPhotoOriginalData` exactly.
+    @State private var pendingPhotoOriginalData: Data?
     @State private var isSendingPhoto = false
+    @State private var showNextcloudPicker = false
+    /// Drives the connected-state composer layout, mirroring 1:1 chat's `ChatDetailView`: with a
+    /// Nextcloud server linked, the + menu drops Send Photo / Send Audio in favor of "Send from
+    /// Nextcloud", and the message bar's camera/mic captures ride the Nextcloud auto-upload path.
+    @ObservedObject private var nextcloudService = NextcloudService.shared
     @StateObject private var recorder = BroadcastAudioRecorder()
+
+    /// Nextcloud-uploaded voice notes aren't payload-bound - only the server carries them - so
+    /// the recording ceiling relaxes to 10 minutes while "Send Media via Nextcloud" is active,
+    /// mirroring `ChatDetailView.effectiveMaxRecordingDuration`.
+    private var effectiveMaxRecordingDuration: TimeInterval {
+        (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+            ? 600
+            : BroadcastAudioRecorder.maxDuration
+    }
 
     /// `@mention` inline autocomplete - see `GroupMentionCodec`'s doc comment for the wire
     /// format. `mentionQuery` is the text typed after an unclosed "@" at the cursor (reported by
@@ -157,6 +187,12 @@ struct GroupChatDetailView: View {
     private static let groupPhotoTargetBytes = 10_000
 
     private var myAddress: String? { walletManager.currentWallet?.publicAddress }
+
+    /// Zero-balance compose gate - same trigger as 1:1 chat (confirmed 0 KAS only, never on an
+    /// unknown/still-loading balance). See `WalletManager.hasConfirmedZeroChattingBalance`.
+    private var isChattingBalanceZero: Bool {
+        walletManager.hasConfirmedZeroChattingBalance
+    }
 
     private var messages: [GroupMessage] {
         let hidden = groupChatService.hiddenMemberAddresses(for: group.id)
@@ -233,6 +269,16 @@ struct GroupChatDetailView: View {
                             case .daySeparator(let day):
                                 daySeparator(day)
                             case .message(let message):
+                                if message.senderAddress == GroupChatService.systemSender {
+                                    // iMessage-style membership line — centered, no bubble/avatar.
+                                    Text(message.content)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.center)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 4)
+                                        .id(message.id)
+                                } else {
                                 groupMessageRow(message)
                                     .id(message.id)
                                     .background(
@@ -267,6 +313,7 @@ struct GroupChatDetailView: View {
                                             }
                                         }
                                     }
+                                }
                             }
                         }
                         // Debounced rather than setting `isBottomAnchorVisible` directly, matching
@@ -337,6 +384,22 @@ struct GroupChatDetailView: View {
                     if messages.last?.isOutgoing == true || isBottomAnchorVisible {
                         scrollToBottom(using: proxy, animated: true)
                     }
+                    // Reactive read-marking, same as ChatDetailView: a notification tap can
+                    // open this group before its messages have loaded (cold start /
+                    // mid-catch-up), making the one-shot .task mark a no-op and leaving the
+                    // badge stuck. Message arrivals are exactly when unread can bump.
+                    // DEBOUNCED: catch-up sync delivers messages one by one - marking read per
+                    // arrival (badge update + delivered-notification sweep each time) stormed
+                    // the main thread on resume. One mark after the burst quiets down.
+                    if currentGroupUnreadCount > 0, !reactiveReadMarkPending {
+                        reactiveReadMarkPending = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            reactiveReadMarkPending = false
+                            if currentGroupUnreadCount > 0 {
+                                groupChatService.markGroupAsRead(group.id)
+                            }
+                        }
+                    }
                 }
                 .onChange(of: isComposerFocused) { focused in
                     if focused {
@@ -374,7 +437,26 @@ struct GroupChatDetailView: View {
                 // the whole container's safe-area inset, producing the keyboard/screen shake - this
                 // matches 1:1 chat's ChatDetailView fix exactly.
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    bottomComposeArea
+                    VStack(spacing: 0) {
+                        if isChattingBalanceZero {
+                            // Zero-balance gate: reading stays fully usable (the card is part
+                            // of the bottom inset, never an overlay on the message list) -
+                            // only composing is blocked. Mirrors 1:1 chat's gate exactly.
+                            ZeroBalanceFundingCardView(
+                                address: myAddress,
+                                onCopied: { showToast($0.addressCopiedToastText, style: .success) }
+                            )
+                            .padding(.horizontal)
+                            .padding(.bottom, 4)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                        bottomComposeArea
+                            .disabled(isChattingBalanceZero)
+                            .allowsHitTesting(!isChattingBalanceZero)
+                            .grayscale(isChattingBalanceZero ? 1 : 0)
+                            .opacity(isChattingBalanceZero ? 0.45 : 1)
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: isChattingBalanceZero)
                 }
 
                 if !isBottomAnchorVisible {
@@ -412,6 +494,24 @@ struct GroupChatDetailView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 ConnectionStatusIndicator()
+            }
+            // Group photo above the name, like the 1:1 chat header shows the contact's avatar.
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 1) {
+                    Group {
+                        if let hex = groupChatService.groupPhotos[group.id], let data = Data(hexString: hex), let img = UIImage(data: data) {
+                            Image(uiImage: img).resizable().scaledToFill()
+                        } else {
+                            ZStack {
+                                Circle().fill(Color.accentColor.opacity(0.2))
+                                Image(systemName: "person.3.fill").font(.system(size: 11)).foregroundColor(.accentColor)
+                            }
+                        }
+                    }
+                    .frame(width: 28, height: 28)
+                    .clipShape(Circle())
+                    Text(group.name).font(.subheadline).fontWeight(.semibold).lineLimit(1)
+                }
             }
             if !isSelectingMessages {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -508,7 +608,7 @@ struct GroupChatDetailView: View {
                 errorMessage = message
             }
         }
-        .toast(message: toastMessage, style: .success)
+        .toast(message: toastMessage, style: toastStyle)
         .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
             TextField("Fee (KAS)", text: $feeEditorText)
                 .keyboardType(.decimalPad)
@@ -611,12 +711,57 @@ struct GroupChatDetailView: View {
                     }
                     isComposerFocused = false
                     pendingPhotoImage = image
+                    pendingPhotoOriginalData = data
                     schedulePhotoFeeEstimate()
                 },
-                onCancel: { showCamera = false }
+                onCancel: { showCamera = false },
+                // Video mode only exists when the Nextcloud media route can carry the file -
+                // there is no on-chain path that fits a video. Mirrors 1:1 chat exactly.
+                onCaptureVideo: (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+                    ? { fileURL in
+                        showCamera = false
+                        sendNextcloudVideo(fileURL)
+                    }
+                    : nil
             )
             .ignoresSafeArea()
         }
+    }
+
+    /// Uploads a just-recorded camera clip to Nextcloud and sends its share link - the
+    /// recipients' link previews render it as a playable video bubble. On failure the clip can't
+    /// fall back on-chain (videos don't fit a payload), so the error surfaces directly. Mirrors
+    /// `ChatDetailView.sendNextcloudVideo`, adapted to the group text-send API.
+    private func sendNextcloudVideo(_ fileURL: URL) {
+        errorMessage = nil
+        Task {
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let ext = fileURL.pathExtension.isEmpty ? "mov" : fileURL.pathExtension.lowercased()
+                let contentType = ext == "mp4" ? "video/mp4" : "video/quicktime"
+                let shareURL = try await NextcloudService.shared.uploadMediaAndShare(
+                    data: data,
+                    filename: "video_\(Int(Date().timeIntervalSince1970)).\(ext)",
+                    contentType: contentType
+                )
+                try await groupChatService.sendGroupMessage(shareURL.absoluteString, to: group.id)
+            } catch {
+                AppLog.log("[GroupChatDetailView] Nextcloud video send failed: %@", error.localizedDescription)
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Stages a picked file's share link in the composer instead of auto-sending — the user
+    /// reviews it in the input bubble and taps send themselves. Mirrors
+    /// `ChatDetailView.stageNextcloudLink`.
+    private func stageNextcloudLink(_ url: URL) {
+        errorMessage = nil
+        draft = draft.isEmpty ? url.absoluteString : draft + " " + url.absoluteString
+        isComposerFocused = true
     }
 
     private func takePhoto() {
@@ -725,10 +870,21 @@ struct GroupChatDetailView: View {
         }
     }
 
+    /// Representative raw-payload size of a Nextcloud `/s/TOKEN` share-link message - mirrors
+    /// `ChatDetailView.nextcloudLinkPayloadSize` (the group envelope math on top of it is
+    /// `estimateGroupMediaFee`'s, a slight overestimate for a plain text link, which is fine for
+    /// a preview this small).
+    private static let nextcloudLinkPayloadSize = 96
+
     private func schedulePhotoFeeEstimate() {
         feeEstimateTask?.cancel()
         isEstimatingFee = false
-        feeEstimateSompi = groupChatService.estimateGroupMediaFee(rawBytes: Self.groupPhotoTargetBytes)
+        // Via Nextcloud, the chain only carries the ~80-byte share link - the photo bytes live
+        // on the server - so the fee shown is the link-message fee, not the envelope fee.
+        let rawBytes = (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+            ? Self.nextcloudLinkPayloadSize
+            : Self.groupPhotoTargetBytes
+        feeEstimateSompi = groupChatService.estimateGroupMediaFee(rawBytes: rawBytes)
     }
 
     /// Raw encoded-Opus-bytes/sec estimate for `BroadcastAudioRecorder`'s fixed 6kbps/48kHz
@@ -736,6 +892,13 @@ struct GroupChatDetailView: View {
     /// identical heuristic for the same recorder settings.
     private func updateRecordingFeeEstimate(elapsedSeconds: TimeInterval) {
         guard recorder.state == .recording else { return }
+        // Via Nextcloud, the recording uploads to the server and the chain only carries the
+        // share link - the fee is the link-message fee regardless of recording length.
+        if nextcloudService.isConnected && nextcloudService.mediaSendEnabled {
+            feeEstimateSompi = groupChatService.estimateGroupMediaFee(rawBytes: Self.nextcloudLinkPayloadSize)
+            isEstimatingFee = false
+            return
+        }
         let rawBytesPerSecond = 1_150.0
         let estimatedRawBytes = min(Int(elapsedSeconds * rawBytesPerSecond), 13_000)
         feeEstimateSompi = groupChatService.estimateGroupMediaFee(rawBytes: estimatedRawBytes)
@@ -755,6 +918,7 @@ struct GroupChatDetailView: View {
             return false
         }
         pendingPhotoImage = image
+        pendingPhotoOriginalData = data
         isComposerFocused = false
         schedulePhotoFeeEstimate()
         return true
@@ -890,7 +1054,8 @@ struct GroupChatDetailView: View {
 
                 // Quick-access camera, replacing what used to be a "Camera" entry in the "+" menu
                 // - living right in the compose bubble instead since it's the most common
-                // non-text action. Matches 1:1 chat's textRow.
+                // non-text action. Matches 1:1 chat's textRow. When "Send Media via Nextcloud"
+                // is on, captures ride the auto-upload send path automatically.
                 Button {
                     takePhoto()
                 } label: {
@@ -900,6 +1065,21 @@ struct GroupChatDetailView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text("Take Photo"))
+
+                // Its voice-note sibling: one tap starts recording, same as the "+"-menu entry -
+                // and the finished note likewise uploads via Nextcloud whenever the toggle is on.
+                // Matches 1:1 chat's textRow mic button.
+                Button {
+                    feeEstimateSompi = nil
+                    recorder.start()
+                } label: {
+                    Image(systemName: "mic")
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 6)
+                .accessibilityLabel(Text("Record Voice Message"))
             }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
@@ -925,16 +1105,29 @@ struct GroupChatDetailView: View {
     /// `mentionSuggestions`.
     private var plusMenu: some View {
         Menu {
-            Button {
-                showPhotoPicker = true
-            } label: {
-                Label("Send Photo", systemImage: "photo")
+            // With "Send Media via Nextcloud" toggled on, the composer bar's own camera/mic
+            // buttons cover native capture (uploading via the server), so the menu offers only
+            // the server browser. Toggle off keeps the classic Send Photo / Send Audio entries
+            // (plus the browser row whenever a server is connected). Mirrors 1:1's composerPlusMenu.
+            if nextcloudService.isConnected {
+                Button {
+                    showNextcloudPicker = true
+                } label: {
+                    Label("Send from Nextcloud", systemImage: "externaldrive.connected.to.line.below")
+                }
             }
-            Button {
-                feeEstimateSompi = nil
-                recorder.start()
-            } label: {
-                Label("Send Audio Message", systemImage: "mic.circle.fill")
+            if !(nextcloudService.isConnected && nextcloudService.mediaSendEnabled) {
+                Button {
+                    showPhotoPicker = true
+                } label: {
+                    Label("Send Photo", systemImage: "photo")
+                }
+                Button {
+                    feeEstimateSompi = nil
+                    recorder.start()
+                } label: {
+                    Label("Send Audio Message", systemImage: "mic.circle.fill")
+                }
             }
         } label: {
             Image(systemName: "plus")
@@ -946,6 +1139,11 @@ struct GroupChatDetailView: View {
         .tint(.accentColor)
         .accessibilityLabel(Text("More options"))
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
+        .sheet(isPresented: $showNextcloudPicker) {
+            NextcloudPickerView { url, _ in
+                stageNextcloudLink(url)
+            }
+        }
         .onChange(of: photoPickerItem) { newItem in
             guard let newItem else { return }
             Task {
@@ -958,6 +1156,7 @@ struct GroupChatDetailView: View {
                 await MainActor.run {
                     isComposerFocused = false
                     pendingPhotoImage = image
+                    pendingPhotoOriginalData = data
                     schedulePhotoFeeEstimate()
                 }
             }
@@ -980,6 +1179,7 @@ struct GroupChatDetailView: View {
 
             Button {
                 pendingPhotoImage = nil
+                pendingPhotoOriginalData = nil
                 feeEstimateSompi = nil
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -1045,7 +1245,7 @@ struct GroupChatDetailView: View {
             .disabled(recorder.state == .encoding)
         }
         .onChange(of: recorder.elapsedSeconds) { elapsed in
-            guard elapsed >= BroadcastAudioRecorder.maxDuration, recorder.state == .recording else { return }
+            guard elapsed >= effectiveMaxRecordingDuration, recorder.state == .recording else { return }
             sendRecording()
         }
     }
@@ -1085,11 +1285,56 @@ struct GroupChatDetailView: View {
         isSendingPhoto = true
         errorMessage = nil
         Task {
+            // "Send Media via Nextcloud": upload the best-quality bytes we have and send the
+            // public share link as a normal group text message (the members' link-preview
+            // feature renders it as a media bubble). Any upload/share failure falls back to the
+            // on-chain envelope below, with a toast so the sender knows the full-quality upload
+            // didn't happen. Mirrors `ChatDetailView.sendPendingPhotoAsync`.
+            if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+                var shareURL: URL?
+                do {
+                    guard let upload = nextcloudPhotoUpload(for: pendingPhotoImage) else {
+                        throw KasiaError.networkError("Couldn't encode the photo for upload.")
+                    }
+                    shareURL = try await NextcloudService.shared.uploadMediaAndShare(
+                        data: upload.data,
+                        filename: upload.filename,
+                        contentType: upload.contentType
+                    )
+                } catch {
+                    AppLog.log("[GroupChatDetailView] Nextcloud photo upload failed, falling back to on-chain: %@",
+                               error.localizedDescription)
+                    await MainActor.run {
+                        showToast("Nextcloud upload failed — sending on-chain instead", style: .error)
+                    }
+                }
+                if let shareURL {
+                    do {
+                        try await groupChatService.sendGroupMessage(shareURL.absoluteString, to: group.id)
+                        await MainActor.run {
+                            self.pendingPhotoImage = nil
+                            self.pendingPhotoOriginalData = nil
+                            self.isSendingPhoto = false
+                        }
+                    } catch {
+                        // The chain send itself failed - an on-chain image envelope would fail
+                        // the same way, so surface the error instead of falling back.
+                        await MainActor.run {
+                            self.errorMessage = error.localizedDescription
+                            self.isSendingPhoto = false
+                        }
+                    }
+                    return
+                }
+                // No share link - fall through to the on-chain envelope path.
+            }
+
             do {
                 let prepared = try ImagePrep.prepareForChatMessage(pendingPhotoImage, targetBytes: Self.groupPhotoTargetBytes)
                 try await groupChatService.sendGroupImage(prepared.data, to: group.id, fileName: prepared.fileName, mimeType: prepared.mimeType)
                 await MainActor.run {
                     self.pendingPhotoImage = nil
+                    self.pendingPhotoOriginalData = nil
                     self.isSendingPhoto = false
                 }
             } catch {
@@ -1102,14 +1347,153 @@ struct GroupChatDetailView: View {
     }
 
     private func sendRecording() {
+        // Snapshot once, so the toggle flipping mid-send can't strand the stashed original.
+        let nextcloudActive = NextcloudService.shared.mediaSendEnabled && NextcloudService.shared.isConnected
         Task {
+            // Nextcloud mode: stash the full-length original PCM BEFORE the payload-capped WebM
+            // encode - the encode truncates to ~13KB (≈9s), and exporting the M4A from that
+            // would silently re-cap a long recording. The copy lives only for this send; the
+            // defer below is its single cleanup site (success, upload failure, and send failure
+            // all pass through it). Mirrors `ChatDetailView.nextcloudOriginalRecordingURL`.
+            let originalPCMURL: URL? = nextcloudActive
+                ? FileManager.default.temporaryDirectory
+                    .appendingPathComponent("kachat-group-voice-original-\(UUID().uuidString).caf")
+                : nil
+            defer {
+                if let originalPCMURL {
+                    try? FileManager.default.removeItem(at: originalPCMURL)
+                }
+            }
             do {
-                let recorded = try await recorder.stopAndEncode()
+                let recorded = try await recorder.stopAndEncode(keepOriginalPCMAt: originalPCMURL)
+
+                // "Send Media via Nextcloud": upload an AAC .m4a of the recording and send the
+                // public share link instead of the on-chain WebM/Opus envelope. The .m4a
+                // re-export matters: the recipients' link-preview audio card streams through
+                // AVPlayer, which cannot decode WebM/Opus, so uploading the envelope bytes
+                // verbatim would produce an unplayable card. Any failure falls back to the
+                // on-chain path below, with a toast. Mirrors `ChatDetailView.sendAudioAsync`.
+                if nextcloudActive {
+                    var shareURL: URL?
+                    do {
+                        let m4aURL = try await exportRecordingAsM4A(originalPCMURL: originalPCMURL, webmData: recorded.data)
+                        let m4aData = try Data(contentsOf: m4aURL)
+                        try? FileManager.default.removeItem(at: m4aURL)
+                        let stamp = Self.mediaTimestampFormatter.string(from: Date())
+                        shareURL = try await NextcloudService.shared.uploadMediaAndShare(
+                            data: m4aData,
+                            filename: "voice_\(stamp).m4a",
+                            contentType: "audio/mp4"
+                        )
+                    } catch {
+                        AppLog.log("[GroupChatDetailView] Nextcloud audio upload failed, falling back to on-chain: %@",
+                                   error.localizedDescription)
+                        await MainActor.run {
+                            showToast("Nextcloud upload failed — sending on-chain instead", style: .error)
+                        }
+                    }
+                    if let shareURL {
+                        try await groupChatService.sendGroupMessage(shareURL.absoluteString, to: group.id)
+                        return
+                    }
+                    // No share link - fall through to the on-chain envelope path (the WebM is
+                    // payload-capped, so a long Nextcloud-mode recording arrives truncated -
+                    // same trade-off as 1:1's fallback).
+                }
+
                 try await groupChatService.sendGroupAudio(recorded.data, to: group.id, fileName: recorded.fileName, mimeType: recorded.mimeType)
             } catch {
                 await MainActor.run { errorMessage = "Failed to send voice message: \(error.localizedDescription)" }
             }
         }
+    }
+
+    // MARK: - Nextcloud media send helpers ("Send Media via Nextcloud" toggle)
+
+    /// Human-sortable timestamp for uploaded media filenames (photo_20260811-101502.jpg) -
+    /// duplicated from `ChatDetailView` (private there), matching this file's convention of
+    /// small local copies over widened access.
+    private static let mediaTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter
+    }()
+
+    /// The best-quality photo bytes available for a Nextcloud upload: the exact original data
+    /// the photo was attached from (untouched HEIC/PNG/JPEG at full resolution) when the
+    /// composer still holds it, else a high-quality JPEG re-encode of the decoded image.
+    /// Nil only if even the JPEG re-encode fails (caller treats that as an upload failure).
+    private func nextcloudPhotoUpload(for image: UIImage) -> (data: Data, filename: String, contentType: String)? {
+        let stamp = Self.mediaTimestampFormatter.string(from: Date())
+        if let original = pendingPhotoOriginalData {
+            let format = Self.sniffImageFormat(original)
+            return (original, "photo_\(stamp).\(format.ext)", format.contentType)
+        }
+        guard let jpeg = image.jpegData(compressionQuality: 0.9) else { return nil }
+        return (jpeg, "photo_\(stamp).jpg", "image/jpeg")
+    }
+
+    /// Magic-byte sniff so the uploaded file keeps an extension matching its actual container -
+    /// Nextcloud derives the served Content-Type from the extension, and the recipient's media
+    /// card branches on that Content-Type. Unknown formats default to .jpg: any image/* type
+    /// still renders as an image card, and UIImage decodes from the real bytes regardless.
+    private static func sniffImageFormat(_ data: Data) -> (ext: String, contentType: String) {
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return ("jpg", "image/jpeg") }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return ("png", "image/png") }
+        if data.starts(with: [0x47, 0x49, 0x46, 0x38]) { return ("gif", "image/gif") }
+        if data.count >= 12,
+           data.prefix(4) == Data("RIFF".utf8),
+           data[data.startIndex + 8 ..< data.startIndex + 12] == Data("WEBP".utf8) {
+            return ("webp", "image/webp")
+        }
+        if data.count >= 12, data[data.startIndex + 4 ..< data.startIndex + 8] == Data("ftyp".utf8) {
+            return ("heic", "image/heic")
+        }
+        return ("jpg", "image/jpeg")
+    }
+
+    /// Builds an AAC .m4a of the current recording for the Nextcloud upload. PCM source: the
+    /// stashed full-length original (never truncated by the payload cap) when it exists, else
+    /// the WebM payload is decoded on the spot. Mirrors `ChatDetailView.exportRecordingAsM4A`,
+    /// minus the preview-CAF branch (group's recorder has no preview step).
+    private func exportRecordingAsM4A(originalPCMURL: URL?, webmData: Data) async throws -> URL {
+        let pcmURL: URL
+        let deletePCMAfter: Bool
+        if let originalPCMURL, FileManager.default.fileExists(atPath: originalPCMURL.path) {
+            pcmURL = originalPCMURL
+            deletePCMAfter = false // sendRecording's defer owns this copy, not here
+        } else {
+            pcmURL = try WebMOpusDecoder.decodeToPCMFile(data: webmData).url
+            deletePCMAfter = true
+        }
+        defer {
+            if deletePCMAfter { try? FileManager.default.removeItem(at: pcmURL) }
+        }
+
+        guard let export = AVAssetExportSession(asset: AVURLAsset(url: pcmURL),
+                                                presetName: AVAssetExportPresetAppleM4A) else {
+            throw KasiaError.networkError("Audio export is unavailable on this device.")
+        }
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kachat-group-voice-\(UUID().uuidString).m4a")
+        export.outputURL = outputURL
+        export.outputFileType = .m4a
+        // AVAssetExportSession isn't Sendable, but this is safe: after exportAsynchronously
+        // starts, the session is only touched from its own one-shot completion callback -
+        // `nonisolated(unsafe)` records that reasoning for the strict-concurrency checker.
+        nonisolated(unsafe) let session = export
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            session.exportAsynchronously {
+                if session.status == .completed {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: session.error
+                        ?? KasiaError.networkError("Audio export failed."))
+                }
+            }
+        }
+        return outputURL
     }
 
     private func openChat(with address: String, paymentMode: Bool = false) {
@@ -1129,7 +1513,7 @@ struct GroupChatDetailView: View {
 
     private func copyAddress(_ address: String) {
         UIPasteboard.general.string = address
-        showToast("Address copied.", style: .success)
+        showToast(address.addressCopiedToastText, style: .success)
     }
 
     private func hideSender(_ address: String) {
@@ -1295,6 +1679,7 @@ struct GroupChatDetailView: View {
     private func showToast(_ message: String, style: ToastStyle) {
         let token = UUID()
         toastToken = token
+        toastStyle = style
         withAnimation(.easeOut(duration: 0.2)) {
             toastMessage = message
         }
@@ -1542,6 +1927,66 @@ private struct GroupMessageBubbleRow: View {
         return GroupMentionCodec.decodeForDisplay(raw, members: group.members, resolveDisplayName: resolveDisplayName(for:))
     }
 
+    /// Members actually @mentioned in this message (their `@address` token is present in the raw text).
+    private var mentionedMembers: [GroupMember] {
+        let raw = replyQuote?.text ?? message.content
+        return group.members.filter { raw.contains("@\($0.address)") }
+    }
+
+    /// Label to show for a mention: the person's KNS domain (what the user asked to see), else the
+    /// friendly display name. Read from the synchronous KNS cache.
+    private func mentionLabel(for address: String) -> String {
+        if let domain = knsService.domainCache[address]?.explicitPrimaryDomain, !domain.isEmpty { return domain }
+        return resolveDisplayName(for: address)
+    }
+
+    /// Build the message text as an AttributedString where each @mention renders as the KNS domain,
+    /// accent-coloured and TAPPABLE (a `kachat-mention://<address>` link the bubble's OpenURLAction
+    /// resolves to a 1:1 chat). Mirrors `KaPostsView.linkified`, but opens a chat, not a profile.
+    private func mentionAttributedContent() -> AttributedString {
+        // Swap each @address → @label (longest address first for safety), like decodeForDisplay.
+        var display = replyQuote?.text ?? message.content
+        for m in group.members.sorted(by: { $0.address.count > $1.address.count }) {
+            let label = mentionLabel(for: m.address)
+            guard !label.isEmpty else { continue }
+            display = display.replacingOccurrences(of: "@\(m.address)", with: "@\(label)")
+        }
+        var attributed = AttributedString(display)
+        // Keep any plain URLs tappable too.
+        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+            let nsText = display as NSString
+            for match in detector.matches(in: display, options: [], range: NSRange(location: 0, length: nsText.length)) {
+                guard let url = match.url, let sr = Range(match.range, in: display) else { continue }
+                let startOffset = display.distance(from: display.startIndex, to: sr.lowerBound)
+                let length = display.distance(from: sr.lowerBound, to: sr.upperBound)
+                let start = attributed.index(attributed.startIndex, offsetByCharacters: startOffset)
+                let end = attributed.index(start, offsetByCharacters: length)
+                attributed[start..<end].link = url
+                attributed[start..<end].underlineStyle = .single
+            }
+        }
+        // Link each mention's @label run to its member address.
+        for m in group.members {
+            let label = mentionLabel(for: m.address)
+            guard !label.isEmpty else { continue }
+            let token = "@\(label)"
+            let enc = m.address.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? m.address
+            let url = URL(string: "kachat-mention://\(enc)")
+            var searchStart = display.startIndex
+            while let r = display.range(of: token, range: searchStart..<display.endIndex) {
+                let startOffset = display.distance(from: display.startIndex, to: r.lowerBound)
+                let length = display.distance(from: r.lowerBound, to: r.upperBound)
+                let start = attributed.index(attributed.startIndex, offsetByCharacters: startOffset)
+                let end = attributed.index(start, offsetByCharacters: length)
+                attributed[start..<end].foregroundColor = message.isOutgoing ? .white : .accentColor
+                attributed[start..<end].underlineStyle = .single
+                if let url { attributed[start..<end].link = url }
+                searchStart = r.upperBound
+            }
+        }
+        return attributed
+    }
+
     /// Parsed once per row - `nil` for a plain-text message, matching 1:1 chat's content-shape
     /// sniffing (`MediaFile.from`) rather than a stored message-type field.
     private var media: MediaFile? {
@@ -1646,7 +2091,22 @@ private struct GroupMessageBubbleRow: View {
                         LinkPreviewCardView(url: linkURL, txId: message.txId, fallbackText: displayContent, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil)
                     } else {
                         Group {
-                            if MessageTextRenderPlan.requiresLinkTextView(displayContent) {
+                            if !mentionedMembers.isEmpty {
+                                // Clickable KNS-domain @mentions → open a 1:1 chat with that person.
+                                Text(mentionAttributedContent())
+                                    .font(.body)
+                                    .foregroundColor(message.isOutgoing ? .white : .primary)
+                                    .environment(\.openURL, OpenURLAction { url in
+                                        if url.scheme == "kachat-mention" {
+                                            let full = url.absoluteString
+                                            let enc = full.hasPrefix("kachat-mention://") ? String(full.dropFirst("kachat-mention://".count)) : (url.host ?? "")
+                                            let addr = enc.removingPercentEncoding ?? enc
+                                            if !addr.isEmpty { onOpenChat(addr) }
+                                            return .handled
+                                        }
+                                        return .systemAction
+                                    })
+                            } else if MessageTextRenderPlan.requiresLinkTextView(displayContent) {
                                 LinkifiedMessageTextView(
                                     text: displayContent,
                                     isOutgoing: message.isOutgoing,
@@ -1846,7 +2306,8 @@ private struct GroupMessageBubbleRow: View {
             KNSAvatarView(
                 avatarURLString: message.isOutgoing ? myAvatarURLString : avatarURLString,
                 fallbackText: senderName,
-                size: 32
+                size: 32,
+                contactAddress: message.isOutgoing ? nil : message.senderAddress
             )
         }
         .tint(.accentColor)
@@ -1892,9 +2353,97 @@ struct GroupChatInfoView: View {
     @State private var renameText = ""
     @State private var renameError: String?
     @State private var isRenaming = false
+    @State private var resendMessage: String?
+    @State private var showAddMembers = false
+    // Members list is a collapsed-by-default dropdown; per-member actions confirm first.
+    @State private var membersExpanded = false
+    @State private var memberToResend: GroupMember?
+    @State private var memberToRemove: GroupMember?
+    @State private var showResendAllConfirm = false
+    @State private var groupPhotoPickerItem: PhotosPickerItem?
+    @State private var pendingPhotoHex: String?
+    @State private var showRemovePhotoConfirm = false
+    @State private var groupPhotoError: String?
+
+    /// The admin-set group photo decoded to an image, or nil.
+    private var groupPhotoImage: UIImage? {
+        guard let hex = groupChatService.groupPhotos[group.id], let data = Data(hexString: hex) else { return nil }
+        return UIImage(data: data)
+    }
+
+    /// Circular group avatar (photo when set, else the name's initial), with an edit badge for admins.
+    private var groupHeaderAvatar: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if let img = groupPhotoImage {
+                    Image(uiImage: img).resizable().scaledToFill()
+                } else {
+                    ZStack {
+                        Circle().fill(Color.accentColor.opacity(0.2))
+                        Text(String(group.name.prefix(1)).uppercased())
+                            .font(.system(size: 32, weight: .semibold))
+                            .foregroundColor(.accentColor)
+                    }
+                }
+            }
+            .frame(width: 76, height: 76)
+            .clipShape(Circle())
+            if group.isAdmin {
+                Image(systemName: "pencil.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundColor(.accentColor)
+                    .background(Circle().fill(Color(.systemBackground)))
+            }
+        }
+    }
     var onDeleted: (() -> Void)?
 
+    /// Re-broadcast the current group root to a single member (or all when address is nil), then
+    /// surface the result in an alert. Admin-only (guarded again in the service).
+    private func resendInvites(to address: String?) {
+        Task {
+            do {
+                if let address { try await groupChatService.resendInvite(to: address, groupId: group.id) }
+                else { try await groupChatService.resendInvites(group.id) }
+                await MainActor.run { resendMessage = address == nil ? "Invites resent to all members." : "Invite resent." }
+            } catch {
+                await MainActor.run { resendMessage = error.localizedDescription }
+            }
+        }
+    }
+
+    /// Remove one member (admin), rotating the group key so they can't decrypt future messages.
+    private func removeMember(_ member: GroupMember) {
+        Task {
+            do { try await groupChatService.removeMember(member, from: group.id) }
+            catch { await MainActor.run { resendMessage = error.localizedDescription } }
+        }
+    }
+
     private var myAddress: String? { walletManager.currentWallet?.publicAddress }
+
+    /// Other members (excludes self) — the fan-out count for admin control sends.
+    private var otherMemberCount: Int { group.members.filter { $0.address != myAddress }.count }
+
+    /// A short " Estimated network fee ≈ X KAS across N transactions." line for a confirm dialog.
+    private func groupFeeSuffix(controlTx: Int, photoTx: Int = 0) -> String {
+        let n = controlTx + photoTx
+        let plural = n == 1 ? "" : "s"
+        guard let kas = groupChatService.estimateGroupActionFeeKas(groupId: group.id, controlTx: controlTx, photoTx: photoTx) else {
+            return "\n\n(\(n) network transaction\(plural).)"
+        }
+        return "\n\nEstimated network fee ≈ \(kas) KAS across \(n) transaction\(plural)."
+    }
+
+    /// Fee suffix for setting a NEW photo (estimated from its own size, not the stored one).
+    private func groupPhotoFeeSuffix(hexLength: Int) -> String {
+        let n = otherMemberCount
+        let plural = n == 1 ? "" : "s"
+        guard n > 0, let kas = groupChatService.estimateGroupPhotoFeeKas(hexLength: hexLength, txCount: n) else {
+            return "\n\n(\(n) network transaction\(plural).)"
+        }
+        return "\n\nEstimated network fee ≈ \(kas) KAS across \(n) transaction\(plural)."
+    }
 
     /// Same resolution 1:1/broadcast/the message list use (contact alias, then KNS domain, then
     /// a generated fallback) - not `member.displayName`, which is only a one-time snapshot from
@@ -1916,90 +2465,195 @@ struct GroupChatInfoView: View {
         Array(groupChatService.hiddenMemberAddresses(for: group.id))
     }
 
+    /// Header section: avatar (tappable PhotosPicker for admins), name, member count, remove-photo.
+    /// Extracted from `body` so the Form's big expression stays type-checkable.
+    private var groupHeaderSection: some View {
+        Section {
+            VStack(spacing: 8) {
+                if group.isAdmin {
+                    PhotosPicker(selection: $groupPhotoPickerItem, matching: .images) { groupHeaderAvatar }
+                        .buttonStyle(.plain)
+                } else {
+                    groupHeaderAvatar
+                }
+                Text(group.name)
+                    .font(.title3).fontWeight(.semibold)
+                Text("\(group.members.count) members")
+                    .font(.caption).foregroundColor(.secondary)
+                if group.isAdmin && groupPhotoImage != nil {
+                    Button("Remove photo", role: .destructive) {
+                        showRemovePhotoConfirm = true
+                    }
+                    .font(.caption)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .listRowBackground(Color.clear)
+        }
+    }
+
+    /// Explicitly typed bindings keep the inline `Binding(get:set:)` closures out of the
+    /// modifier chain, which is what was pushing the type-checker past its budget.
+    private var isRemoveMemberPresented: Binding<Bool> {
+        Binding(get: { memberToRemove != nil }, set: { if !$0 { memberToRemove = nil } })
+    }
+
+    private var isGroupPhotoErrorPresented: Binding<Bool> {
+        Binding(get: { groupPhotoError != nil }, set: { if !$0 { groupPhotoError = nil } })
+    }
+
+    /// Admin picked a new group photo: shrink to a ~10 KB JPEG and broadcast it via gctl_photo.
+    private func handleGroupPhotoSelection(_ newItem: PhotosPickerItem?) {
+        guard let newItem else { return }
+        Task {
+            do {
+                guard let data = try await newItem.loadTransferable(type: Data.self),
+                      let image = UIImage(data: data) else { return }
+                let jpeg = try ImagePrep.prepareJPEGForChatMessage(image, targetBytes: 10_000)
+                // Stash the compressed photo and confirm (with the estimated fee) before sending.
+                await MainActor.run { pendingPhotoHex = jpeg.hexString }
+            } catch {
+                await MainActor.run { groupPhotoError = error.localizedDescription }
+            }
+            await MainActor.run { groupPhotoPickerItem = nil }
+        }
+    }
+
+    // The info screen is assembled in layers, each a separately type-checked expression:
+    // form -> sheets -> member alerts -> admin alerts -> navigation chrome. Keeping the whole
+    // Form + ~10 presentation modifiers in one `body` expression pushed Swift's type-checker
+    // past its budget ("unable to type-check this expression in reasonable time").
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Members (\(group.members.count))") {
-                    ForEach(group.members) { member in
-                        let memberLabel = displayName(for: member.address)
-                        Button {
-                            profileContact = contactsManager.getContact(byAddress: member.address)
-                                ?? contactsManager.getOrCreateContact(address: member.address)
-                        } label: {
-                            HStack(spacing: 12) {
-                                KNSAvatarView(avatarURLString: knsService.profileCache[member.address]?.avatarURL, fallbackText: memberLabel, size: 32)
-                                Text(memberLabel)
-                                    .foregroundColor(.primary)
-                                Spacer()
-                                if member.isAdmin {
-                                    Text("Admin")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                        .task {
-                            guard knsService.profileCache[member.address] == nil else { return }
-                            _ = await knsService.fetchProfile(for: member.address)
-                        }
+            infoFormWithAdminAlerts
+                .navigationTitle("Group Info")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Done") { dismiss() }
                     }
                 }
+        }
+    }
 
+    // MARK: Layer 1 - the Form
+
+    private var infoForm: some View {
+        Form {
+            // Group header: avatar + name at the very top, showing what the group currently is.
+            groupHeaderSection
+
+            Section {
+                DisclosureGroup(isExpanded: $membersExpanded) {
+                    ForEach(group.members) { member in
+                        memberRow(member)
+                    }
+                } label: {
+                    Text("Members (\(group.members.count))")
+                }
+            }
+
+            Section {
+                Button {
+                    showHiddenMembers = true
+                } label: {
+                    Label("Hidden Users", systemImage: "eye.slash")
+                }
+            }
+
+            Section {
+                Toggle("Only Notify if I'm Mentioned", isOn: mentionsOnlyBinding)
+            } footer: {
+                Text("When on, you'll only get notified about messages that @mention you. Replies to your messages and reactions on them still notify you. Everything else shows up in the chat silently.")
+            }
+
+            if group.isAdmin {
                 Section {
                     Button {
-                        showHiddenMembers = true
+                        renameText = group.name
+                        renameError = nil
+                        showRename = true
                     } label: {
-                        Label("Hidden Users", systemImage: "eye.slash")
+                        Label("Rename Group", systemImage: "pencil")
                     }
-                }
-
-                Section {
-                    Toggle("Only Notify if I'm Mentioned", isOn: Binding(
-                        get: { groupChatService.mentionsOnlyNotifications(for: group.id) },
-                        set: { groupChatService.setMentionsOnlyNotifications($0, for: group.id) }
-                    ))
+                    Button {
+                        showResendAllConfirm = true
+                    } label: {
+                        Label("Resend invites to all", systemImage: "arrow.clockwise")
+                    }
+                    Button {
+                        showAddMembers = true
+                    } label: {
+                        Label("Add Members", systemImage: "person.badge.plus")
+                    }
                 } footer: {
-                    Text("When on, you'll only get notified about messages that @mention you - other messages still show up in the chat, just silently.")
-                }
-
-                if group.isAdmin {
-                    Section {
-                        Button {
-                            renameText = group.name
-                            renameError = nil
-                            showRename = true
-                        } label: {
-                            Label("Rename Group", systemImage: "pencil")
-                        }
-                    }
-                }
-
-                Section {
-                    Button(role: .destructive) {
-                        showDeleteConfirmation = true
-                    } label: {
-                        Label("Delete Group", systemImage: "trash")
-                    }
+                    Text("Resends the group invite to every member (or swipe a single member to resend just theirs) - use this if someone didn't receive the group. Adding members rotates the group key, so new members see messages from when they join onward.")
                 }
             }
-            .navigationTitle("Group Info")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { dismiss() }
+
+            Section {
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Label("Delete Group", systemImage: "trash")
                 }
             }
-            .sheet(isPresented: Binding(
-                get: { profileContact != nil },
-                set: { if !$0 { profileContact = nil } }
-            )) {
+        }
+    }
+
+    /// One member row: avatar, name, Admin tag, and (for admins) resend/remove buttons.
+    private func memberRow(_ member: GroupMember) -> some View {
+        let memberLabel = displayName(for: member.address)
+        return HStack(spacing: 12) {
+            KNSAvatarView(
+                avatarURLString: knsService.profileCache[member.address]?.avatarURL,
+                fallbackText: memberLabel,
+                size: 32,
+                contactAddress: member.address
+            )
+            Text(memberLabel)
+                .foregroundColor(.primary)
+            Spacer()
+            if member.isAdmin {
+                Text("Admin")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            // Admin-only per-member actions (visible buttons, each confirmed first),
+            // matching Android/desktop. .borderless so each taps independently of the row.
+            if group.isAdmin && member.address != myAddress {
+                Button { memberToResend = member } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .tint(.accentColor)
+                Button { memberToRemove = member } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .tint(.red)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            profileContact = contactsManager.getContact(byAddress: member.address)
+                ?? contactsManager.getOrCreateContact(address: member.address)
+        }
+        .task {
+            guard knsService.profileCache[member.address] == nil else { return }
+            _ = await knsService.fetchProfile(for: member.address)
+        }
+    }
+
+    // MARK: Layer 2 - sheets
+
+    private var infoFormWithSheets: some View {
+        infoForm
+            .sheet(isPresented: isProfilePresented) {
                 if let contact = profileContact {
                     NavigationStack {
                         ChatInfoView(
-                            contact: Binding(
-                                get: { profileContact ?? contact },
-                                set: { profileContact = $0 }
-                            ),
+                            contact: profileContactBinding(fallback: contact),
                             title: "User Info",
                             showsNotificationSettings: false
                         )
@@ -2011,29 +2665,82 @@ struct GroupChatInfoView: View {
                     HiddenGroupMembersView(group: group)
                 }
             }
+            .sheet(isPresented: $showAddMembers) {
+                NavigationStack {
+                    AddGroupMembersView(group: group)
+                }
+            }
+    }
+
+    // MARK: Layer 3 - member alerts
+
+    private var infoFormWithMemberAlerts: some View {
+        infoFormWithSheets
+            .alert("Resend Invites", isPresented: isResendMessagePresented) {
+                Button("OK", role: .cancel) { resendMessage = nil }
+            } message: {
+                Text(resendMessage ?? "")
+            }
+            .alert("Resend invite", isPresented: isResendMemberPresented) {
+                Button("Send") { if let m = memberToResend { resendInvites(to: m.address) }; memberToResend = nil }
+                Button("Cancel", role: .cancel) { memberToResend = nil }
+            } message: {
+                Text("Resend the group invite to \(memberName(memberToResend))?\(groupFeeSuffix(controlTx: 1))")
+            }
+            .alert("Remove member", isPresented: isRemoveMemberPresented) {
+                Button("Yes", role: .destructive) { if let m = memberToRemove { removeMember(m) }; memberToRemove = nil }
+                Button("Cancel", role: .cancel) { memberToRemove = nil }
+            } message: {
+                let afterN = max(0, otherMemberCount - 1)
+                let hasPhoto = groupChatService.groupPhotos[group.id] != nil
+                Text("Remove \(memberName(memberToRemove)) from the group chat? A fresh group key is issued to everyone who stays.\(groupFeeSuffix(controlTx: 2 * afterN + 1, photoTx: hasPhoto ? afterN : 0))")
+            }
+            .alert("Resend invites to all", isPresented: $showResendAllConfirm) {
+                Button("Send") { resendInvites(to: nil) }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                let hasPhoto = groupChatService.groupPhotos[group.id] != nil
+                Text("Resend the group invite to every member? Use this if someone didn't receive the group.\(groupFeeSuffix(controlTx: otherMemberCount + 1, photoTx: hasPhoto ? otherMemberCount : 0))")
+            }
+    }
+
+    // MARK: Layer 4 - admin alerts (photo, rename, delete)
+
+    private var infoFormWithAdminAlerts: some View {
+        infoFormWithMemberAlerts
+            .alert("Group photo", isPresented: isGroupPhotoErrorPresented) {
+                Button("OK", role: .cancel) { groupPhotoError = nil }
+            } message: {
+                Text(groupPhotoError ?? "")
+            }
+            .onChange(of: groupPhotoPickerItem) { newItem in
+                handleGroupPhotoSelection(newItem)
+            }
             .alert("Rename Group", isPresented: $showRename) {
                 TextField("Group name", text: $renameText)
-                Button("Save") {
-                    let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmed.isEmpty else { return }
-                    isRenaming = true
-                    Task {
-                        do {
-                            try await groupChatService.renameGroup(group.id, to: trimmed)
-                        } catch {
-                            renameError = error.localizedDescription
-                        }
-                        isRenaming = false
-                    }
+                Button("Save") { saveRename() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Every member will see the new name.\(groupFeeSuffix(controlTx: otherMemberCount + 1))")
+            }
+            .alert("Set group photo", isPresented: Binding(get: { pendingPhotoHex != nil }, set: { if !$0 { pendingPhotoHex = nil } })) {
+                Button("Send") {
+                    if let hex = pendingPhotoHex { Task { try? await groupChatService.setGroupPhoto(group.id, photoHex: hex) } }
+                    pendingPhotoHex = nil
+                }
+                Button("Cancel", role: .cancel) { pendingPhotoHex = nil }
+            } message: {
+                Text("Set this as the group photo for everyone?\(groupPhotoFeeSuffix(hexLength: pendingPhotoHex?.count ?? 0))")
+            }
+            .alert("Remove group photo", isPresented: $showRemovePhotoConfirm) {
+                Button("Remove", role: .destructive) {
+                    Task { try? await groupChatService.setGroupPhoto(group.id, photoHex: "") }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Every member will see the new name.")
+                Text("Remove the group photo for everyone?\(groupFeeSuffix(controlTx: otherMemberCount))")
             }
-            .alert("Couldn't Rename Group", isPresented: Binding(
-                get: { renameError != nil },
-                set: { if !$0 { renameError = nil } }
-            )) {
+            .alert("Couldn't Rename Group", isPresented: isRenameErrorPresented) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(renameError ?? "")
@@ -2048,6 +2755,52 @@ struct GroupChatInfoView: View {
             } message: {
                 Text("This removes the group and its messages from this device. This cannot be undone, and other members won't be notified.")
             }
+    }
+
+    // MARK: Typed bindings + small helpers (kept out of the view expressions on purpose)
+
+    private var mentionsOnlyBinding: Binding<Bool> {
+        Binding(
+            get: { groupChatService.mentionsOnlyNotifications(for: group.id) },
+            set: { groupChatService.setMentionsOnlyNotifications($0, for: group.id) }
+        )
+    }
+
+    private var isProfilePresented: Binding<Bool> {
+        Binding(get: { profileContact != nil }, set: { if !$0 { profileContact = nil } })
+    }
+
+    private func profileContactBinding(fallback contact: Contact) -> Binding<Contact> {
+        Binding(get: { profileContact ?? contact }, set: { profileContact = $0 })
+    }
+
+    private var isResendMessagePresented: Binding<Bool> {
+        Binding(get: { resendMessage != nil }, set: { if !$0 { resendMessage = nil } })
+    }
+
+    private var isResendMemberPresented: Binding<Bool> {
+        Binding(get: { memberToResend != nil }, set: { if !$0 { memberToResend = nil } })
+    }
+
+    private var isRenameErrorPresented: Binding<Bool> {
+        Binding(get: { renameError != nil }, set: { if !$0 { renameError = nil } })
+    }
+
+    private func memberName(_ member: GroupMember?) -> String {
+        member.map { displayName(for: $0.address) } ?? "this member"
+    }
+
+    private func saveRename() {
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isRenaming = true
+        Task {
+            do {
+                try await groupChatService.renameGroup(group.id, to: trimmed)
+            } catch {
+                renameError = error.localizedDescription
+            }
+            isRenaming = false
         }
     }
 }
@@ -2085,7 +2838,12 @@ private struct HiddenGroupMembersView: View {
                 Section("Hidden Users") {
                     ForEach(hidden, id: \.self) { address in
                         HStack(spacing: 12) {
-                            KNSAvatarView(avatarURLString: knsService.profileCache[address]?.avatarURL, fallbackText: displayName(for: address), size: 32)
+                            KNSAvatarView(
+                                avatarURLString: knsService.profileCache[address]?.avatarURL,
+                                fallbackText: displayName(for: address),
+                                size: 32,
+                                contactAddress: address
+                            )
                             Text(displayName(for: address))
                             Spacer()
                             Button("Unhide") {
@@ -2102,6 +2860,138 @@ private struct HiddenGroupMembersView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Done") { dismiss() }
             }
+        }
+    }
+}
+
+/// Admin-only "Add Members" sheet: pick contacts who aren't already in the group and add them.
+/// Each add rotates the group epoch and redistributes the new root to the whole roster (see
+/// `GroupChatService.addMember`), so new members only see messages from when they join onward.
+private struct AddGroupMembersView: View {
+    let group: GroupChat
+    @EnvironmentObject var groupChatService: GroupChatService
+    @EnvironmentObject var contactsManager: ContactsManager
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @State private var selectedAddresses: Set<String> = []
+    @State private var isAdding = false
+    @State private var resultMessage: String?
+    @State private var showAddConfirm = false
+
+    /// Estimated total fee for adding the selected members (each add rotates the group key).
+    private func addFeeSuffix() -> String {
+        let k = selectedAddresses.count
+        let myAddr = WalletManager.shared.currentWallet?.publicAddress
+        let finalOthers = group.members.filter { $0.address != myAddr }.count + k
+        let hasPhoto = groupChatService.groupPhotos[group.id] != nil
+        let controlTx = k * (2 * finalOthers + 1)
+        let photoTx = hasPhoto ? k * finalOthers : 0
+        let n = controlTx + photoTx
+        guard let kas = groupChatService.estimateGroupActionFeeKas(groupId: group.id, controlTx: controlTx, photoTx: photoTx) else {
+            return "\n\n(\(n) network transaction\(n == 1 ? "" : "s").)"
+        }
+        return "\n\nEstimated network fee ≈ \(kas) KAS across \(n) transaction\(n == 1 ? "" : "s")."
+    }
+
+    /// Contacts not already in the group, filtered by the search box (name or address).
+    private var candidates: [Contact] {
+        let existing = Set(group.members.map { $0.address })
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let all = contactsManager.activeContacts
+            .filter { !existing.contains($0.address) }
+            .sorted { $0.alias.localizedCaseInsensitiveCompare($1.alias) == .orderedAscending }
+        guard !query.isEmpty else { return all }
+        return all.filter { $0.alias.lowercased().contains(query) || $0.address.lowercased().contains(query) }
+    }
+
+    private func addSelected() {
+        let addresses = Array(selectedAddresses)
+        guard !addresses.isEmpty else { return }
+        isAdding = true
+        Task {
+            var failures = 0
+            for address in addresses {
+                let contact = contactsManager.getContact(byAddress: address)
+                    ?? contactsManager.getOrCreateContact(address: address)
+                do { try await groupChatService.addMember(contact, to: group.id) }
+                catch { failures += 1 }
+            }
+            await MainActor.run {
+                isAdding = false
+                if failures == 0 { dismiss() }
+                else { resultMessage = "\(failures) member(s) could not be added. Please try again." }
+            }
+        }
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("Search contacts", text: $searchText)
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+            }
+            Section {
+                if contactsManager.activeContacts.isEmpty {
+                    Text("You have no contacts yet. Start a 1:1 chat with someone first, then you can add them to the group.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else if candidates.isEmpty {
+                    Text(searchText.isEmpty ? "Everyone in your contacts is already in this group." : "No contacts match your search.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(candidates, id: \.address) { contact in
+                        Button {
+                            if selectedAddresses.contains(contact.address) { selectedAddresses.remove(contact.address) }
+                            else { selectedAddresses.insert(contact.address) }
+                        } label: {
+                            HStack(spacing: 12) {
+                                KNSAvatarView(avatarURLString: nil, fallbackText: contact.alias, size: 32, contactAddress: contact.address)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(contact.alias).foregroundColor(.primary).lineLimit(1)
+                                    Text(Contact.generateDefaultAlias(from: contact.address))
+                                        .font(.caption).foregroundColor(.secondary).lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: selectedAddresses.contains(contact.address) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(selectedAddresses.contains(contact.address) ? .accentColor : .secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            } footer: {
+                Text("New members can read messages from the moment they're added, not earlier history.")
+            }
+        }
+        .navigationTitle("Add Members")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button("Cancel") { dismiss() }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if isAdding {
+                    ProgressView()
+                } else {
+                    Button(selectedAddresses.isEmpty ? "Add" : "Add (\(selectedAddresses.count))") {
+                        showAddConfirm = true
+                    }
+                    .disabled(selectedAddresses.isEmpty)
+                }
+            }
+        }
+        .alert("Add members", isPresented: $showAddConfirm) {
+            Button("Add") { addSelected() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Add \(selectedAddresses.count) member\(selectedAddresses.count == 1 ? "" : "s") to the group?\(addFeeSuffix())")
+        }
+        .alert("Add Members", isPresented: Binding(get: { resultMessage != nil }, set: { if !$0 { resultMessage = nil } })) {
+            Button("OK", role: .cancel) { resultMessage = nil }
+        } message: {
+            Text(resultMessage ?? "")
         }
     }
 }

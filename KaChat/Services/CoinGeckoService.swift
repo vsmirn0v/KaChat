@@ -7,7 +7,9 @@ import Foundation
 /// a hard error. Currency is caller-supplied (`AppCurrency`, Settings > Customization > Currency) -
 /// CoinGecko's public API natively supports any of its listed `vs_currency` values, so switching
 /// away from USD needs no change on CoinGecko's side, just passing the selected code through.
-final class CoinGeckoService {
+/// `Sendable` (all stored properties immutable) - PortfolioViewModel hands the instance from
+/// its @MainActor context to a nonisolated fetch+downsample helper running off the main actor.
+final class CoinGeckoService: Sendable {
     static let shared = CoinGeckoService()
 
     private let session: URLSession
@@ -80,6 +82,11 @@ final class CoinGeckoService {
     /// (timestamp, price) points in the requested currency, oldest first. Empty array on any
     /// failure rather than throwing — callers must not blindly overwrite existing cached history
     /// with an empty result (see PortfolioViewModel.fetchPriceHistory).
+    ///
+    /// CoinGecko's keyless tier throttles bursts hard (429 for a stretch after just a few rapid
+    /// calls) — a launch plus a couple of chart-range taps was enough to make every subsequent
+    /// range fetch come back empty, leaving the chart stuck on whatever range loaded first. A
+    /// 429/5xx here gets one retry, honoring Retry-After (capped at 10s).
     func getPriceHistory(days: Int, currency: AppCurrency) async -> [PricePoint] {
         guard var components = URLComponents(string: baseURL + "/api/v3/coins/kaspa/market_chart") else { return [] }
         components.queryItems = [
@@ -88,17 +95,26 @@ final class CoinGeckoService {
         ]
         guard let url = components.url else { return [] }
 
-        do {
-            let (data, response) = try await session.data(from: url)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
-            let decoded = try JSONDecoder().decode(MarketChartResponse.self, from: data)
-            return decoded.prices.compactMap { point -> PricePoint? in
-                guard point.count >= 2 else { return nil }
-                return PricePoint(timestamp: Date(timeIntervalSince1970: point[0] / 1000), value: point[1])
+        for attempt in 0..<2 {
+            do {
+                let (data, response) = try await session.data(from: url)
+                guard let http = response as? HTTPURLResponse else { return [] }
+                if http.statusCode == 200 {
+                    let decoded = try JSONDecoder().decode(MarketChartResponse.self, from: data)
+                    return decoded.prices.compactMap { point -> PricePoint? in
+                        guard point.count >= 2 else { return nil }
+                        return PricePoint(timestamp: Date(timeIntervalSince1970: point[0] / 1000), value: point[1])
+                    }
+                }
+                guard attempt == 0, http.statusCode == 429 || http.statusCode >= 500 else { return [] }
+                let retryAfter = min(Double(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 2, 10)
+                try await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
+            } catch {
+                // Includes Task cancellation during the retry sleep — bail out quietly.
+                return []
             }
-        } catch {
-            return []
         }
+        return []
     }
 
     /// The daily snapshot price CoinGecko recorded for `date` (daily granularity only — CoinGecko's
@@ -106,6 +122,10 @@ final class CoinGeckoService {
     /// CoinGecko simply has no data for that date, so callers (see `PortfolioAddressImporter`)
     /// must treat this the same as any other "couldn't price this" case rather than assuming
     /// nil only means a network error.
+    ///
+    /// Same 429/5xx retry as `getPriceHistory`: the keyless tier throttles bursts, and this
+    /// endpoint is the per-day fallback the portfolio price backfill leans on — one Retry-After-
+    /// honoring retry (capped at 10s) turns a throttle window into a delay instead of a miss.
     func getHistoricalPrice(date: Date, currency: AppCurrency) async -> Double? {
         guard var components = URLComponents(string: baseURL + "/api/v3/coins/kaspa/history") else { return nil }
         components.queryItems = [
@@ -114,13 +134,22 @@ final class CoinGeckoService {
         ]
         guard let url = components.url else { return nil }
 
-        do {
-            let (data, response) = try await session.data(from: url)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            let decoded = try JSONDecoder().decode(HistoryResponse.self, from: data)
-            return decoded.marketData?.currentPrice?[currency.rawValue]
-        } catch {
-            return nil
+        for attempt in 0..<2 {
+            do {
+                let (data, response) = try await session.data(from: url)
+                guard let http = response as? HTTPURLResponse else { return nil }
+                if http.statusCode == 200 {
+                    let decoded = try JSONDecoder().decode(HistoryResponse.self, from: data)
+                    return decoded.marketData?.currentPrice?[currency.rawValue]
+                }
+                guard attempt == 0, http.statusCode == 429 || http.statusCode >= 500 else { return nil }
+                let retryAfter = min(Double(http.value(forHTTPHeaderField: "Retry-After") ?? "") ?? 2, 10)
+                try await Task.sleep(nanoseconds: UInt64(retryAfter * 1_000_000_000))
+            } catch {
+                // Includes Task cancellation during the retry sleep — bail out quietly.
+                return nil
+            }
         }
+        return nil
     }
 }

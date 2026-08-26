@@ -26,10 +26,23 @@ extension ChatService {
         let filledSentContentCount: Int
     }
 
+    /// Stage events emitted by `importChatHistoryArchive` so the restore progress modal can
+    /// show a determinate bar. `.importing` advances per conversation as the Core Data write
+    /// in `MessageStore.syncFromConversations` progresses (real work, not simulated).
+    enum ChatHistoryImportProgress {
+        case validating
+        case preparing
+        case importing(done: Int, total: Int)
+        case finalizing
+    }
+
     enum ChatHistoryArchiveError: LocalizedError {
         case encryptionKeyUnavailable
         case unsupportedVersion(Int)
         case emptyArchive
+        case remoteBackupUnreadable
+        case remoteBackupIncompatible(Int)
+        case remoteBackupForeignWallet
 
         var errorDescription: String? {
             switch self {
@@ -39,11 +52,33 @@ extension ChatService {
                 return "Unsupported chat history format (version \(version))."
             case .emptyArchive:
                 return "No messages found in the selected archive."
+            case .remoteBackupUnreadable:
+                return "The file already on the server isn't a KaChat backup. Nothing was uploaded and it was left untouched. Pick a different backup folder."
+            case .remoteBackupIncompatible(let version):
+                return "The backup already on the server uses schema version \(version), which this version can't merge. Nothing was uploaded and it was left untouched."
+            case .remoteBackupForeignWallet:
+                return "The backup already on the server belongs to a different wallet. Nothing was uploaded. Choose a separate backup folder for this account."
             }
         }
     }
 
     func exportChatHistoryArchive() async throws -> URL {
+        let data = try await buildChatHistoryArchiveData()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let fileName = "kachat-history-\(timestamp).json"
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try FileManager.default.removeItem(at: fileURL)
+        }
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
+    /// This device's full archive as JSON bytes - the local half of every backup, shared by the
+    /// file export above and the Nextcloud merge-upload path (`buildBackupArchiveData`).
+    func buildChatHistoryArchiveData() async throws -> Data {
         guard let key = messageEncryptionKey() else {
             throw ChatHistoryArchiveError.encryptionKeyUnavailable
         }
@@ -65,62 +100,133 @@ extension ChatService {
             }
         }
 
+        // Deleted chats are excluded from the export AND their tombstones travel with the
+        // archive, so restoring anywhere never brings them back.
         let allAddresses = Set(messagesByAddress.keys).union(metaByAddress.keys)
+            .filter { !contactsManager.isAddressDeleted($0) }
         let exportedConversations = allAddresses.map { contactAddress in
             let messages = Array(messagesByAddress[contactAddress, default: [:]].values)
                 .sorted(by: Self.isMessageOrderedBefore)
             let meta = metaByAddress[contactAddress]
             let inMemory = conversations.first(where: { $0.contact.address == contactAddress })
-            let alias = contactsManager.getContact(byAddress: contactAddress)?.alias ?? inMemory?.contact.alias
+            let contact = contactsManager.getContact(byAddress: contactAddress)
+            let alias = contact?.alias ?? inMemory?.contact.alias
+            // Carry a cross-platform contact photo: a photo restored from another device wins,
+            // else render the (cached) linked system-contact photo to a small JPEG so it travels
+            // in the shared backup. Best-effort - an uncached system photo is simply omitted.
+            var contactPhoto: String? = nil
+            if let stored = contact?.backupPhoto, !stored.isEmpty {
+                contactPhoto = stored
+            } else if let contact, let image = SystemContactAvatarStore.shared.rawImage(for: contact),
+                      let data = image.jpegData(compressionQuality: 0.7) {
+                contactPhoto = data.base64EncodedString()
+            }
             return ChatHistoryArchiveConversation(
                 conversationId: meta?.id ?? inMemory?.id,
                 contactAddress: contactAddress,
                 contactAlias: alias,
+                contactPhoto: contactPhoto,
                 unreadCount: max(0, meta?.unreadCount ?? inMemory?.unreadCount ?? 0),
                 messages: messages
             )
         }
         .sorted { $0.contactAddress < $1.contactAddress }
 
+        // Groups ARE backed up again - now including decrypted message history (not just keys),
+        // so group messages survive even if the indexer has pruned them. Import skips tombstoned
+        // (deleted) groups so a restore never resurrects one.
+        let archivedGroups = await MainActor.run { GroupChatService.shared.archiveGroups() }
         let archive = ChatHistoryArchive(
             schemaVersion: chatHistoryArchiveVersion,
             exportedAt: Date(),
             walletAddress: WalletManager.shared.currentWallet?.publicAddress,
-            conversations: exportedConversations
+            conversations: exportedConversations,
+            groups: archivedGroups,
+            deletedContactAddresses: contactsManager.deletedAddressSnapshot
         )
 
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(archive)
-
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let fileName = "kachat-history-\(timestamp).json"
-        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            try FileManager.default.removeItem(at: fileURL)
-        }
-        try data.write(to: fileURL, options: .atomic)
-        return fileURL
+        // Encode off the main actor: pretty-printed + sorted-keys over a multi-MB archive is
+        // real CPU work, and this path runs on every debounced auto-backup upload, not just
+        // explicit exports.
+        return try await Task.detached(priority: .utility) {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            return try encoder.encode(archive)
+        }.value
     }
 
-    func importChatHistoryArchive(_ data: Data) async throws -> ChatHistoryImportSummary {
+    /// The upload body for the SHARED `kachat-backup.json` - this device's history UNIONED with
+    /// whatever the transport just downloaded from the server, so a backup can only ever ADD to
+    /// the shared file (desktop, iOS and Android all write that same file) and no device can
+    /// delete another's chat history. `remoteData` nil means no backup exists yet - then this is
+    /// simply the local archive.
+    ///
+    /// Every validation failure THROWS: the caller must abort the upload, leaving a foreign or
+    /// unreadable file exactly as it was rather than destroying it. Mirrors Android's
+    /// `ChatHistoryExportImportService.buildBackupJson` and desktop's `exportBackupPayload`.
+    func buildBackupArchiveData(mergingRemote remoteData: Data?) async throws -> Data {
+        let localData = try await buildChatHistoryArchiveData()
+        guard let remoteData, !remoteData.isEmpty else { return localData }
+        let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
+        let expectedVersion = chatHistoryArchiveVersion
+        // The merge is pure JSON-tree work over potentially multi-MB archives - keep it off the
+        // main actor.
+        return try await Task.detached(priority: .utility) {
+            try Self.mergeBackupArchives(
+                remoteData: remoteData,
+                localData: localData,
+                myAddress: myAddress,
+                schemaVersion: expectedVersion
+            )
+        }.value
+    }
+
+    /// `progress` (optional) receives stage events on the main actor; see
+    /// `ChatHistoryImportProgress`. Used by `BackupRestoreCoordinator` to drive the blocking
+    /// restore modal.
+    func importChatHistoryArchive(
+        _ data: Data,
+        progress: (@MainActor @Sendable (ChatHistoryImportProgress) -> Void)? = nil
+    ) async throws -> ChatHistoryImportSummary {
         guard let key = messageEncryptionKey() else {
             throw ChatHistoryArchiveError.encryptionKeyUnavailable
         }
 
-        let archive: ChatHistoryArchive
-        do {
-            let isoDecoder = JSONDecoder()
-            isoDecoder.dateDecodingStrategy = .iso8601
-            archive = try isoDecoder.decode(ChatHistoryArchive.self, from: data)
-        } catch {
-            archive = try JSONDecoder().decode(ChatHistoryArchive.self, from: data)
-        }
+        progress?(.validating)
+
+        // Decode off the main actor: this runs not just for the modal restore but also for the
+        // silent Nextcloud auto-restore and the foreground ETag watcher's merges, and a
+        // multi-MB JSON decode on the main actor is a visible hitch during normal use.
+        let archive: ChatHistoryArchive = try await Task.detached(priority: .utility) {
+            do {
+                let isoDecoder = JSONDecoder()
+                isoDecoder.dateDecodingStrategy = .iso8601
+                return try isoDecoder.decode(ChatHistoryArchive.self, from: data)
+            } catch {
+                return try JSONDecoder().decode(ChatHistoryArchive.self, from: data)
+            }
+        }.value
         guard archive.schemaVersion == chatHistoryArchiveVersion else {
             throw ChatHistoryArchiveError.unsupportedVersion(archive.schemaVersion)
+        }
+
+        progress?(.preparing)
+
+        // Restored history is history, not new mail: the shared cross-platform archive carries
+        // each conversation's unreadCount from the exporting device, but restoring must never
+        // mint unread badges here. Keep only whatever unread state THIS device already has -
+        // conversations the restore introduces land with unread 0.
+        let existingMeta = await messageStore.fetchConversationMeta()
+        var existingUnreadByAddress: [String: Int] = [:]
+        for (address, meta) in existingMeta {
+            existingUnreadByAddress[address] = max(0, meta.unreadCount)
+        }
+        for conversation in conversations {
+            existingUnreadByAddress[conversation.contact.address] = max(
+                existingUnreadByAddress[conversation.contact.address] ?? 0,
+                conversation.unreadCount
+            )
         }
 
         let existingBefore = await messageStore.fetchAllMessages(decryptionKey: key)
@@ -134,9 +240,13 @@ extension ChatService {
         var importedByAddress: [String: Conversation] = [:]
         var importedOutgoingWithContentTxIds = Set<String>()
 
+        let archivedTombstones = Set(archive.deletedContactAddresses ?? [])
         for archivedConversation in archive.conversations {
             let contactAddress = archivedConversation.contactAddress.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !contactAddress.isEmpty else { continue }
+            // Never resurrect a deleted chat: honor this device's tombstones AND the ones the
+            // archive itself carries (covers restoring onto a fresh install).
+            if contactsManager.isAddressDeleted(contactAddress) || archivedTombstones.contains(contactAddress) { continue }
 
             var importedMessages = archivedConversation.messages.filter { !$0.txId.isEmpty }
             guard !importedMessages.isEmpty else { continue }
@@ -156,12 +266,23 @@ extension ChatService {
                     contactsManager.updateContact(updated)
                 }
             }
+            // Adopt a backed-up photo only when this device has none of its own for the
+            // contact (never overwrite a linked system-contact photo the user already has).
+            if let photo = archivedConversation.contactPhoto, !photo.isEmpty {
+                let current = contactsManager.getContact(byAddress: contactAddress) ?? contact
+                if (current.backupPhoto ?? "").isEmpty {
+                    var updated = current
+                    updated.backupPhoto = photo
+                    contactsManager.updateContact(updated)
+                }
+            }
 
+            // Never adopt the archive's unreadCount (see existingUnreadByAddress above).
             let archived = Conversation(
                 id: archivedConversation.conversationId ?? UUID(),
                 contact: contact,
                 messages: importedMessages,
-                unreadCount: max(0, archivedConversation.unreadCount)
+                unreadCount: existingUnreadByAddress[contactAddress] ?? 0
             )
 
             if var existing = importedByAddress[contactAddress] {
@@ -185,12 +306,23 @@ extension ChatService {
         ).count
 
         let retention = currentSettings.messageRetention
+        // Bridge the per-conversation hook (fires on the Core Data background queue) back
+        // to the main actor for the progress callback.
+        let onConversationProgress: (@Sendable (Int, Int) -> Void)? = progress.map { report in
+            { @Sendable done, total in
+                Task { @MainActor in
+                    report(.importing(done: done, total: total))
+                }
+            }
+        }
         let didWrite = await messageStore.syncFromConversations(
             importedConversations,
             encryptionKey: key,
             retention: retention,
-            performMaintenance: false
+            performMaintenance: false,
+            onConversationProgress: onConversationProgress
         )
+        progress?(.finalizing)
         if didWrite {
             recordLocalSave()
         }
@@ -202,6 +334,13 @@ extension ChatService {
         }
 
         await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+
+        // Groups (cross-platform recovery): restore full group key material so this device
+        // recovers admin groups it created elsewhere as well as member ones. Optional - older
+        // archives omit it.
+        if let archivedGroups = archive.groups, !archivedGroups.isEmpty {
+            await MainActor.run { GroupChatService.shared.importArchiveGroups(archivedGroups) }
+        }
 
         let filledSentContentCount = existingOutgoingPlaceholderTxIds
             .intersection(importedOutgoingWithContentTxIds)
@@ -283,12 +422,20 @@ extension ChatService {
         startPollingWhenStoreReadyTask?.cancel()
         startPollingWhenStoreReadyTask = nil
 
+        // Wallet loaded + store ready: make sure the foreground contact sweep is running (no-op
+        // if it already is). It self-gates on app-active and on the initial sync having finished,
+        // so starting it here is safe on every startPolling() call, including tab re-entry.
+        startForegroundContactSweep()
+
         // If initial sync already completed (e.g. Mac Catalyst window reopen),
         // just ensure subscription/polling is running — skip the heavy 4-phase sync.
         if hasCompletedInitialSync {
             AppLog.log("[ChatService] Initial sync already done, ensuring subscription/polling")
-            let isRemotePushEnabled = settingsViewModel?.settings.notificationMode == .remotePush
-            if !isRemotePushEnabled && !isUtxoSubscribed && pollTask == nil {
+            // Fallback polling keys off the subscription alone, NOT the push mode: while the
+            // app runs, its own sync paths must detect everything (new handshakes included)
+            // even with remote push on. Backgrounded, the process suspends before the 60s
+            // delay elapses, so push stays the background source either way.
+            if !isUtxoSubscribed && pollTask == nil {
                 startFallbackPolling()
             }
             return
@@ -306,6 +453,7 @@ extension ChatService {
         stopPollingTimerOnly()
         subscriptionRetryTask?.cancel()
         subscriptionRetryTask = nil
+        subscriptionRetryAttempts = 0
         pendingResubscriptionTask?.cancel()
         pendingResubscriptionTask = nil
         subscriptionBalanceRefreshTask?.cancel()
@@ -318,7 +466,6 @@ extension ChatService {
         initialSyncTask?.cancel()
         initialSyncTask = Task {
             AppLog.log("[ChatService] Sync task started")
-            let isRemotePushEnabled = settingsViewModel?.settings.notificationMode == .remotePush
             let settings = currentSettings
             let cloudKitEnabled = settings.storeMessagesInICloud
 
@@ -374,11 +521,10 @@ extension ChatService {
             suppressNotificationsUntilSynced = false
             hasCompletedInitialSync = true
 
-            if isRemotePushEnabled {
-                AppLog.log("[ChatService] Remote push enabled - skipping local polling")
-                return
-            }
-
+            // No remote-push early-out here: fallback polling depends only on whether the
+            // subscription came up. While the app runs, its own sync paths must detect
+            // everything regardless of push registration; backgrounded, the process suspends
+            // before the 60s poll delay elapses, so push stays the background source.
             if isUtxoSubscribed {
                 // RPC subscription active - no polling needed, rely on notifications
                 let protocolName = NodePoolService.shared.activeProtocol
@@ -448,7 +594,12 @@ extension ChatService {
             let nodePool = NodePoolService.shared
             AppLog.log("[ChatService] setupUtxoSubscription: RPC connected=%@", nodePool.isConnected ? "true" : "false")
 
-            // Collect all addresses to subscribe: our wallet + active contacts
+            // Collect all addresses to subscribe: our wallet + active contacts + spending-chain
+            // addresses reserved-and-offered as fresh payment-pool receive addresses (payments to
+            // those arrive on otherwise-unwatched addresses and would go unnoticed until a manual
+            // balance refresh - see ChatService+PaymentPools.swift). Pool addresses fall through
+            // the UTXO classifier's "unknown address" case, so watching them never creates
+            // bubbles; the payment_notice envelope does that.
             var addressesToSubscribe = Set<String>()
             addressesToSubscribe.insert(wallet.publicAddress)
 
@@ -456,6 +607,17 @@ extension ChatService {
             let contactCount = contacts.count
             for contact in contacts {
                 addressesToSubscribe.insert(contact.address)
+            }
+            for poolAddress in PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress) {
+                addressesToSubscribe.insert(poolAddress)
+            }
+            // Own-address receive notifications: also watch every revealed spending-chain
+            // address and all cold-storage (watch-only) addresses. Like pool addresses these
+            // fall through the classifier's chat cases - AddressActivityNotifier turns their
+            // receives into wallet notifications, never chat bubbles (and their appearance
+            // among `removed` entries is the self-send fast path).
+            for ownAddress in AddressActivityNotifier.shared.watchedOwnAddresses() {
+                addressesToSubscribe.insert(ownAddress)
             }
 
             AppLog.log("[ChatService] Subscription setup: %d active contacts", contactCount)
@@ -474,6 +636,7 @@ extension ChatService {
 
             isUtxoSubscribed = true
             hasEverBeenSubscribed = true
+            subscriptionRetryAttempts = 0
             subscriptionRetryTask?.cancel()
             subscriptionRetryTask = nil
 
@@ -521,9 +684,16 @@ extension ChatService {
         // Cancel existing retry if any
         subscriptionRetryTask?.cancel()
 
+        // Capped exponential backoff (1s -> 2s -> 4s ... 30s cap), mirroring
+        // GRPCStreamConnection.scheduleAutoReconnect. The old fixed 1s forever meant a dead
+        // pool (airplane mode, captive portal, node outage) burned a full-pool subscription
+        // attempt every second indefinitely - real data on metered paths. The counter resets
+        // on the next successful subscription.
+        let delaySeconds = min(30.0, pow(2.0, Double(subscriptionRetryAttempts)))
+        subscriptionRetryAttempts += 1
+
         subscriptionRetryTask = Task {
-            // Wait 1 second before retrying with all nodes from pool again
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
 
             guard !Task.isCancelled else { return }
 
@@ -534,7 +704,7 @@ extension ChatService {
 
             // If still not subscribed after retry, schedule another retry
             if !isUtxoSubscribed {
-                AppLog.log("[ChatService] All pool nodes failed, retrying in 1s...")
+                AppLog.log("[ChatService] All pool nodes failed, retrying with backoff...")
                 scheduleSubscriptionRetry()
             }
         }
@@ -603,7 +773,8 @@ extension ChatService {
         guard isUtxoSubscribed else { return }
         guard let wallet = WalletManager.shared.currentWallet else { return }
 
-        // Rebuild subscription with all active addresses including the new one
+        // Rebuild subscription with all active addresses including the new one (and, as in
+        // setupUtxoSubscription, the offered payment-pool reservation addresses).
         var addressesToSubscribe = Set<String>()
         addressesToSubscribe.insert(wallet.publicAddress)
 
@@ -612,6 +783,12 @@ extension ChatService {
             addressesToSubscribe.insert(address)
         }
         addressesToSubscribe.insert(contactAddress)
+        for poolAddress in PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress) {
+            addressesToSubscribe.insert(poolAddress)
+        }
+        for ownAddress in AddressActivityNotifier.shared.watchedOwnAddresses() {
+            addressesToSubscribe.insert(ownAddress)
+        }
 
         let addressList = Array(addressesToSubscribe)
         lastSubscribedAddressCount = addressList.count
@@ -648,11 +825,20 @@ extension ChatService {
         guard isUtxoSubscribed else { return }
         guard let wallet = WalletManager.shared.currentWallet else { return }
 
-        // Calculate current active address set
+        // Calculate current active address set. Must mirror setupUtxoSubscription's full set
+        // (contacts + offered pool addresses + own spending/cold addresses) - comparing a
+        // partial set against lastSubscribedAddresses would read as "changed" on every call
+        // and thrash resubscription.
         var addressesToSubscribe = Set<String>()
         addressesToSubscribe.insert(wallet.publicAddress)
         for contact in activeContacts {
             addressesToSubscribe.insert(contact.address)
+        }
+        for poolAddress in PaymentPoolStore.shared.allOfferedReservationAddresses(wallet: wallet.publicAddress) {
+            addressesToSubscribe.insert(poolAddress)
+        }
+        for ownAddress in AddressActivityNotifier.shared.watchedOwnAddresses() {
+            addressesToSubscribe.insert(ownAddress)
         }
 
         let currentAddressCount = addressesToSubscribe.count
@@ -1127,4 +1313,378 @@ extension ChatService {
         return (receiver: myAddress, amount: totalToUs, payload: fullTx.payload)
     }
 
+}
+
+// MARK: - Shared-file backup merge (upload side)
+//
+// Mirrors Android's `ChatHistoryExportImportService.mergeArchives` and desktop's
+// `mergeChatArchives`, including the abort-rather-than-destroy contract. Everything here is
+// untyped JSON-tree work on purpose: round-tripping through the typed `ChatHistoryArchive`
+// model would silently drop every key this app doesn't model - desktop keeps its whole state
+// in an additive `desktopState` key - and wipe it on the next iOS backup. Unknown keys at the
+// archive, conversation and message level are all carried through verbatim.
+extension ChatService {
+    private nonisolated static let archiveStatusPriority: [String: Int] = [
+        "pending": 0, "warning": 1, "failed": 2, "sent": 3,
+    ]
+    private nonisolated static let archiveValidMessageTypes: Set<String> = [
+        "handshake", "contextual", "payment", "audio",
+    ]
+    private nonisolated static let archiveValidDeliveryStatuses: Set<String> = [
+        "pending", "sent", "failed", "warning",
+    ]
+
+    // MARK: JSON accessors (tolerant of NSNumber/String cross-typing)
+
+    private nonisolated static func jsonString(_ dict: [String: Any], _ key: String) -> String {
+        if let value = dict[key] as? String { return value }
+        return ""
+    }
+
+    private nonisolated static func jsonInt64(_ dict: [String: Any], _ key: String) -> Int64 {
+        if let number = dict[key] as? NSNumber { return number.int64Value }
+        if let string = dict[key] as? String, let parsed = Int64(string) { return parsed }
+        return 0
+    }
+
+    private nonisolated static func jsonArray(_ dict: [String: Any], _ key: String) -> [Any] {
+        dict[key] as? [Any] ?? []
+    }
+
+    private nonisolated static func parseIsoMs(_ value: String) -> Int64? {
+        let raw = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        if let date = plain.date(from: raw) { return Int64(date.timeIntervalSince1970 * 1000) }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: raw) { return Int64(date.timeIntervalSince1970 * 1000) }
+        return nil
+    }
+
+    /// Whole-second ISO8601 ("2026-08-17T12:34:56Z") - iOS's `.iso8601` decoding strategy
+    /// rejects fractional seconds outright, so the shared file never carries them.
+    private nonisolated static func isoSeconds(_ epochMs: Int64) -> String {
+        let ms = epochMs > 0 ? epochMs : Int64(Date().timeIntervalSince1970 * 1000)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: Date(timeIntervalSince1970: TimeInterval(ms / 1000)))
+    }
+
+    private nonisolated static func exportedAtMs(_ archive: [String: Any]) -> Int64 {
+        parseIsoMs(jsonString(archive, "exportedAt")) ?? 0
+    }
+
+    // MARK: Deterministic archive UUIDs
+
+    /// Byte-identical port of desktop's / Android's `derivedArchiveUuid` hash, so all three
+    /// platforms derive the same UUID for the same seed.
+    private nonisolated static func derivedArchiveUuid(_ seed: String) -> String {
+        var h = Int32(bitPattern: 1779033703) ^ Int32(truncatingIfNeeded: seed.count)
+        for scalar in seed.unicodeScalars {
+            h = (h ^ Int32(truncatingIfNeeded: Int(scalar.value))) &* Int32(bitPattern: 3432918353)
+            h = (h << 13) | Int32(bitPattern: UInt32(bitPattern: h) >> 19)
+        }
+        var hex = ""
+        for _ in 0..<4 {
+            h = (h ^ Int32(bitPattern: UInt32(bitPattern: h) >> 16)) &* Int32(bitPattern: 2246822507)
+            h = (h ^ Int32(bitPattern: UInt32(bitPattern: h) >> 13)) &* Int32(bitPattern: 3266489909)
+            h = h ^ Int32(bitPattern: UInt32(bitPattern: h) >> 16)
+            hex += String(format: "%08x", UInt32(bitPattern: h))
+        }
+        var nibbles = Array(hex)
+        nibbles[12] = "4"                                                   // RFC 4122 version
+        let variantIndex = Int(String(nibbles[16]), radix: 16) ?? 0
+        nibbles[16] = Array("89ab")[variantIndex & 3]                       // RFC 4122 variant
+        let flat = String(nibbles)
+        let part: (Int, Int) -> Substring = { start, end in
+            flat[flat.index(flat.startIndex, offsetBy: start)..<flat.index(flat.startIndex, offsetBy: end)]
+        }
+        return "\(part(0, 8))-\(part(8, 12))-\(part(12, 16))-\(part(16, 20))-\(part(20, 32))"
+    }
+
+    /// Passes a real UUID through untouched (lowercased), otherwise derives one.
+    private nonisolated static func archiveUuid(_ value: String, seed: String) -> String {
+        let raw = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if UUID(uuidString: raw) != nil { return raw.lowercased() }
+        return derivedArchiveUuid(raw.isEmpty ? seed : raw)
+    }
+
+    // MARK: Message-level merge helpers
+
+    private nonisolated static func isArchivePlaceholderBody(_ content: String) -> Bool {
+        content.isEmpty || isPlaceholderContent(content)
+    }
+
+    /// Mirrors `preferMessage`: a real body beats a placeholder, then the further-along
+    /// delivery status wins, then the later blockTime.
+    private nonisolated static func preferArchiveMessage(
+        _ existing: [String: Any], _ candidate: [String: Any]
+    ) -> [String: Any] {
+        let existingPlaceholder = isArchivePlaceholderBody(jsonString(existing, "content"))
+        let candidatePlaceholder = isArchivePlaceholderBody(jsonString(candidate, "content"))
+        if existingPlaceholder != candidatePlaceholder {
+            return candidatePlaceholder ? existing : candidate
+        }
+        let existingPriority = archiveStatusPriority[jsonString(existing, "deliveryStatus")] ?? 3
+        let candidatePriority = archiveStatusPriority[jsonString(candidate, "deliveryStatus")] ?? 3
+        if existingPriority != candidatePriority {
+            return candidatePriority > existingPriority ? candidate : existing
+        }
+        return jsonInt64(candidate, "blockTime") > jsonInt64(existing, "blockTime") ? candidate : existing
+    }
+
+    /// txId is the real identity; `id` is only the fallback for a message that never made it
+    /// on-chain.
+    private nonisolated static func archiveMessageKey(_ message: [String: Any]) -> String {
+        let txId = jsonString(message, "txId").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !txId.isEmpty { return "tx:\(txId)" }
+        return "id:\(jsonString(message, "id").trimmingCharacters(in: .whitespacesAndNewlines))"
+    }
+
+    /// Coerces any archive message - including one another device wrote - into the strictest
+    /// shape every platform's decoder accepts, without changing what it says. Keys this schema
+    /// doesn't model are carried through untouched.
+    private nonisolated static func normalizeArchiveMessage(_ message: [String: Any]) -> [String: Any] {
+        var out = message
+        let txId = jsonString(message, "txId").trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawId = jsonString(message, "id").trimmingCharacters(in: .whitespacesAndNewlines)
+        let blockTime = max(0, jsonInt64(message, "blockTime"))
+        let timestampMs = blockTime > 0
+            ? blockTime
+            : (parseIsoMs(jsonString(message, "timestamp")) ?? Int64(Date().timeIntervalSince1970 * 1000))
+        out["id"] = archiveUuid(rawId, seed: "\(txId):\(rawId)")
+        out["txId"] = txId
+        out["senderAddress"] = jsonString(message, "senderAddress")
+        out["receiverAddress"] = jsonString(message, "receiverAddress")
+        out["content"] = jsonString(message, "content")
+        out["timestamp"] = isoSeconds(timestampMs)
+        out["blockTime"] = NSNumber(value: blockTime)
+        out["isOutgoing"] = (message["isOutgoing"] as? NSNumber)?.boolValue ?? false
+        let messageType = jsonString(message, "messageType")
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        out["messageType"] = archiveValidMessageTypes.contains(messageType) ? messageType : "contextual"
+        let deliveryStatus = jsonString(message, "deliveryStatus")
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        out["deliveryStatus"] = archiveValidDeliveryStatuses.contains(deliveryStatus) ? deliveryStatus : "sent"
+        // Both phone encoders drop nil optionals rather than emitting null - omit an empty
+        // acceptingBlock entirely.
+        if jsonString(message, "acceptingBlock").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            out.removeValue(forKey: "acceptingBlock")
+        }
+        return out
+    }
+
+    private nonisolated static func sortedArchiveMessages(_ messages: [[String: Any]]) -> [[String: Any]] {
+        messages.sorted { lhs, rhs in
+            let lhsTime = jsonInt64(lhs, "blockTime")
+            let rhsTime = jsonInt64(rhs, "blockTime")
+            if lhsTime != rhsTime { return lhsTime < rhsTime }
+            let lhsKey = jsonString(lhs, "txId").isEmpty ? jsonString(lhs, "id") : jsonString(lhs, "txId")
+            let rhsKey = jsonString(rhs, "txId").isEmpty ? jsonString(rhs, "id") : jsonString(rhs, "txId")
+            return lhsKey < rhsKey
+        }
+    }
+
+    /// Validates the archive already sitting on the server. Every failure path THROWS - the
+    /// caller aborts BEFORE uploading, so an unreadable or foreign backup is left exactly as it
+    /// was rather than being overwritten with this device's history.
+    private nonisolated static func parseRemoteArchive(
+        _ data: Data, myAddress: String, schemaVersion expectedVersion: Int
+    ) throws -> [String: Any] {
+        guard let parsed = try? JSONSerialization.jsonObject(with: data),
+              let remote = parsed as? [String: Any],
+              remote["conversations"] is [Any] else {
+            throw ChatHistoryArchiveError.remoteBackupUnreadable
+        }
+        let remoteVersion = Int(jsonInt64(remote, "schemaVersion"))
+        guard remoteVersion == expectedVersion else {
+            throw ChatHistoryArchiveError.remoteBackupIncompatible(remoteVersion)
+        }
+        let remoteWallet = jsonString(remote, "walletAddress").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !remoteWallet.isEmpty, !myAddress.isEmpty, remoteWallet != myAddress {
+            throw ChatHistoryArchiveError.remoteBackupForeignWallet
+        }
+        return remote
+    }
+
+    private final class ArchiveConversationMerge {
+        let contactAddress: String
+        var base: [String: Any]
+        var conversationId = ""
+        var contactAlias = ""
+        var contactPhoto = ""
+        var unreadCount: Int64 = 0
+        var messages: [String: [String: Any]] = [:]
+        var messageOrder: [String] = []
+
+        init(contactAddress: String, base: [String: Any]) {
+            self.contactAddress = contactAddress
+            self.base = base
+        }
+    }
+
+    /// Union of the archive on the server and this device's archive - what makes the shared
+    /// file a sync point rather than last-writer-wins:
+    ///   * a conversation present on only ONE side is kept whole;
+    ///   * messages dedupe by txId (falling back to `id`), keeping the better copy per
+    ///     `preferMessage`'s ordering;
+    ///   * conversation metadata (alias / unreadCount) comes from whichever archive was
+    ///     exported more recently, and an empty value never overwrites a real one;
+    ///   * deletion tombstones union, and tombstoned conversations are dropped;
+    ///   * groups union by groupId, with this device's just-exported copy winning;
+    ///   * CRITICAL: the result starts as a copy of the REMOTE object, so every key iOS
+    ///     doesn't model (desktop's `desktopState`, future fields) survives verbatim.
+    nonisolated static func mergeBackupArchives(
+        remoteData: Data, localData: Data, myAddress: String, schemaVersion: Int
+    ) throws -> Data {
+        let remote = try parseRemoteArchive(remoteData, myAddress: myAddress, schemaVersion: schemaVersion)
+        guard let localParsed = try? JSONSerialization.jsonObject(with: localData),
+              let local = localParsed as? [String: Any] else {
+            // The local archive is produced by our own encoder; failing to re-read it means
+            // something is deeply wrong - abort rather than upload garbage.
+            throw ChatHistoryArchiveError.emptyArchive
+        }
+
+        let remoteIsNewer = exportedAtMs(remote) > exportedAtMs(local)
+        var merged: [String: ArchiveConversationMerge] = [:]
+        var mergedOrder: [String] = []
+
+        func absorb(_ archive: [String: Any], isRemote: Bool) {
+            for element in jsonArray(archive, "conversations") {
+                guard let conversation = element as? [String: Any] else { continue }
+                let contactAddress = jsonString(conversation, "contactAddress")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !contactAddress.isEmpty else { continue }
+                let metadataWins = isRemote ? remoteIsNewer : !remoteIsNewer
+                let alias = jsonString(conversation, "contactAlias").trimmingCharacters(in: .whitespacesAndNewlines)
+                let conversationId = jsonString(conversation, "conversationId").trimmingCharacters(in: .whitespacesAndNewlines)
+                let photo = jsonString(conversation, "contactPhoto")
+                let unreadCount = max(0, jsonInt64(conversation, "unreadCount"))
+
+                let entry: ArchiveConversationMerge
+                if let existing = merged[contactAddress] {
+                    entry = existing
+                    if !alias.isEmpty, metadataWins || entry.contactAlias.isEmpty { entry.contactAlias = alias }
+                    if !conversationId.isEmpty, entry.conversationId.isEmpty { entry.conversationId = conversationId }
+                    if !photo.isEmpty, entry.contactPhoto.isEmpty { entry.contactPhoto = photo }
+                    if metadataWins { entry.unreadCount = unreadCount }
+                } else {
+                    entry = ArchiveConversationMerge(contactAddress: contactAddress, base: conversation)
+                    entry.conversationId = conversationId
+                    entry.contactAlias = alias
+                    entry.contactPhoto = photo
+                    entry.unreadCount = unreadCount
+                    merged[contactAddress] = entry
+                    mergedOrder.append(contactAddress)
+                }
+
+                for messageElement in jsonArray(conversation, "messages") {
+                    guard let message = messageElement as? [String: Any] else { continue }
+                    // Phantom scrub (matches Android): entries whose txId is blank or a
+                    // provisional pending_ id never reached the chain and can never be
+                    // connected to their delivered selves - dropping them here heals a
+                    // polluted server file on this device's next upload.
+                    let phantomTxId = jsonString(message, "txId").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let phantomStatus = jsonString(message, "deliveryStatus")
+                    if phantomTxId.isEmpty || phantomTxId.hasPrefix("pending_") {
+                        if phantomStatus == "pending" || phantomStatus == "failed" || phantomTxId.hasPrefix("pending_") {
+                            continue
+                        }
+                    }
+                    let key = archiveMessageKey(message)
+                    if let existing = entry.messages[key] {
+                        entry.messages[key] = preferArchiveMessage(existing, message)
+                    } else {
+                        entry.messages[key] = message
+                        entry.messageOrder.append(key)
+                    }
+                }
+            }
+        }
+
+        // Remote first so it seeds identity (and unknown per-conversation keys); local second
+        // so this device's newer view can win the per-field metadata contest when it is in
+        // fact newer.
+        absorb(remote, isRemote: true)
+        absorb(local, isRemote: false)
+
+        // Deletion tombstones: union of both sides; any tombstoned conversation is dropped
+        // from the merged backup, so a chat deleted on one device stays deleted in the shared
+        // history instead of resurrecting from the other side's copy.
+        var tombstones = Set<String>()
+        for side in [local, remote] {
+            for element in jsonArray(side, "deletedContactAddresses") {
+                if let address = element as? String, !address.isEmpty { tombstones.insert(address) }
+            }
+        }
+
+        var conversations: [[String: Any]] = []
+        for contactAddress in mergedOrder.sorted() {
+            guard let entry = merged[contactAddress], !tombstones.contains(contactAddress) else { continue }
+            var conversation = entry.base // remote-seeded copy: keeps any unknown keys
+            // conversationId is normalized: iOS decodes it as UUID?, so a non-UUID one written
+            // by another client would throw on restore.
+            conversation["conversationId"] = archiveUuid(
+                entry.conversationId, seed: "conversation:\(entry.contactAddress)"
+            )
+            conversation["contactAddress"] = entry.contactAddress
+            if entry.contactAlias.isEmpty {
+                conversation.removeValue(forKey: "contactAlias")
+            } else {
+                conversation["contactAlias"] = entry.contactAlias
+            }
+            if entry.contactPhoto.isEmpty {
+                conversation.removeValue(forKey: "contactPhoto")
+            } else {
+                conversation["contactPhoto"] = entry.contactPhoto
+            }
+            conversation["unreadCount"] = NSNumber(value: entry.unreadCount)
+            let normalized = entry.messageOrder.compactMap { key in
+                entry.messages[key].map { normalizeArchiveMessage($0) }
+            }
+            conversation["messages"] = sortedArchiveMessages(normalized)
+            conversations.append(conversation)
+        }
+
+        var result = remote // preserves desktopState and every other foreign key
+        result["schemaVersion"] = NSNumber(value: schemaVersion)
+        result["exportedAt"] = jsonString(local, "exportedAt")
+        let walletAddress = jsonString(local, "walletAddress").isEmpty
+            ? jsonString(remote, "walletAddress")
+            : jsonString(local, "walletAddress")
+        if walletAddress.isEmpty {
+            result.removeValue(forKey: "walletAddress")
+        } else {
+            result["walletAddress"] = walletAddress
+        }
+        result["conversations"] = conversations
+
+        // Groups: union by groupId so the shared backup accumulates every device's groups.
+        // Local is listed first, so for a group both hold the just-exported local copy wins.
+        var mergedGroups: [Any] = []
+        var seenGroupIds = Set<String>()
+        for side in [local, remote] {
+            for element in jsonArray(side, "groups") {
+                guard let group = element as? [String: Any] else { continue }
+                let groupId = jsonString(group, "groupId")
+                if !groupId.isEmpty, seenGroupIds.insert(groupId).inserted {
+                    mergedGroups.append(group)
+                }
+            }
+        }
+        if mergedGroups.isEmpty {
+            result.removeValue(forKey: "groups")
+        } else {
+            result["groups"] = mergedGroups
+        }
+        if tombstones.isEmpty {
+            result.removeValue(forKey: "deletedContactAddresses")
+        } else {
+            result["deletedContactAddresses"] = tombstones.sorted()
+        }
+
+        return try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
+    }
 }

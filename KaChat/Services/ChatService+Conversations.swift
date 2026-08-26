@@ -1,8 +1,10 @@
 import Foundation
+import SwiftUI
 import Combine
 import UIKit
 import UserNotifications
 import CryptoKit
+import Intents
 
 // MARK: - Conversation state, message sending, handshake sending, fee estimation
 
@@ -10,7 +12,23 @@ extension ChatService {
     func enterConversation(for address: String) {
         activeConversationAddress = address
         AppLog.log("[ChatService] Entered conversation for %@", String(address.suffix(12)))
+        startActiveChatPoll(for: address)
+        // Nextcloud mirror runs on an adaptive cadence keyed off the open chat; wake its
+        // change watcher so this chat picks up other devices' uploads immediately.
+        NextcloudService.shared.noteChatOpened()
         loadReactions(for: address)
+        // Fresh-address payment pools: lazily offer our pool once per contact, re-check the
+        // pool-of-2 replenish (retries a top-up whose send failed when a reservation got
+        // funded), and top up theirs if a previous addr_pool_request got lost (all no-ops
+        // when nothing to do).
+        offerAddressPoolIfNeeded(to: address)
+        replenishPoolIfNeeded(for: address)
+        if let contact = contactsManager.getContact(byAddress: address) {
+            maybeRequestMorePoolAddresses(from: contact)
+        }
+        // Keep the Share Extension's "Recent" list fresh: opening a chat counts as touching it.
+        let alias = ContactsManager.shared.getContact(byAddress: address)?.alias ?? ""
+        SharedDataManager.recordRecentConversation(address: address, alias: alias)
     }
 
     /// Returns total number of stored messages using a background worker to avoid
@@ -91,8 +109,178 @@ extension ChatService {
         if let address = activeConversationAddress {
             ReadStatusSyncManager.shared.userLeftConversation(address)
         }
+        activeChatPollTask?.cancel()
+        activeChatPollTask = nil
         activeConversationAddress = nil
         AppLog.log("[ChatService] Left conversation")
+    }
+
+    /// While a 1:1 chat is open and the app is foregrounded, poll the indexer for new messages
+    /// from that contact every ~2s (mirrors Android's live-UI DM loop). Idempotent with the
+    /// utxosChanged push — both dedupe by txId; this just guarantees prompt delivery for the
+    /// chat you're looking at instead of waiting on a confirmation-gated notification.
+    private func startActiveChatPoll(for address: String) {
+        activeChatPollTask?.cancel()
+        activeChatPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.activeConversationAddress != address { return }
+                if UIApplication.shared.applicationState == .active,
+                   let wallet = WalletManager.shared.currentWallet,
+                   let privateKey = WalletManager.shared.getPrivateKey() {
+                    _ = await self.fetchContextualMessagesFromContact(
+                        contactAddress: address, myAddress: wallet.publicAddress, privateKey: privateKey,
+                        reorgRewindMs: self.liveTailReorgBufferMs
+                    )
+                }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+    }
+
+    // MARK: - Foreground contact sweep (defense-in-depth for live 1:1 delivery)
+
+    /// Start the global foreground indexer sweep if it isn't already running. Mirrors desktop's
+    /// 5s / Android's 2s foreground polls: while the app is active, walk the most recently active
+    /// contacts one at a time calling `fetchContextualMessagesFromContact` (the same per-contact
+    /// fetch the utxosChanged push and the open-chat poll use), ~5s between full sweeps.
+    ///
+    /// This is a backstop for any silent failure of the utxosChanged subscription, not the primary
+    /// delivery path - so it is deliberately gentle: serial fetches with a short gap (never N
+    /// concurrent requests), the next sweep starts only after the previous one finishes, the
+    /// currently-open chat is skipped (`startActiveChatPoll` already covers it at 2s), nothing
+    /// runs while a full sync is in flight or before the initial sync has completed, and a failed
+    /// sweep doubles the interval (up to 60s) until a sweep succeeds again.
+    ///
+    /// Idempotent with every other fetch path: `fetchContextualMessagesFromContact` skips txIds
+    /// already in the store and `addMessageToConversation` re-checks by txId at insert.
+    func startForegroundContactSweep() {
+        if let task = foregroundSweepTask, !task.isCancelled { return }
+        guard WalletManager.shared.currentWallet != nil else { return }
+        AppLog.log("[ChatService] Foreground contact sweep started (%.0fs, cap %d)",
+                   currentForegroundSweepBaseInterval, foregroundSweepMaxContacts)
+        foregroundSweepTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Base interval resolves per iteration: 5s on WiFi, 15s on expensive
+            // (cellular/metered) paths - the sweep is a backstop, not the primary path, so
+            // cellular trades a little freshness for a third of the requests.
+            var interval = self.currentForegroundSweepBaseInterval
+            // Seed the group-catch-up clock: scenePhase .active just ran its own
+            // GroupChatService.performCatchUpSync(), so the ride-along below should first
+            // fire an interval from now, not duplicate that round trip immediately.
+            self.lastForegroundGroupCatchUpAt = Date()
+            while !Task.isCancelled {
+                let swept = await self.runForegroundContactSweep()
+                if Task.isCancelled { return }
+                let base = self.currentForegroundSweepBaseInterval
+                switch swept {
+                case .failed:
+                    let next = min(max(interval, base) * 2, self.foregroundSweepMaxInterval)
+                    if next != interval {
+                        AppLog.log("[ChatService] Foreground contact sweep backing off to %.0fs after indexer failure", next)
+                    }
+                    interval = next
+                case .succeeded:
+                    if interval != base {
+                        AppLog.log("[ChatService] Foreground contact sweep recovered - back to %.0fs", base)
+                    }
+                    interval = base
+                case .skipped:
+                    break  // gated out (inactive / syncing / not ready) - keep the current interval
+                }
+                // Group-chat backstop (see `lastForegroundGroupCatchUpAt`): groups have no
+                // per-contact sweep equivalent - their live path is the blockAdded block-scan,
+                // and a block missed during a stream gap only got recovered on the next
+                // app-foreground catch-up. Run the cursor-based group catch-up at most once a
+                // minute while the app is active so an open app converges on missed group
+                // messages without needing a background/foreground cycle.
+                if UIApplication.shared.applicationState == .active,
+                   WalletManager.shared.currentWallet != nil,
+                   self.lastForegroundGroupCatchUpAt.map({ Date().timeIntervalSince($0) >= self.foregroundGroupCatchUpInterval }) ?? true {
+                    self.lastForegroundGroupCatchUpAt = Date()
+                    await GroupChatService.shared.performCatchUpSync()
+                }
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            }
+        }
+    }
+
+    /// The sweep's base interval for the current network path: `foregroundSweepBaseInterval`
+    /// (5s) on WiFi, `foregroundSweepExpensiveInterval` (15s) on cellular/metered paths.
+    private var currentForegroundSweepBaseInterval: TimeInterval {
+        NetworkEpochMonitor.shared.isExpensivePath
+            ? foregroundSweepExpensiveInterval
+            : foregroundSweepBaseInterval
+    }
+
+    /// Cancel the foreground sweep (app backgrounded, wallet switch/teardown, logout).
+    func stopForegroundContactSweep() {
+        guard let task = foregroundSweepTask else { return }
+        task.cancel()
+        foregroundSweepTask = nil
+        AppLog.log("[ChatService] Foreground contact sweep stopped")
+    }
+
+    enum ForegroundSweepOutcome {
+        case succeeded
+        case failed
+        case skipped
+    }
+
+    /// One serial pass over the sweep targets. Returns `.failed` on the first indexer error (the
+    /// rest of the pass is abandoned so an unreachable indexer costs one request per sweep, not
+    /// one per contact), `.skipped` when gating kept it from doing any work.
+    private func runForegroundContactSweep() async -> ForegroundSweepOutcome {
+        guard UIApplication.shared.applicationState == .active,
+              isConfigured,
+              hasCompletedInitialSync,
+              !isSyncInProgress,
+              let wallet = WalletManager.shared.currentWallet,
+              let privateKey = WalletManager.shared.getPrivateKey() else {
+            return .skipped
+        }
+        let myAddress = wallet.publicAddress
+        let targets = foregroundSweepTargets(excluding: activeConversationAddress)
+        guard !targets.isEmpty else { return .succeeded }
+
+        for address in targets {
+            if Task.isCancelled { return .skipped }
+            // Re-check live conditions per contact: the app may have gone inactive or the user
+            // may have opened this very chat mid-sweep (the open-chat poll owns it from then on).
+            guard UIApplication.shared.applicationState == .active else { return .skipped }
+            guard isActiveWallet(myAddress) else { return .skipped }
+            if activeConversationAddress == address { continue }
+            let result = await fetchContextualMessagesFromContact(
+                contactAddress: address, myAddress: myAddress, privateKey: privateKey,
+                reorgRewindMs: liveTailReorgBufferMs
+            )
+            if case .failure = result { return .failed }
+            // Gentle pacing between contacts so a sweep is a trickle, not a burst.
+            try? await Task.sleep(nanoseconds: 120_000_000)
+        }
+        return .succeeded
+    }
+
+    /// Sweep target rule: active contacts that already have an incoming alias (no alias = no
+    /// handshake yet = nothing to fetch, and `fetchContextualMessagesFromContact` would return
+    /// early anyway), minus the currently-open chat, ordered by most recent activity
+    /// (`Contact.lastMessageAt` desc, then newest-added first), capped at
+    /// `foregroundSweepMaxContacts`. With hundreds of contacts the long tail is still served by
+    /// the push, the app-active catch-up sync and the fallback poll - the sweep just keeps the
+    /// conversations you actually use fresh.
+    private func foregroundSweepTargets(excluding openAddress: String?) -> [String] {
+        let candidates = contactsManager.activeContacts.filter { contact in
+            contact.address != openAddress && !incomingAliases(for: contact.address).isEmpty
+        }
+        let ordered = candidates.sorted { a, b in
+            switch (a.lastMessageAt, b.lastMessageAt) {
+            case let (la?, lb?) where la != lb: return la > lb
+            case (.some, .none): return true
+            case (.none, .some): return false
+            default: return a.addedAt > b.addedAt
+            }
+        }
+        return ordered.prefix(foregroundSweepMaxContacts).map { $0.address }
     }
 
     /// Fetch only handshakes (lightweight, needed to establish encryption keys)
@@ -126,29 +314,36 @@ extension ChatService {
         let privateKey = WalletManager.shared.getPrivateKey()
 
         AppLog.log("[ChatService] Fetching incoming handshakes (since=%llu)...", incomingSince)
-        // Fetch incoming handshakes
-        guard let incoming = await retryUntilSuccess(
+        // Phase-isolated like fetchNewMessages: a failed bootstrap phase is logged and skipped,
+        // the remaining phases still run, and Phase 4's full sync re-covers whatever was missed
+        // (the failed phase's cursor never advanced).
+        let incoming: [HandshakeResponse]
+        if let fetched = await retryUntilSuccess(
             label: "fetch incoming handshakes (bootstrap)",
             operation: { [self] in try await fetchIncomingHandshakes(for: wallet.publicAddress, blockTime: incomingSince) }
-        ) else {
-            AppLog.log("[ChatService] Failed to fetch incoming handshakes")
-            return
+        ) {
+            incoming = fetched
+            advanceSyncCursor(for: incomingHandshakeKey, maxBlockTime: fetched.compactMap { $0.blockTime }.max())
+            AppLog.log("[ChatService] Fetched %d incoming handshakes", fetched.count)
+        } else {
+            incoming = []
+            AppLog.log("[ChatService] Failed to fetch incoming handshakes - continuing bootstrap")
         }
-        advanceSyncCursor(for: incomingHandshakeKey, maxBlockTime: incoming.compactMap { $0.blockTime }.max())
-        AppLog.log("[ChatService] Fetched %d incoming handshakes", incoming.count)
 
         AppLog.log("[ChatService] Fetching outgoing handshakes...")
 
-
-        guard let outgoing = await retryUntilSuccess(
+        let outgoing: [HandshakeResponse]
+        if let fetched = await retryUntilSuccess(
             label: "fetch outgoing handshakes (bootstrap)",
             operation: { [self] in try await fetchOutgoingHandshakes(for: wallet.publicAddress, blockTime: outgoingSince) }
-        ) else {
-            AppLog.log("[ChatService] Failed to fetch outgoing handshakes")
-            return
+        ) {
+            outgoing = fetched
+            advanceSyncCursor(for: outgoingHandshakeKey, maxBlockTime: fetched.compactMap { $0.blockTime }.max())
+            AppLog.log("[ChatService] Fetched %d outgoing handshakes", fetched.count)
+        } else {
+            outgoing = []
+            AppLog.log("[ChatService] Failed to fetch outgoing handshakes - continuing bootstrap")
         }
-        advanceSyncCursor(for: outgoingHandshakeKey, maxBlockTime: outgoing.compactMap { $0.blockTime }.max())
-        AppLog.log("[ChatService] Fetched %d outgoing handshakes", outgoing.count)
 
         AppLog.log("[ChatService] Handshake bootstrap: %d incoming, %d outgoing", incoming.count, outgoing.count)
 
@@ -158,10 +353,14 @@ extension ChatService {
         await processHandshakes(outgoing, isOutgoing: true, myAddress: wallet.publicAddress, privateKey: privateKey)
         AppLog.log("[ChatService] Handshakes processed")
 
-        // Fetch saved handshakes from self-stash
+        // Fetch saved handshakes from self-stash. Short retry budget: this recovery scan always
+        // re-reads from block_time 0, so there is nothing to lose by giving up quickly, and the
+        // ~60s default budget would delay Phase 2-4 (and thus the foreground sweep, gated on
+        // hasCompletedInitialSync) by a minute while the endpoint is down.
         AppLog.log("[ChatService] Fetching saved handshakes from self-stash...")
         _ = await retryUntilSuccess(
             label: "fetch saved handshakes (bootstrap)",
+            maxAttempts: Self.syncPhaseMaxRetryAttempts,
             operation: { [self] in try await fetchSavedHandshakes(myAddress: wallet.publicAddress, privateKey: privateKey) }
         )
         AppLog.log("[ChatService] Self-stash fetch complete")
@@ -242,54 +441,90 @@ extension ChatService {
             nowMs: nowMs
         )
 
-        guard let incoming = await retryUntilSuccess(
-            label: "fetch incoming handshakes",
-            operation: { [self] in try await fetchIncomingHandshakes(for: wallet.publicAddress, blockTime: incomingHandshakeSince) }
-        ) else {
-            return
-        }
-        advanceSyncCursor(for: incomingHandshakeKey, maxBlockTime: incoming.compactMap { $0.blockTime }.max())
+        // PHASE ISOLATION: every fetch phase below is independent. A phase that exhausts its
+        // (short) retry budget is logged and SKIPPED for this cycle only - its per-object cursor
+        // simply doesn't advance, so the next cycle re-covers the missed window - and all the
+        // phases behind it still run. One persistently failing endpoint (seen live: the indexer
+        // 500ing /self-stash/by-owner mid-pagination) must never starve contextual message
+        // delivery; the old guard-return coupling here is exactly why new messages only appeared
+        // on pull-to-refresh while the saved-handshake fetch was failing. `allPhasesSucceeded`
+        // stays false when any cursor-bearing phase failed, so endSyncBlockTime never advances
+        // the global lastPollTime fallback cursor past an unfetched window.
+        var allPhasesSucceeded = true
 
-        guard let outgoing = await retryUntilSuccess(
-            label: "fetch outgoing handshakes",
-            operation: { [self] in try await fetchOutgoingHandshakes(for: wallet.publicAddress, blockTime: outgoingHandshakeSince) }
-        ) else {
-            return
+        let incoming: [HandshakeResponse]
+        if let fetched = await retryUntilSuccess(
+            label: "fetch incoming handshakes",
+            maxAttempts: Self.syncPhaseMaxRetryAttempts,
+            operation: { [self] in try await fetchIncomingHandshakes(for: wallet.publicAddress, blockTime: incomingHandshakeSince) }
+        ) {
+            incoming = fetched
+            advanceSyncCursor(for: incomingHandshakeKey, maxBlockTime: fetched.compactMap { $0.blockTime }.max())
+        } else {
+            incoming = []
+            allPhasesSucceeded = false
+            AppLog.log("%@", "[ChatService] Incoming handshake phase skipped this cycle - continuing with remaining phases")
         }
-        advanceSyncCursor(for: outgoingHandshakeKey, maxBlockTime: outgoing.compactMap { $0.blockTime }.max())
+
+        let outgoing: [HandshakeResponse]
+        if let fetched = await retryUntilSuccess(
+            label: "fetch outgoing handshakes",
+            maxAttempts: Self.syncPhaseMaxRetryAttempts,
+            operation: { [self] in try await fetchOutgoingHandshakes(for: wallet.publicAddress, blockTime: outgoingHandshakeSince) }
+        ) {
+            outgoing = fetched
+            advanceSyncCursor(for: outgoingHandshakeKey, maxBlockTime: fetched.compactMap { $0.blockTime }.max())
+        } else {
+            outgoing = []
+            allPhasesSucceeded = false
+            AppLog.log("%@", "[ChatService] Outgoing handshake phase skipped this cycle - continuing with remaining phases")
+        }
 
         var inPayments: [PaymentResponse] = []
         var outPayments: [PaymentResponse] = []
         // Fetch payments only on full fetch AND when not using UTXO subscription
         // (or on initial sync when lastPaymentFetchTime is 0)
         let shouldFetchPayments = activeAddress == nil && (!isUtxoSubscribed || lastPaymentFetchTime == 0)
+        var paymentsPhaseSucceeded = true
         if shouldFetchPayments {
             AppLog.log("[ChatService] === FETCHING PAYMENTS (full fetch, utxoSubscribed=%d) ===", isUtxoSubscribed ? 1 : 0)
-            guard let incomingPayments = await retryUntilSuccess(
+            if let incomingPayments = await retryUntilSuccess(
                 label: "fetch incoming payments",
+                maxAttempts: Self.syncPhaseMaxRetryAttempts,
                 operation: { [self] in try await fetchIncomingPayments(for: wallet.publicAddress, blockTime: messageSince) }
-            ) else {
-                return
+            ) {
+                inPayments = incomingPayments
+            } else {
+                paymentsPhaseSucceeded = false
+                allPhasesSucceeded = false
+                AppLog.log("%@", "[ChatService] Incoming payment phase skipped this cycle - continuing with remaining phases")
             }
-            inPayments = incomingPayments
 
-            guard let outgoingPayments = await retryUntilSuccess(
+            if let outgoingPayments = await retryUntilSuccess(
                 label: "fetch outgoing payments",
+                maxAttempts: Self.syncPhaseMaxRetryAttempts,
                 operation: { [self] in try await fetchOutgoingPayments(for: wallet.publicAddress, blockTime: messageSince) }
-            ) else {
-                return
+            ) {
+                outPayments = outgoingPayments
+            } else {
+                paymentsPhaseSucceeded = false
+                allPhasesSucceeded = false
+                AppLog.log("%@", "[ChatService] Outgoing payment phase skipped this cycle - continuing with remaining phases")
             }
-            outPayments = outgoingPayments
             AppLog.log("[ChatService] === PAYMENT FETCH COMPLETE: in=%d, out=%d ===", inPayments.count, outPayments.count)
 
-            // Update last payment fetch time for UTXO subscription
-            if !inPayments.isEmpty || !outPayments.isEmpty {
-                let maxInTime = inPayments.compactMap { $0.blockTime }.max() ?? 0
-                let maxOutTime = outPayments.compactMap { $0.blockTime }.max() ?? 0
-                lastPaymentFetchTime = max(maxInTime, maxOutTime, lastPaymentFetchTime)
-            } else if lastPaymentFetchTime == 0 {
-                // Set to current time if no payments found on initial sync
-                lastPaymentFetchTime = fallbackSince > 0 ? fallbackSince : UInt64(Date().timeIntervalSince1970 * 1000)
+            // Update last payment fetch time for UTXO subscription - only when BOTH payment
+            // fetches actually succeeded. Advancing this cursor (or setting the initial-sync
+            // baseline) off a failed fetch would permanently skip the unfetched window.
+            if paymentsPhaseSucceeded {
+                if !inPayments.isEmpty || !outPayments.isEmpty {
+                    let maxInTime = inPayments.compactMap { $0.blockTime }.max() ?? 0
+                    let maxOutTime = outPayments.compactMap { $0.blockTime }.max() ?? 0
+                    lastPaymentFetchTime = max(maxInTime, maxOutTime, lastPaymentFetchTime)
+                } else if lastPaymentFetchTime == 0 {
+                    // Set to current time if no payments found on initial sync
+                    lastPaymentFetchTime = fallbackSince > 0 ? fallbackSince : UInt64(Date().timeIntervalSince1970 * 1000)
+                }
             }
         } else if activeAddress != nil {
             AppLog.log("[ChatService] Skipping payment fetch - active conversation only")
@@ -334,12 +569,18 @@ extension ChatService {
             await processPayments(outPayments, isOutgoing: true, myAddress: wallet.publicAddress, privateKey: privateKey)
         }
 
-        // Fetch saved handshakes from self-stash to get our aliases for outgoing messages
-        guard let _ = await retryUntilSuccess(
+        // Fetch saved handshakes from self-stash to get our aliases for outgoing messages.
+        // This is a self-healing RECOVERY scan, not a prerequisite for new-message delivery:
+        // it always re-reads the self-stash from block_time 0 (no cursor to corrupt), so a
+        // failed attempt loses nothing - the next cycle scans the exact same range. It must
+        // never bail out of the sync: when the indexer persistently 5xxes this one endpoint,
+        // the contextual-message phases below still have to run.
+        if await retryUntilSuccess(
             label: "fetch saved handshakes",
+            maxAttempts: Self.syncPhaseMaxRetryAttempts,
             operation: { [self] in try await fetchSavedHandshakes(myAddress: wallet.publicAddress, privateKey: privateKey) }
-        ) else {
-            return
+        ) == nil {
+            AppLog.log("%@", "[ChatService] Saved-handshake phase skipped this cycle - continuing to contextual messages")
         }
 
         // Reclassify misidentified handshakes:
@@ -371,8 +612,8 @@ extension ChatService {
                 fallbackSince: fallbackSince,
                 nowMs: nowMs
             )
-            guard completed else { return }
-            activeFetchSucceeded = true
+            activeFetchSucceeded = completed
+            if !completed { allPhasesSucceeded = false }
         } else {
             let completed = await fetchContextualMessages(
                 myAddress: wallet.publicAddress,
@@ -380,7 +621,14 @@ extension ChatService {
                 fallbackSince: fallbackSince,
                 nowMs: nowMs
             )
-            guard completed else { return }
+            if !completed { allPhasesSucceeded = false }
+        }
+
+        // A contextual pass can come back false because the wallet changed mid-fetch; never
+        // persist this run's aliases/cursors into the new wallet's state in that case.
+        guard isActiveWallet(wallet.publicAddress) else {
+            AppLog.log("%@", "[ChatService] Wallet changed mid-sync - skipping finalization for \(wallet.publicAddress.suffix(10))")
+            return
         }
 
         await retryIncomingWarningResolutionsOnSync(
@@ -395,14 +643,21 @@ extension ChatService {
         saveConversationIds()
         saveRoutingStates()
 
-        // Update last successful sync date for connection status
-        lastSuccessfulSyncDate = Date()
-        if isFullFetch {
-            await apiClient.recordIndexerSyncSuccess()
+        // Cycle-level success (advances the global lastPollTime fallback cursor via
+        // endSyncBlockTime and drives connection status) requires every cursor-bearing phase to
+        // have succeeded. The saved-handshake recovery scan is deliberately excluded: it always
+        // re-scans from block_time 0, so skipping it has zero cursor cost and must not make an
+        // otherwise-healthy cycle look failed while one indexer endpoint is broken.
+        if allPhasesSucceeded {
+            // Update last successful sync date for connection status
+            lastSuccessfulSyncDate = Date()
+            if isFullFetch {
+                await apiClient.recordIndexerSyncSuccess()
+            }
         }
 
-        syncSucceeded = true
-        AppLog.log("%@", "[ChatService] Fetch complete. Total conversations: \(conversations.count), lastPollTime updated to: \(lastPollTime)")
+        syncSucceeded = allPhasesSucceeded
+        AppLog.log("%@", "[ChatService] Fetch complete (allPhases=\(allPhasesSucceeded ? "ok" : "partial")). Total conversations: \(conversations.count), lastPollTime updated to: \(lastPollTime)")
     }
 
     func getConversation(for contact: Contact) -> Conversation? {
@@ -907,6 +1162,50 @@ extension ChatService {
             )
         }
         replyingTo = nil
+
+        // Successful send: refresh the Share Extension's recents and donate an
+        // INSendMessageIntent so iOS can surface this conversation as a share-sheet
+        // direct target (requires IntentsSupported in the extension's Info.plist).
+        SharedDataManager.recordRecentConversation(address: contact.address, alias: contact.alias)
+        donateSendMessageIntent(for: contact)
+    }
+
+    /// Donates an INSendMessageIntent for this conversation. After a few donations iOS shows the
+    /// conversation as a suggested direct target in the system share sheet; the Share Extension
+    /// reads the donated `conversationIdentifier` (the contact address) back from
+    /// `extensionContext.intent` to pre-select the contact.
+    private func donateSendMessageIntent(for contact: Contact) {
+        let trimmedAlias = contact.alias.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayName = trimmedAlias.isEmpty ? String(contact.address.suffix(8)) : trimmedAlias
+
+        let recipient = INPerson(
+            personHandle: INPersonHandle(value: contact.address, type: .unknown),
+            nameComponents: nil,
+            displayName: displayName,
+            image: nil,
+            contactIdentifier: nil,
+            customIdentifier: contact.address
+        )
+
+        let intent = INSendMessageIntent(
+            recipients: [recipient],
+            outgoingMessageType: .outgoingMessageText,
+            content: nil,
+            speakableGroupName: INSpeakableString(spokenPhrase: displayName),
+            conversationIdentifier: contact.address,
+            serviceName: "KaChat",
+            sender: nil,
+            attachments: nil
+        )
+
+        let interaction = INInteraction(intent: intent, response: nil)
+        interaction.groupIdentifier = contact.address
+        interaction.direction = .outgoing
+        interaction.donate { error in
+            if let error {
+                AppLog.log("[ChatService] INSendMessageIntent donation failed: %@", error.localizedDescription)
+            }
+        }
     }
 
     func sendAudio(
@@ -926,17 +1225,14 @@ extension ChatService {
             ? "audio/webm"
             : mimeType
         let base64 = audioData.base64EncodedString()
-        let payload: [String: Any] = [
-            "type": "file",
-            "name": resolvedFileName,
-            "size": audioData.count,
-            "mimeType": resolvedMimeType,
-            "content": "data:\(resolvedMimeType);base64,\(base64)"
-        ]
-        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
-        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
-            throw KasiaError.networkError("Failed to prepare audio payload")
-        }
+        // Deterministic field order (mimeType before the multi-MB content) so every client's
+        // head-window preview sniff can identify the media kind - see MediaFileEnvelope.
+        let jsonString = MediaFileEnvelope.json(
+            name: resolvedFileName,
+            size: audioData.count,
+            mimeType: resolvedMimeType,
+            dataUrlContent: "data:\(resolvedMimeType);base64,\(base64)"
+        )
 
         try await sendMessage(to: contact, content: jsonString, messageType: .audio)
     }
@@ -961,17 +1257,12 @@ extension ChatService {
             ? "image/jpeg"
             : mimeType
         let base64 = imageData.base64EncodedString()
-        let payload: [String: Any] = [
-            "type": "file",
-            "name": resolvedFileName,
-            "size": imageData.count,
-            "mimeType": resolvedMimeType,
-            "content": "data:\(resolvedMimeType);base64,\(base64)"
-        ]
-        let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
-        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
-            throw KasiaError.networkError("Failed to prepare image payload")
-        }
+        let jsonString = MediaFileEnvelope.json(
+            name: resolvedFileName,
+            size: imageData.count,
+            mimeType: resolvedMimeType,
+            dataUrlContent: "data:\(resolvedMimeType);base64,\(base64)"
+        )
 
         try await sendMessage(to: contact, content: jsonString, messageType: .audio)
     }
@@ -1042,7 +1333,12 @@ extension ChatService {
                 messageType: messageType,
                 deliveryStatus: .pending
             )
-            addMessageToConversation(pendingMessage, contactAddress: contact.address)
+            // Animated publish: the outgoing bubble flows into the list (layout change +
+            // the detail view's animated scroll ride the same transaction) - matching the
+            // broadcast room's send feel.
+            withAnimation(.easeOut(duration: 0.25)) {
+                addMessageToConversation(pendingMessage, contactAddress: contact.address)
+            }
             enqueuePendingOutgoing(contactAddress: contact.address, pendingTxId: resolvedPendingTxId, messageType: messageType, timestamp: pendingTimestamp)
             activePendingMessageId = pendingMessage.id
         } else {
@@ -1757,14 +2053,16 @@ extension ChatService {
         to contact: Contact,
         amountSompi: UInt64,
         note: String = "",
-        pendingTxId: String? = nil
+        pendingTxId: String? = nil,
+        extraFeeSompi: UInt64 = 0
     ) async throws {
         try await enqueueOutgoingTxOperation {
             try await self.sendPaymentInternal(
                 to: contact,
                 amountSompi: amountSompi,
                 note: note,
-                pendingTxId: pendingTxId
+                pendingTxId: pendingTxId,
+                extraFeeSompi: extraFeeSompi
             )
         }
     }
@@ -1773,7 +2071,9 @@ extension ChatService {
         to contact: Contact,
         amountSompi: UInt64,
         note: String = "",
-        pendingTxId: String? = nil
+        pendingTxId: String? = nil,
+        /// Extra priority fee (Fast/Priority tiers) on top of the computed base fee.
+        extraFeeSompi: UInt64 = 0
     ) async throws {
         guard amountSompi > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
@@ -1781,22 +2081,50 @@ extension ChatService {
         guard let wallet = WalletManager.shared.currentWallet else {
             throw KasiaError.walletNotFound
         }
-        // Payments spend from the spending chain (not the chatting/identity address) - same
-        // "Pay in Kaspa" balance already shown elsewhere in the app - with change always routed
-        // to a genuinely never-used address rather than back to the address just spent from,
-        // then that fresh index becomes active once the send actually succeeds. This mirrors
-        // ManageAddressesView/Swap's own spending-address model instead of paying straight out
-        // of the identity address every time.
-        let spendingIndex = WalletManager.shared.currentSpendingAddressIndex
-        guard let spendingAddress = WalletManager.shared.spendingAddress(at: spendingIndex),
-              let spendingPrivateKey = WalletManager.shared.spendingPrivateKey(at: spendingIndex) else {
-            throw KasiaError.keychainError("Could not derive spending address")
+        // FUNDING SOURCE - keyed on the per-account Chats Payment Privacy toggle:
+        //
+        // ON (default): payments spend from the spending chain (not the chatting/identity
+        // address) - same "Pay in Kaspa" balance already shown elsewhere in the app - with
+        // change always routed to a genuinely never-used address rather than back to the
+        // address just spent from, then that fresh index becomes active once the send actually
+        // succeeds. This mirrors ManageAddressesView/Swap's own spending-address model instead
+        // of paying straight out of the identity address every time.
+        //
+        // OFF: chatting-to-chatting end to end - funded from the CHATTING address with the
+        // identity key, change back to the chatting address (builder default), no spending
+        // index rotation. Matches the toggle copy: sent AND received Kaspa uses public chatting
+        // addresses. Estimators must agree - see `paymentFundingSourceAddress`.
+        let chatsPrivacyOn = AppSettings.chatsPrivacyEnabled(for: wallet.publicAddress)
+        let sourceAddress: String
+        let sourcePrivateKey: Data
+        let changeAddress: String?
+        let freshChangeIndex: Int?
+        if chatsPrivacyOn {
+            let spendingIndex = WalletManager.shared.currentSpendingAddressIndex
+            guard let spendingAddress = WalletManager.shared.spendingAddress(at: spendingIndex),
+                  let spendingPrivateKey = WalletManager.shared.spendingPrivateKey(at: spendingIndex) else {
+                throw KasiaError.keychainError("Could not derive spending address")
+            }
+            // One past the highest index this wallet has EVER revealed/used (not just
+            // spendingIndex + 1) - guarantees change never lands on an address that's already
+            // been used before, even if the active spending index was manually set backward via
+            // Manage Addresses. (Payment-pool reservations bump the same max, so this can never
+            // collide with an address reserved for a contact - both run serialized through the
+            // outgoing queue.)
+            let index = max(WalletManager.shared.maxSpendingAddressIndex, spendingIndex) + 1
+            sourceAddress = spendingAddress
+            sourcePrivateKey = spendingPrivateKey
+            changeAddress = WalletManager.shared.spendingAddress(at: index)
+            freshChangeIndex = index
+        } else {
+            guard let identityKey = WalletManager.shared.getPrivateKey() else {
+                throw KasiaError.keychainError("Could not get private key")
+            }
+            sourceAddress = wallet.publicAddress
+            sourcePrivateKey = identityKey
+            changeAddress = nil
+            freshChangeIndex = nil
         }
-        // One past the highest index this wallet has EVER revealed/used (not just spendingIndex
-        // + 1) - guarantees change never lands on an address that's already been used before,
-        // even if the active spending index was manually set backward via Manage Addresses.
-        let freshChangeIndex = max(WalletManager.shared.maxSpendingAddressIndex, spendingIndex) + 1
-        let nextSpendingAddress = WalletManager.shared.spendingAddress(at: freshChangeIndex)
 
         if pendingTxId == nil {
             do {
@@ -1804,8 +2132,8 @@ extension ChatService {
                     to: contact,
                     amountSompi: amountSompi,
                     note: note,
-                    walletAddress: spendingAddress,
-                    privateKey: spendingPrivateKey
+                    walletAddress: sourceAddress,
+                    privateKey: sourcePrivateKey
                 )
             } catch {
                 if isInsufficientBalancePopupError(error) {
@@ -1858,6 +2186,15 @@ extension ChatService {
         )
         markOutgoingAttemptSubmitting(messageId: pendingMessageId)
 
+        // Fresh-address payment pools: pay a fresh address from the contact's stored pool when
+        // one is available (chain observers can't link the payment to their chat identity),
+        // falling back to the chatting address when no pool exists. Consumed at selection and
+        // remembered per pending id so retries reuse the same destination. async: it probes
+        // each candidate's on-chain history first, so a pool address already paid by another
+        // device running the same seed is skipped instead of reused. See
+        // `ChatService+PaymentPools.swift` / MESSAGING.md.
+        let destinationAddress = await poolPaymentDestination(for: contact, pendingTxId: activePendingTxId)
+
         do {
             let rpcManager = NodePoolService.shared
             let settings = currentSettings
@@ -1866,31 +2203,43 @@ extension ChatService {
                 try await rpcManager.connect(network: settings.networkType)
             }
 
-            let utxos = try await rpcManager.getUtxosByAddresses([spendingAddress])
+            let utxos = try await rpcManager.getUtxosByAddresses([sourceAddress])
             let spendable = utxos.filter { $0.blockDaaScore > 0 && !$0.isCoinbase }
             guard !spendable.isEmpty else {
                 throw KasiaError.networkError("No spendable UTXOs available")
             }
 
-            guard let recipientPublicKey = KaspaAddress.publicKey(from: contact.address) else {
+            guard let recipientPublicKey = KaspaAddress.publicKey(from: destinationAddress) else {
                 throw KasiaError.invalidAddress
             }
 
             let tx = try KasiaTransactionBuilder.buildPaymentTx(
-                from: spendingAddress,
-                to: contact.address,
+                from: sourceAddress,
+                to: destinationAddress,
                 amount: amountSompi,
                 note: note,
-                senderPrivateKey: spendingPrivateKey,
+                senderPrivateKey: sourcePrivateKey,
                 recipientPublicKey: recipientPublicKey,
                 utxos: spendable,
-                changeAddress: nextSpendingAddress
+                changeAddress: changeAddress,
+                extraFeeSompi: extraFeeSompi
             )
 
             // Submit via RPC manager
             AppLog.log("[ChatService] Submitting payment via RPC manager...")
             let (txId, endpoint) = try await rpcManager.submitTransaction(tx, allowOrphan: false)
             AppLog.log("[ChatService] Payment submitted: \(txId) via \(endpoint)")
+            if !chatsPrivacyOn, let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: sourceAddress) {
+                // Chatting-address-funded payment (privacy OFF) spends from the SAME UTXO set
+                // message sends use - the same outpoint bookkeeping every message send does
+                // keeps an immediately-following message from racing onto the just-spent
+                // outpoints before the node reflects them. Spending-chain payments (ON) don't
+                // touch that set, so they skip this exactly as before.
+                let spentUtxos = spentMessageUtxos(from: tx, candidates: spendable)
+                reserveMessageOutpoints(spentUtxos)
+                consumePendingUtxos(spentUtxos)
+                addPendingOutputs(from: tx, txId: txId, senderScriptPubKey: senderScriptPubKey)
+            }
             _ = updatePendingMessageById(pendingMessageId, newTxId: txId, contactAddress: contact.address)
             markOutgoingAttemptSubmitted(
                 messageId: pendingMessageId,
@@ -1901,7 +2250,16 @@ extension ChatService {
             )
             clearNoInputRetryState(for: activePendingTxId)
             saveMessages(triggerExport: true)
-            await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
+            if let freshChangeIndex {
+                await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
+            }
+            handlePoolPaymentSubmitted(
+                contact: contact,
+                txId: txId,
+                amountSompi: amountSompi,
+                destinationAddress: destinationAddress,
+                pendingTxId: activePendingTxId
+            )
         } catch {
             if let acceptedTxId = acceptedTransactionId(from: error) {
                 AppLog.log("[ChatService] Payment already accepted by consensus for %@ -> promoting pending to %@",
@@ -1917,7 +2275,16 @@ extension ChatService {
                 )
                 clearNoInputRetryState(for: activePendingTxId)
                 saveMessages(triggerExport: true)
-                await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
+                if let freshChangeIndex {
+                    await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
+                }
+                handlePoolPaymentSubmitted(
+                    contact: contact,
+                    txId: acceptedTxId,
+                    amountSompi: amountSompi,
+                    destinationAddress: destinationAddress,
+                    pendingTxId: activePendingTxId
+                )
                 return
             }
 
@@ -2308,14 +2675,107 @@ extension ChatService {
 
     /// Whether an address has ever appeared in a transaction, independent of its current
     /// balance (a swept-to-zero address still counts as used) — powers the "Used"/"Unused"
-    /// badge in Manage Addresses. A single-item history lookup, not a balance check.
+    /// badge in Manage Addresses. A transaction-count lookup, not a balance check.
+    ///
+    /// "Used" is MONOTONIC and address-intrinsic: once true it can never become false again,
+    /// so positive answers are cached persistently and answered without a network round-trip
+    /// forever after. Negative ("unused") answers are cached ONLY for this process's lifetime
+    /// (`sessionUnusedAddresses`) — an unused address can become used at any moment, but only
+    /// via our own sends or an external deposit, and a deposit means a nonzero balance, which
+    /// every list load short-circuits to "used" before consulting any cache. Never persisted
+    /// across launches. This is what makes Manage Addresses / Address Visibility (and cold
+    /// storage discovery, which shares this primitive) open instantly instead of re-deriving
+    /// used-ness over the network every time.
+    private static let usedAddressCacheKey = "kachat_used_addresses_v1"
+    /// Session-only memory of CONFIRMED-unused probe results. In-memory by design: it must
+    /// die with the process so a stale "unused" can never survive into a later launch.
+    private static var sessionUnusedAddresses: Set<String> = []
     func hasSpendingAddressBeenUsed(_ address: String) async -> Bool {
-        // Delegates to the already-proven paginated fetch (same resolve_previous_outpoints
-        // value it uses elsewhere in the app) instead of a hand-rolled one-off request —
-        // pageSize/maxTransactions of 1 makes this a single round-trip either way (the
-        // paginator breaks immediately on an empty first page).
-        let transactions = await fetchFullTransactionsPaginated(for: address, pageSize: 1, maxTransactions: 1)
-        return !transactions.isEmpty
+        await spendingAddressUsedState(address) ?? false
+    }
+
+    /// Cache-only, synchronous view of used-ness: `true` = persistently confirmed used,
+    /// `false` = confirmed unused earlier THIS session, `nil` = no cached answer (a network
+    /// probe is needed). Lets list loads label rows on the first frame without a round-trip.
+    func cachedSpendingAddressUsedState(_ address: String) -> Bool? {
+        let cached = UserDefaults.standard.array(forKey: Self.usedAddressCacheKey) as? [String] ?? []
+        if cached.contains(address) { return true }
+        if Self.sessionUnusedAddresses.contains(address) { return false }
+        return nil
+    }
+
+    /// Marks an address confirmed-used without a probe — e.g. it holds a balance right now,
+    /// which proves history. "Used" is monotonic, so persisting this is always safe and makes
+    /// every future launch answer instantly even after the balance is swept back to zero.
+    func markSpendingAddressUsed(_ address: String) {
+        Self.sessionUnusedAddresses.remove(address)
+        var updated = UserDefaults.standard.array(forKey: Self.usedAddressCacheKey) as? [String] ?? []
+        guard !updated.contains(address) else { return }
+        updated.append(address)
+        UserDefaults.standard.set(updated, forKey: Self.usedAddressCacheKey)
+    }
+
+    /// Tri-state variant of `hasSpendingAddressBeenUsed`: `true` = confirmed used (cached or a
+    /// successful count lookup found history), `false` = CONFIRMED unused (the REST probe
+    /// succeeded and the count is genuinely zero), `nil` = the probe FAILED (network error,
+    /// non-2xx, decode failure) so used-ness is unknown right now. Callers that make
+    /// decisions off "unused" (the Generate recyclers, the Used/Unused badge) must treat `nil`
+    /// as "don't know" - never as "unused" - so a rate-limited or offline probe can't recycle
+    /// or mislabel an address that actually has history.
+    ///
+    /// The network probe is `GET /addresses/{address}/transactions-count` — a one-integer JSON
+    /// body ({"total": N}, ~14 bytes) instead of the old `full-transactions?limit=1&
+    /// resolve_previous_outpoints=light`, which made the server assemble (and us download and
+    /// decode) an entire transaction with resolved outpoints just to answer a yes/no question.
+    /// A short per-request timeout keeps a hung host from pinning a sweep's concurrency slot.
+    func spendingAddressUsedState(_ address: String) async -> Bool? {
+        if let cached = cachedSpendingAddressUsedState(address) { return cached }
+        guard let url = kaspaRestURL(path: "/addresses/\(address)/transactions-count") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                return nil
+            }
+            let count = try JSONDecoder().decode(KaspaAddressTransactionsCountResponse.self, from: data)
+            let used = count.total > 0
+            if used {
+                markSpendingAddressUsed(address)
+            } else {
+                Self.sessionUnusedAddresses.insert(address)
+            }
+            return used
+        } catch {
+            return nil
+        }
+    }
+
+    /// Uncached on-chain history probe for an address that is NOT one of our own - a contact's
+    /// pool address (cross-device double-pay protection in `poolPaymentDestination`). Same
+    /// one-integer transactions-count fetch as `spendingAddressUsedState`, but it deliberately
+    /// bypasses BOTH used-address caches: those are keyed by bare address and exist for THIS
+    /// wallet's own spending chain (Manage Addresses badges, Generate recycling, cold storage
+    /// discovery), so recording a foreign contact address in them would pollute lookups that
+    /// assume every entry is ours. `true` = the address has on-chain history, `false` =
+    /// confirmed empty, `nil` = the probe failed (network error, non-2xx, decode failure) so
+    /// history is unknown right now.
+    func addressHasOnChainHistory(_ address: String) async -> Bool? {
+        guard let url = kaspaRestURL(path: "/addresses/\(address)/transactions-count") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                return nil
+            }
+            let count = try JSONDecoder().decode(KaspaAddressTransactionsCountResponse.self, from: data)
+            return count.total > 0
+        } catch {
+            return nil
+        }
     }
 
     func estimateMessageFee(to contact: Contact, content: String, feeOverride: UInt64? = nil) async throws -> UInt64 {
@@ -2355,11 +2815,16 @@ extension ChatService {
         } else {
             estimatedContent = trimmed
         }
-        let payload = try KasiaTransactionBuilder.buildContextualMessagePayload(
-            alias: alias,
-            message: estimatedContent,
-            recipientPublicKey: recipientPublicKey
-        )
+        // Detached: ECDH + AEAD payload building is pure CPU work, and this whole method runs
+        // on the main actor on a 200ms debounce while the user is TYPING — doing the crypto
+        // inline was measurable keystroke lag on older devices.
+        let payload = try await Task.detached(priority: .userInitiated) {
+            try KasiaTransactionBuilder.buildContextualMessagePayload(
+                alias: alias,
+                message: estimatedContent,
+                recipientPublicKey: recipientPublicKey
+            )
+        }.value
 
         // Use fallback method - doesn't require gRPC connection
         let utxos = try await fetchUtxosWithFallback(for: wallet.publicAddress)
@@ -2390,15 +2855,20 @@ extension ChatService {
                 : 0
         }
 
-        var messageTx = try KasiaTransactionBuilder.buildContextualMessageTx(
-            from: wallet.publicAddress,
-            to: contact.address,
-            alias: alias,
-            message: trimmed,
-            senderPrivateKey: privateKey,
-            recipientPublicKey: recipientPublicKey,
-            utxos: availableUtxos
-        )
+        // Detached for the same reason: this fully builds AND Schnorr-signs a transaction.
+        let walletAddress = wallet.publicAddress
+        let contactAddress = contact.address
+        var messageTx = try await Task.detached(priority: .userInitiated) {
+            try KasiaTransactionBuilder.buildContextualMessageTx(
+                from: walletAddress,
+                to: contactAddress,
+                alias: alias,
+                message: trimmed,
+                senderPrivateKey: privateKey,
+                recipientPublicKey: recipientPublicKey,
+                utxos: availableUtxos
+            )
+        }.value
         var messageFee = estimateFeeFromBuiltTx(messageTx, availableUtxos)
         let singleInputFeeSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
             payload: messageTx.payload,
@@ -2463,26 +2933,25 @@ extension ChatService {
 
     func estimatePaymentFee(to contact: Contact, amountSompi: UInt64, note: String = "") async throws -> UInt64 {
         guard amountSompi > 0 else { throw KasiaError.networkError("Amount is zero") }
-        // Payments spend from the spending chain (not the chatting/identity address) - see
-        // sendPaymentInternal's identical sourcing. Estimating from `wallet.publicAddress` here
-        // used to silently compute against the wrong balance/UTXO set whenever it differed from
-        // the spending address actually spent from.
-        guard let spendingAddress = WalletManager.shared.currentSpendingAddress() else {
-            throw KasiaError.walletNotFound
-        }
+        // Must source from whatever `sendPaymentInternal` will actually spend from - the
+        // spending chain with Chats Payment Privacy ON, the chatting address with it OFF (see
+        // `paymentFundingSourceAddress`). Estimating from a hardcoded source here used to
+        // silently compute against the wrong balance/UTXO set whenever it differed from the
+        // address actually spent from.
+        let sourceAddress = try paymentFundingSourceAddress()
         guard let recipientPublicKey = KaspaAddress.publicKey(from: contact.address) else {
             throw KasiaError.invalidAddress
         }
 
         let payload = try KasiaTransactionBuilder.buildPaymentPayload(message: note, amount: amountSompi, recipientPublicKey: recipientPublicKey)
         // Use fallback method - doesn't require gRPC connection
-        let utxos = try await fetchUtxosWithFallback(for: spendingAddress)
+        let utxos = try await fetchUtxosWithFallback(for: sourceAddress)
         let spendable = utxos.filter { !$0.isCoinbase }
         guard !spendable.isEmpty else {
             throw KasiaError.networkError("No spendable UTXOs")
         }
 
-        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: spendingAddress),
+        guard let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: sourceAddress),
               let recipientScriptPubKey = KaspaAddress.scriptPublicKey(from: contact.address) else {
             throw KasiaError.invalidAddress
         }
@@ -2498,16 +2967,14 @@ extension ChatService {
 
     /// Calculate maximum sendable amount (balance - fee for send-all transaction with no change output)
     func estimateMaxPaymentAmount(to contact: Contact, note: String = "") async throws -> UInt64 {
-        // Same spending-chain sourcing as `estimatePaymentFee` above - see its doc comment.
-        guard let spendingAddress = WalletManager.shared.currentSpendingAddress() else {
-            throw KasiaError.walletNotFound
-        }
+        // Same toggle-aware sourcing as `estimatePaymentFee` above - see its doc comment.
+        let sourceAddress = try paymentFundingSourceAddress()
         guard let recipientPublicKey = KaspaAddress.publicKey(from: contact.address) else {
             throw KasiaError.invalidAddress
         }
 
         // Use fallback method - doesn't require gRPC connection
-        let utxos = try await fetchUtxosWithFallback(for: spendingAddress)
+        let utxos = try await fetchUtxosWithFallback(for: sourceAddress)
         let spendable = utxos.filter { !$0.isCoinbase }
         guard !spendable.isEmpty else {
             throw KasiaError.networkError("No spendable UTXOs")
@@ -2516,7 +2983,7 @@ extension ChatService {
         let totalBalance = spendable.reduce(0) { $0 + $1.amount }
 
         guard let recipientScriptPubKey = KaspaAddress.scriptPublicKey(from: contact.address),
-              let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: spendingAddress) else {
+              let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: sourceAddress) else {
             throw KasiaError.invalidAddress
         }
 
@@ -3390,6 +3857,7 @@ extension ChatService {
     }
 
     func markConversationAsRead(_ conversation: Conversation) async {
+        Self.clearDeliveredNotifications(threadIdentifier: conversation.contact.address)
         if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
             // Use both in-memory window and persistent store cursor so pagination does not
             // block read marker advancement.
@@ -3472,4 +3940,11 @@ extension ChatService {
 
     /// Check the Kasia indexer for a handshake matching the given txId
     /// Used as fallback when the Kaspa REST API doesn't return the transaction payload
+}
+
+/// Response of `GET /addresses/{address}/transactions-count` on the Kaspa REST API — the
+/// one-integer body backing `spendingAddressUsedState`. Extra fields (e.g. `limit_exceeded`
+/// on newer servers) are ignored by the decoder.
+private struct KaspaAddressTransactionsCountResponse: Decodable {
+    let total: Int
 }

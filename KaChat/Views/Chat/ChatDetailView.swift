@@ -2,6 +2,7 @@ import SwiftUI
 import AVFoundation
 import AVFAudio
 import PhotosUI
+import CoreImage.CIFilterBuiltins
 #if canImport(YbridOpus)
 import YbridOpus
 #endif
@@ -27,6 +28,7 @@ struct ChatDetailView: View {
     @State private var isSelectingMessages = false
     @State private var selectedMessageIDs: Set<String> = []
     @State private var showDeleteMessagesConfirmation = false
+    @State private var reactiveReadMarkPending = false
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
@@ -41,6 +43,14 @@ struct ChatDetailView: View {
 
     private var myAddress: String? {
         walletManager.currentWallet?.publicAddress
+    }
+
+    /// True only when the chatting-address balance is a CONFIRMED zero - see
+    /// `WalletManager.hasConfirmedZeroChattingBalance` (shared with group chats, broadcast
+    /// channels, and KaPosts). An unknown/still-loading balance never triggers the gate; it
+    /// tears down reactively the moment any refresh/UTXO push reports funds.
+    private var isChattingBalanceZero: Bool {
+        walletManager.hasConfirmedZeroChattingBalance
     }
 
     init(contact: Contact, startInPaymentMode: Bool = false) {
@@ -63,13 +73,19 @@ struct ChatDetailView: View {
     /// row on every keystroke (any `@State` change on this view re-invokes `body`, and `messageRow`
     /// is a plain function inlined into it, not an independently-diffed `View`).
     @State private var chessSummaryCache: [String: ChessGameSummary] = [:]
+    /// Presents the time-control picker step between tapping "Play Chess" and actually sending
+    /// the invite - see `composerPlusMenu`'s confirmation dialog.
+    @State private var showChessTimeControlPicker = false
     @State private var previousMessagesCount = 0
     @State private var lastMessageSnapshotDigest: Int?
     @State private var snapshotRebuildTask: Task<Void, Never>?
-    @State private var hasIncomingHandshakeMessage = false
     @State private var hasOutgoingHandshakeMessage = false
-    @State private var hasAnyPaymentMessage = false
-    @State private var hasAnyIncomingMessage = false
+    @State private var hasIncomingHandshakeMessage = false
+    /// "Genuine" = a real message either side actually sent (contextual/audio/payment), not a
+    /// handshake and not a failed send. Both flags true == the relationship is established and
+    /// the handshake banner has nothing left to warn about.
+    @State private var hasGenuineIncomingMessage = false
+    @State private var hasGenuineOutgoingMessage = false
     @State private var isLoadingOlderMessages = false
     @State private var lastOlderPageRequestAt: Date = .distantPast
     @State private var topVisibleMessageId: UUID?
@@ -86,6 +102,25 @@ struct ChatDetailView: View {
     @State private var scrollInteractionResetWorkItem: DispatchWorkItem?
     @State private var lastAutoBottomScrollAt: Date = .distantPast
     @State private var newMessagesWhileScrolledUp = 0
+    /// While true the ScrollView's default anchor is re-armed to `.bottom` so a history prepend
+    /// (window growth at the head) keeps the viewport pinned through the reflow; the rest of the
+    /// time the anchor sits at the inert `.top`, so tail appends from the 2s open-chat poll and
+    /// the live mirror can never shift a reader who is scrolled up. Mirrors
+    /// `GroupChatDetailView.isGrowingHistoryWindow`.
+    @State private var isGrowingHistoryWindow = false
+    @State private var historyGrowthAnchorReleaseWorkItem: DispatchWorkItem?
+    /// The first message currently rendered by the suffix window. `onChange(of: messages.count)`
+    /// re-derives `loadedMessageCount` from this id, so the rendered window's START stays pinned
+    /// to the same message across data-model changes: new tail messages extend the window
+    /// downward (below the viewport, no reflow above), while background prefetch of OLDER pages
+    /// stays hidden backlog instead of silently prepending rendered rows.
+    @State private var renderedWindowStartMessageId: UUID?
+    /// txId (or id fallback) of the newest message the tail-change handler has already acted on.
+    /// Snapshot rebuilds can swap the tail's in-memory identity (txId dedup replacing the
+    /// optimistic local copy with the store copy) without any new message arriving; keying on
+    /// txId keeps replacements from scrolling or bumping the badge.
+    @State private var lastSeenTailMessageKey: String?
+    @State private var lastHandledTailCount = 0
     @State private var hasLoadedCurrentTopPage = false
     @State private var isPrefetchingOlderMessages = false
     @State private var lastOlderPrefetchAt: Date = .distantPast
@@ -120,6 +155,8 @@ struct ChatDetailView: View {
     @State private var inputMode: InputMode = .message
     @State private var amountText = ""
     @State private var spendingBalanceSompi: UInt64?
+    /// Post-send retry schedule for the Available pill (see scheduleSpendingBalanceRetries).
+    @State private var spendingBalanceRetryTask: Task<Void, Never>?
     @State private var recordedAudioURL: URL?
     @State private var recordedAudioPreviewURL: URL?
     @State private var isRecording = false
@@ -127,6 +164,10 @@ struct ChatDetailView: View {
     @State private var recordingTimer: Timer?
     @State private var recordingDuration: TimeInterval = 0
     @State private var recordingFeeSompi: UInt64?
+    /// Untouched copy of the recorder's full-length PCM, kept only in Nextcloud mode — the
+    /// on-chain WebM/Opus encode truncates to the ~13KB payload cap (≈9s), and exporting the
+    /// M4A from that would silently re-cap a long Nextcloud recording.
+    @State private var nextcloudOriginalRecordingURL: URL?
     @State private var recordingFeeTask: Task<Void, Never>?
     @State private var feeShimmerPhase: CGFloat = -1
     @State private var previewPlayer: AVAudioPlayer?
@@ -137,8 +178,19 @@ struct ChatDetailView: View {
     @State private var recorderDelegate = AudioRecorderDelegate()
     @State private var photoPickerItem: PhotosPickerItem?
     @State private var showPhotoPickerFromMenu = false
+    @State private var showNextcloudPicker = false
+    /// Drives the connected-state composer layout: with a Nextcloud server linked, the + menu
+    /// drops Send Photo / Send Audio in favor of "Send from Nextcloud", and the message bar
+    /// grows camera + mic buttons whose captures ride the Nextcloud auto-upload send path.
+    @ObservedObject private var nextcloudService = NextcloudService.shared
+    /// Zero-balance gate: the Claim Gift button reflects live claim state (hidden once claimed).
+    @ObservedObject private var giftService = GiftService.shared
     @State private var showCamera = false
     @State private var pendingPhotoImage: UIImage?
+    /// The exact bytes the pending photo was attached from (picker/camera/paste/drop), kept so
+    /// "Send Media via Nextcloud" can upload the untouched original (HEIC/PNG/JPEG, full
+    /// resolution) instead of a re-encode of the decoded UIImage. Cleared with the pending photo.
+    @State private var pendingPhotoOriginalData: Data?
     @State private var isCompressingPhoto = false
     @State private var hasPerformedInitialSetup = false
     @State private var isImageDropTarget = false
@@ -151,7 +203,16 @@ struct ChatDetailView: View {
     @State private var activeChessGameId: String?
     @FocusState private var isPaymentFocused: Bool
 
-    private let maxRecordingDuration: TimeInterval = 10 // seconds
+    private let maxRecordingDuration: TimeInterval = 10 // seconds (on-chain payload cap)
+    /// Nextcloud-uploaded voice notes aren't payload-bound — only the server carries them —
+    /// so the ceiling relaxes to 10 minutes while "Send Media via Nextcloud" is active.
+    private let maxNextcloudRecordingDuration: TimeInterval = 600
+
+    private var effectiveMaxRecordingDuration: TimeInterval {
+        (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+            ? maxNextcloudRecordingDuration
+            : maxRecordingDuration
+    }
     private let maxAudioBytes: Int = 13_000
     private let opusBitrate: Int32 = 6_000
     private let opusSampleRate: Double = 48_000
@@ -160,8 +221,28 @@ struct ChatDetailView: View {
         chatService.conversations.first { $0.contact.address == contact.address }
     }
 
+    /// A chat with your own address — never gated by a handshake (it's you).
+    private var isSelfChat: Bool {
+        contact.address == WalletManager.shared.currentWallet?.publicAddress
+    }
+
+    /// A stranger sent a connect request you haven't accepted yet (no outgoing handshake, no genuine
+    /// reply, not declined). Until you accept, their non-handshake messages must stay hidden — the
+    /// sync-level gate Android/Desktop already have; iOS fetches them, so we gate at display.
+    private var awaitingMyAcceptance: Bool {
+        !isSelfChat && hasIncomingHandshakeMessage && !hasOutgoingHandshakeMessage && !hasGenuineOutgoingMessage && !isDeclined
+    }
+
     private var messages: [ChatMessage] {
-        normalizedMessages
+        // "📤 Sent via another device" placeholders never render: they carry no readable
+        // content (an outgoing tx from another device whose text hasn't synced), and showing
+        // them added noise without information. The records stay in the store, so when
+        // CloudKit later delivers the real text the message appears with content.
+        let base = normalizedMessages.filter { !$0.isSentPlaceholder }
+        // Before you accept a stranger's request, show only the "wants to connect" handshake (and
+        // anything you sent) — never their earlier messages.
+        guard awaitingMyAcceptance else { return base }
+        return base.filter { $0.isOutgoing || $0.messageType == .handshake }
     }
 
     /// Drives the toolbar's quick-access chess icon - nil hides it entirely. Reuses
@@ -248,17 +329,17 @@ struct ChatDetailView: View {
             chessSummaryCache = [:]
         }
 
-        hasIncomingHandshakeMessage = deduped.contains {
-            $0.messageType == .handshake && !$0.isOutgoing && $0.deliveryStatus != .failed
-        }
         hasOutgoingHandshakeMessage = deduped.contains {
             $0.messageType == .handshake && $0.isOutgoing && $0.deliveryStatus != .failed
         }
-        hasAnyPaymentMessage = deduped.contains {
-            $0.messageType == .payment && $0.deliveryStatus != .failed
+        hasIncomingHandshakeMessage = deduped.contains {
+            $0.messageType == .handshake && !$0.isOutgoing && $0.deliveryStatus != .failed
         }
-        hasAnyIncomingMessage = deduped.contains {
-            !$0.isOutgoing && $0.deliveryStatus != .failed
+        hasGenuineIncomingMessage = deduped.contains {
+            !$0.isOutgoing && $0.messageType != .handshake && $0.deliveryStatus != .failed
+        }
+        hasGenuineOutgoingMessage = deduped.contains {
+            $0.isOutgoing && $0.messageType != .handshake && $0.deliveryStatus != .failed
         }
     }
 
@@ -303,20 +384,28 @@ struct ChatDetailView: View {
     }
 
     private func isPlaceholderContent(_ content: String) -> Bool {
-        content == "📤 Sent via another device" || content == "[Encrypted message]"
+        ChatService.isPlaceholderContent(content)
     }
 
     private var isDeclined: Bool {
         chatService.isConversationDeclined(contact.address)
     }
 
-    private var shouldShowUnnotifiedWarning: Bool {
-        let hasOutgoing = normalizedMessages.contains { $0.isOutgoing && $0.deliveryStatus != .failed }
-        return hasOutgoing
-            && !hasIncomingHandshakeMessage
-            && !hasOutgoingHandshakeMessage
-            && !hasAnyPaymentMessage
-            && !hasAnyIncomingMessage
+    /// Cross-platform semantics (matches desktop's `relationshipState == "established"`): both
+    /// sides have exchanged at least one genuine, non-handshake message. Until then the recipient
+    /// may never see what we send, which is exactly what `handshakeNoticeBanner` explains.
+    private var hasEstablishedRelationship: Bool {
+        hasGenuineIncomingMessage && hasGenuineOutgoingMessage
+    }
+
+    /// Shown from the moment a 1:1 chat opens - deliberately NOT gated on having typed or sent
+    /// anything - and retired only once the relationship is established. Group threads route
+    /// through `GroupChatDetailView`, so everything here is already 1:1.
+    private var shouldShowHandshakeNotice: Bool {
+        // `hasPerformedInitialSetup` only defers the decision past the first frame (the message
+        // snapshot that feeds the relationship flags is built in `onAppear`), so an established
+        // chat never flashes the banner on open.
+        hasPerformedInitialSetup && !hasEstablishedRelationship && !isDeclined
     }
 
     var body: some View {
@@ -392,9 +481,6 @@ struct ChatDetailView: View {
                                         }
                                 }
                             }
-                            if shouldShowUnnotifiedWarning {
-                                unnotifiedMessageBanner
-                            }
                             Color.clear
                                 .frame(height: 1)
                                 .id("bottom_anchor")
@@ -418,7 +504,15 @@ struct ChatDetailView: View {
                         .padding(.horizontal)
                         .padding(.top)
                     }
-                    .defaultScrollAnchorCompat(initialScrollAnchorMessageId == nil ? .bottom : .top)
+                    // .bottom ONLY while the initial viewport is being positioned or a history
+                    // prepend is reflowing - the rest of the time the anchor sits at the inert
+                    // .top. A permanently-armed .bottom default anchor (the previous state; the
+                    // condition was always .bottom in practice) makes iOS 17+ re-anchor the
+                    // viewport bottom-relative on EVERY content size change, so each message the
+                    // 2s open-chat poll or live mirror appended shifted a scrolled-up reader's
+                    // rows by the new row's height - the up/down yanking while reading history.
+                    // Mirrors GroupChatDetailView's identical conditional anchor.
+                    .defaultScrollAnchorCompat(!initialViewportPositioned || isGrowingHistoryWindow ? .bottom : .top)
                     .opacity(initialViewportPositioned ? 1 : 0)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         // Hosting the compose bar as a real `safeAreaInset` (rather than a
@@ -426,8 +520,30 @@ struct ChatDetailView: View {
                         // what guarantees it always sits flush above the keyboard on every
                         // device - this is the mechanism SwiftUI itself uses for keyboard
                         // avoidance, so there's no custom math to get wrong.
-                        inputBar
-                            .padding(.bottom, 2)
+                        VStack(spacing: 0) {
+                            if shouldShowHandshakeNotice {
+                                // Pinned above the composer (not scrolled away inside the
+                                // message list) so it's visible the instant the chat opens,
+                                // for as long as the relationship isn't established.
+                                handshakeNoticeBanner
+                                    .transition(.opacity)
+                            }
+                            if isChattingBalanceZero {
+                                // Zero-balance gate: reading messages above stays fully
+                                // usable (the card is part of the bottom inset, never an
+                                // overlay on the list) - only composing is blocked.
+                                zeroBalanceGateCard
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
+                            inputBar
+                                .disabled(isChattingBalanceZero)
+                                .allowsHitTesting(!isChattingBalanceZero)
+                                .grayscale(isChattingBalanceZero ? 1 : 0)
+                                .opacity(isChattingBalanceZero ? 0.45 : 1)
+                        }
+                        .animation(.easeInOut(duration: 0.25), value: isChattingBalanceZero)
+                        .animation(.easeInOut(duration: 0.25), value: shouldShowHandshakeNotice)
+                        .padding(.bottom, 2)
                     }
                     .overlay(alignment: .top) {
                         if shouldShowTopPaginationSpinner {
@@ -499,20 +615,38 @@ struct ChatDetailView: View {
                         positionInitialViewport(using: proxy)
                     }
                     .onChange(of: messages.last?.id) { _ in
+                        let tail = messages.last
+                        let tailKey = tail.map { $0.txId.isEmpty ? $0.id.uuidString : $0.txId }
+                        let newCount = messages.count
+                        let grew = newCount > lastHandledTailCount
+                        lastHandledTailCount = newCount
                         guard didInitialScroll else {
+                            // First population: positionInitialViewport already jumps to the
+                            // bottom instantly (unanimated), so only seed the trackers here.
                             didInitialScroll = true
+                            lastSeenTailMessageKey = tailKey
                             return
                         }
-                        if messages.last?.isOutgoing == true {
-                            // A message *you* just sent should always land smoothly at the
-                            // bottom, unconditionally - matching group chat/broadcast rooms'
-                            // identical unconditional scroll-on-new-message. The
-                            // isBottomAnchorVisible/isUserInteractingWithScroll/throttle gates
-                            // below exist to avoid yanking your position for an *incoming*
-                            // message while you're reading up top; they don't apply to your own.
+                        // Keyed on txId (not in-memory id): snapshot rebuilds can swap the tail's
+                        // identity when txId dedup replaces the optimistic local copy with the
+                        // store/indexer copy, and that replacement must never scroll or bump the
+                        // badge. Requiring growth means deletes never scroll either.
+                        let isNewTailMessage = grew && tailKey != lastSeenTailMessageKey
+                        lastSeenTailMessageKey = tailKey
+                        guard isNewTailMessage, let tail else { return }
+                        if tail.isOutgoing && tail.txId.hasPrefix("pending_") {
+                            // A send initiated on THIS device: every local send path (message,
+                            // audio, payment, handshake) inserts its optimistic row with a
+                            // provisional "pending_" txId before broadcast, and provisional ids
+                            // never travel through sync or the shared archive (phantom scrub) -
+                            // so this is exactly "you just hit send here", and sending implies
+                            // returning to now. An own message mirrored in from another device
+                            // arrives under its real txId and falls through to the same
+                            // near-bottom gate as incoming messages, so it never yanks the
+                            // viewport while you're reading history.
                             lastAutoBottomScrollAt = Date()
                             scrollToBottom(using: proxy, animated: true)
-                        } else if isBottomAnchorVisible && !isUserInteractingWithScroll {
+                        } else if shouldAutoScrollForArrival() {
                             let now = Date()
                             if now.timeIntervalSince(lastAutoBottomScrollAt) > 0.12 {
                                 lastAutoBottomScrollAt = now
@@ -521,7 +655,6 @@ struct ChatDetailView: View {
                         } else {
                             newMessagesWhileScrolledUp += 1
                         }
-                        didInitialScroll = true
                     }
                     .onChange(of: isBottomAnchorVisible) { visible in
                         if visible {
@@ -583,6 +716,25 @@ struct ChatDetailView: View {
             perform: handleImageDrop
         )
         .toast(message: toastMessage, style: toastStyle)
+        // Reactive read-marking: the once-at-appear mark silently no-ops when a notification
+        // tap opens this chat BEFORE the conversation has loaded (cold start / mid-catch-up),
+        // leaving the badge stuck. Whenever unread is nonzero while this chat is open, clear
+        // it - covers late loads, catch-up bumps, and CloudKit merges alike.
+        .onChange(of: conversation?.unreadCount ?? 0) { count in
+            // DEBOUNCED: catch-up sync can bump unread once per arriving message - marking
+            // read per bump (store fetch + CloudKit read-status + notification sweep each
+            // time) stormed the main thread into a ~1min hang on resume. One mark after the
+            // burst quiets down.
+            guard count > 0, conversation != nil, !reactiveReadMarkPending else { return }
+            reactiveReadMarkPending = true
+            Task {
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                reactiveReadMarkPending = false
+                if let current = conversation, current.unreadCount > 0 {
+                    await chatService.markConversationAsRead(current)
+                }
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
@@ -596,7 +748,8 @@ struct ChatDetailView: View {
                         KNSAvatarView(
                             avatarURLString: knsService.profileCache[contact.address]?.avatarURL,
                             fallbackText: contact.alias,
-                            size: 36
+                            size: 36,
+                            contactAddress: contact.address
                         )
                         Text(contact.alias)
                             .font(.headline)
@@ -721,6 +874,11 @@ struct ChatDetailView: View {
                 initialViewportPositioned = false
                 initialScrollAnchorMessageId = nil
                 pendingPrependViewportSnapshot = nil
+                historyGrowthAnchorReleaseWorkItem?.cancel()
+                isGrowingHistoryWindow = false
+                renderedWindowStartMessageId = nil
+                lastSeenTailMessageKey = nil
+                lastHandledTailCount = 0
                 rebuildMessageSnapshotIfNeeded(force: true)
                 configureInitialMessageWindow()
                 initialLayoutReady = true
@@ -731,6 +889,7 @@ struct ChatDetailView: View {
             if messageText.isEmpty {
                 messageText = chatService.draft(for: contact.address)
             }
+            attachPendingShareImageIfAvailable(for: contact.address)
             previousMessagesCount = messages.count
             // Mark conversation as read once when view appears
             if let conversation = conversation {
@@ -780,13 +939,44 @@ struct ChatDetailView: View {
             guard inputMode == .payment else { return }
             await loadSpendingBalance()
         }
+        .task(id: walletManager.currentWallet?.spendingAddressIndex) {
+            // Live re-fetch when the PRIMARY spending address changes while composing - e.g.
+            // "Set as Primary Address" inside the Manage Addresses sheet opened from the
+            // Available bubble. setActiveSpendingAddress republishes currentWallet with the new
+            // spendingAddressIndex, which re-keys this task; without it the bubble kept showing
+            // the old primary's balance until payment mode was re-entered or a send completed.
+            guard inputMode == .payment else { return }
+            await loadSpendingBalance()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ownAddressUtxoActivity)) { notification in
+            // Change landing on the (possibly just-rotated) primary spending address. This is
+            // the always-post event - the user-notification path deliberately suppresses
+            // self-send change, which is exactly what a private-mode payment's rotation
+            // produces, so without this the pill sat at 0 until payment mode was re-entered.
+            guard inputMode == .payment else { return }
+            guard let involved = notification.userInfo?[AddressActivityNotifier.utxoActivityAddressesKey] as? [String],
+                  let primary = walletManager.currentSpendingAddress(),
+                  involved.contains(primary) else { return }
+            Task { await loadSpendingBalance() }
+        }
         .task(id: contact.address) {
             guard knsService.profileCache[contact.address] == nil else { return }
             _ = await knsService.fetchProfile(for: contact.address)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openChat)) { notification in
-            guard let targetAddress = notification.userInfo?["contactAddress"] as? String,
-                  targetAddress != contact.address else { return }
+            guard let targetAddress = notification.userInfo?["contactAddress"] as? String else { return }
+            if targetAddress == contact.address {
+                // Share-sheet handoff into the chat that's already open: refresh the composer
+                // pre-fill in place (the draft was just written by the share intake) and attach
+                // any staged shared image.
+                let draft = chatService.draft(for: contact.address)
+                if !draft.isEmpty && draft != messageText {
+                    messageText = draft
+                }
+                attachPendingShareImageIfAvailable(for: contact.address)
+                chatService.pendingChatNavigation = nil
+                return
+            }
             let startInPaymentMode = notification.userInfo?["paymentMode"] as? Bool ?? false
             // Find the target contact
             let target: Contact?
@@ -845,11 +1035,17 @@ struct ChatDetailView: View {
             initialScrollAnchorMessageId = nil
             lastMessageSnapshotDigest = nil
             totalStoredMessages = 0
+            historyGrowthAnchorReleaseWorkItem?.cancel()
+            isGrowingHistoryWindow = false
+            renderedWindowStartMessageId = nil
+            lastSeenTailMessageKey = nil
+            lastHandledTailCount = 0
             rebuildMessageSnapshotIfNeeded(force: true)
             configureInitialMessageWindow()
             previousMessagesCount = messages.count
             chatService.enterConversation(for: newContact.address)
             messageText = chatService.draft(for: newContact.address)
+            attachPendingShareImageIfAvailable(for: newContact.address)
             if let conv = chatService.conversations.first(where: { $0.contact.address == newContact.address }) {
                 Task {
                     await chatService.markConversationAsRead(conv)
@@ -863,19 +1059,42 @@ struct ChatDetailView: View {
         .onChange(of: messages.count) { newCount in
             let oldCount = previousMessagesCount
             previousMessagesCount = newCount
+            // A delete shrinks the array without moving the tail id; clamp the tail-change
+            // handler's growth tracker so the NEXT genuine arrival still registers as growth.
+            if newCount < lastHandledTailCount {
+                lastHandledTailCount = newCount
+            }
             totalStoredMessages = max(totalStoredMessages, messages.count)
-            if initialViewportPositioned,
-               newCount > oldCount,
-               !isBottomAnchorVisible {
-                loadedMessageCount = min(
-                    max(loadedMessageCount + (newCount - oldCount), messagePageSize),
-                    max(newCount, messagePageSize)
-                )
+            if initialViewportPositioned, newCount > oldCount {
+                // Pin the rendered window's START to the same message across data-model growth.
+                // The previous grow-by-delta treated EVERY count increase as tail growth, so a
+                // background prefetch of OLDER history (which is supposed to stay hidden
+                // backlog) silently prepended its whole page into the rendered window with no
+                // viewport restore - and, because the backlog then never accumulated, prefetch
+                // kept fetching page after page while the user was scrolled up, reflowing the
+                // rows they were reading in a loop. Re-deriving loadedMessageCount from the
+                // pinned start id handles both directions correctly: tail arrivals extend the
+                // window downward (newest message always rendered), head prepends stay hidden.
+                if let startId = renderedWindowStartMessageId,
+                   let startIndex = messages.firstIndex(where: { $0.id == startId }) {
+                    loadedMessageCount = min(
+                        max(messages.count - startIndex, messagePageSize),
+                        messages.count
+                    )
+                } else {
+                    // Start id unknown or replaced by dedup - fall back to grow-by-delta so the
+                    // tail stays covered, then re-pin below.
+                    loadedMessageCount = min(
+                        max(loadedMessageCount + (newCount - oldCount), messagePageSize),
+                        max(newCount, messagePageSize)
+                    )
+                }
             }
             if loadedMessageCount == 0 {
                 configureInitialMessageWindow()
             } else {
                 loadedMessageCount = min(max(loadedMessageCount, messagePageSize), max(messages.count, messagePageSize))
+                rememberRenderedWindowStart()
                 refreshStoredMessageCountAsync()
             }
         }
@@ -911,6 +1130,7 @@ struct ChatDetailView: View {
         messagePageSize = configuredMessagePageSize()
         let targetWindow = max(initialMessageWindowSize(), messagePageSize)
         loadedMessageCount = min(messages.count, targetWindow)
+        rememberRenderedWindowStart()
         initialScrollAnchorMessageId = nil
         totalStoredMessages = max(totalStoredMessages, messages.count)
         refreshStoredMessageCountAsync()
@@ -973,6 +1193,63 @@ struct ChatDetailView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: workItem)
     }
 
+    /// Re-pins `renderedWindowStartMessageId` to the first message of the current suffix window.
+    /// Derived from `messages` directly (not `displayedMessages`) so it also works before
+    /// `initialLayoutReady`.
+    private func rememberRenderedWindowStart() {
+        guard loadedMessageCount > 0, !messages.isEmpty else {
+            renderedWindowStartMessageId = nil
+            return
+        }
+        let startIndex = max(0, messages.count - loadedMessageCount)
+        renderedWindowStartMessageId = messages[startIndex].id
+    }
+
+    /// Re-arms the `.bottom` default anchor for the duration of a history-window growth so the
+    /// prepend reflow keeps the viewport pinned (SwiftUI holds the bottom-relative offset), then
+    /// releases back to the inert `.top`. The release is a cancellable work item so back-to-back
+    /// pagination bursts keep the anchor armed continuously instead of dropping it mid-growth.
+    private func armHistoryGrowthAnchor() {
+        historyGrowthAnchorReleaseWorkItem?.cancel()
+        isGrowingHistoryWindow = true
+        let workItem = DispatchWorkItem {
+            isGrowingHistoryWindow = false
+        }
+        historyGrowthAnchorReleaseWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
+    }
+
+    /// Whether the reader's viewport bottom is within about one bubble row of the newest content.
+    /// Read straight off the introspected UIScrollView, so at tail-arrival time this measures the
+    /// PRE-insert baseline (the new row hasn't been laid out yet) - a reader pinned to the end
+    /// keeps passing this gate through a multi-message catch-up batch.
+    private func isNearBottomOfContent() -> Bool {
+        guard let scrollView = scrollViewReference.scrollView else {
+            // No geometry yet - fall back to the debounced bottom-anchor marker.
+            return isBottomAnchorVisible
+        }
+        let visibleBottom = scrollView.contentOffset.y + scrollView.bounds.height
+            - scrollView.adjustedContentInset.bottom
+        let distanceFromBottom = scrollView.contentSize.height - visibleBottom
+        return distanceFromBottom <= 120
+    }
+
+    /// At-bottom gate for an ARRIVING message (incoming, or an own message mirrored in from
+    /// another device): auto-scroll only when the reader is effectively at the end and not
+    /// actively touching the list. A reading position anywhere above stays rock-solid; the
+    /// scroll-to-latest button badge picks the message up instead.
+    private func shouldAutoScrollForArrival() -> Bool {
+        guard !isUserInteractingWithScroll else { return false }
+        if let scrollView = scrollViewReference.scrollView,
+           scrollView.isTracking || scrollView.isDragging {
+            return false
+        }
+        // Mid-flight of a just-fired auto-scroll animation the geometry briefly reads as
+        // not-at-bottom; treat the burst as still pinned so catch-up batches keep following.
+        if Date().timeIntervalSince(lastAutoBottomScrollAt) < 0.8 { return true }
+        return isNearBottomOfContent()
+    }
+
     private func refreshStoredMessageCountAsync() {
         storedCountTask?.cancel()
         let contactAddress = contact.address
@@ -994,6 +1271,23 @@ struct ChatDetailView: View {
     private func restoreViewportFromPrependSnapshotIfPossible() -> Bool {
         guard let snapshot = pendingPrependViewportSnapshot else { return false }
         guard let scrollView = scrollViewReference.scrollView else { return false }
+
+        // Never jam contentOffset while the user's finger owns the scroll or a fling is live -
+        // a programmatic setContentOffset mid-gesture kills the drag/momentum and reads as a
+        // freeze-then-jump. On iOS 17+ the re-armed bottom anchor (armHistoryGrowthAnchor)
+        // already holds the viewport through the prepend reflow, so the snapshot can simply be
+        // dropped. On iOS 16 there is no default anchor to lean on, so only skip while the
+        // finger is literally down (tracking/dragging) and still restore through deceleration -
+        // stopping the fling is the lesser evil there versus losing the reading position.
+        if #available(iOS 17.0, *) {
+            if scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating {
+                pendingPrependViewportSnapshot = nil
+                return true
+            }
+        } else if scrollView.isTracking || scrollView.isDragging {
+            pendingPrependViewportSnapshot = nil
+            return true
+        }
 
         let deltaHeight = scrollView.contentSize.height - snapshot.contentHeight
         // Wait for layout/content size to settle.
@@ -1039,6 +1333,18 @@ struct ChatDetailView: View {
     private func preserveViewport(using proxy: ScrollViewProxy, anchorMessageId: UUID?) {
         guard let anchorMessageId else { return }
         DispatchQueue.main.async {
+            // Same drag-safety split as the snapshot restore: on iOS 17+ never fight any active
+            // gesture (the armed bottom anchor held position); on iOS 16 only skip while the
+            // finger is down.
+            if let scrollView = scrollViewReference.scrollView {
+                if #available(iOS 17.0, *) {
+                    if scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating {
+                        return
+                    }
+                } else if scrollView.isTracking || scrollView.isDragging {
+                    return
+                }
+            }
             var transaction = Transaction()
             transaction.animation = nil
             withTransaction(transaction) {
@@ -1056,7 +1362,9 @@ struct ChatDetailView: View {
             guard now.timeIntervalSince(lastOlderPageRequestAt) > 0.25 else { return false }
             lastOlderPageRequestAt = now
             capturePrependViewportSnapshot()
+            armHistoryGrowthAnchor()
             loadedMessageCount = min(messages.count, loadedMessageCount + batchSize)
+            rememberRenderedWindowStart()
             restoreViewportAfterPrepend(using: proxy, fallbackAnchorMessageId: viewportAnchorMessageId)
             hasLoadedCurrentTopPage = false
             if isTopAnchorVisible {
@@ -1082,7 +1390,9 @@ struct ChatDetailView: View {
             isLoadingOlderMessages = false
 
             if loaded > 0 {
+                armHistoryGrowthAnchor()
                 loadedMessageCount = min(messages.count, loadedMessageCount + loaded)
+                rememberRenderedWindowStart()
                 restoreViewportAfterPrepend(using: proxy, fallbackAnchorMessageId: viewportAnchorMessageId)
                 hasLoadedCurrentTopPage = false
                 if isTopAnchorVisible {
@@ -1146,29 +1456,66 @@ struct ChatDetailView: View {
         }
     }
 
-    // MARK: - Unnotified Message Warning
+    // MARK: - New-chat handshake notice
 
-    private var unnotifiedMessageBanner: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
-                .font(.subheadline)
-                .padding(.top, 1)
-            Text("This message will not be seen by the recipient until they also try to chat with you, or you can send a handshake to ping them. Handshakes send 0.2 KAS, which is returned if they accept your request.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+    /// Copy is byte-identical to desktop's banner - keep the two in sync if either changes. The
+    /// last sentence is the privacy caveat: a handshake is a direct on-chain transaction between
+    /// the two chatting addresses, publicly linking them, unlike ordinary aliased traffic.
+    private var handshakeNoticeBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "hand.wave")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 1)
+                Text("The recipient won't see your messages until they message you or you ping them with a handshake. Handshakes cost 0.2 KAS and are returned to you if they accept. You lose privacy if you ping them.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                handshakeNoticeSendButton
+            }
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(.orange.opacity(0.08))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .strokeBorder(.orange.opacity(0.25), lineWidth: 0.5)
-                )
-        )
-        .padding(.top, 8)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(glassBackground(cornerRadius: 12))
+        .padding(.horizontal)
+        // The fee/available pills float ~26pt above the composer's own top edge; this clearance
+        // keeps them off the banner instead of letting them sit on its text.
+        .padding(.bottom, shouldShowComposerHelperRow ? 22 : 4)
+    }
+
+    /// Shortcut to the exact same action as the "+" menu's "Send Handshake" row - `sendHandshake()`
+    /// -> `ChatService.sendHandshake(to:isResponse:)`, which owns the whole send/fee flow and
+    /// surfaces failures through this view's `error` alert. No extra confirmation here: that path
+    /// doesn't show one, and adding a second prompt would diverge from the menu entry.
+    private var handshakeNoticeSendButton: some View {
+        Button {
+            sendHandshake()
+        } label: {
+            HStack(spacing: 6) {
+                if isRespondingHandshake {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: "hand.wave.fill")
+                        .font(.caption2)
+                }
+                Text("Send Handshake")
+                    .font(.caption.weight(.semibold))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 0.8))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.accentColor)
+        .disabled(!canSendRequestToCommunicate)
+        .opacity(canSendRequestToCommunicate ? 1 : 0.55)
     }
 
     // MARK: - Unified Input Bar (handles all handshake states)
@@ -1190,16 +1537,28 @@ struct ChatDetailView: View {
                 }
 
                 if shouldShowComposerHelperRow && !isDeclined {
+                    // One compact row, width-constrained so it can NEVER overflow the screen
+                    // edge (the old free-floating .offset(x:) row let a third pill clip off
+                    // narrow screens). The fee pill keeps its natural size (layoutPriority);
+                    // the available pill absorbs any squeeze by tail-truncating its text. The
+                    // fresh-address indicator lives INSIDE the available pill now (small accent
+                    // arrow) instead of being a third pill.
                     HStack(spacing: 6) {
                         if shouldShowFeeBubble {
                             feeBubble
+                                .layoutPriority(1)
                         }
                         if shouldShowAvailableBalanceBubble {
+                            // No allowsHitTesting(false) here: the bubble is tappable (opens
+                            // Manage Addresses), and hit-testing disabled on an ancestor can't
+                            // be re-enabled from inside the bubble itself.
                             availableBalanceBubble
-                                .allowsHitTesting(false)
                         }
+                        Spacer(minLength: 0)
                     }
-                    .offset(x: 32, y: -26)
+                    .padding(.leading, 32)
+                    .padding(.trailing, 12)
+                    .offset(y: -26)
                     .transition(.opacity)
                 }
             }
@@ -1221,9 +1580,61 @@ struct ChatDetailView: View {
                     showCamera = false
                     _ = attachImageData(data)
                 },
-                onCancel: { showCamera = false }
+                onCancel: { showCamera = false },
+                // Video mode only exists when the Nextcloud media route can carry the file —
+                // there is no on-chain path that fits a video.
+                onCaptureVideo: (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+                    ? { fileURL in
+                        showCamera = false
+                        sendNextcloudVideo(fileURL)
+                    }
+                    : nil
             )
             .ignoresSafeArea()
+        }
+    }
+
+    /// Pre-seeds the link-preview cache with what we just uploaded — the sender's own bubble
+    /// renders the media card instantly with zero network, no probe round trip needed (we
+    /// KNOW the kind/name/size; only recipients have to discover them).
+    private func seedNextcloudPreview(for shareURL: URL, kind: NextcloudMediaKind, title: String, byteSize: Int) async {
+        guard let endpoints = LinkPreviewService.nextcloudShareEndpoints(for: shareURL) else { return }
+        await LinkPreviewService.shared.seed(LinkPreviewData(
+            url: shareURL,
+            title: title,
+            description: nil,
+            imageURLString: endpoints.previewURL.absoluteString,
+            siteName: shareURL.host.map { "Nextcloud · \($0)" } ?? "Nextcloud",
+            nextcloudMedia: kind,
+            mediaDownloadURLString: endpoints.downloadURL.absoluteString,
+            mediaByteSize: Int64(byteSize)
+        ))
+    }
+
+    /// Uploads a just-recorded camera clip to Nextcloud and sends its share link — the
+    /// recipient's preview renders it as a playable video bubble. On failure the clip can't
+    /// fall back on-chain (videos don't fit a payload), so the error surfaces directly.
+    private func sendNextcloudVideo(_ fileURL: URL) {
+        Task {
+            defer { try? FileManager.default.removeItem(at: fileURL) }
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let ext = fileURL.pathExtension.isEmpty ? "mov" : fileURL.pathExtension.lowercased()
+                let contentType = ext == "mp4" ? "video/mp4" : "video/quicktime"
+                let videoFilename = "video_\(Int(Date().timeIntervalSince1970)).\(ext)"
+                let shareURL = try await NextcloudService.shared.uploadMediaAndShare(
+                    data: data,
+                    filename: videoFilename,
+                    contentType: contentType
+                )
+                await seedNextcloudPreview(for: shareURL, kind: .video, title: videoFilename, byteSize: data.count)
+                try await chatService.sendMessage(to: contact, content: shareURL.absoluteString, feeOverride: nil)
+            } catch {
+                AppLog.log("[ChatDetailView] Nextcloud video send failed: %@", error.localizedDescription)
+                await MainActor.run {
+                    self.error = displayErrorMessage(error)
+                }
+            }
         }
     }
 
@@ -1309,30 +1720,34 @@ struct ChatDetailView: View {
     /// button that used to clutter this same spot.
     private var composerPlusMenu: some View {
         Menu {
-            Button {
-                showPhotoPickerFromMenu = true
-            } label: {
-                Label("Send Photo", systemImage: "photo")
-            }
-            Button {
-                switchMode(.audio)
-                startRecording()
-            } label: {
-                Label("Send Audio Message", systemImage: "mic.circle.fill")
-            }
-            Button {
-                switchMode(.payment)
-            } label: {
-                Label {
-                    Text("Send Kaspa")
-                } icon: {
-                    Image("KaspaLogo")
-                        .resizable()
-                        .scaledToFit()
+            // With "Send Media via Nextcloud" toggled on, the composer bar's own camera/mic
+            // buttons cover native capture (uploading via the server), so the menu offers only
+            // the server browser. Toggle off keeps the classic Send Photo / Send Audio entries
+            // (plus the browser row whenever a server is connected).
+            if nextcloudService.isConnected {
+                Button {
+                    showNextcloudPicker = true
+                } label: {
+                    Label("Send from Nextcloud", systemImage: "externaldrive.connected.to.line.below")
                 }
             }
+            if !(nextcloudService.isConnected && nextcloudService.mediaSendEnabled) {
+                Button {
+                    showPhotoPickerFromMenu = true
+                } label: {
+                    Label("Send Photo", systemImage: "photo")
+                }
+                Button {
+                    switchMode(.audio)
+                    startRecording()
+                } label: {
+                    Label("Send Audio Message", systemImage: "mic.circle.fill")
+                }
+            }
+            // Send Kaspa left this menu: the Kaspa logo inside the input bubble is the
+            // one entry point to payment mode now.
             Button {
-                startChessGame()
+                showChessTimeControlPicker = true
             } label: {
                 Label("Play Chess", systemImage: "checkerboard.rectangle")
             }
@@ -1345,14 +1760,31 @@ struct ChatDetailView: View {
             }
         } label: {
             Image(systemName: "plus")
-                .font(.title3)
+                .font(.body)
                 .foregroundColor(.accentColor)
-                .frame(width: 44, height: 44)
-                .background(glassBackground(cornerRadius: 14))
+                .frame(width: 36, height: 36)
+                .background(glassBackground(cornerRadius: 12))
         }
         .tint(.accentColor)
         .accessibilityLabel(Text("More options"))
+        // Second step after "Play Chess": pick a time control. The blitz presets send the tc
+        // fields on the invite; "Casual" omits them entirely, which is the exact legacy wire
+        // shape - so casual games with old-version contacts stay byte-compatible.
+        .confirmationDialog("Play Chess", isPresented: $showChessTimeControlPicker, titleVisibility: .visible) {
+            Button("3 | 2 Blitz") { startChessGame(timeControl: ChessTimeControl(minutes: 3, incSeconds: 2)) }
+            Button("2 | 1 Bullet") { startChessGame(timeControl: ChessTimeControl(minutes: 2, incSeconds: 1)) }
+            Button("1 | 1 Bullet") { startChessGame(timeControl: ChessTimeControl(minutes: 1, incSeconds: 1)) }
+            Button("Casual (no timer)") { startChessGame(timeControl: nil) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Timed games count down only while the board is open on your turn.")
+        }
         .photosPicker(isPresented: $showPhotoPickerFromMenu, selection: $photoPickerItem, matching: .images)
+        .sheet(isPresented: $showNextcloudPicker) {
+            NextcloudPickerView { url, file in
+                stageNextcloudLink(url, file: file)
+            }
+        }
         .onChange(of: photoPickerItem) { newItem in
             guard let newItem else { return }
             Task {
@@ -1426,6 +1858,8 @@ struct ChatDetailView: View {
 
     /// Only ever reached for `.payment` now — the `.message` entry point moved to
     /// composerPlusMenu, and `.audio` has nothing to show here (see shouldShowComposerQuickActions).
+    /// Deliberately no mic here: the message button is the only mode exit from payment mode —
+    /// audio stays reachable through message mode's in-bubble mic and "+" menu as usual.
     private var composerQuickActions: some View {
         HStack(spacing: 8) {
             switch inputMode {
@@ -1437,13 +1871,6 @@ struct ChatDetailView: View {
                     icon: "text.bubble.fill"
                 ) {
                     switchMode(.message)
-                }
-
-                composerQuickActionButton(
-                    title: "Send audio",
-                    icon: "mic.circle.fill"
-                ) {
-                    switchMode(.audio)
                 }
             }
         }
@@ -1655,6 +2082,34 @@ struct ChatDetailView: View {
         }
     }
 
+    /// Sends a just-created Nextcloud share link as a normal text message — the recipient's
+    /// link-preview feature renders it as tappable media. Same send path and error handling as
+    /// a typed message; the link is tiny, so no fee override machinery is needed.
+    /// Stages a picked file's share link in the composer instead of auto-sending — the user
+    /// reviews it in the input bubble and taps send themselves. The link-preview cache is
+    /// seeded from the picker's own metadata so the bubble renders its media card instantly
+    /// once sent.
+    private func stageNextcloudLink(_ url: URL, file: NextcloudFile) {
+        let kind: NextcloudMediaKind
+        if file.isImage {
+            kind = .image
+        } else if file.isVideo {
+            kind = .video
+        } else {
+            switch (file.name as NSString).pathExtension.lowercased() {
+            case "mp3", "m4a", "aac", "wav", "flac", "ogg", "opus": kind = .audio
+            case "pdf": kind = .pdf
+            default: kind = .file
+            }
+        }
+        if let size = file.size {
+            Task { await seedNextcloudPreview(for: url, kind: kind, title: file.name, byteSize: Int(size)) }
+        }
+        switchMode(.message)
+        messageText = messageText.isEmpty ? url.absoluteString : messageText + " " + url.absoluteString
+        isMessageFocused = true
+    }
+
     private var paymentField: some View {
         HStack {
             // Toggles KAS/fiat entry mode, matching Cold Storage's send flow - the leading icon is
@@ -1745,16 +2200,48 @@ struct ChatDetailView: View {
 
                         // Quick-access camera, replacing what used to be a "Camera" entry in the
                         // "+" menu - living right in the compose bubble instead since it's the
-                        // most common non-text action.
+                        // most common non-text action. When "Send Media via Nextcloud" is on,
+                        // captures ride the auto-upload send path automatically.
                         Button {
                             takePhoto()
                         } label: {
                             Image(systemName: "camera")
-                                .font(.body)
+                                .font(.title3)
                                 .foregroundColor(.secondary)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(Text("Take Photo"))
+
+                        // Its voice-note sibling: one tap starts recording, same as the old
+                        // "+"-menu entry — and the finished note likewise uploads via Nextcloud
+                        // whenever the toggle is on.
+                        Button {
+                            switchMode(.audio)
+                            startRecording()
+                        } label: {
+                            Image(systemName: "mic")
+                                .font(.title3)
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.leading, 6)
+                        .accessibilityLabel(Text("Record Voice Message"))
+
+                        // Third inline shortcut: jump straight into payment mode - the same
+                        // switchMode(.payment) path as the "+" menu's Send Kaspa entry, which
+                        // stays available too. In payment mode the whole input row is replaced
+                        // by paymentField, so this icon disappears with the rest of the bubble.
+                        Button {
+                            switchMode(.payment)
+                        } label: {
+                            Image("KaspaLogo")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.leading, 6)
+                        .accessibilityLabel(Text("Send KAS"))
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -1882,12 +2369,54 @@ struct ChatDetailView: View {
         }
     }
 
+    /// Drives the Manage Addresses sheet opened from the available-balance bubble below.
+    @State private var showManageAddresses = false
+
+    /// True while the next payment to this contact will go to a fresh pool address (see
+    /// ChatService+PaymentPools) - refreshed on entering payment mode and after each send.
+    @State private var paysToFreshPoolAddress = false
+
+    /// True while this account's Chats Payment Privacy toggle is ON - payments fund from the
+    /// primary spending address; OFF funds them from the chatting address (see
+    /// `ChatService.paymentFundingSourceAddress`). Read live so a Settings change applies on
+    /// the next render.
+    private var isChatsPaymentPrivacyOn: Bool {
+        guard let myAddress else { return true }
+        return AppSettings.chatsPrivacyEnabled(for: myAddress)
+    }
+
+    /// Privacy ON - tappable: opens Manage Spending Addresses as a sheet (ManageAddressesView
+    /// is normally pushed from Profile, but a push would navigate away from the chat - a sheet
+    /// keeps the conversation and its active payment mode untouched underneath). Styled exactly
+    /// like the feeBubble's tappable fee display: the value text itself is underlined (same
+    /// caption2/secondary treatment), the whole glass pill is the tap target via onTapGesture.
+    ///
+    /// Privacy OFF - payments fund from the CHATTING address, so the pill shows the wallet's
+    /// main published chatting balance (already kept fresh by the normal refresh/UTXO-push
+    /// cycle), drops the underline, and is not tappable: Manage Spending Addresses is
+    /// irrelevant to chatting-address sends.
     private var availableBalanceBubble: some View {
-        HStack(spacing: 6) {
-            if let balanceSompi = spendingBalanceSompi {
+        let privacyOn = isChatsPaymentPrivacyOn
+        let balanceSompi = privacyOn ? spendingBalanceSompi : walletManager.currentWallet?.balanceSompi
+        return HStack(spacing: 6) {
+            if privacyOn {
                 Text(localizedAvailableBalanceText(balanceSompi))
+                    .underline()
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             } else {
-                Text(localizedAvailableBalanceText(nil))
+                Text(localizedAvailableBalanceText(balanceSompi))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            // Fresh-address indicator, merged into this pill (used to be its own third pill
+            // that clipped off narrow screens): a small accent arrow, same accessibility
+            // label the standalone pill carried.
+            if paysToFreshPoolAddress {
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                    .accessibilityLabel(Text("Payment goes to a fresh address this contact shared, so it cannot be linked to their chat address on-chain"))
             }
         }
         .font(.caption2)
@@ -1895,6 +2424,32 @@ struct ChatDetailView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(glassBackground(cornerRadius: 14))
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .allowsHitTesting(privacyOn)
+        .onTapGesture {
+            guard isChatsPaymentPrivacyOn else { return }
+            showManageAddresses = true
+        }
+        .sheet(
+            isPresented: $showManageAddresses,
+            onDismiss: {
+                // Catch-all refresh: covers balance changes made in the sheet that don't move
+                // the primary index (consolidation, withdrawals) - the primary-change case is
+                // additionally covered live by the .task keyed on spendingAddressIndex.
+                Task { await loadSpendingBalance() }
+            }
+        ) {
+            // Own NavigationStack: ManageAddressesView relies on navigationTitle and pushes
+            // its per-address detail screens via NavigationLink.
+            NavigationStack {
+                ManageAddressesView()
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button("Done") { showManageAddresses = false }
+                        }
+                    }
+            }
+        }
     }
 
     private func glassBackground(cornerRadius: CGFloat) -> some View {
@@ -1905,6 +2460,23 @@ struct ChatDetailView: View {
                     .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
             )
             .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+    }
+
+    // MARK: - Zero-Balance Chat Gate
+
+    /// Shown above the (disabled) composer when the chatting address holds a confirmed 0 KAS -
+    /// offers the gift-claim flow, plus the address itself (QR + copy) so the user can fund it
+    /// from anywhere. Disappears automatically once `balanceSompi` goes positive (reactive via
+    /// `walletManager.currentWallet`). The card body lives in the shared
+    /// `ZeroBalanceFundingCardView` (bottom of this file), reused by group chats, broadcast
+    /// channels, and KaPosts.
+    private var zeroBalanceGateCard: some View {
+        ZeroBalanceFundingCardView(
+            address: myAddress,
+            onCopied: { showToast($0.addressCopiedToastText) }
+        )
+        .padding(.horizontal)
+        .padding(.bottom, 4)
     }
 
     private func updateFeeShimmer() {
@@ -1963,6 +2535,9 @@ struct ChatDetailView: View {
         }
 
         inputMode = mode
+        if mode == .payment {
+            paysToFreshPoolAddress = chatService.willPayViaFreshPoolAddress(contactAddress: contact.address)
+        }
     }
 
     private func sanitizedAmount(_ value: String) -> String {
@@ -2037,10 +2612,16 @@ struct ChatDetailView: View {
                     fiatAmountState.reset()
                     feeEstimateSompi = nil
                     isEstimatingFee = false
+                    // The send may have consumed the contact's last unused pool address.
+                    paysToFreshPoolAddress = chatService.willPayViaFreshPoolAddress(contactAddress: contact.address)
                 }
                 // The active spending address rotates to a fresh one after a successful send -
                 // refresh so "Available" reflects that new address, not the one just spent from.
+                // The immediate fetch usually races the change UTXO landing (it reads 0), so a
+                // couple of short retries follow as a backstop in case the push event is missed -
+                // Kaspa confirms in about a second, so these converge quickly.
                 await loadSpendingBalance()
+                scheduleSpendingBalanceRetries()
             } catch {
                 await MainActor.run {
                     self.error = displayErrorMessage(error)
@@ -2053,6 +2634,9 @@ struct ChatDetailView: View {
     }
 
     private func loadSpendingBalance() async {
+        // Chats Payment Privacy OFF: payments fund from the chatting address, whose balance is
+        // the wallet's main published one - this spending-index-keyed fetch is inert.
+        guard isChatsPaymentPrivacyOn else { return }
         guard let address = walletManager.currentSpendingAddress() else {
             spendingBalanceSompi = nil
             return
@@ -2061,7 +2645,27 @@ struct ChatDetailView: View {
         spendingBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
     }
 
+    /// Post-send backstop for the Available pill: a private-mode payment rotates the primary to
+    /// a fresh address whose change UTXO takes about a second to land, so the immediate
+    /// post-send fetch reads 0. The `.ownAddressUtxoActivity` event normally fixes that
+    /// push-style; these two short refetches (~1.5s and ~4s after send) cover a missed event.
+    /// Cancellable so a newer send's schedule replaces an older one.
+    private func scheduleSpendingBalanceRetries() {
+        spendingBalanceRetryTask?.cancel()
+        spendingBalanceRetryTask = Task {
+            for delayNs: UInt64 in [1_500_000_000, 2_500_000_000] {
+                try? await Task.sleep(nanoseconds: delayNs)
+                guard !Task.isCancelled else { return }
+                await loadSpendingBalance()
+            }
+        }
+    }
+
     private func pinToBottomThroughKeyboardTransition() {
+        // Re-pin only when the reader is already at (or near) the bottom, measured BEFORE the
+        // keyboard rises - focusing the composer while scrolled up reading history must not
+        // yank the viewport; the keyboard just rises over the list and the position stays.
+        guard isBottomAnchorVisible || isNearBottomOfContent() else { return }
         // Keeps the chat pinned to the bottom when the composer gains focus and the keyboard rises.
         // A previous version snapped `contentOffset` at 30 Hz for 1.2 s, which fought SwiftUI's
         // keyboard-driven safe-area animation frame-by-frame and produced a sustained screen shake
@@ -2099,7 +2703,9 @@ struct ChatDetailView: View {
             return
         }
         let target = messages[targetIndex]
+        armHistoryGrowthAnchor()
         loadedMessageCount = max(loadedMessageCount, messages.count - targetIndex)
+        rememberRenderedWindowStart()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             scrollAndHighlight(target.id, using: proxy)
         }
@@ -2199,6 +2805,7 @@ struct ChatDetailView: View {
             revealOffset: revealOffset,
             maxRevealOffset: maxRevealOffset,
             photosBlocked: !contactsManager.shouldAutoDisplayPhotos(for: contact, settings: settingsViewModel.settings),
+            linkPreviewsAutoLoad: contactsManager.isAcceptedContact(contact),
             chessEnvelope: chessEnvelope,
             chessSummary: chessSummary,
             isLatestChessMessage: isLatestChess,
@@ -2266,13 +2873,13 @@ struct ChatDetailView: View {
     /// pending-response game is auto-resigned first rather than left orphaned alongside a second
     /// one. Uses `ChessGameService.activeGame` (not `chessSummaryCache`) so this check is correct
     /// even if the cache hasn't rebuilt since the very latest message yet.
-    private func startChessGame() {
+    private func startChessGame(timeControl: ChessTimeControl?) {
         Task {
             if let myAddress = walletManager.currentWallet?.publicAddress,
                let existing = ChessGameService.activeGame(in: messages, myAddress: myAddress, contactAddress: contact.address) {
                 try? await ChessGameService.resign(gameId: existing.gameId, to: contact)
             }
-            try? await ChessGameService.startGame(with: contact)
+            try? await ChessGameService.startGame(with: contact, timeControl: timeControl)
         }
     }
 
@@ -2432,18 +3039,23 @@ struct ChatDetailView: View {
             isEstimatingFee = false
             return
         }
-        let dummyPayload = Data(
-            count: ImagePrep.estimatedWirePayloadSize(
+        // Via Nextcloud, the chain only carries the ~80-byte share link — the photo bytes live
+        // on the server — so the fee shown is the link-message fee, not the envelope fee.
+        let payloadSize = (nextcloudService.isConnected && nextcloudService.mediaSendEnabled)
+            ? Self.nextcloudLinkPayloadSize
+            : ImagePrep.estimatedWirePayloadSize(
                 targetBytes: settingsViewModel.settings.chatPhotoQualityPreset.targetBytes
             )
-        )
         feeEstimateSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
-            payload: dummyPayload,
+            payload: Data(count: payloadSize),
             inputCount: 1,
             senderScriptPubKey: senderScriptPubKey
         )
         isEstimatingFee = false
     }
+
+    /// Representative encrypted-payload size of a Nextcloud `/s/TOKEN` share-link message.
+    private static let nextcloudLinkPayloadSize = 96
 
     private func schedulePaymentFee(for text: String) {
         feeEstimateTask?.cancel()
@@ -2546,6 +3158,10 @@ struct ChatDetailView: View {
                     self.isRecording = true
                     self.recordedAudioURL = nil
                     self.recordedAudioPreviewURL = nil
+                    if let stale = self.nextcloudOriginalRecordingURL {
+                        self.secureDeleteTempFile(stale)
+                        self.nextcloudOriginalRecordingURL = nil
+                    }
                     self.isEncodingAudio = false
                     self.recordingDuration = 0
                     self.feeEstimateSompi = nil
@@ -2584,6 +3200,10 @@ struct ChatDetailView: View {
         if let url = recordedAudioURL {
             secureDeleteTempFile(url)
         }
+        if let originalURL = nextcloudOriginalRecordingURL {
+            secureDeleteTempFile(originalURL)
+            nextcloudOriginalRecordingURL = nil
+        }
         recorder = nil
         recordedAudioURL = nil
         recordedAudioPreviewURL = nil
@@ -2601,9 +3221,21 @@ struct ChatDetailView: View {
 
     private func cancelPendingPhoto() {
         pendingPhotoImage = nil
+        pendingPhotoOriginalData = nil
         photoPickerItem = nil
         feeEstimateSompi = nil
         isEstimatingFee = false
+    }
+
+    /// Attaches an image staged by the Share Extension handoff (see
+    /// `ChatService.pendingShareImage(for:)`) as the composer's pending photo. Leaves the image
+    /// staged when the composer can't take an attachment right now (e.g. another photo pending);
+    /// it will be retried the next time this chat appears.
+    private func attachPendingShareImageIfAvailable(for address: String) {
+        guard canAcceptImageAttachment,
+              let data = chatService.pendingShareImage(for: address) else { return }
+        chatService.clearPendingShareImage(for: address)
+        _ = attachImageData(data)
     }
 
     @discardableResult
@@ -2615,6 +3247,7 @@ struct ChatDetailView: View {
         }
 
         pendingPhotoImage = image
+        pendingPhotoOriginalData = data
         isMessageFocused = false
         schedulePhotoFeeEstimate()
         return true
@@ -2666,6 +3299,60 @@ struct ChatDetailView: View {
             isCompressingPhoto = false
             isSending = false
         }
+
+        // "Send Media via Nextcloud" (1:1 chats only — this view; groups/broadcasts keep their
+        // own send paths): upload the best-quality bytes we have and send the public share link
+        // as a normal text message (the recipient's link-preview feature renders it as a media
+        // bubble). Any upload/share failure falls back to the on-chain envelope below, with a
+        // toast so the sender knows the full-quality upload didn't happen.
+        if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+            var shareURL: URL?
+            do {
+                guard let upload = nextcloudPhotoUpload(for: image) else {
+                    throw KasiaError.networkError("Couldn't encode the photo for upload.")
+                }
+                shareURL = try await NextcloudService.shared.uploadMediaAndShare(
+                    data: upload.data,
+                    filename: upload.filename,
+                    contentType: upload.contentType
+                )
+                if let shareURL {
+                    await seedNextcloudPreview(for: shareURL, kind: .image, title: upload.filename, byteSize: upload.data.count)
+                }
+            } catch {
+                AppLog.log("[ChatDetailView] Nextcloud photo upload failed, falling back to on-chain: %@",
+                           error.localizedDescription)
+                await MainActor.run {
+                    showToast("Nextcloud upload failed — sending on-chain instead", style: .error)
+                }
+            }
+            if let shareURL {
+                do {
+                    try await chatService.sendMessage(to: contact, content: shareURL.absoluteString, feeOverride: nil)
+                    await MainActor.run {
+                        pendingPhotoImage = nil
+                        pendingPhotoOriginalData = nil
+                        photoPickerItem = nil
+                        feeEstimateSompi = nil
+                        isEstimatingFee = false
+                    }
+                } catch {
+                    // The chain send itself failed — an on-chain image envelope would fail the
+                    // same way, so surface the error instead of falling back.
+                    if shouldPromptGiftClaim(for: error) {
+                        await MainActor.run {
+                            NotificationCenter.default.post(name: .showGiftClaim, object: nil)
+                        }
+                    }
+                    await MainActor.run {
+                        self.error = displayErrorMessage(error)
+                    }
+                }
+                return
+            }
+            // No share link — fall through to the on-chain envelope path.
+        }
+
         do {
             let preparedImage = try ImagePrep.prepareForChatMessage(
                 image,
@@ -2679,6 +3366,7 @@ struct ChatDetailView: View {
             )
             await MainActor.run {
                 pendingPhotoImage = nil
+                pendingPhotoOriginalData = nil
                 photoPickerItem = nil
                 feeEstimateSompi = nil
                 isEstimatingFee = false
@@ -2702,13 +3390,36 @@ struct ChatDetailView: View {
     private func preparePreview() {
         guard let audioURL = recordedAudioURL else { return }
         stopPreview()
+
+        // Nextcloud mode: preview the full-length original — that's what actually uploads.
+        // The WebM decode below reflects only the payload-capped on-chain encode (~9s), which
+        // would make a long recording sound truncated in preview while sending fine.
+        if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected,
+           let originalURL = nextcloudOriginalRecordingURL,
+           FileManager.default.fileExists(atPath: originalURL.path) {
+            do {
+                if let oldPreview = recordedAudioPreviewURL, oldPreview != originalURL {
+                    secureDeleteTempFile(oldPreview)
+                }
+                recordedAudioPreviewURL = originalURL
+                try setPlaybackSession()
+                let player = try AVAudioPlayer(contentsOf: originalURL, fileTypeHint: AVFileType.caf.rawValue)
+                previewPlayer = player
+                previewLabel = formatDuration(player.duration)
+                return
+            } catch {
+                // Original unreadable for some reason — fall through to the WebM-decode preview.
+            }
+        }
+
         do {
             // Decode WebM/Opus to CAF for preview playback (same quality as recipient will hear)
             let audioData = try Data(contentsOf: audioURL)
             let decoded = try decodeWebMForPreview(data: audioData)
 
-            // Clean up old preview file
-            if let oldPreview = recordedAudioPreviewURL {
+            // Clean up old preview file (never the stashed Nextcloud original — the upload
+            // path still needs it).
+            if let oldPreview = recordedAudioPreviewURL, oldPreview != nextcloudOriginalRecordingURL {
                 secureDeleteTempFile(oldPreview)
             }
             recordedAudioPreviewURL = decoded.url
@@ -2752,6 +3463,96 @@ struct ChatDetailView: View {
         return (decoded.url, decoded.duration)
     }
 
+    // MARK: - Nextcloud media send helpers ("Send Media via Nextcloud" toggle)
+
+    /// Human-sortable timestamp for uploaded media filenames (photo_20260811-101502.jpg).
+    private static let mediaTimestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter
+    }()
+
+    /// The best-quality photo bytes available for a Nextcloud upload: the exact original data
+    /// the photo was attached from (untouched HEIC/PNG/JPEG at full resolution) when the
+    /// composer still holds it, else a high-quality JPEG re-encode of the decoded image.
+    /// Nil only if even the JPEG re-encode fails (caller treats that as an upload failure).
+    private func nextcloudPhotoUpload(for image: UIImage) -> (data: Data, filename: String, contentType: String)? {
+        let stamp = Self.mediaTimestampFormatter.string(from: Date())
+        if let original = pendingPhotoOriginalData {
+            let format = Self.sniffImageFormat(original)
+            return (original, "photo_\(stamp).\(format.ext)", format.contentType)
+        }
+        guard let jpeg = image.jpegData(compressionQuality: 0.9) else { return nil }
+        return (jpeg, "photo_\(stamp).jpg", "image/jpeg")
+    }
+
+    /// Magic-byte sniff so the uploaded file keeps an extension matching its actual container —
+    /// Nextcloud derives the served Content-Type from the extension, and the recipient's media
+    /// card branches on that Content-Type. Unknown formats default to .jpg: any image/* type
+    /// still renders as an image card, and UIImage decodes from the real bytes regardless.
+    private static func sniffImageFormat(_ data: Data) -> (ext: String, contentType: String) {
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return ("jpg", "image/jpeg") }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return ("png", "image/png") }
+        if data.starts(with: [0x47, 0x49, 0x46, 0x38]) { return ("gif", "image/gif") }
+        if data.count >= 12,
+           data.prefix(4) == Data("RIFF".utf8),
+           data[data.startIndex + 8 ..< data.startIndex + 12] == Data("WEBP".utf8) {
+            return ("webp", "image/webp")
+        }
+        if data.count >= 12, data[data.startIndex + 4 ..< data.startIndex + 8] == Data("ftyp".utf8) {
+            return ("heic", "image/heic")
+        }
+        return ("jpg", "image/jpeg")
+    }
+
+    /// Builds an AAC .m4a of the current recording for the Nextcloud upload. PCM source: the
+    /// already-decoded preview CAF when it exists (decoded from the same Opus bytes the
+    /// recipient would have heard), else the WebM payload is decoded again on the spot.
+    private func exportRecordingAsM4A(webmData: Data) async throws -> URL {
+        let pcmURL: URL
+        let deletePCMAfter: Bool
+        if let originalURL = nextcloudOriginalRecordingURL,
+           FileManager.default.fileExists(atPath: originalURL.path) {
+            // The pre-encode original: full length, never truncated by the payload cap.
+            pcmURL = originalURL
+            deletePCMAfter = false // cleaned up by the send/cancel paths, not here
+        } else if let previewURL = recordedAudioPreviewURL, FileManager.default.fileExists(atPath: previewURL.path) {
+            pcmURL = previewURL
+            deletePCMAfter = false
+        } else {
+            pcmURL = try decodeWebMForPreview(data: webmData).url
+            deletePCMAfter = true
+        }
+        defer {
+            if deletePCMAfter { secureDeleteTempFile(pcmURL) }
+        }
+
+        guard let export = AVAssetExportSession(asset: AVURLAsset(url: pcmURL),
+                                                presetName: AVAssetExportPresetAppleM4A) else {
+            throw KasiaError.networkError("Audio export is unavailable on this device.")
+        }
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kachat-voice-\(UUID().uuidString).m4a")
+        export.outputURL = outputURL
+        export.outputFileType = .m4a
+        // AVAssetExportSession isn't Sendable, but this is safe: after exportAsynchronously
+        // starts, the session is only touched from its own one-shot completion callback —
+        // `nonisolated(unsafe)` records that reasoning for the strict-concurrency checker.
+        nonisolated(unsafe) let session = export
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            session.exportAsynchronously {
+                if session.status == .completed {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: session.error
+                        ?? KasiaError.networkError("Audio export failed."))
+                }
+            }
+        }
+        return outputURL
+    }
+
     private func startPreviewTimer() {
         previewTimer?.invalidate()
         previewTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
@@ -2785,7 +3586,7 @@ struct ChatDetailView: View {
             } else {
                 recordingDuration += 1
             }
-            if recordingDuration >= maxRecordingDuration {
+            if recordingDuration >= effectiveMaxRecordingDuration {
                 stopRecording()
             }
             updateRecordingFee()
@@ -2810,6 +3611,21 @@ struct ChatDetailView: View {
 
     private func updateRecordingFee() {
         recordingFeeTask?.cancel()
+
+        // Via Nextcloud, the recording uploads to the server and the chain only carries the
+        // share link — the fee is the link-message fee regardless of recording length.
+        if nextcloudService.isConnected && nextcloudService.mediaSendEnabled {
+            if let wallet = walletManager.currentWallet,
+               let senderScriptPubKey = KaspaAddress.scriptPublicKey(from: wallet.publicAddress) {
+                recordingFeeSompi = KasiaTransactionBuilder.estimateContextualMessageFee(
+                    payload: Data(count: Self.nextcloudLinkPayloadSize),
+                    inputCount: 1,
+                    senderScriptPubKey: senderScriptPubKey
+                )
+            }
+            isEstimatingFee = false
+            return
+        }
 
         // During recording, estimate based on duration
         // After encoding, use actual file data
@@ -2844,15 +3660,14 @@ struct ChatDetailView: View {
         isEstimatingFee = true
         recordingFeeTask = Task {
             do {
-                let payload: [String: Any] = [
-                    "type": "file",
-                    "name": fileName,
-                    "size": fileSize,
-                    "mimeType": mime,
-                    "content": contentString
-                ]
-                let jsonData = try JSONSerialization.data(withJSONObject: payload, options: [])
-                guard let jsonString = String(data: jsonData, encoding: .utf8) else { return }
+                // Same deterministic envelope the real send uses, so the estimate sizes the
+                // exact bytes that will go on the wire - see MediaFileEnvelope.
+                let jsonString = MediaFileEnvelope.json(
+                    name: fileName,
+                    size: fileSize,
+                    mimeType: mime,
+                    dataUrlContent: contentString
+                )
                 let estimate = try await chatService.estimateMessageFee(to: contact, content: jsonString)
                 await MainActor.run {
                     self.recordingFeeSompi = estimate
@@ -2888,6 +3703,18 @@ struct ChatDetailView: View {
             self.isEncodingAudio = true
         }
         await waitForRecordingFile(url)
+        // Nextcloud mode: stash the full-length original BEFORE the payload-capped encode —
+        // the M4A upload exports from this copy so long recordings survive intact.
+        if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+            let keepURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("kachat-voice-original-\(UUID().uuidString).caf")
+            if (try? FileManager.default.copyItem(at: url, to: keepURL)) != nil {
+                await MainActor.run {
+                    if let stale = nextcloudOriginalRecordingURL { secureDeleteTempFile(stale) }
+                    nextcloudOriginalRecordingURL = keepURL
+                }
+            }
+        }
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("kasia-audio-\(UUID().uuidString).webm")
         do {
@@ -3003,6 +3830,72 @@ struct ChatDetailView: View {
             let payloadData = try Data(contentsOf: url)
             let mime = mimeType(for: url)
 
+            // "Send Media via Nextcloud" (1:1 chats only — this view): upload an AAC .m4a of
+            // the recording and send the public share link instead of the on-chain WebM/Opus
+            // envelope. The .m4a re-export matters: the recipient's link-preview audio card
+            // streams through AVPlayer, which cannot decode WebM/Opus, so uploading the
+            // envelope bytes verbatim would produce an unplayable card. Any failure falls
+            // back to the on-chain path below, with a toast.
+            if NextcloudService.shared.mediaSendEnabled, NextcloudService.shared.isConnected {
+                recordingFeeTask?.cancel()
+                isSending = true
+                var shareURL: URL?
+                do {
+                    let m4aURL = try await exportRecordingAsM4A(webmData: payloadData)
+                    let m4aData = try Data(contentsOf: m4aURL)
+                    secureDeleteTempFile(m4aURL)
+                    if let originalURL = nextcloudOriginalRecordingURL {
+                        secureDeleteTempFile(originalURL)
+                        nextcloudOriginalRecordingURL = nil
+                    }
+                    let stamp = Self.mediaTimestampFormatter.string(from: Date())
+                    let voiceFilename = "voice_\(stamp).m4a"
+                    shareURL = try await NextcloudService.shared.uploadMediaAndShare(
+                        data: m4aData,
+                        filename: voiceFilename,
+                        contentType: "audio/mp4"
+                    )
+                    if let shareURL {
+                        await seedNextcloudPreview(for: shareURL, kind: .audio, title: voiceFilename, byteSize: m4aData.count)
+                    }
+                } catch {
+                    AppLog.log("[ChatDetailView] Nextcloud audio upload failed, falling back to on-chain: %@",
+                               error.localizedDescription)
+                    showToast("Nextcloud upload failed — sending on-chain instead", style: .error)
+                }
+                if let shareURL {
+                    do {
+                        try await chatService.sendMessage(to: contact, content: shareURL.absoluteString, feeOverride: nil)
+                        if let previewURL = recordedAudioPreviewURL {
+                            secureDeleteTempFile(previewURL)
+                        }
+                        if let encodedURL = recordedAudioURL {
+                            secureDeleteTempFile(encodedURL)
+                        }
+                        recordedAudioURL = nil
+                        recordedAudioPreviewURL = nil
+                        recordingFeeSompi = nil
+                        feeEstimateSompi = nil
+                        stopPreview()
+                        previewLabel = "--:--"
+                        // Back to the normal text composer — staying in audio mode after a
+                        // successful send left the "tap send to record" bar up.
+                        switchMode(.message)
+                    } catch {
+                        // The chain send itself failed — an on-chain audio envelope would fail
+                        // the same way, so surface the error instead of falling back.
+                        if shouldPromptGiftClaim(for: error) {
+                            NotificationCenter.default.post(name: .showGiftClaim, object: nil)
+                        }
+                        self.error = displayErrorMessage(error)
+                    }
+                    isSending = false
+                    return
+                }
+                isSending = false
+                // No share link — fall through to the on-chain envelope path.
+            }
+
             recordingFeeTask?.cancel()
             isSending = true
             Task {
@@ -3026,6 +3919,9 @@ struct ChatDetailView: View {
                         feeEstimateSompi = nil
                         stopPreview()
                         previewLabel = "--:--"
+                        // Back to the normal text composer — staying in audio mode after a
+                        // successful send left the "tap send to record" bar up.
+                        switchMode(.message)
                     }
                 } catch {
                     if shouldPromptGiftClaim(for: error) {
@@ -3640,5 +4536,174 @@ private final class AudioRecorderDelegate: NSObject, AVAudioRecorderDelegate {
         .environmentObject(WalletManager.shared)
         .environmentObject(ContactsManager.shared)
         .environmentObject(SettingsViewModel())
+    }
+}
+
+// MARK: - Shared Zero-Balance Funding Card
+
+/// The zero-balance funding card - "fund your chatting address" title, gift-state-aware Claim
+/// Gift, QR of the chatting address, and the address itself with a copy affordance. Shared by
+/// the 1:1 chat gate (this file), `GroupChatDetailView`, `BroadcastChannelView`, and KaPosts'
+/// compose/reply interception (`ZeroBalanceFundingSheetView` below). Lives in this file rather
+/// than its own to avoid pbxproj churn - see the repo's dangling-reference history.
+struct ZeroBalanceFundingCardView: View {
+    let address: String?
+    /// Called after the address hits the pasteboard so the host can show its own toast; when
+    /// nil (sheet contexts without a toast helper) the copy icon flips to a checkmark instead.
+    var onCopied: ((String) -> Void)? = nil
+    /// Overrides the Claim Gift action. Default (nil) posts `.showGiftClaim`, which
+    /// `MainTabView` turns into the existing `GiftClaimView` sheet - the right mechanism when
+    /// the card is inline. Sheet hosts pass their own handler since MainTabView can't present
+    /// while another sheet is already up.
+    var onClaimGift: (() -> Void)? = nil
+
+    @ObservedObject private var giftService = GiftService.shared
+    @State private var qrImage: UIImage?
+    @State private var showCopiedCheckmark = false
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("Fund your chatting address to start chatting")
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            // Claim Gift only while it's actually claimable — GiftService remembers a past
+            // claim (persisted flag + live claimState), so a claimed/ineligible gift shows
+            // an inert note instead of a button that would dead-end.
+            switch giftService.claimState {
+            case .claimed, .alreadyClaimed:
+                Label("Gift already claimed", systemImage: "gift")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            default:
+                Button {
+                    Haptics.impact(.light)
+                    if let onClaimGift {
+                        onClaimGift()
+                    } else {
+                        // Re-triggers the existing gift-claim flow - MainTabView listens for
+                        // this (same mechanism as `shouldPromptGiftClaim`-driven posts in
+                        // ChatDetailView).
+                        NotificationCenter.default.post(name: .showGiftClaim, object: nil)
+                    }
+                } label: {
+                    Label("Claim Gift", systemImage: "gift.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                        .background(Capsule().fill(Color.accentColor))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let qrImage {
+                Image(uiImage: qrImage)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 140, height: 140)
+                    .padding(8)
+                    // Solid white behind the QR keeps it scannable in dark mode, where the
+                    // glass material alone would leave the light modules too dim.
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white))
+            }
+
+            if let address {
+                HStack(spacing: 8) {
+                    Text(address)
+                        .font(.caption2.monospaced())
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Button {
+                        UIPasteboard.general.string = address
+                        Haptics.success()
+                        if let onCopied {
+                            onCopied(address)
+                        } else {
+                            showCopiedCheckmark = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                showCopiedCheckmark = false
+                            }
+                        }
+                    } label: {
+                        Image(systemName: showCopiedCheckmark ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.accentColor)
+                            .padding(6)
+                            .background(cardGlassBackground(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Copy chatting address"))
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(cardGlassBackground(cornerRadius: 20))
+        .task(id: address) {
+            guard let address else {
+                qrImage = nil
+                return
+            }
+            qrImage = Self.makeChattingAddressQRCode(from: address)
+        }
+    }
+
+    /// Same glass treatment as the chat views' private `glassBackground` helpers.
+    private func cardGlassBackground(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(.regularMaterial)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
+    }
+
+    /// Same CIFilter QR pattern as `ChatInfoView.makeQRCodeImage` - plain string payload, so
+    /// any wallet/scanner reads the address directly.
+    static func makeChattingAddressQRCode(from string: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.setValue(Data(string.utf8), forKey: "inputMessage")
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+}
+
+/// Sheet host for the funding card - used where the zero-balance gate intercepts an action
+/// (KaPosts' new-post and reply entry points) instead of locking an always-visible composer.
+/// Presents `GiftClaimView` in a nested sheet (MainTabView's `.showGiftClaim` listener can't
+/// present its sheet while this one is up), and auto-dismisses the moment the chatting
+/// balance turns positive.
+struct ZeroBalanceFundingSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var walletManager = WalletManager.shared
+    @State private var showGiftClaimSheet = false
+
+    var body: some View {
+        ScrollView {
+            ZeroBalanceFundingCardView(
+                address: walletManager.currentWallet?.publicAddress,
+                onClaimGift: { showGiftClaimSheet = true }
+            )
+            .padding(.horizontal)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .sheet(isPresented: $showGiftClaimSheet) {
+            GiftClaimView()
+        }
+        .onChange(of: walletManager.currentWallet?.balanceSompi) { balance in
+            if let balance, balance > 0 { dismiss() }
+        }
     }
 }

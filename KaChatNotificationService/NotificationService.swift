@@ -34,6 +34,14 @@ class NotificationService: UNNotificationServiceExtension {
     private let secureEnclaveHeader = Data([0x4B, 0x53, 0x45, 0x31]) // "KSE1"
     private let unreadCountKey = "shared_unread_count"
     private let incomingNotificationSoundEnabledKey = "incoming_notification_sound_enabled"
+    /// Mirror of the main app's Verbose API Logging toggle (Settings > Diagnostics), written to
+    /// the App Group by SharedDataManager.syncNotificationSettingsForExtension - the NSE cannot
+    /// read standard UserDefaults. Gates the push-payload debug residue below. Default off.
+    private let verboseAPILoggingKey = "shared_verbose_api_logging"
+
+    private var verboseLoggingEnabled: Bool {
+        UserDefaults(suiteName: appGroupIdentifier)?.bool(forKey: verboseAPILoggingKey) ?? false
+    }
 
     private enum EffectiveNotificationMode: String {
         case off
@@ -78,6 +86,12 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
 
+        // Record that this extension handled a 1:1 push for this txId (whether it ends up
+        // showing) so the main app's own foreground/catch-up ingest of the same message doesn't
+        // post a duplicate local banner - counterpart of markGroupPushHandled, consumed by
+        // ChatService.claimChatBannerSlot.
+        markChatPushHandled(txId: txId)
+
         // Get sender display name from shared contacts
         if let walletAddress = getWalletAddress(), walletAddress == senderAddress {
             content.title = ""
@@ -95,6 +109,9 @@ class NotificationService: UNNotificationServiceExtension {
 
         // Set thread identifier for grouping
         content.threadIdentifier = senderAddress
+        // Matches AppDelegate.messageCategoryId in the main app - enables inline quick reply
+        // (and the Apple Watch Reply button) on push-delivered messages.
+        content.categoryIdentifier = "KACHAT_MESSAGE"
 
         let defaults = UserDefaults(suiteName: appGroupIdentifier)
         let defaultSoundEnabled = (defaults?.object(forKey: incomingNotificationSoundEnabledKey) as? Bool) ?? true
@@ -111,23 +128,27 @@ class NotificationService: UNNotificationServiceExtension {
         content.sound = (effectiveMode == .sound) ? .default : nil
 
         let payloadHex = userInfo["payload"] as? String
-        if let payloadHex {
-            let prefix = payloadHex.prefix(200)
-            logger.info("payload len=\(payloadHex.count, privacy: .public) prefix=\(prefix, privacy: .public)")
-            storeLastPushDebug(
-                payload: payloadHex,
-                messageType: messageType,
-                sender: senderAddress,
-                txId: txId
-            )
-        } else {
-            logger.info("payload=nil")
-            storeLastPushDebug(
-                payload: nil,
-                messageType: messageType,
-                sender: senderAddress,
-                txId: txId
-            )
+        // Debug residue (last_push_* app-group keys + the ciphertext-prefix log line) only
+        // exists while the user has Verbose API Logging switched on for a diagnostics session.
+        if verboseLoggingEnabled {
+            if let payloadHex {
+                let prefix = payloadHex.prefix(200)
+                logger.info("payload len=\(payloadHex.count, privacy: .public) prefix=\(prefix, privacy: .public)")
+                storeLastPushDebug(
+                    payload: payloadHex,
+                    messageType: messageType,
+                    sender: senderAddress,
+                    txId: txId
+                )
+            } else {
+                logger.info("payload=nil")
+                storeLastPushDebug(
+                    payload: nil,
+                    messageType: messageType,
+                    sender: senderAddress,
+                    txId: txId
+                )
+            }
         }
 
         let shouldIncrementUnread = defaults.map { !hasStoredTxId(txId: txId, defaults: $0) } ?? false
@@ -137,13 +158,29 @@ class NotificationService: UNNotificationServiceExtension {
         case "contextual":
             if let payloadHex,
                let decrypted = decryptContextualMessage(payloadHex: payloadHex) {
-                content.body = reactionPreviewText(for: decrypted) ?? chessPreviewText(for: decrypted) ?? unwrapReplyText(decrypted)
                 storeDecryptedMessage(
                     txId: txId,
                     sender: senderAddress,
                     content: decrypted,
                     timestamp: extractTimestamp(userInfo: userInfo)
                 )
+                // Fresh-address payment pool control envelopes (addr_pool / addr_pool_request)
+                // are invisible protocol messages - suppress the banner entirely (still stored
+                // above so the main app processes them on open). A payment_notice however IS a
+                // payment the user should see, worded like a real payment push.
+                if isSilentPoolEnvelope(decrypted) {
+                    content.title = ""
+                    content.body = ""
+                    content.sound = nil
+                    content.badge = nil
+                    content.interruptionLevel = .passive
+                    contentHandler(content)
+                    return
+                }
+                content.body = paymentNoticePreviewText(for: decrypted)
+                    ?? reactionPreviewText(for: decrypted)
+                    ?? chessPreviewText(for: decrypted)
+                    ?? unwrapReplyText(decrypted)
             } else {
                 content.body = NSLocalizedString("New message", comment: "Fallback body for contextual push notification")
             }
@@ -209,11 +246,13 @@ class NotificationService: UNNotificationServiceExtension {
         let defaultSoundEnabled = (defaults?.object(forKey: incomingNotificationSoundEnabledKey) as? Bool) ?? true
         let shouldIncrementUnread = defaults.map { !hasStoredTxId(txId: txId, defaults: $0) } ?? false
 
-        // Record that this extension handled a push for this message (whether it ends up showing
-        // or deliberately suppressing the banner). The main app checks this before posting its own
-        // background local notification for the same group message, so the two never double up.
-        markGroupPushHandled(txId: txId)
-
+        // Each branch that SHOWS a banner (real content or generic fallback) records the txId as
+        // push-handled so the main app's own ingest of the same message never doubles it up. The
+        // deliberate mentions-only suppression does NOT claim - this extension's view of "is
+        // this personal" can lag the app's (own-txId list, primary-domain share), so leaving the
+        // slot open lets a better-informed local ingest still post the precise personal banner;
+        // when both sides agree it isn't personal, the local path suppresses AND claims quietly,
+        // so nothing ever banners twice either way.
         content.threadIdentifier = "group"
 
         if messageType == "group_message" {
@@ -231,17 +270,23 @@ class NotificationService: UNNotificationServiceExtension {
                                      txId: txId, messageType: messageType)
                 return
             }
-            let displayBody = reactionPreviewText(for: match.plaintext, inGroup: true)
+            // `inGroup: !reactionTargetsMine`: when the shared own-txId list proves the reaction
+            // targets MY message, use the 1:1 "to your message" wording instead of the neutral
+            // "a message" fallback.
+            let reactionTargetsMine = isReactionToMyMessage(match.plaintext)
+            let displayBody = reactionPreviewText(for: match.plaintext, inGroup: !reactionTargetsMine)
                 ?? chessPreviewText(for: match.plaintext)
                 ?? unwrapReplyText(match.plaintext)
             // "Only Notify if I'm Mentioned" - a reply to one of MY messages counts the same as
             // an explicit @mention (checked against the raw, still-wrapped plaintext, since
-            // `displayBody` already dropped the reply envelope down to just its own text). Still
+            // `displayBody` already dropped the reply envelope down to just its own text), and so
+            // does a reaction TO one of my messages (personal - the main app's
+            // maybePostGroupReactionNotification applies the identical exception). Still
             // stored/decryptable/visible once the app is opened either way (this only suppresses
             // the push banner itself), matching how muting a member (enforced earlier, at
             // push-registration time on the main app side) still lets their messages show up.
             if isMentionsOnlyEnabled(groupId: match.groupId),
-               !mentionsMe(displayBody), !isReplyToMe(match.plaintext) {
+               !reactionTargetsMine, !mentionsMe(displayBody), !isReplyToMe(match.plaintext) {
                 suppressGroupNotification(content)
                 addPendingMessage(txId: txId, sender: "group", type: messageType)
                 return
@@ -256,6 +301,7 @@ class NotificationService: UNNotificationServiceExtension {
             content.subtitle = senderName
             content.body = displayBody
             content.threadIdentifier = "group:\(match.groupId)"
+            content.categoryIdentifier = "KACHAT_MESSAGE"
             content.sound = defaultSoundEnabled ? .default : nil
         } else {
             guard let payloadHex = userInfo["payload"] as? String,
@@ -281,8 +327,22 @@ class NotificationService: UNNotificationServiceExtension {
         if shouldIncrementUnread, let badge = incrementUnreadCountIfNeeded() {
             content.badge = NSNumber(value: badge)
         }
+        // Banner shown - claim the one-per-txId slot (see handleGroupPush's claim comment).
+        markGroupPushHandled(txId: txId)
         addPendingMessage(txId: txId, sender: "group", type: messageType)
         contentHandler?(content)
+    }
+
+    /// Records a 1:1 push's txId in the App Group so the main app's own ingest of the same
+    /// message doesn't post a duplicate local notification (see ChatService's
+    /// claimChatBannerSlot). Bounded FIFO, mirroring markGroupPushHandled below.
+    private func markChatPushHandled(txId: String) {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        var ids = defaults.stringArray(forKey: "chat_push_handled_txids") ?? []
+        guard !ids.contains(txId) else { return }
+        ids.append(txId)
+        if ids.count > 300 { ids.removeFirst(ids.count - 300) }
+        defaults.set(ids, forKey: "chat_push_handled_txids")
     }
 
     /// Records a group push's txId in the App Group so the main app's background ingest of the same
@@ -335,6 +395,8 @@ class NotificationService: UNNotificationServiceExtension {
         if shouldIncrementUnread, let badge = incrementUnreadCountIfNeeded() {
             content.badge = NSNumber(value: badge)
         }
+        // Banner shown - claim the one-per-txId slot (see handleGroupPush's claim comment).
+        markGroupPushHandled(txId: txId)
         addPendingMessage(txId: txId, sender: "group", type: messageType)
         contentHandler?(content)
     }
@@ -349,7 +411,7 @@ class NotificationService: UNNotificationServiceExtension {
 
     private func decryptGroupMessage(blindedGroupIdHex: String, payloadHex: String) -> GroupMessageMatch? {
         guard let targetBlindedId = Data(hexString: blindedGroupIdHex) else { return nil }
-        let payloadString = "ciph_msg:1:gcomm:" + payloadHex
+        let payloadString = "kchat:1:gcomm:" + payloadHex
         guard let parsed = NotificationGroupCipher.parseGroupMessagePayload(payloadString),
               parsed.blindedGroupId == targetBlindedId else { return nil }
 
@@ -480,12 +542,35 @@ class NotificationService: UNNotificationServiceExtension {
         return groupIds.contains(groupId)
     }
 
-    /// A mention is embedded as `@{fullKaspaAddress}` in the plaintext - see the main app's
-    /// `GroupMentionCodec` doc comment for why (this target can't do the friendly-name lookup
-    /// `decodeForDisplay` does, but doesn't need to - it only needs to know if it's ME).
+    /// A mention arrives in one of TWO cross-platform wire forms: iOS/desktop compose
+    /// `@{fullKaspaAddress}` (see the main app's `GroupMentionCodec` doc comment), Android
+    /// composes `@{primaryKNSDomain}`. This checks both. The domain check is a local mirror of
+    /// the main app's mention tokenizer (`KaPostsView.mentionDomains` - this target doesn't
+    /// compile that file): token after "@" at a word boundary, lowercased, optional ".kas"
+    /// suffix stripped, compared against the wallet's own reverse-resolved primary domain the
+    /// main app shares via `SharedDataManager.syncOwnKNSDomainForExtension`. No wallet address
+    /// available = treat as a mention (don't suppress).
     private func mentionsMe(_ text: String) -> Bool {
         guard let myAddress = getWalletAddress() else { return true }
-        return text.contains("@\(myAddress)")
+        if text.contains("@\(myAddress)") { return true }
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
+              let myDomain = defaults.string(forKey: "shared_own_kns_domain"), !myDomain.isEmpty,
+              let regex = try? NSRegularExpression(
+                  pattern: "(^|[\\s(\\[{<\"'])@([a-z0-9-]+(?:\\.[a-z0-9-]+)*)",
+                  options: [.caseInsensitive]
+              ) else { return false }
+        let ns = text as NSString
+        var found = false
+        regex.enumerateMatches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) { match, _, stop in
+            guard let match, match.numberOfRanges >= 3 else { return }
+            var domain = ns.substring(with: match.range(at: 2)).lowercased()
+            if domain.hasSuffix(".kas") { domain = String(domain.dropLast(4)) }
+            if domain == myDomain {
+                found = true
+                stop.pointee = true
+            }
+        }
+        return found
     }
 
     private func addPendingMessage(txId: String, sender: String, type: String) {
@@ -606,6 +691,9 @@ class NotificationService: UNNotificationServiceExtension {
         let from: String?
         let to: String?
         let accepted: Bool?
+        /// "timeout" when the sender's clock ran out (timed games) - distinguishes a flag
+        /// fall from a manual resignation in the push body.
+        let reason: String?
     }
 
     private func chessPreviewText(for content: String) -> String? {
@@ -621,7 +709,7 @@ class NotificationService: UNNotificationServiceExtension {
             guard let from = parsed.from, let to = parsed.to else { return "♟️ Played a chess move" }
             return "♟️ Played \(from) → \(to)"
         case "chess_resign":
-            return "♟️ Resigned the chess game"
+            return parsed.reason == "timeout" ? "♟️ Lost on time" : "♟️ Resigned the chess game"
         default:
             return nil
         }
@@ -635,12 +723,17 @@ class NotificationService: UNNotificationServiceExtension {
         let type: String
         let emoji: String
         let action: String
+        /// The reacted-to message's txId (always sent by every platform; optional here only so a
+        /// hypothetical envelope without it still decodes to a preview).
+        let targetTxId: String?
     }
 
-    /// `inGroup`: the reaction envelope carries no target-message info, so in a GROUP this
-    /// extension cannot know WHOSE message was reacted to - saying "your message" was frequently
-    /// wrong (the reaction often targets someone else's message). Group pushes use the neutral
-    /// "a message"; 1:1 keeps "your message", where the pair context makes it correct.
+    /// `inGroup`: this extension has no message store, so in a GROUP it usually can't resolve
+    /// WHOSE message was reacted to - saying "your message" was frequently wrong (the reaction
+    /// often targets someone else's message). Group pushes use the neutral "a message"; 1:1 keeps
+    /// "your message", where the pair context makes it correct. Exception: when the shared
+    /// own-txId list proves the target IS mine (see `isReactionToMyMessage`), the group caller
+    /// passes `inGroup: false` to get the accurate "your message" wording.
     private func reactionPreviewText(for content: String, inGroup: Bool = false) -> String? {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
@@ -649,6 +742,59 @@ class NotificationService: UNNotificationServiceExtension {
         return parsed.action == "remove"
             ? "Removed their \(parsed.emoji) reaction"
             : (inGroup ? "Reacted \(parsed.emoji) to a message" : "Reacted \(parsed.emoji) to your message")
+    }
+
+    /// True when `content` is a reaction envelope targeting one of the wallet's OWN group
+    /// messages. The envelope carries the target's txId, and the main app shares its recent
+    /// outgoing group txIds via the App Group (`shared_group_own_txids`, see
+    /// `SharedDataManager.syncOwnGroupTxIdsForExtension`) - together they let this target apply
+    /// the mentions-only rule's personal exception: a reaction to MY message still notifies in a
+    /// mentions-only group, mirroring the main app's `maybePostGroupReactionNotification`.
+    private func isReactionToMyMessage(_ content: String) -> Bool {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(PushReactionEnvelope.self, from: data),
+              parsed.type == "reaction", let targetTxId = parsed.targetTxId else { return false }
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
+              let ownTxIds = defaults.stringArray(forKey: "shared_group_own_txids") else { return false }
+        return ownTxIds.contains(targetTxId)
+    }
+
+    /// Local mirror of the main app's fresh-address payment pool envelopes (`PaymentPoolCodec`
+    /// in Models.swift, which this extension target doesn't compile) - see MESSAGING.md
+    /// ("Fresh-Address Payment Pools"). addr_pool / addr_pool_request are invisible protocol
+    /// control messages whose push banner is suppressed outright; payment_notice maps to the
+    /// same wording a real incoming-payment push uses.
+    private struct PushPoolEnvelope: Decodable {
+        let type: String
+        let amountSompi: UInt64?
+    }
+
+    private func parsePoolEnvelope(_ content: String) -> PushPoolEnvelope? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{", let data = trimmed.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(PushPoolEnvelope.self, from: data) else { return nil }
+        switch parsed.type {
+        case "addr_pool", "addr_pool_request", "payment_notice":
+            return parsed
+        default:
+            return nil
+        }
+    }
+
+    private func isSilentPoolEnvelope(_ content: String) -> Bool {
+        guard let parsed = parsePoolEnvelope(content) else { return false }
+        return parsed.type == "addr_pool" || parsed.type == "addr_pool_request"
+    }
+
+    private func paymentNoticePreviewText(for content: String) -> String? {
+        guard let parsed = parsePoolEnvelope(content), parsed.type == "payment_notice" else { return nil }
+        guard let amountSompi = parsed.amountSompi else {
+            return NSLocalizedString("Received payment", comment: "Push body for incoming payment")
+        }
+        let kas = Double(amountSompi) / 100_000_000.0
+        let format = NSLocalizedString("Received %.8f KAS", comment: "Push body for incoming payment with amount")
+        return String(format: format, kas)
     }
 
     private func inlineAttachmentPreview(for text: String) -> String {
@@ -863,7 +1009,9 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     private func storeLastPushDebug(payload: String?, messageType: String, sender: String, txId: String) {
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        // Belt and braces: the call site is already gated on verboseLoggingEnabled, but keep
+        // the guard here too so no future caller can store push payloads with the flag off.
+        guard verboseLoggingEnabled, let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
         defaults.set(payload, forKey: "last_push_payload")
         defaults.set(payload?.count ?? 0, forKey: "last_push_payload_len")
         defaults.set(messageType, forKey: "last_push_type")
@@ -920,7 +1068,7 @@ private struct NotificationCipher {
         var firstError: String?
 
         if let payloadString = decodePayloadString(from: payloadHex),
-           payloadString.hasPrefix("ciph_msg:1:comm:") {
+           (payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:")) {
             let (message, error) = decryptContextualProtocolPayload(payloadString, privateKey: privateKey)
             if let message {
                 return (message, nil)
@@ -949,7 +1097,7 @@ private struct NotificationCipher {
                 }
 
                 if let nestedPayloadString = decodePayloadString(from: utf8),
-                   nestedPayloadString.hasPrefix("ciph_msg:1:comm:") {
+                   (nestedPayloadString.hasPrefix("kchat:1:comm:") || nestedPayloadString.hasPrefix("ciph_msg:1:comm:")) {
                     let (nestedMessage, nestedError) = decryptContextualProtocolPayload(
                         nestedPayloadString,
                         privateKey: privateKey
@@ -998,7 +1146,7 @@ private struct NotificationCipher {
             return payloadString
         }
 
-        if payloadHex.hasPrefix("ciph_msg:") {
+        if payloadHex.hasPrefix("kchat:") || payloadHex.hasPrefix("ciph_msg:") {
             return payloadHex
         }
 
@@ -1152,8 +1300,10 @@ private struct NotificationGroupCipher {
     }
 
     static func parseGroupMessagePayload(_ payloadString: String) -> ParsedGroupMessage? {
-        let prefix = "ciph_msg:1:gcomm:"
-        guard payloadString.hasPrefix(prefix) else { return nil }
+        let prefix: String
+        if payloadString.hasPrefix("kchat:1:gcomm:") { prefix = "kchat:1:gcomm:" }
+        else if payloadString.hasPrefix("ciph_msg:1:gcomm:") { prefix = "ciph_msg:1:gcomm:" }
+        else { return nil }
         let rest = payloadString.dropFirst(prefix.count)
         let parts = rest.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count == 7 else { return nil }

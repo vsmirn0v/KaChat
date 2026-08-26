@@ -146,7 +146,7 @@ extension ChatService {
         guard !messages.isEmpty || !meta.isEmpty else { return }
 
         // Debug: count messages with/without content
-        let withContent = messages.filter { $0.message.content != "📤 Sent via another device" }.count
+        let withContent = messages.filter { !$0.message.isSentPlaceholder }.count
         let placeholder = messages.count - withContent
         AppLog.log("[ChatService] loadMessagesFromStore: %d messages (%d with content, %d placeholder)",
               messages.count, withContent, placeholder)
@@ -171,7 +171,11 @@ extension ChatService {
             }
         }
 
+        // Deletion tombstones win over stored/CloudKit history: without this filter, a chat
+        // the user deleted would quietly resurrect from Core Data or a CloudKit sync because
+        // getOrCreateContact() below does not consult the tombstone list.
         let allContactAddresses = Set(grouped.keys).union(meta.keys)
+            .filter { !contactsManager.isAddressDeleted($0) }
         var contactsByAddress: [String: Contact] = [:]
         var pendingReadBlockTimeByAddress: [String: Int64] = [:]
         for contactAddress in allContactAddresses {
@@ -238,7 +242,12 @@ extension ChatService {
         let reconciledAddresses = Set(reconciled.map { $0.contact.address })
         let liveOnly = conversations.filter { !reconciledAddresses.contains($0.contact.address) }
 
-        conversations = (reconciled + liveOnly).sorted { ($0.lastMessage?.timestamp ?? .distantPast) < ($1.lastMessage?.timestamp ?? .distantPast) }
+        // Decorate-sort-undecorate: lastMessage walks the conversation's whole message array,
+        // and evaluating it inside the comparator re-ran that walk O(n log n) times per sort.
+        conversations = (reconciled + liveOnly)
+            .map { (key: $0.lastMessage?.timestamp ?? .distantPast, value: $0) }
+            .sorted { $0.key < $1.key }
+            .map(\.value)
         rebuildPendingOutgoingQueue()
         cleanupSuppressedPaymentMessages()
     }
@@ -379,7 +388,7 @@ extension ChatService {
     }
 
     nonisolated static func isPlaceholderContent(_ content: String) -> Bool {
-        content == "📤 Sent via another device" || content == "[Encrypted message]"
+        ChatMessage.isSentPlaceholder(content) || content == "[Encrypted message]"
     }
 
     nonisolated static func dedupeMessages(_ messages: [ChatMessage]) -> [ChatMessage] {
@@ -910,17 +919,24 @@ extension ChatService {
         return key
     }
 
-    func syncStartBlockTime(for objectKey: String, fallbackBlockTime: UInt64, nowMs: UInt64) -> UInt64 {
+    /// `rewindMs` parameterizes the reorg rewind window by caller: the high-frequency live-tail
+    /// paths (open-chat poll, foreground sweep) pass `liveTailReorgBufferMs` (90s) so they stop
+    /// re-downloading the same 10-minute window every few seconds; catch-up syncs omit it and
+    /// keep the full `syncReorgBufferMs`. Cursors still only ever ADVANCE (see
+    /// `advanceSyncCursor`) - this only changes where a fetch STARTS, and txId dedupe at insert
+    /// remains the safety net either way.
+    func syncStartBlockTime(for objectKey: String, fallbackBlockTime: UInt64, nowMs: UInt64, rewindMs: UInt64? = nil) -> UInt64 {
+        let reorgRewindMs = rewindMs ?? syncReorgBufferMs
         guard let cursor = syncObjectCursors[objectKey], cursor.lastFetchedBlockTime > 0 else {
             return fallbackBlockTime
         }
 
         let lastFetchedBlockTime = cursor.lastFetchedBlockTime
-        if nowMs > lastFetchedBlockTime, nowMs - lastFetchedBlockTime > syncReorgBufferMs {
+        if nowMs > lastFetchedBlockTime, nowMs - lastFetchedBlockTime > reorgRewindMs {
             return lastFetchedBlockTime == UInt64.max ? UInt64.max : lastFetchedBlockTime + 1
         }
 
-        return lastFetchedBlockTime > syncReorgBufferMs ? lastFetchedBlockTime - syncReorgBufferMs : 0
+        return lastFetchedBlockTime > reorgRewindMs ? lastFetchedBlockTime - reorgRewindMs : 0
     }
 
     func advanceSyncCursor(for objectKey: String, maxBlockTime: UInt64?) {
@@ -934,10 +950,68 @@ extension ChatService {
         }
     }
 
+    // MARK: - Wallet import baseline
+
+    private func walletImportBaselineKey(for address: String) -> String {
+        "kachat_wallet_import_baseline_\(address.lowercased())"
+    }
+
+    /// Stamps "now" as the import moment for a wallet that is NEW to this device. Called by
+    /// `WalletManager.importWallet` inside its `isNewWallet` branch only, so a same-account
+    /// re-login or a saved-account switch never moves an existing baseline forward (messages
+    /// that arrived while logged out must still land unread there). Keyed per wallet address,
+    /// so it survives wallet switches and `resetForNewWallet`'s fixed-key cleanup.
+    func recordWalletImportBaseline(address: String) {
+        guard !address.isEmpty else { return }
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        userDefaults.set(nowMs, forKey: walletImportBaselineKey(for: address))
+        cachedWalletImportBaseline = (address, nowMs)
+    }
+
+    /// The import baseline (ms) for `address`, or 0 when none was ever recorded - wallets that
+    /// predate the baseline get 0, which disables the backfill gating entirely.
+    func walletImportBaselineMs(for address: String?) -> Int64 {
+        guard let address, !address.isEmpty else { return 0 }
+        if let cached = cachedWalletImportBaseline, cached.address == address {
+            return cached.blockTimeMs
+        }
+        let stored = Int64(userDefaults.integer(forKey: walletImportBaselineKey(for: address)))
+        cachedWalletImportBaseline = (address, stored)
+        return stored
+    }
+
     func clearSyncObjectCursors() {
         syncObjectCursors = [:]
         syncObjectCursorsDirty = false
         userDefaults.removeObject(forKey: syncCursorsKey)
+    }
+
+    /// Drops only the INCOMING-direction cursors for the given contacts, so the next fetch for
+    /// those objects starts from the caller-supplied fallback instead of the stored block time.
+    /// Incoming contextual keys are "ctx|in|<contactAddress>|<alias>[|<contactAddress>]" - the
+    /// query address of an incoming fetch is the contact itself, so matching on the third
+    /// component covers both the current and the legacy (no trailing contact) key shapes.
+    /// With `includeIncomingHandshakes` the wallet-global "hs|in|..." cursor is dropped too.
+    /// Outgoing cursors are deliberately left alone: the wipe-and-resync flow never deletes
+    /// outgoing messages, so their windows stay covered.
+    func removeIncomingSyncCursors(for contactAddresses: [String], includeIncomingHandshakes: Bool) {
+        let lowered = Set(contactAddresses.map { $0.lowercased() })
+        var removedAny = false
+        for key in Array(syncObjectCursors.keys) {
+            let parts = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count >= 2 else { continue }
+            let isIncomingContextual = parts[0] == "ctx" && parts[1] == "in"
+                && parts.count >= 3 && lowered.contains(parts[2].lowercased())
+            let isIncomingHandshake = includeIncomingHandshakes && parts[0] == "hs" && parts[1] == "in"
+            if isIncomingContextual || isIncomingHandshake {
+                syncObjectCursors.removeValue(forKey: key)
+                removedAny = true
+            }
+        }
+        if removedAny {
+            syncObjectCursorsDirty = true
+            saveSyncObjectCursorsIfNeeded()
+        }
     }
 
     func loadSyncObjectCursors() {

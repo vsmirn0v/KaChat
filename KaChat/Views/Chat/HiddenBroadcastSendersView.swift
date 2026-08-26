@@ -1,8 +1,11 @@
 import SwiftUI
 
-/// Manage senders hidden across broadcast channels for the current wallet.
-/// Mirrors Android's `HiddenBroadcastUsersScreen`.
+/// Manage senders hidden in ONE broadcast room - reached from the room's top-right toolbar
+/// button. A hidden user's messages never show in this room and never notify (local banners
+/// and, for indexed channels, remote push via the registration's hidden map).
 struct HiddenBroadcastSendersView: View {
+    let channel: String
+
     @EnvironmentObject var broadcastService: BroadcastService
     @EnvironmentObject var contactsManager: ContactsManager
     @ObservedObject private var knsService = KNSService.shared
@@ -13,7 +16,7 @@ struct HiddenBroadcastSendersView: View {
     var body: some View {
         List {
             if hiddenAddresses.isEmpty {
-                Text("No hidden senders")
+                Text("No hidden users in #\(channel). Long-press a message to hide its sender.")
                     .foregroundColor(.secondary)
             } else {
                 ForEach(hiddenAddresses, id: \.self) { address in
@@ -30,7 +33,7 @@ struct HiddenBroadcastSendersView: View {
                         }
                         Spacer()
                         Button("Unhide") {
-                            broadcastService.unhideSender(address)
+                            broadcastService.unhideSender(address, inChannel: channel)
                             reload()
                         }
                         .font(.caption)
@@ -42,7 +45,7 @@ struct HiddenBroadcastSendersView: View {
                 }
             }
         }
-        .navigationTitle("Hidden Broadcast Room Users")
+        .navigationTitle("Hidden Users - #\(channel)")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -67,13 +70,13 @@ struct HiddenBroadcastSendersView: View {
     }
 
     private func reload() {
-        hiddenAddresses = Array(broadcastService.hiddenSenderAddresses()).sorted()
+        hiddenAddresses = Array(broadcastService.hiddenSenderAddresses(forChannel: channel)).sorted()
     }
 }
 
 #Preview {
     NavigationStack {
-        HiddenBroadcastSendersView()
+        HiddenBroadcastSendersView(channel: "kaspa")
             .environmentObject(BroadcastService.shared)
             .environmentObject(ContactsManager.shared)
     }

@@ -27,9 +27,10 @@ final class KaspaRPCRouter: ObservableObject {
     /// Maximum number of hedged requests
     private let maxHedgedRequests = 3
 
-    /// Delay before sending hedge request (based on network quality)
+    /// Delay before sending hedge request (based on network quality). Uses the expensive-path
+    /// aware value so metered connections never hedge sooner than unmetered WiFi would.
     private var hedgeDelay: UInt64 {
-        epochMonitor.networkQuality.hedgeDelayMs * 1_000_000  // Convert to nanoseconds
+        epochMonitor.effectiveHedgeDelayMs * 1_000_000  // Convert to nanoseconds
     }
 
     // MARK: - Notification Handlers

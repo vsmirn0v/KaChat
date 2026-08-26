@@ -221,6 +221,85 @@ final class ColdStorageManager: ObservableObject {
         saveAccounts()
     }
 
+    /// "Generate More Addresses" - a SEQUENCE, not a single answer (mirrors
+    /// WalletManager.lowestUnusedSpendingAddress): every press yields the NEXT fresh address,
+    /// forever. The chosen index is the lowest one that is truly unused (zero balance, no
+    /// on-chain history) AND currently hidden - i.e. not already sitting in the visible list.
+    /// Recycling un-hides it. An index that is already visible is never picked (that was the
+    /// old stall: the lowest unused index, once revealed, satisfied every check again on the
+    /// next press, so Generate kept returning the same row). When no hidden unused index
+    /// remains, the chain extends by one past the all-time max, which is always safe. A probe
+    /// failure (used-ness unknown) skips that index rather than recycling it. Returns the
+    /// chosen index.
+    func lowestUnusedAddress(for account: ColdStorageAccount) async -> Int {
+        let entries = await getAddressList(for: account)
+        for entry in entries {
+            guard entry.hidden else { continue } // already visible - the user has it; move on
+            if entry.balanceSompi > 0 { continue }
+            // Recycle only on a CONFIRMED-unused probe; nil (probe failed) skips the index -
+            // extending the chain below is always safe, recycling an unknown one is not.
+            let usedState = await ChatService.shared.spendingAddressUsedState(entry.address)
+            if usedState == false {
+                setAddressHidden(accountId: account.id, index: entry.index, hidden: false, balanceSompi: 0)
+                return entry.index
+            }
+        }
+        generateNextAddress(for: account)
+        let newIndex = (accounts.first(where: { $0.id == account.id })?.maxAddressIndex) ?? (account.maxAddressIndex + 1)
+        setAddressHidden(accountId: account.id, index: newIndex, hidden: false, balanceSompi: 0)
+        return newIndex
+    }
+
+    /// Reveals a specific index from the Address Visibility pager, extending the chain when the
+    /// index is beyond the current max - intermediate newly-covered indices are marked hidden so
+    /// checking ONE far-out row doesn't flood the main list with everything below it. Mirrors
+    /// WalletManager.revealSpendingAddress.
+    func revealAddress(for account: ColdStorageAccount, at index: Int) {
+        guard let idx = accounts.firstIndex(where: { $0.id == account.id }) else { return }
+        let currentMax = accounts[idx].maxAddressIndex
+        if index > currentMax {
+            accounts[idx].maxAddressIndex = index
+            saveAccounts()
+            if index - 1 > currentMax {
+                var hiddenSet = loadHiddenIndices(accountId: account.id)
+                for i in (currentMax + 1)..<index { hiddenSet.insert(i) }
+                saveHiddenIndices(hiddenSet, accountId: account.id)
+            }
+        }
+        setAddressHidden(accountId: account.id, index: index, hidden: false, balanceSompi: 0)
+    }
+
+    /// Read-only snapshot of the hidden set, so the detail screen can apply bulk visibility
+    /// edits to its already-loaded rows instantly on sheet dismiss (before the full balance
+    /// reload finishes). Mirrors WalletManager.hiddenSpendingIndexSet().
+    func hiddenIndexSet(accountId: UUID) -> Set<Int> {
+        loadHiddenIndices(accountId: accountId)
+    }
+
+    /// Derives a single receive address on demand (used by the Address Visibility pager for
+    /// rows beyond the derived chain). Returns nil on kpub/derivation failure.
+    func address(for account: ColdStorageAccount, at index: Int) -> String? {
+        guard let extendedKey = KaspaExtendedPublicKey(kpubString: account.kpubString) else { return nil }
+        let network = AppSettings.load().networkType
+        return try? extendedKey.receiveAddress(at: UInt32(index), network: network)
+    }
+
+    /// Hide variant with the same live-balance re-check the spending side does
+    /// (WalletManager.setSpendingAddressHidden): the cached row balance the UI holds may be
+    /// stale, so hiding re-fetches UTXOs for the derived address before committing.
+    @discardableResult
+    func setAddressHidden(account: ColdStorageAccount, index: Int, hidden: Bool) async -> Bool {
+        if hidden {
+            guard let address = address(for: account, at: index) else { return false }
+            // Fail CLOSED: hiding requires a live zero-balance confirmation. A network error
+            // must refuse the hide, not read as an empty balance.
+            guard let utxos = try? await NodePoolService.shared.getUtxosByAddresses([address]) else { return false }
+            let balance = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+            guard balance == 0 else { return false }
+        }
+        return setAddressHidden(accountId: account.id, index: index, hidden: hidden, balanceSompi: 0)
+    }
+
     // MARK: - Per-address labels
 
     func setAddressLabel(accountId: UUID, index: Int, label: String?) {

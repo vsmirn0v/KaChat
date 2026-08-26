@@ -27,7 +27,14 @@ struct AddContactView: View {
     @State private var isGroupMode = false
     @State private var groupName = ""
     @State private var groupAddressEntries: [GroupAddressEntry] = [GroupAddressEntry()]
+    // New group flow: members are picked from existing contacts (searchable), not typed.
+    @State private var selectedMemberAddresses: Set<String> = []
+    @State private var memberSearchText = ""
+    // Collapsible New Group sections: "Members (N)" (added-so-far) and "Contacts" (search + list).
+    @State private var membersExpanded = false
+    @State private var contactsExpanded = false
     @State private var isCreatingGroup = false
+    @State private var showCreateGroupConfirm = false
     @State private var scanningGroupRowID: UUID?
     @State private var contactPickerRowID: UUID?
     /// The one member "card" currently expanded for editing (text field + Import/Paste/Scan +
@@ -65,23 +72,17 @@ struct AddContactView: View {
         resolvedAddress ?? addressInput
     }
 
-    init(onAdd: ((Contact) -> Void)? = nil, onCreateGroup: ((GroupChat) -> Void)? = nil) {
+    init(startInGroupMode: Bool = false, onAdd: ((Contact) -> Void)? = nil, onCreateGroup: ((GroupChat) -> Void)? = nil) {
         self.onAdd = onAdd
         self.onCreateGroup = onCreateGroup
+        // The create button is tab-aware (Chats vs Group Chats), so the screen opens
+        // directly in the right mode instead of exposing a toggle.
+        _isGroupMode = State(initialValue: startInGroupMode)
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Toggle("Group Chat", isOn: $isGroupMode.animation())
-                        .onChange(of: isGroupMode) { newValue in
-                            if newValue, editingGroupEntryID == nil || !groupAddressEntries.contains(where: { $0.id == editingGroupEntryID }) {
-                                editingGroupEntryID = groupAddressEntries.first?.id
-                            }
-                        }
-                }
-
                 if isGroupMode {
                     groupChatSections
                 } else {
@@ -221,7 +222,7 @@ struct AddContactView: View {
                     } else {
                         Button(isGroupMode ? "Create" : "Add") {
                             if isGroupMode {
-                                createGroupChat()
+                                showCreateGroupConfirm = true
                             } else {
                                 addContact()
                             }
@@ -229,6 +230,17 @@ struct AddContactView: View {
                         .disabled(isGroupMode ? !canCreateGroup : !canAdd)
                     }
                 }
+            }
+            .alert("Create group", isPresented: $showCreateGroupConfirm) {
+                Button("Create") { createGroupChat() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                let k = selectedMemberAddresses.count
+                let txCount = k + 1
+                let feeText = groupChatService.estimateGroupActionFeeKas(groupId: "", controlTx: txCount, photoTx: 0)
+                    .map { "\n\nEstimated network fee ≈ \($0) KAS across \(txCount) transactions." }
+                    ?? "\n\n(\(txCount) network transactions.)"
+                Text("Create \"\(groupName.trimmingCharacters(in: .whitespacesAndNewlines))\" and invite \(k) member\(k == 1 ? "" : "s")?\(feeText)")
             }
             .sheet(isPresented: $showQRScanner) {
                 QRScannerView { scannedCode in
@@ -431,102 +443,189 @@ struct AddContactView: View {
             Text("Group Name")
         }
 
+        // Members (N): collapsible list of who has been added so far.
         Section {
-            ForEach($groupAddressEntries) { $entry in
-                if entry.id == editingGroupEntryID {
-                    // The one expanded "card": address field, then Import/Paste/Scan (same
-                    // size/style as the single-contact flow), then Add Address to commit it and
-                    // open the next blank slot.
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            TextField("kaspa:qr... or name.kas", text: $entry.text)
-                                .font(.system(.body, design: .monospaced))
-                                .autocapitalization(.none)
-                                .autocorrectionDisabled()
-                                .onChange(of: entry.text) { newValue in
-                                    resolveGroupAddress(id: entry.id, input: newValue)
-                                }
-
-                            if groupAddressEntries.count > 1 {
-                                Button {
-                                    removeGroupEntry(entry.id)
-                                } label: {
-                                    Image(systemName: "minus.circle.fill")
-                                        .foregroundColor(.red)
-                                }
-                                .buttonStyle(.borderless)
-                            }
-                        }
-
-                        groupAddressStatus(for: entry)
-
-                        Divider()
-
-                        HStack {
-                            Button {
-                                contactPickerRowID = entry.id
-                            } label: {
-                                Label("Import", systemImage: "person.crop.circle.badge.plus")
-                            }
-
-                            Spacer()
-
-                            Button {
-                                if let pastedText = UIPasteboard.general.string {
-                                    let trimmed = pastedText.trimmingCharacters(in: .whitespacesAndNewlines)
-                                    entry.text = trimmed
-                                    resolveGroupAddress(id: entry.id, input: trimmed)
-                                }
-                            } label: {
-                                Label("Paste", systemImage: "doc.on.clipboard")
-                            }
-
-                            Spacer()
-
-                            Button {
-                                scanningGroupRowID = entry.id
-                            } label: {
-                                Label("Scan QR", systemImage: "qrcode.viewfinder")
-                            }
-                        }
-                        .buttonStyle(.borderless)
-
-                        Button {
-                            commitGroupEntry(entry.id)
-                        } label: {
-                            Text("Add Address")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!isValidGroupEntry(entry))
-                    }
-                    .padding(.vertical, 4)
+            DisclosureGroup(isExpanded: $membersExpanded) {
+                if selectedMemberAddresses.isEmpty {
+                    Text("No members added yet. Open Contacts below to add people.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 } else {
-                    // Committed: collapsed to a single row - tap the name/address to edit it
-                    // again, or tap the red button to remove it outright.
-                    HStack {
-                        Text(entry.trimmedText)
-                            .font(.system(.body, design: entry.looksLikeDomain ? .default : .monospaced))
-                            .lineLimit(1)
-                        Spacer()
-                        Button {
-                            removeGroupEntry(entry.id)
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                                .foregroundColor(.red)
+                    ForEach(Array(selectedMemberAddresses), id: \.self) { address in
+                        HStack(spacing: 12) {
+                            KNSAvatarView(avatarURLString: nil, fallbackText: memberDisplayName(address), size: 32, contactAddress: address)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(memberDisplayName(address))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                Text(Contact.generateDefaultAlias(from: address))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer()
+                            Button {
+                                selectedMemberAddresses.remove(address)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.borderless)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        setEditingGroupEntry(entry.id)
                     }
                 }
+            } label: {
+                Text(selectedMemberAddresses.isEmpty ? "Members" : "Members (\(selectedMemberAddresses.count))")
+                    .font(.headline)
+            }
+        }
+
+        // Contacts: collapsible search + list of people you have chatted with.
+        Section {
+            DisclosureGroup(isExpanded: $contactsExpanded) {
+                TextField("Search contacts", text: $memberSearchText)
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+
+                if contactsManager.activeContacts.isEmpty {
+                    Text("You have no contacts yet. Start a 1:1 chat with someone first, then you can add them to a group.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else if filteredGroupContacts.isEmpty {
+                    Text("No contacts match your search.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(filteredGroupContacts, id: \.address) { contact in
+                        Button {
+                            toggleGroupMember(contact.address)
+                        } label: {
+                            HStack(spacing: 12) {
+                                KNSAvatarView(avatarURLString: nil, fallbackText: contact.alias, size: 32, contactAddress: contact.address)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(contact.alias)
+                                        .foregroundColor(.primary)
+                                        .lineLimit(1)
+                                    Text(Contact.generateDefaultAlias(from: contact.address))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: selectedMemberAddresses.contains(contact.address) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(selectedMemberAddresses.contains(contact.address) ? .accentColor : .secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            } label: {
+                Text("Contacts")
+                    .font(.headline)
+            }
+        } footer: {
+            Text("Search and tap contacts to add them to the group. You can add up to \(Self.maxGroupMembers).")
+        }
+
+        // Add someone who is not in your contacts, by raw address or KNS domain. Reuses the
+        // existing resolve / Import / Paste / Scan machinery on a single entry.
+        Section {
+            ForEach($groupAddressEntries) { $entry in
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("kaspa:qr... or name.kas", text: $entry.text)
+                        .font(.system(.body, design: .monospaced))
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .onChange(of: entry.text) { newValue in
+                            resolveGroupAddress(id: entry.id, input: newValue)
+                        }
+
+                    groupAddressStatus(for: entry)
+
+                    Divider()
+
+                    HStack {
+                        Button {
+                            contactPickerRowID = entry.id
+                        } label: {
+                            Label("Import", systemImage: "person.crop.circle.badge.plus")
+                        }
+
+                        Spacer()
+
+                        Button {
+                            if let pastedText = UIPasteboard.general.string {
+                                let trimmed = pastedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                entry.text = trimmed
+                                resolveGroupAddress(id: entry.id, input: trimmed)
+                            }
+                        } label: {
+                            Label("Paste", systemImage: "doc.on.clipboard")
+                        }
+
+                        Spacer()
+
+                        Button {
+                            scanningGroupRowID = entry.id
+                        } label: {
+                            Label("Scan QR", systemImage: "qrcode.viewfinder")
+                        }
+                    }
+                    .buttonStyle(.borderless)
+
+                    Button {
+                        addTypedGroupMember(entry)
+                    } label: {
+                        Text("Add to Group")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isValidGroupEntry(entry))
+                }
+                .padding(.vertical, 4)
             }
         } header: {
-            Text("Members")
+            Text("Add by Address")
         } footer: {
-            Text("Up to \(Self.maxGroupMembers) addresses or KNS domains. Anyone not already a contact will be added automatically.")
+            Text("Add anyone by Kaspa address or KNS domain, even if they are not in your contacts.")
+        }
+    }
+
+    /// Adds a resolved raw-address/KNS entry to the selected members, then resets the field.
+    private func addTypedGroupMember(_ entry: GroupAddressEntry) {
+        guard isValidGroupEntry(entry), let address = entry.effectiveAddress else { return }
+        if selectedMemberAddresses.count < Self.maxGroupMembers {
+            selectedMemberAddresses.insert(address)
+        }
+        groupAddressEntries = [GroupAddressEntry()]
+        // Reveal the Members list so the just-added person is visible.
+        membersExpanded = true
+    }
+
+    /// Display name for a selected member: the contact alias if we have one, else the default
+    /// short-address alias (covers members added by raw address / KNS domain).
+    private func memberDisplayName(_ address: String) -> String {
+        if let contact = contactsManager.activeContacts.first(where: { $0.address == address }) {
+            return contact.alias
+        }
+        return Contact.generateDefaultAlias(from: address)
+    }
+
+    /// Contacts shown in the group member picker, filtered by the search box (name or address).
+    private var filteredGroupContacts: [Contact] {
+        let query = memberSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let all = contactsManager.activeContacts.sorted {
+            $0.alias.localizedCaseInsensitiveCompare($1.alias) == .orderedAscending
+        }
+        guard !query.isEmpty else { return all }
+        return all.filter { $0.alias.lowercased().contains(query) || $0.address.lowercased().contains(query) }
+    }
+
+    private func toggleGroupMember(_ address: String) {
+        if selectedMemberAddresses.contains(address) {
+            selectedMemberAddresses.remove(address)
+        } else if selectedMemberAddresses.count < Self.maxGroupMembers {
+            selectedMemberAddresses.insert(address)
         }
     }
 
@@ -709,36 +808,20 @@ struct AddContactView: View {
     }
 
     private var canCreateGroup: Bool {
-        guard !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        let nonEmptyEntries = groupAddressEntries.filter { !$0.trimmedText.isEmpty }
-        guard !nonEmptyEntries.isEmpty else { return false }
-        guard nonEmptyEntries.allSatisfy(isValidGroupEntry) else { return false }
-        return duplicateEffectiveAddresses.isEmpty
+        !groupName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !selectedMemberAddresses.isEmpty
     }
 
     private func createGroupChat() {
         let trimmedName = groupName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let nonEmptyEntries = groupAddressEntries.filter { !$0.trimmedText.isEmpty }
+        let addresses = Array(selectedMemberAddresses)
 
         guard !trimmedName.isEmpty else {
             error = "Enter a group name."
             return
         }
-        guard !nonEmptyEntries.isEmpty else {
-            error = "Add at least one address."
+        guard !addresses.isEmpty else {
+            error = "Add at least one member."
             return
-        }
-        guard duplicateEffectiveAddresses.isEmpty else {
-            error = "The same address or KNS domain is added more than once."
-            return
-        }
-        var addresses: [String] = []
-        for entry in nonEmptyEntries {
-            guard isValidGroupEntry(entry), let address = entry.effectiveAddress else {
-                error = entry.looksLikeDomain ? "Could not resolve \(entry.trimmedText)" : "Invalid address: \(entry.trimmedText)"
-                return
-            }
-            addresses.append(address)
         }
 
         isCreatingGroup = true

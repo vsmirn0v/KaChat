@@ -157,6 +157,25 @@ final class NetworkEpochMonitor: ObservableObject {
 
     // MARK: - Public API
 
+    /// True when the current network path should be treated as metered: cellular, a personal
+    /// hotspot, or Low Data Mode (constrained). This is THE gate for cellular data reduction -
+    /// block streams, probe cadences, sweep intervals and cloud-sync floors all key off it so
+    /// WiFi behavior stays unchanged while expensive paths trade a little latency for a lot
+    /// less transfer.
+    var isExpensivePath: Bool {
+        isExpensive || isConstrained
+    }
+
+    /// Hedge delay honoring expensive paths. NetworkQuality maps cellular (.good) to a LOWER
+    /// hedge delay than unmetered WiFi (400ms vs 3000ms), which fires the duplicate backup
+    /// request far more often exactly where every byte is metered. On an expensive path the
+    /// hedge never fires sooner than it would on unmetered WiFi.
+    var effectiveHedgeDelayMs: UInt64 {
+        let base = networkQuality.hedgeDelayMs
+        guard isExpensivePath else { return base }
+        return max(base, NetworkQuality.excellent.hedgeDelayMs)
+    }
+
     /// Whether we're within the grace period after a network change
     var isWithinGracePeriod: Bool {
         guard let lastChange = lastPathChangeTime else { return false }
@@ -217,5 +236,14 @@ extension NetworkEpochMonitor {
     /// Publisher for online status changes
     var onlinePublisher: AnyPublisher<Bool, Never> {
         $isOnline.eraseToAnyPublisher()
+    }
+
+    /// Publisher for expensive-path (metered/constrained) transitions - see `isExpensivePath`.
+    /// Emits only on actual changes so subscribers can re-evaluate gating without churn.
+    var expensivePathPublisher: AnyPublisher<Bool, Never> {
+        $isExpensive
+            .combineLatest($isConstrained) { $0 || $1 }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
     }
 }

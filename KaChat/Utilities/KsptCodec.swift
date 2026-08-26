@@ -25,7 +25,9 @@ enum KsptCodec {
     private static let flagSigned: UInt8 = 0x01
     private static let flagHasRedeemScript: UInt8 = 0x02
 
-    static let maxInputs = 8
+    // Matches firmware MAX_INPUTS=32 as of KasSigner v1.0.5 (was 8; devices on older
+    // firmware reject >8-input — and pre-1.0.5, even >5-input — transactions).
+    static let maxInputs = 32
     static let maxOutputs = 4
 
     /// Starts with the 4-byte "KSPT" magic — the same check KasSigner's own frame-0 detector uses.

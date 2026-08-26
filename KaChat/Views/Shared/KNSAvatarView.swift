@@ -1,33 +1,92 @@
 import CryptoKit
 import Foundation
 import SwiftUI
+import Contacts
 import UIKit
 
+/// The one avatar view in the app. Resolution order, applied here so no call site ever
+/// re-implements it: KNS avatar -> linked device-contact photo -> person glyph.
+///
+/// Pass `contactAddress` wherever the avatar stands for a person with a Kaspa address (chat
+/// rows, chat header, chat info, message bubbles, group member lists, pickers, share targets,
+/// KaPosts authors) and the device-contact photo layer comes for free - see
+/// `SystemContactAvatarStore` for the cache and for the `preferKNSAvatar` override.
 struct KNSAvatarView: View {
     let avatarURLString: String?
     let fallbackText: String
     var size: CGFloat = 44
+    /// Caller-resolved image that wins over everything else (rare; the device-contact photo
+    /// does NOT need this - use `contactAddress`).
+    var overrideImage: UIImage? = nil
+    /// Kaspa address this avatar represents; enables the device-contact photo layer.
+    var contactAddress: String? = nil
 
     @State private var loadedImage: UIImage?
     @State private var isLoading = false
     @State private var lastLoadedIdentity: String?
+    /// Observed so an avatar re-renders when its contact's photo lands from the lazy CN fetch.
+    /// The store only publishes when a photo is decoded (once per linked contact per session,
+    /// disk-cached afterwards), so this costs nothing on scroll.
+    @ObservedObject private var contactAvatars = SystemContactAvatarStore.shared
 
-    private var initials: String {
-        let trimmed = fallbackText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "?" }
+    /// The Contacts-app photo for `contactAddress`, if any. Asking for it is what kicks off the
+    /// (off-main-thread, cached) fetch, so it's read on every body pass.
+    private var deviceContactPhoto: UIImage? {
+        guard overrideImage == nil, contactAddress != nil else { return nil }
+        return contactAvatars.photo(forAddress: contactAddress)
+    }
 
-        let words = trimmed.split(separator: " ").prefix(2)
-        if words.count >= 2 {
-            let chars = words.compactMap { $0.first }.map { String($0).uppercased() }.joined()
-            if !chars.isEmpty { return chars }
-        }
-        return String(trimmed.prefix(2)).uppercased()
+    /// Only when the user explicitly chose "Contacts Photo" for this contact does the device
+    /// photo jump ahead of the KNS avatar.
+    private var deviceContactPhotoWinsOverKNS: Bool {
+        contactAvatars.prefersContactPhotoOverKNS(forAddress: contactAddress)
+    }
+
+    /// Decoded cache so a base64 backup photo is turned into a UIImage once, not on every
+    /// body pass while scrolling. Keyed by CONTACT ADDRESS, not the base64 itself: the old
+    /// key allocated and hashed a multi-KB NSString from the photo blob on every body pass,
+    /// and the cache had no bounds. Cost-limited so hundreds of contacts can't grow it forever.
+    private static let backupPhotoCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 256
+        cache.totalCostLimit = 24 * 1024 * 1024
+        return cache
+    }()
+    /// The cross-platform backup photo (base64 JPEG on the Contact), decoded lazily. Only the
+    /// final fallback before the glyph, so it is evaluated only for contacts with no device or
+    /// KNS photo.
+    private var backupPhotoImage: UIImage? {
+        guard overrideImage == nil, let contactAddress,
+              let base64 = ContactsManager.shared.getContact(byAddress: contactAddress)?.backupPhoto,
+              !base64.isEmpty else { return nil }
+        let key = contactAddress as NSString
+        if let cached = Self.backupPhotoCache.object(forKey: key) { return cached }
+        guard let data = Data(base64Encoded: base64), let image = UIImage(data: data) else { return nil }
+        Self.backupPhotoCache.setObject(image, forKey: key, cost: data.count)
+        return image
     }
 
     var body: some View {
         Group {
-            if let loadedImage {
+            let devicePhoto = deviceContactPhoto
+            if let resolved = overrideImage ?? (deviceContactPhotoWinsOverKNS ? devicePhoto : nil) {
+                Image(uiImage: resolved)
+                    .resizable()
+                    .scaledToFill()
+            } else if let loadedImage {
                 Image(uiImage: loadedImage)
+                    .resizable()
+                    .scaledToFill()
+            } else if let devicePhoto {
+                // No KNS avatar (or it hasn't loaded/failed): the device-contact photo is the
+                // fallback, ahead of the glyph.
+                Image(uiImage: devicePhoto)
+                    .resizable()
+                    .scaledToFill()
+            } else if let backupPhoto = backupPhotoImage {
+                // A photo carried in the cross-platform backup (e.g. set on desktop): the last
+                // photo fallback before the glyph.
+                Image(uiImage: backupPhoto)
                     .resizable()
                     .scaledToFill()
             } else {
@@ -49,11 +108,12 @@ struct KNSAvatarView: View {
     }
 
     private var fallbackAvatar: some View {
+        // Person glyph instead of initials for anyone without a photo/KNS avatar.
         Circle()
             .fill(Color.accentColor.opacity(0.2))
             .overlay(
-                Text(initials)
-                    .font(.system(size: max(12, size * 0.34), weight: .semibold))
+                Image(systemName: "person.fill")
+                    .font(.system(size: max(12, size * 0.42), weight: .medium))
                     .foregroundColor(.accentColor)
             )
     }
@@ -153,12 +213,19 @@ struct KNSAvatarFullscreenView: View {
     let avatarURLString: String?
     let fallbackText: String
     var title: String = "Avatar"
+    /// Linked iOS contact id: enables "add this KNS avatar as their photo in the Contacts
+    /// app" from the top bar.
+    var systemContactId: String? = nil
+    /// Kaspa address behind this avatar, so the placeholder falls back to their device-contact
+    /// photo (same order as everywhere else) while/if the KNS image isn't available.
+    var contactAddress: String? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var loadedImage: UIImage?
     @State private var isLoading = false
     @State private var showShareSheet = false
     @State private var lastLoadedIdentity: String?
+    @State private var contactSaveMessage: String?
 
     private var avatarURL: URL? {
         KNSProfileLinkBuilder.websiteURL(from: avatarURLString)
@@ -191,7 +258,8 @@ struct KNSAvatarFullscreenView: View {
                     KNSAvatarView(
                         avatarURLString: avatarURLString,
                         fallbackText: fallbackText,
-                        size: 220
+                        size: 220,
+                        contactAddress: contactAddress
                     )
                 }
             }
@@ -222,6 +290,22 @@ struct KNSAvatarFullscreenView: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
+                if systemContactId != nil {
+                    Button {
+                        saveAvatarToSystemContact()
+                    } label: {
+                        Image(systemName: "person.crop.circle.badge.plus")
+                            .font(.headline)
+                            .foregroundColor(.white)
+                            .frame(width: 36, height: 36)
+                            .background(Color.white.opacity(0.18))
+                            .clipShape(Circle())
+                    }
+                    .disabled(loadedImage == nil)
+                    .opacity(loadedImage == nil ? 0.45 : 1)
+                    .accessibilityLabel("Add as contact photo in Contacts")
+                }
+
                 Button {
                     showShareSheet = true
                 } label: {
@@ -238,6 +322,18 @@ struct KNSAvatarFullscreenView: View {
             .padding(.horizontal, 16)
             .padding(.top, 12)
         }
+        .overlay(alignment: .bottom) {
+            if let contactSaveMessage {
+                Text(contactSaveMessage)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color.white.opacity(0.18)))
+                    .padding(.bottom, 30)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .task(id: avatarURL?.absoluteString) {
             await loadRemoteAvatarIfNeeded()
         }
@@ -247,6 +343,48 @@ struct KNSAvatarFullscreenView: View {
             } else {
                 KNSAvatarShareSheet(activityItems: shareItems)
             }
+        }
+    }
+
+    /// Writes the loaded KNS avatar into the linked contact's card in the iOS Contacts app,
+    /// then refreshes the in-app cache so KaChat's own avatar reflects it immediately.
+    private func saveAvatarToSystemContact() {
+        guard let systemContactId,
+              let image = loadedImage,
+              let data = image.jpegData(compressionQuality: 0.9) else { return }
+        guard CNContactStore.authorizationStatus(for: .contacts) == .authorized else {
+            showContactSaveMessage("Contacts access isn't granted.")
+            return
+        }
+        Task.detached(priority: .userInitiated) {
+            let store = CNContactStore()
+            do {
+                let keys = [CNContactImageDataKey as CNKeyDescriptor]
+                let cnContact = try store.unifiedContact(withIdentifier: systemContactId, keysToFetch: keys)
+                guard let mutable = cnContact.mutableCopy() as? CNMutableContact else {
+                    throw CocoaError(.featureUnsupported)
+                }
+                mutable.imageData = data
+                let saveRequest = CNSaveRequest()
+                saveRequest.update(mutable)
+                try store.execute(saveRequest)
+                await MainActor.run {
+                    SystemContactAvatarStore.shared.storeImage(image, data: data, forSystemContactId: systemContactId)
+                    showContactSaveMessage("Saved as their photo in Contacts.")
+                }
+            } catch {
+                await MainActor.run {
+                    showContactSaveMessage("Couldn't update Contacts.")
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func showContactSaveMessage(_ message: String) {
+        withAnimation(.easeOut(duration: 0.2)) { contactSaveMessage = message }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            withAnimation(.easeIn(duration: 0.2)) { contactSaveMessage = nil }
         }
     }
 
@@ -375,6 +513,19 @@ private actor KNSProfileImageCache {
     private var manifestLoaded = false
     private var manifest: [String: ManifestEntry] = [:]
 
+    /// In-flight downloads keyed by cache identity: many rows showing the same avatar await one
+    /// download instead of each firing their own (mirrors `LinkPreviewService.inFlight`). The
+    /// tasks are unstructured so a row scrolling away (its `.task` gets cancelled) can't kill a
+    /// download other rows are waiting on - the bytes always land in the cache.
+    private var inFlightDownloads: [String: Task<UIImage?, Never>] = [:]
+
+    /// Failed downloads retry after a cooldown instead of on every row remount - a dead avatar
+    /// URL would otherwise be re-requested on every scroll (negative-cache-with-cooldown, same
+    /// pattern as LinkPreviewService's Nextcloud probe failures). Bounded by periodic pruning.
+    private var downloadFailureAt: [String: Date] = [:]
+    private let downloadFailureCooldown: TimeInterval = 60
+    private let maxFailureEntries = 512
+
     private init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 12
@@ -418,7 +569,54 @@ private actor KNSProfileImageCache {
             return diskImage
         }
 
-        return await downloadAndStore(descriptor: descriptor, existingEntry: manifest[descriptor.cacheIdentity])
+        return await coalescedDownload(descriptor: descriptor)
+    }
+
+    /// Cold download path: joins an in-flight download for the same identity when one exists,
+    /// respects the failure cooldown, and runs the download detached from the caller's task so
+    /// view cancellation (row scrolled offscreen) can't abort it mid-flight.
+    private func coalescedDownload(descriptor: KNSProfileImageDescriptor) async -> UIImage? {
+        let identity = descriptor.cacheIdentity
+
+        if let existing = inFlightDownloads[identity] {
+            return await existing.value
+        }
+        if let failedAt = downloadFailureAt[identity],
+           Date().timeIntervalSince(failedAt) < downloadFailureCooldown {
+            return nil
+        }
+
+        let existingEntry = manifest[identity]
+        let task = Task<UIImage?, Never> {
+            await self.downloadAndStore(descriptor: descriptor, existingEntry: existingEntry)
+        }
+        inFlightDownloads[identity] = task
+        let image = await task.value
+        inFlightDownloads.removeValue(forKey: identity)
+
+        if image == nil {
+            downloadFailureAt[identity] = Date()
+            pruneFailureEntriesIfNeeded()
+        } else {
+            downloadFailureAt.removeValue(forKey: identity)
+        }
+        return image
+    }
+
+    private func pruneFailureEntriesIfNeeded() {
+        guard downloadFailureAt.count > maxFailureEntries else { return }
+        // Expired cooldowns are dead weight; drop them first, then oldest overflow if needed.
+        let now = Date()
+        downloadFailureAt = downloadFailureAt.filter {
+            now.timeIntervalSince($0.value) < downloadFailureCooldown
+        }
+        if downloadFailureAt.count > maxFailureEntries {
+            let overflow = downloadFailureAt.count - maxFailureEntries
+            let oldestKeys = downloadFailureAt.sorted { $0.value < $1.value }.prefix(overflow).map(\.key)
+            for key in oldestKeys {
+                downloadFailureAt.removeValue(forKey: key)
+            }
+        }
     }
 
     private func shouldRevalidate(entry: ManifestEntry, descriptor: KNSProfileImageDescriptor) -> Bool {

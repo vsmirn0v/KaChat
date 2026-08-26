@@ -10,9 +10,13 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     /// Cache of selected KNS profiles by address (primary domain if available)
     @Published private(set) var profileCache: [String: KNSAddressProfileInfo] = [:]
 
-    /// Addresses currently being fetched
-    private var pendingFetches: Set<String> = []
-    private var pendingProfileFetches: Set<String> = []
+    /// In-flight fetches keyed by address, so concurrent callers for the same not-yet-cached
+    /// address (e.g. many KaPosts feed rows by the same poster mounting at once) await the SAME
+    /// network request instead of each firing their own - mirrors `LinkPreviewService.inFlight`.
+    /// Crucially these are unstructured Tasks: a row's `.task` being cancelled on scroll-away no
+    /// longer cancels the underlying fetch, so the result always lands in the cache.
+    private var inFlightInfoFetches: [String: Task<KNSAddressInfo?, Never>] = [:]
+    private var inFlightProfileFetches: [String: Task<KNSAddressProfileInfo?, Never>] = [:]
     private var lastAttemptAt: [String: Date] = [:]
     private var lastProfileAttemptAt: [String: Date] = [:]
     private var failureCounts: [String: Int] = [:]
@@ -24,6 +28,26 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     private let maxBackoffInterval: TimeInterval = 6 * 60 * 60
     private let maxConcurrentRefreshes = 4
     private let maxConcurrentProfileRefreshes = 3
+
+    /// Failed lookups retry after a short exponential cooldown (30s, 60s, ... capped at 10min)
+    /// instead of either hammering the API on every row remount or - the old, worse behavior -
+    /// never retrying at all because the failure got cached as a permanent "no KNS" result.
+    /// Mirrors the Nextcloud negative-cache-with-cooldown pattern in `LinkPreviewService`.
+    private let failureCooldownBase: TimeInterval = 30
+    private let failureCooldownMax: TimeInterval = 10 * 60
+
+    /// Persisted caches and attempt bookkeeping stay bounded - a KaPosts feed can surface
+    /// hundreds of unique poster addresses over time.
+    private let maxCacheEntries = 512
+    private let maxAttemptEntries = 2_048
+
+    /// Global cap on concurrent KNS network fetches. A feed of posts used to fan out 3 HTTP
+    /// requests per unique poster all at once (primary-name + assets + profile), which is a
+    /// plausible way to trip api.knsdomains.org rate limiting; now at most this many
+    /// address-level fetch operations touch the network simultaneously.
+    private let maxConcurrentNetworkFetches = 4
+    private var activeFetchSlots = 0
+    private var fetchSlotWaiters: [CheckedContinuation<Void, Never>] = []
 
     private var session: URLSession!
 
@@ -125,32 +149,60 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
     /// Get KNS info for an address (from cache or fetch)
     func getInfo(for address: String, network: NetworkType = .mainnet) async -> KNSAddressInfo? {
-        // Return cached if available
-        if let cached = domainCache[address] {
+        // Return cached if available - except a stale empty entry, which may be a poisoned
+        // negative from the era when fetch errors were cached as "no KNS"; refetch those.
+        if let cached = domainCache[address], !shouldRefetchEmptyInfo(cached) {
             return cached
         }
-
-        // Fetch if not already pending
-        guard !pendingFetches.contains(address) else { return nil }
 
         return await fetchInfo(for: address, network: network)
     }
 
-    /// Fetch KNS info for an address (always fetches fresh data)
+    /// The cached reverse-resolved primary domain for `address` (the explicit `/primary-name`
+    /// result the @mention feature keys on - see `KNSAddressInfo.explicitPrimaryDomain`), bare
+    /// (no ".kas") and lowercased. Nil when the lookup found none, or when nothing is cached
+    /// yet. Used by the group mentions-only notification gate to recognize Android-composed
+    /// `@{primaryKNSDomain}` mention tokens.
+    func barePrimaryDomain(for address: String) -> String? {
+        guard let raw = domainCache[address]?.explicitPrimaryDomain?
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), !raw.isEmpty else { return nil }
+        return raw.hasSuffix(".kas") ? String(raw.dropLast(4)) : raw
+    }
+
+    /// Fetch KNS info for an address (always fetches fresh data).
+    /// Concurrent callers for the same address share one in-flight request; failed lookups are
+    /// throttled by a short exponential cooldown rather than refetched on every call.
     func fetchInfo(for address: String, network: NetworkType = .mainnet) async -> KNSAddressInfo? {
-        guard !pendingFetches.contains(address) else { return domainCache[address] }
+        guard !address.isEmpty else { return nil }
+        if let existing = inFlightInfoFetches[address] {
+            return await existing.value
+        }
+        if isInFailureCooldown(lastAttempt: lastAttemptAt[address], failures: failureCounts[address, default: 0]) {
+            return domainCache[address]
+        }
 
         lastAttemptAt[address] = Date()
-        pendingFetches.insert(address)
-        defer { pendingFetches.remove(address) }
+        trimAttemptBookkeeping()
 
-        let result = await fetchInfoInternal(for: address, network: network)
-        if result.hadError {
-            failureCounts[address, default: 0] += 1
-        } else {
-            failureCounts[address] = 0
+        // Unstructured on purpose: survives cancellation of the awaiting view task, so a row
+        // scrolling away mid-fetch can't turn into a spurious "failed lookup" (the old code let
+        // CancellationError take the error path - and then cached the empty result forever).
+        let task = Task<KNSAddressInfo?, Never> { [weak self] () -> KNSAddressInfo? in
+            guard let self else { return nil }
+            await self.acquireFetchSlot()
+            let result = await self.fetchInfoInternal(for: address, network: network)
+            self.releaseFetchSlot()
+            if result.hadError {
+                self.failureCounts[address, default: 0] += 1
+            } else {
+                self.failureCounts[address] = 0
+            }
+            return result.info
         }
-        return result.info
+        inFlightInfoFetches[address] = task
+        let info = await task.value
+        inFlightInfoFetches.removeValue(forKey: address)
+        return info
     }
 
     /// Fetch KNS info for multiple addresses
@@ -168,7 +220,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     func refreshIfNeeded(for addresses: [String], network: NetworkType = .mainnet) async {
         let now = Date()
         let eligible = addresses.filter { address in
-            guard !pendingFetches.contains(address) else { return false }
+            guard inFlightInfoFetches[address] == nil else { return false }
             guard let last = lastAttemptAt[address] else { return true }
             let failures = failureCounts[address, default: 0]
             let backoff = min(maxBackoffInterval, minRefreshInterval * pow(2.0, Double(failures)))
@@ -323,35 +375,49 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
     /// Get cached/fetched KNS profile for an address.
     func getProfile(for address: String, network: NetworkType = .mainnet) async -> KNSAddressProfileInfo? {
-        if let cached = profileCache[address] {
+        if let cached = profileCache[address], !shouldRefetchEmptyProfile(cached) {
             return cached
         }
-        guard !pendingProfileFetches.contains(address) else { return nil }
         return await fetchProfile(for: address, network: network)
     }
 
     /// Fetch KNS profile for an address.
+    /// Concurrent callers for the same address share one in-flight request; failed lookups are
+    /// throttled by a short exponential cooldown rather than refetched on every call.
     func fetchProfile(for address: String, network: NetworkType = .mainnet) async -> KNSAddressProfileInfo? {
-        guard !pendingProfileFetches.contains(address) else { return profileCache[address] }
+        guard !address.isEmpty else { return nil }
+        if let existing = inFlightProfileFetches[address] {
+            return await existing.value
+        }
+        if isInFailureCooldown(lastAttempt: lastProfileAttemptAt[address], failures: profileFailureCounts[address, default: 0]) {
+            return profileCache[address]
+        }
 
         lastProfileAttemptAt[address] = Date()
-        pendingProfileFetches.insert(address)
-        defer { pendingProfileFetches.remove(address) }
+        trimAttemptBookkeeping()
 
-        let result = await fetchProfileInternal(for: address, network: network)
-        if result.hadError {
-            profileFailureCounts[address, default: 0] += 1
-        } else {
-            profileFailureCounts[address] = 0
+        // Unstructured on purpose - see fetchInfo(for:network:).
+        let task = Task<KNSAddressProfileInfo?, Never> { [weak self] () -> KNSAddressProfileInfo? in
+            guard let self else { return nil }
+            let result = await self.fetchProfileInternal(for: address, network: network)
+            if result.hadError {
+                self.profileFailureCounts[address, default: 0] += 1
+            } else {
+                self.profileFailureCounts[address] = 0
+            }
+            return result.info
         }
-        return result.info
+        inFlightProfileFetches[address] = task
+        let info = await task.value
+        inFlightProfileFetches.removeValue(forKey: address)
+        return info
     }
 
     /// Refresh KNS profiles for multiple addresses if debounce allows it.
     func refreshProfilesIfNeeded(for addresses: [String], network: NetworkType = .mainnet) async {
         let now = Date()
         let eligible = addresses.filter { address in
-            guard !pendingProfileFetches.contains(address) else { return false }
+            guard inFlightProfileFetches[address] == nil else { return false }
             guard let last = lastProfileAttemptAt[address] else { return true }
             let failures = profileFailureCounts[address, default: 0]
             let backoff = min(maxBackoffInterval, minRefreshInterval * pow(2.0, Double(failures)))
@@ -868,8 +934,12 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         let (allDomains, assetsError) = await fetchAllDomains(for: address, baseURL: baseURL)
         let hadError = primaryError || assetsError
 
-        if hadError, let cached = domainCache[address] {
-            return (cached, true)
+        // NEVER cache an errored lookup (rate limit, timeout, offline) as a real result. The
+        // old fall-through cached it as a permanent "address has no KNS" entry - persisted to
+        // UserDefaults - which is exactly how some KaPosts avatars/names got stuck missing
+        // forever. Return what we have; the failure cooldown + refresh backoff handle retrying.
+        if hadError {
+            return (domainCache[address], true)
         }
 
         if allDomains.isEmpty && primaryDomain == nil {
@@ -904,13 +974,32 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
     private func updateCache(_ info: KNSAddressInfo, address: String) {
         domainCache[address] = info
+        trimCacheIfNeeded(&domainCache)
         persistCache()
+        // The wallet's OWN primary domain just (re)loaded - push it to the App Group so the
+        // notification extension's mentions-only gate can match Android-composed @domain
+        // mention tokens (see SharedDataManager.syncOwnKNSDomainForExtension).
+        if address == WalletManager.shared.currentWallet?.publicAddress {
+            SharedDataManager.syncOwnKNSDomainForExtension()
+        }
     }
 
     private func fetchProfileInternal(for address: String, network: NetworkType) async -> (info: KNSAddressProfileInfo?, hadError: Bool) {
         var domainInfo = domainCache[address]
+        // A stale cached "no domains" entry may be a poisoned negative from an old failed
+        // lookup - refetch it instead of trusting it (it also would make this function cache a
+        // permanent empty profile below).
+        if let cached = domainInfo, shouldRefetchEmptyInfo(cached) {
+            domainInfo = nil
+        }
         if domainInfo == nil {
             domainInfo = await fetchInfo(for: address, network: network)
+        }
+        // fetchInfo returning nil means the lookup errored with nothing cached - treat the
+        // profile lookup as errored too, and cache NOTHING (a cached empty profile would stick
+        // forever, since views only refetch when the cache has no entry).
+        guard domainInfo != nil else {
+            return (profileCache[address], true)
         }
         let selectedProfileTarget: (assetId: String, domainName: String?)? = {
             guard let domainInfo else { return nil }
@@ -944,13 +1033,17 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
             return (info, false)
         }
 
+        await acquireFetchSlot()
         let (profileData, profileError) = await fetchDomainProfileResult(
             assetId: selectedProfileTarget.assetId,
             baseURL: baseURL
         )
+        releaseFetchSlot()
 
-        if profileError, let cached = profileCache[address] {
-            return (cached, true)
+        // Same rule as fetchInfoInternal: an errored profile fetch is never cached as "this
+        // domain has no profile" - that poisoned entry would suppress the avatar forever.
+        if profileError {
+            return (profileCache[address], true)
         }
 
         let profile = profileData?.profile?.toModel()
@@ -967,7 +1060,87 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
 
     private func updateProfileCache(_ info: KNSAddressProfileInfo, address: String) {
         profileCache[address] = info
+        trimCacheIfNeeded(&profileCache)
         persistProfileCache()
+    }
+
+    // MARK: - Fetch throttling helpers
+
+    /// True while a previously FAILED lookup for this address is inside its retry cooldown.
+    /// Successful lookups (failures == 0) are never throttled by this.
+    private func isInFailureCooldown(lastAttempt: Date?, failures: Int) -> Bool {
+        guard failures > 0, let lastAttempt else { return false }
+        let cooldown = min(failureCooldownMax, failureCooldownBase * pow(2.0, Double(failures - 1)))
+        return Date().timeIntervalSince(lastAttempt) < cooldown
+    }
+
+    /// An empty (no domains, no primary) cached info entry older than the refresh interval is
+    /// worth refetching: it may be a permanently-cached failed lookup written before errors
+    /// stopped being cached (poisoned entries persisted in UserDefaults on devices in the
+    /// field), and genuine no-KNS addresses can also inscribe a domain at any time.
+    private func shouldRefetchEmptyInfo(_ info: KNSAddressInfo) -> Bool {
+        info.allDomains.isEmpty
+            && info.primaryDomain == nil
+            && Date().timeIntervalSince(info.fetchedAt) >= minRefreshInterval
+    }
+
+    /// Same idea for cached profile entries that resolved to "no domain / no profile".
+    private func shouldRefetchEmptyProfile(_ info: KNSAddressProfileInfo) -> Bool {
+        info.assetId == nil
+            && info.profile == nil
+            && Date().timeIntervalSince(info.fetchedAt) >= minRefreshInterval
+    }
+
+    /// Bounded FIFO-by-fetch-date eviction so the persisted caches can't grow without limit.
+    private func trimCacheIfNeeded<T>(_ cache: inout [String: T]) where T: KNSFetchedAtProviding {
+        guard cache.count > maxCacheEntries else { return }
+        let overflow = cache.count - maxCacheEntries
+        let oldestKeys = cache
+            .sorted { $0.value.fetchedAt < $1.value.fetchedAt }
+            .prefix(overflow)
+            .map(\.key)
+        for key in oldestKeys {
+            cache.removeValue(forKey: key)
+        }
+    }
+
+    private func trimAttemptBookkeeping() {
+        if lastAttemptAt.count > maxAttemptEntries {
+            let overflow = lastAttemptAt.count - maxAttemptEntries
+            let oldestKeys = lastAttemptAt.sorted { $0.value < $1.value }.prefix(overflow).map(\.key)
+            for key in oldestKeys {
+                lastAttemptAt.removeValue(forKey: key)
+                failureCounts.removeValue(forKey: key)
+            }
+        }
+        if lastProfileAttemptAt.count > maxAttemptEntries {
+            let overflow = lastProfileAttemptAt.count - maxAttemptEntries
+            let oldestKeys = lastProfileAttemptAt.sorted { $0.value < $1.value }.prefix(overflow).map(\.key)
+            for key in oldestKeys {
+                lastProfileAttemptAt.removeValue(forKey: key)
+                profileFailureCounts.removeValue(forKey: key)
+            }
+        }
+    }
+
+    /// Simple main-actor slot gate limiting concurrent KNS network fetch operations. Slots are
+    /// only ever held around a network call and never nested (fetchProfileInternal awaits
+    /// fetchInfo BEFORE acquiring its own slot), so this cannot deadlock.
+    private func acquireFetchSlot() async {
+        if activeFetchSlots < maxConcurrentNetworkFetches {
+            activeFetchSlots += 1
+            return
+        }
+        await withCheckedContinuation { fetchSlotWaiters.append($0) }
+    }
+
+    private func releaseFetchSlot() {
+        if fetchSlotWaiters.isEmpty {
+            activeFetchSlots = max(0, activeFetchSlots - 1)
+        } else {
+            // The slot transfers directly to the resumed waiter - count stays unchanged.
+            fetchSlotWaiters.removeFirst().resume()
+        }
     }
 
     private func normalizeDomainName(_ raw: String?) -> String? {
@@ -1112,9 +1285,22 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         profileCache = sanitized
     }
 
+    // Debounced + encoded off the main actor: this used to JSON-encode the ENTIRE cache
+    // (up to 512 profile records) synchronously on the main thread once per resolved
+    // avatar — a visible stutter every time a new name landed while scrolling a feed.
+    private var persistProfileCacheTask: Task<Void, Never>?
     private func persistProfileCache() {
-        guard let data = try? JSONEncoder().encode(profileCache) else { return }
-        UserDefaults.standard.set(data, forKey: profileCacheKey)
+        persistProfileCacheTask?.cancel()
+        persistProfileCacheTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 750_000_000)
+            guard let self, !Task.isCancelled else { return }
+            let snapshot = self.profileCache
+            let key = self.profileCacheKey
+            await Task.detached(priority: .utility) {
+                guard let data = try? JSONEncoder().encode(snapshot) else { return }
+                UserDefaults.standard.set(data, forKey: key)
+            }.value
+        }
     }
 }
 
@@ -1534,26 +1720,50 @@ final class KNSDomainTransferService: ObservableObject {
         AppLog.log("[KNS_TRANSFER] %@", message)
     }
 
+    /// Transfers a domain owned by the wallet's identity/chatting address by default. Pass
+    /// `fromSpendingAddressIndex` to instead transfer a domain owned by one of the wallet's
+    /// spending-chain addresses: that address then acts as owner, funder, signer, and change
+    /// target for the whole commit/reveal pair - mirroring how spending-address sends derive
+    /// their own key (WalletManager.spendingPrivateKey(at:)) rather than the identity key.
     @discardableResult
     func transferDomain(
         domain fullDomain: String,
         assetId rawAssetId: String,
         to rawRecipient: String,
-        priorityFeeSompi: UInt64 = 2_000_000
+        priorityFeeSompi: UInt64 = 2_000_000,
+        fromSpendingAddressIndex: Int? = nil
     ) async throws -> KNSDomainTransferResult {
         guard !isSubmitting else {
             throw KasiaError.apiError("Another KNS domain transfer is already running")
         }
-        guard let wallet = walletManager.currentWallet else {
+        guard walletManager.currentWallet != nil else {
             throw KasiaError.walletNotFound
         }
-        guard let privateKey = walletManager.getPrivateKey() else {
-            throw KasiaError.keychainError("Could not get private key")
+        // The source address is the domain's owner: it funds the commit, its pubkey goes into
+        // the redeem script, its key signs both transactions, and it receives all change.
+        let sourceAddress: String
+        let sourcePrivateKey: Data
+        if let index = fromSpendingAddressIndex {
+            guard let address = walletManager.spendingAddress(at: index),
+                  let key = walletManager.spendingPrivateKey(at: index) else {
+                throw KasiaError.keychainError("Could not derive spending address key")
+            }
+            sourceAddress = address
+            sourcePrivateKey = key
+        } else {
+            // KNS activity is funded and settled entirely on the identity/chatting address
+            // chain by default - same as submitAddProfile/inscribeDomain.
+            guard let wallet = walletManager.currentWallet else {
+                throw KasiaError.walletNotFound
+            }
+            guard let key = walletManager.getPrivateKey() else {
+                throw KasiaError.keychainError("Could not get private key")
+            }
+            sourceAddress = wallet.publicAddress
+            sourcePrivateKey = key
         }
-        // KNS activity is funded and settled entirely on the identity/chatting address chain -
-        // no spending-address split, same as submitAddProfile/inscribeDomain.
-        let fundingAddress = wallet.publicAddress
-        let fundingPrivateKey = privateKey
+        let fundingAddress = sourceAddress
+        let fundingPrivateKey = sourcePrivateKey
 
         let assetId = rawAssetId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !assetId.isEmpty else {
@@ -1567,16 +1777,20 @@ final class KNSDomainTransferService: ObservableObject {
 
         let recipientAddress = try await resolveRecipientAddress(
             rawRecipient,
-            walletAddress: wallet.publicAddress
+            walletAddress: sourceAddress
         )
 
-        log("START domain=\(domain) asset=\(assetId) from=\(wallet.publicAddress) to=\(recipientAddress)")
+        log("START domain=\(domain) asset=\(assetId) from=\(sourceAddress) to=\(recipientAddress)")
         isSubmitting = true
         defer { isSubmitting = false }
 
         if let resolution = await knsService.resolveDomain(domain),
-           resolution.ownerAddress.lowercased() != wallet.publicAddress.lowercased() {
-            throw KasiaError.apiError("Domain is not owned by current wallet")
+           resolution.ownerAddress.lowercased() != sourceAddress.lowercased() {
+            throw KasiaError.apiError(
+                fromSpendingAddressIndex == nil
+                ? "Domain is not owned by current wallet"
+                : "Domain is not owned by this spending address"
+            )
         }
 
         let payload = knsService.buildTransferDomainPayload(
@@ -1589,7 +1803,11 @@ final class KNSDomainTransferService: ObservableObject {
         let fetchedUtxos = try await nodePool.getUtxosByAddresses([fundingAddress])
         let utxos = fetchedUtxos.filter { !$0.isCoinbase && $0.blockDaaScore > 0 }
         guard !utxos.isEmpty else {
-            throw KasiaError.networkError("No spendable UTXOs available in your chatting address for KNS transfer")
+            throw KasiaError.networkError(
+                fromSpendingAddressIndex == nil
+                ? "No spendable UTXOs available in your chatting address for KNS transfer"
+                : "No spendable UTXOs available in this spending address for KNS transfer"
+            )
         }
         log("UTXO domain=\(domain) total=\(fetchedUtxos.count) spendable=\(utxos.count)")
 
@@ -1599,7 +1817,7 @@ final class KNSDomainTransferService: ObservableObject {
         log("AMOUNTS domain=\(domain) revealSompi=\(revealSompi) commitSompi=\(commitSompi)")
 
         let (commitTx, commitContext) = try KasiaTransactionBuilder.buildKNSAddProfileCommitTx(
-            ownerAddress: wallet.publicAddress,
+            ownerAddress: sourceAddress,
             fundingAddress: fundingAddress,
             fundingPrivateKey: fundingPrivateKey,
             payloadJSON: payloadJSON,
@@ -1616,12 +1834,12 @@ final class KNSDomainTransferService: ObservableObject {
         )
 
         let revealTx = try KasiaTransactionBuilder.buildKNSAddProfileRevealTx(
-            ownerAddress: wallet.publicAddress,
-            ownerPrivateKey: privateKey,
+            ownerAddress: sourceAddress,
+            ownerPrivateKey: sourcePrivateKey,
             changeAddress: fundingAddress,
             commitTxId: commitTxId,
             commitContext: commitContext,
-            revealTargetAddress: wallet.publicAddress,
+            revealTargetAddress: sourceAddress,
             revealPriorityFeeSompi: priorityFeeSompi
         )
         let (revealTxId, _) = try await submitRevealWithFallback(revealTx)
@@ -1644,8 +1862,8 @@ final class KNSDomainTransferService: ObservableObject {
         )
         log("VERIFY domain=\(domain) verified=\(verified)")
 
-        _ = await knsService.fetchInfo(for: wallet.publicAddress)
-        _ = await knsService.fetchProfile(for: wallet.publicAddress)
+        _ = await knsService.fetchInfo(for: sourceAddress)
+        _ = await knsService.fetchProfile(for: sourceAddress)
         _ = await knsService.fetchInfo(for: recipientAddress)
 
         return KNSDomainTransferResult(
@@ -1726,6 +1944,14 @@ final class KNSDomainTransferService: ObservableObject {
 
 // MARK: - Models
 
+/// Lets `KNSService.trimCacheIfNeeded` evict oldest-fetched entries generically.
+protocol KNSFetchedAtProviding {
+    var fetchedAt: Date { get }
+}
+
+extension KNSAddressInfo: KNSFetchedAtProviding {}
+extension KNSAddressProfileInfo: KNSFetchedAtProviding {}
+
 struct KNSAddressInfo: Equatable, Codable {
     let address: String
     let primaryDomain: String?
@@ -1767,6 +1993,12 @@ struct KNSDomain: Equatable, Codable {
         }
         return fullName
     }
+}
+
+/// Identity for sheet(item:)/ForEach use - the inscription id is the on-chain unique id of the
+/// domain asset (same key KNSDomainsListView already uses for ForEach).
+extension KNSDomain: Identifiable {
+    var id: String { inscriptionId }
 }
 
 struct KNSAddressProfileInfo: Equatable, Codable {

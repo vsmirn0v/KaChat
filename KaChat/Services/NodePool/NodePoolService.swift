@@ -34,6 +34,24 @@ final class NodePoolService: ObservableObject {
     @Published private(set) var lastRefreshDate: Date?
     @Published private(set) var connectionError: String?
 
+    /// True when the pattern of failures says gRPC node connections are blocked wholesale on
+    /// this network (censorship/DPI, corporate firewall): the device is online, zero nodes are
+    /// active, and many DISTINCT nodes have failed recently with not a single success. The
+    /// connection status screen surfaces this honestly (receiving messages still works over the
+    /// indexer's HTTPS; sending needs a node). Cleared automatically the moment any node
+    /// answers, and both the flag and its failure accounting reset on every boot, pin switch,
+    /// and network path change, so a verdict earned on hotel WiFi cannot outlive that network.
+    /// No verdict is formed inside the grace window after any of those events: the parallel
+    /// boot/switch racing intentionally burns through stale and dead candidates fast, and eight
+    /// distinct failures can pile up in seconds while the eventual winner is still dialing.
+    @Published private(set) var nodeNetworkBlockedSuspected = false
+
+    /// Failures before this instant never count toward a blocked verdict, and no verdict is
+    /// formed until `blockedDetectionGracePeriod` has elapsed past it. Bumped on initialize,
+    /// pin/unpin switches, and network epoch changes (see resetBlockedNetworkDetection).
+    private var blockedDetectionAnchor = Date()
+    private static let blockedDetectionGracePeriod: TimeInterval = 90
+
     // MARK: - Components
 
     let registry: NodeRegistry
@@ -52,6 +70,8 @@ final class NodePoolService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var statsUpdateTask: Task<Void, Never>?
     private var previousPoolHealth: PoolHealth?
+    /// Client tokens currently wanting block-added notifications - see subscribeBlockAdded.
+    private var blockAddedClients: Set<String> = []
 
     // MARK: - Initialization
 
@@ -79,7 +99,18 @@ final class NodePoolService: ObservableObject {
         // instantiated, so this was never actually happening.
         epochMonitor.onEpochChange { [weak self] newEpochId in
             Task {
-                await self?.registry.resetEpochStats(newEpochId: newEpochId)
+                guard let self else { return }
+                // New network path: any blocked verdict (and the failure accounting behind it)
+                // belonged to the old path - clear both instantly, even while discovery/stats
+                // loops are paused, so a stale "Blocked" can never be shown on a new network.
+                await self.resetBlockedNetworkDetection(reason: "network epoch change")
+                await self.registry.resetEpochStats(newEpochId: newEpochId)
+                // Then immediately redial every tracked connection that is dead on the new
+                // path (bounded to the existing pool; cheap no-op for live connections) - a
+                // WiFi<->cellular or VPN flip kills sockets that would otherwise only get
+                // reconnected lazily when something happens to pick that exact endpoint.
+                // UtxoSubscriptionManager independently resubscribes on this same signal.
+                await self.connectionPool.reconnectDisconnected()
             }
         }
     }
@@ -112,6 +143,10 @@ final class NodePoolService: ObservableObject {
         isInitializing = true
         self.networkType = network
         AppLog.log("[NodePool] Initializing for %@", network.displayName)
+
+        // Fresh session, fresh verdict window - persisted records may carry failure timestamps
+        // from a launch minutes ago on some other network.
+        await resetBlockedNetworkDetection(reason: "initialize")
 
         // Load persisted records FIRST
         await registry.load()
@@ -304,6 +339,9 @@ final class NodePoolService: ObservableObject {
     func resumeDiscovery() async {
         guard isInitialized, isDiscoveryPaused else { return }
         isDiscoveryPaused = false
+        // The stats loop was frozen while paused; restart the verdict window rather than let
+        // pre-pause failures (possibly from another network) combine with the resume burst.
+        await resetBlockedNetworkDetection(reason: "discovery resumed")
         await profiler?.start(network: networkType)
         startPeriodicStatsUpdate()
         quickBootTask?.cancel()
@@ -431,7 +469,87 @@ final class NodePoolService: ObservableObject {
         }
 
         await updatePoolStats()
+
+        // Every gRPC endpoint failed (or none were eligible) - fall back to the Kaspa REST API
+        // over HTTPS, which typically survives networks that block raw gRPC on 16110
+        // (censorship/DPI, corporate firewalls). Read-only: balance display, fee estimation and
+        // spendable-UTXO lookups keep working; transaction submission still needs a node (the
+        // REST submit endpoint cannot carry the payload field KaChat messages live in).
+        do {
+            let utxos = try await getUtxosByAddressesViaRest(addresses)
+            AppLog.log("[NodePool] getUtxosByAddresses: gRPC unavailable, served %d UTXOs via REST fallback", utxos.count)
+            return utxos
+        } catch {
+            AppLog.log("[NodePool] getUtxosByAddresses REST fallback failed: %@", error.localizedDescription)
+        }
+
         throw lastError ?? KasiaError.networkError("All endpoints failed")
+    }
+
+    // MARK: - REST Fallback (UTXO reads)
+
+    /// Response shape of the Kaspa REST API's `GET /addresses/{address}/utxos`
+    /// (kaspa-rest-server; amounts and DAA scores are decimal strings).
+    private struct RestUtxoEntry: Decodable {
+        struct RestOutpoint: Decodable {
+            let transactionId: String
+            let index: UInt32
+        }
+        struct RestScriptPublicKey: Decodable {
+            let scriptPublicKey: String
+        }
+        struct RestEntry: Decodable {
+            let amount: String
+            let scriptPublicKey: RestScriptPublicKey
+            let blockDaaScore: String
+            let isCoinbase: Bool?
+        }
+        let address: String
+        let outpoint: RestOutpoint
+        let utxoEntry: RestEntry
+    }
+
+    private func getUtxosByAddressesViaRest(_ addresses: [String]) async throws -> [UTXO] {
+        let baseURL = AppSettings.load().kaspaRestAPIURL
+        var all: [UTXO] = []
+
+        for address in addresses {
+            guard var components = URLComponents(string: baseURL) else {
+                throw KasiaError.networkError("Invalid Kaspa REST API URL")
+            }
+            components.path += "/addresses/\(address)/utxos"
+            guard let url = components.url else {
+                throw KasiaError.networkError("Invalid Kaspa REST API URL")
+            }
+
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 15
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                throw KasiaError.networkError("Kaspa REST API returned an error for UTXO lookup")
+            }
+
+            let decoded = try JSONDecoder().decode([RestUtxoEntry].self, from: data)
+            for entry in decoded {
+                guard let amount = UInt64(entry.utxoEntry.amount) else { continue }
+                let scriptData = Data(hexString: entry.utxoEntry.scriptPublicKey.scriptPublicKey) ?? Data()
+                all.append(
+                    UTXO(
+                        address: entry.address,
+                        outpoint: UTXO.Outpoint(
+                            transactionId: entry.outpoint.transactionId,
+                            index: entry.outpoint.index
+                        ),
+                        amount: amount,
+                        scriptPublicKey: scriptData,
+                        blockDaaScore: UInt64(entry.utxoEntry.blockDaaScore) ?? 0,
+                        isCoinbase: entry.utxoEntry.isCoinbase ?? false
+                    )
+                )
+            }
+        }
+
+        return all
     }
 
     /// Current virtual DAA score from the pool, used to decide coinbase maturity: a coinbase UTXO
@@ -661,13 +779,26 @@ final class NodePoolService: ObservableObject {
     }
 
     /// Subscribe to block-added notifications (piggybacks on the primary UTXO connection).
-    /// Used by broadcast channel scanning; reference-counted by the caller.
-    func subscribeBlockAdded() async {
+    /// Tracked per client token: GroupChatService and BroadcastService gate their block scans
+    /// independently (group count, open rooms, expensive-path state), and the underlying
+    /// wanted-flag is a single bool - without the token set, one client unsubscribing would
+    /// silently stop re-registration for the other on the next reconnect.
+    func subscribeBlockAdded(client: String) async {
+        blockAddedClients.insert(client)
         await subscriptionManager?.setBlockAddedWanted(true)
     }
 
-    /// Stop wanting block-added notifications (see UtxoSubscriptionManager for caveats).
-    func unsubscribeBlockAdded() async {
+    /// Stop wanting block-added notifications for one client; the wanted-flag only drops when
+    /// no client is left. Protocol wrinkle (see UtxoSubscriptionManager.setBlockAddedWanted):
+    /// there is no notify-STOP for block-added, so a connection that already registered keeps
+    /// receiving block pushes until it naturally reconnects (failover, network path change,
+    /// app background/foreground - all frequent on iOS). Deliberately NOT force-closing that
+    /// connection here: it is the primary utxosChanged subscription channel, and recycling it
+    /// would drop live DM delivery and force a full UTXO state resync. The win is that fresh
+    /// connections (and every reconnect) never register for blocks in the first place.
+    func unsubscribeBlockAdded(client: String) async {
+        blockAddedClients.remove(client)
+        guard blockAddedClients.isEmpty else { return }
         await subscriptionManager?.setBlockAddedWanted(false)
     }
 
@@ -778,7 +909,9 @@ final class NodePoolService: ObservableObject {
         // Take top 3 after sorting
         let selectedEndpoints = Array(sortedEndpoints.prefix(3))
 
-        let hedgeDelay = epochMonitor.networkQuality.hedgeDelayMs * 1_000_000
+        // effectiveHedgeDelayMs: on expensive paths the hedge never fires sooner than on WiFi,
+        // so metered connections don't pay for duplicate racing requests.
+        let hedgeDelay = epochMonitor.effectiveHedgeDelayMs * 1_000_000
 
         let value = await withTaskGroup(of: Result<T, Error>.self, returning: Result<T, Error>.self) { group in
             for (index, endpoint) in selectedEndpoints.enumerated() {
@@ -904,12 +1037,47 @@ final class NodePoolService: ObservableObject {
         if quarantinedCount != newQuarantined { quarantinedCount = newQuarantined }
         if lastPingLatencyMs != newLatency { lastPingLatencyMs = newLatency }
 
+        // Blocked-network heuristic (see nodeNetworkBlockedSuspected's doc comment). Requires
+        // 8+ distinct failed nodes, so a single broken pinned node can never trip it, and a
+        // sustained zero-success grace window past the last boot/switch/path change, so the
+        // deliberate burst of fast failures from parallel boot racing cannot.
+        let newBlockedSuspected: Bool
+        let sinceAnchor = Date().timeIntervalSince(blockedDetectionAnchor)
+        if newActive == 0 && epochMonitor.isOnline && sinceAnchor >= Self.blockedDetectionGracePeriod {
+            let snapshot = await registry.connectivitySnapshot(since: blockedDetectionAnchor, window: 10 * 60)
+            newBlockedSuspected = snapshot.recentSuccessfulNodes == 0 && snapshot.recentFailedNodes >= 8
+            if newBlockedSuspected && !nodeNetworkBlockedSuspected {
+                // One diagnosable line per trip: counts plus the distinct endpoints behind them.
+                AppLog.log("[NodePool] Blocked-network verdict tripped: %d distinct nodes failed, %d succeeded, 0 active, %.0fs since anchor. Failed: %@",
+                      snapshot.recentFailedNodes,
+                      snapshot.recentSuccessfulNodes,
+                      sinceAnchor,
+                      snapshot.failedKeys.sorted().prefix(12).joined(separator: ", "))
+            }
+        } else {
+            newBlockedSuspected = false
+        }
+        if nodeNetworkBlockedSuspected != newBlockedSuspected {
+            nodeNetworkBlockedSuspected = newBlockedSuspected
+        }
+
         // If pool just became healthy, check if we should reconnect to lowest latency node
         if wasNonHealthy && isNowHealthy {
             await reconnectToBestNodeIfNeeded()
         }
 
         previousPoolHealth = health
+    }
+
+    /// Restart the blocked-network detector: clear the flag and move the accounting anchor so
+    /// only failures from here on can build a new verdict, after a fresh grace window. Called
+    /// on boot, pin/unpin switches, discovery restarts, and network epoch changes.
+    private func resetBlockedNetworkDetection(reason: String) async {
+        blockedDetectionAnchor = Date()
+        if nodeNetworkBlockedSuspected {
+            AppLog.log("[NodePool] Blocked-network verdict cleared (%@)", reason)
+            nodeNetworkBlockedSuspected = false
+        }
     }
 
     /// Reconnect to best node when pool becomes healthy
@@ -972,6 +1140,10 @@ final class NodePoolService: ObservableObject {
     /// lazily, one at a time, whenever something happens to pick that exact endpoint for a request.
     func reconnectStaleConnections() async {
         await connectionPool.reconnectDisconnected()
+        // Reconnecting the primary stream does NOT bring the node-side utxosChanged
+        // subscription back with it - re-arm it now if the primary was re-established,
+        // instead of waiting for the subscription manager's next health tick.
+        await subscriptionManager?.verifyPrimarySubscription()
     }
 
     /// Clear discovered nodes and restart pool discovery/connection.
@@ -979,6 +1151,7 @@ final class NodePoolService: ObservableObject {
         guard !isRefreshing else { return }
         isRefreshing = true
         AppLog.log("[NodePool] Clearing connection pool")
+        await resetBlockedNetworkDetection(reason: "connection pool cleared")
 
         // Stop active subscription and connections.
         subscriptionManager?.unsubscribe()
@@ -1209,10 +1382,46 @@ extension NodePoolService {
     func setTrustedNodeAddress(_ address: String?) async {
         let trimmed = address?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         var staleEndpoint: Endpoint?
+        // Switching modes intentionally races/burns candidates - never let that burst, or
+        // failures from the previous mode, feed a blocked-network verdict.
+        await resetBlockedNetworkDetection(reason: "node selection changed")
         if trimmed.isEmpty {
             staleEndpoint = await registry.setTrustedNode(nil)
             await updatePoolStats()
-            await forceProbeAll()
+            // Instant switch to Automatic Scan: setTrustedNode(nil) just restored the pre-pin
+            // pool (if any) - dial the best-known nodes RIGHT NOW, racing several in parallel
+            // (bootstrapProbe's happy-eyeballs + double-probe promotes the first responder to
+            // .active immediately), while normal discovery keeps profiling in the background.
+            // The old forceProbeAll() here was a no-op: pinning wipes the registry, so after
+            // unpinning it probed an empty pool and, with no DNS re-resolution scheduled
+            // anywhere, the app stayed nodeless until the next cold launch.
+            let known = await registry.allRecords()
+            if known.isEmpty {
+                // Pinned since first launch (or stash lost): full quickBoot resolves DNS seeds
+                // (with bundled bootstrap fallback) and races the resolved IPs in parallel.
+                await profiler?.quickBoot()
+            } else {
+                let dialFirst = known
+                    .sorted { lhs, rhs in
+                        if (lhs.state == .active) != (rhs.state == .active) {
+                            return lhs.state == .active
+                        }
+                        return lhs.effectiveLatencyMs < rhs.effectiveLatencyMs
+                    }
+                    .prefix(6)
+                    .map(\.endpoint)
+                await profiler?.bootstrapProbe(Array(dialFirst))
+
+                // A stash from the era when pinning wiped the registry can be tiny or entirely
+                // stale - if racing it produced no active node, fall through to the full
+                // quickBoot (persisted -> DNS seeds + bundled bootstrap IPs) instead of leaving
+                // the user to wait for the background loops.
+                if (await registry.stateCounts()[.active] ?? 0) == 0 {
+                    AppLog.log("[NodePool] Restored known-good nodes all failed - falling back to quickBoot")
+                    await profiler?.quickBoot()
+                }
+            }
+            await updatePoolStats()
         } else if let endpoint = Endpoint(url: trimmed) {
             staleEndpoint = await registry.setTrustedNode(endpoint)
             await updatePoolStats()

@@ -60,7 +60,7 @@ The iOS app is still alias-exchange/legacy-first and will not correctly interope
 - `HandshakePayload.alias` is non-optional.
 - File: `KaChat/Models/Models.swift:486`
 - Handshake send encodes alias into payload.
-- File: `KaChat/Services/KasiaTransactionBuilder.swift:482`
+- File: `KaChat/Services/KaChatTransactionBuilder.swift:482`
 - Incoming handshake decrypt assumes alias exists; fallback takes first 12 chars of plaintext.
   - This will corrupt alias extraction for alias-less JSON payloads.
 - File: `KaChat/Services/ChatService.swift:7768`
@@ -78,7 +78,7 @@ The iOS app is still alias-exchange/legacy-first and will not correctly interope
 - Files:
   - `KaChat/Services/ChatService.swift:5031`
   - `KaChat/Services/ChatService.swift:5553`
-  - `KaChat/Services/KasiaTransactionBuilder.swift:329`
+  - `KaChat/Services/KaChatTransactionBuilder.swift:329`
 
 ### 2.5 UI state is handshake/alias-presence driven
 - Message composer unlock depends on handshake presence + alias maps.
@@ -216,7 +216,7 @@ Use a feature flag + migration date:
 
 Files:
 - `KaChat/Utilities/DeterministicAlias.swift` (new)
-- `KaChat/Utilities/KasiaCipher.swift` (reuse ECDH helpers or expose shared-secret helper)
+- `KaChat/Utilities/KaChatCipher.swift` (reuse ECDH helpers or expose shared-secret helper)
 - `KaChat/Models/Models.swift` (optional/deprecated handshake alias fields; dual key decoding)
 
 ## Phase 1: Introduce routing state and migration
@@ -249,7 +249,7 @@ Files:
 5. Update self-stash restore to derive aliases from partner address.
 
 Files:
-- `KaChat/Services/KasiaTransactionBuilder.swift`
+- `KaChat/Services/KaChatTransactionBuilder.swift`
 - `KaChat/Services/ChatService.swift`
 - `KaChat/Models/Models.swift`
 

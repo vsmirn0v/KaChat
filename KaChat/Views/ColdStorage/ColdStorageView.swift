@@ -75,7 +75,15 @@ struct ColdStorageListView: View {
             .padding(.bottom, 16)
         }
         .navigationTitle("Cold Storage")
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                ConnectionStatusIndicator()
+            }
+            ToolbarItem(placement: .principal) {
+                BalanceToolbarLabel()
+            }
+        }
         .toast(message: toastMessage)
         .sheet(isPresented: $showScanner) {
             QRScannerView { code in
@@ -297,26 +305,37 @@ struct ColdStorageDetailView: View {
     @State private var renamingAccount = false
     @State private var renameAccountText = ""
     @State private var showDeleteConfirm = false
+    @State private var showVisibilityManager = false
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var loadToken = UUID()
+    /// Addresses that own at least one KNS domain (cached assets-by-owner lookup) - drives the
+    /// "Contains domain" row tag and promotes those rows into the funded group in the sort.
+    @State private var domainOwningAddresses: Set<String> = []
+    /// Zero-balance addresses whose used/unused history probe FAILED on the last load - their
+    /// badge shows a neutral "Checking" state instead of a possibly-wrong "Unused".
+    @State private var unknownUsedAddresses: Set<String> = []
 
     private var currentAccount: ColdStorageAccount {
         manager.accounts.first { $0.id == account.id } ?? account
     }
 
+    /// Addresses that have a balance OR contain a KNS domain first (keeping the pre-existing
+    /// funded-first/newest-index-first relative order within that group), fresh/unused
+    /// addresses last - matching Manage Addresses' spending-chain sort.
     private var visibleEntries: [ColdStorageAddressEntry] {
-        entries.filter { !$0.hidden }
+        let sorted = entries.filter { !$0.hidden }
             .sorted { lhs, rhs in
                 if (lhs.balanceSompi > 0) != (rhs.balanceSompi > 0) {
                     return lhs.balanceSompi > 0
                 }
                 return lhs.index > rhs.index
             }
-    }
-
-    private var hiddenCount: Int {
-        entries.filter { $0.hidden }.count
+        // Stable partition: domain-holding rows rank with the funded group, but relative order
+        // inside each group stays exactly what the comparator above produced.
+        let active = sorted.filter { $0.balanceSompi > 0 || domainOwningAddresses.contains($0.address) }
+        let fresh = sorted.filter { $0.balanceSompi == 0 && !domainOwningAddresses.contains($0.address) }
+        return active + fresh
     }
 
     private var totalBalanceSompi: UInt64 {
@@ -329,19 +348,6 @@ struct ColdStorageDetailView: View {
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-
-            if hiddenCount > 0 {
-                NavigationLink {
-                    HiddenColdStorageAddressesView(account: currentAccount)
-                } label: {
-                    Text("Hidden (\(hiddenCount))")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
 
             if isLoading && entries.isEmpty {
                 HStack {
@@ -366,16 +372,6 @@ struct ColdStorageDetailView: View {
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
-                        .swipeActions(edge: .trailing) {
-                            if entry.balanceSompi == 0 {
-                                Button {
-                                    hideAddress(entry)
-                                } label: {
-                                    Label("Hide", systemImage: "eye.slash")
-                                }
-                                .tint(.gray)
-                            }
-                        }
                 }
             }
         }
@@ -417,6 +413,16 @@ struct ColdStorageDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toast(message: toastMessage)
         .toolbar {
+            // Bulk visibility manager: compact checkmark list of EVERY address, so dozens can
+            // be toggled off the main list in one sitting (same tool as Manage Addresses).
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    showVisibilityManager = true
+                } label: {
+                    Image(systemName: "checklist")
+                }
+                .accessibilityLabel(Text("Manage address visibility"))
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     showDeleteConfirm = true
@@ -426,11 +432,30 @@ struct ColdStorageDetailView: View {
                 }
             }
         }
+        .sheet(isPresented: $showVisibilityManager, onDismiss: {
+            // Apply the visibility edits to the rows we already have IMMEDIATELY -
+            // loadEntries() re-fetches every balance and used-flag, which takes long
+            // enough that the screen looked stale after hitting Done.
+            applyVisibilityChangesInstantly()
+            Task { await loadEntries() }
+        }) {
+            ColdStorageAddressVisibilityView(account: currentAccount)
+        }
         .refreshable {
             await loadEntries()
         }
         .task {
             await loadEntries()
+        }
+        // Live own-address receive detected (AddressActivityNotifier) - refresh balances so
+        // the screen reflects the funds without a manual pull.
+        .onReceive(NotificationCenter.default.publisher(for: .ownAddressActivity)) { _ in
+            Task { await loadEntries() }
+        }
+        // Always-post variant: also fires for self-send change (withdrawal/compound change)
+        // that the notification-gated event above suppresses.
+        .onReceive(NotificationCenter.default.publisher(for: .ownAddressUtxoActivity)) { _ in
+            Task { await loadEntries() }
         }
         .sheet(item: $qrTarget) { entry in
             ColdStorageAddressQRView(entry: entry)
@@ -540,6 +565,9 @@ struct ColdStorageDetailView: View {
 
     private func addressRow(_ entry: ColdStorageAddressEntry) -> some View {
         let isUsed = entry.everUsed || entry.balanceSompi > 0
+        // The history probe for this address failed on the last load: used-ness is unknown,
+        // and claiming "Unused" could invite address reuse. Pull to refresh re-checks.
+        let usedUnknown = !isUsed && unknownUsedAddresses.contains(entry.address)
 
         return ZStack {
             NavigationLink {
@@ -561,10 +589,15 @@ struct ColdStorageDetailView: View {
                     Text("\(formatKasExact(entry.balanceSompi)) KAS")
                         .font(.subheadline)
                         .fontWeight(.semibold)
-                    Text(isUsed ? "Used" : "Unused")
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(isUsed ? .orange : .green)
+                    HStack(spacing: 6) {
+                        Text(isUsed ? "Used" : (usedUnknown ? "Checking" : "Unused"))
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(isUsed ? .orange : (usedUnknown ? .secondary : .green))
+                        if domainOwningAddresses.contains(entry.address) {
+                            ContainsDomainTag()
+                        }
+                    }
                 }
 
                 Spacer()
@@ -579,7 +612,7 @@ struct ColdStorageDetailView: View {
                     Button {
                         UIPasteboard.general.string = entry.address
                         Haptics.success()
-                        showToast("Address copied to clipboard.")
+                        showToast(entry.address.addressCopiedToastText)
                     } label: {
                         Label("Copy Address", systemImage: "doc.on.doc")
                     }
@@ -587,6 +620,16 @@ struct ColdStorageDetailView: View {
                         qrTarget = entry
                     } label: {
                         Label("Show QR Code", systemImage: "qrcode")
+                    }
+                    // Hide straight from the row - same effect as unchecking it in Address
+                    // Visibility, without opening that sheet. Same guard as the checklist:
+                    // never a funded address (cold storage has no primary-address concept).
+                    if entry.balanceSompi == 0 {
+                        Button {
+                            hideAddress(entry)
+                        } label: {
+                            Label("Hide Address", systemImage: "eye.slash")
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -600,6 +643,27 @@ struct ColdStorageDetailView: View {
             .padding(16)
         }
         .background(glassBackground(cornerRadius: 18))
+    }
+
+    /// Row-menu "Hide Address": flips the same per-account hidden flag the Address Visibility
+    /// checklist edits (so it shows unchecked there) and updates the row in place.
+    /// setAddressHidden re-verifies the live balance server-side and returns false if the
+    /// address can't be hidden. Mirrors Manage Addresses' hideAddress.
+    private func hideAddress(_ entry: ColdStorageAddressEntry) {
+        Task {
+            let ok = await manager.setAddressHidden(account: currentAccount, index: entry.index, hidden: true)
+            guard ok else {
+                showToast("This address can't be hidden.")
+                return
+            }
+            if let position = entries.firstIndex(where: { $0.id == entry.id }) {
+                var updated = entries[position]
+                updated.hidden = true
+                entries[position] = updated
+            }
+            Haptics.success()
+            showToast("Address hidden. Re-enable it in Address Visibility.")
+        }
     }
 
     private func loadEntries() async {
@@ -628,36 +692,80 @@ struct ColdStorageDetailView: View {
         // than once per address: mutating the published array on every single result was
         // re-rendering that row mid-backfill, which — if its "..." menu happened to be open at
         // that moment — visibly flickered/dismissed the open menu.
+        // Tri-state per address: true/false = confirmed by a successful probe, nil = the probe
+        // failed (network/rate-limit) - those rows keep their previous badge state and show a
+        // neutral "Checking" instead of a possibly-wrong "Unused".
         var updates: [String: Bool] = [:]
+        var failedProbes: Set<String> = []
         for entry in baseEntries where entry.balanceSompi == 0 {
-            let used = await ChatService.shared.hasSpendingAddressBeenUsed(entry.address)
+            let used = await ChatService.shared.spendingAddressUsedState(entry.address)
             guard loadToken == token else { return }
-            updates[entry.address] = used
-        }
-        guard loadToken == token, !updates.isEmpty else { return }
-        for idx in entries.indices {
-            if let used = updates[entries[idx].address] {
-                entries[idx].everUsed = used
+            if let used {
+                updates[entry.address] = used
+            } else {
+                failedProbes.insert(entry.address)
             }
         }
+        guard loadToken == token else { return }
+        if !updates.isEmpty {
+            for idx in entries.indices {
+                if let used = updates[entries[idx].address] {
+                    entries[idx].everUsed = used
+                }
+            }
+        }
+        unknownUsedAddresses = failedProbes.filter { address in
+            !(entries.first(where: { $0.address == address })?.everUsed ?? false)
+        }
+
+        // Contains-domain tags, after the rows are already visible. refreshIfNeeded is the same
+        // batched KNS lookup ContactsManager.fetchKNSDomainsForAllContacts uses: capped
+        // concurrency, per-address debounce and failure cooldown, shared in-flight requests -
+        // so re-opening this screen reads warm cache instead of re-firing a request burst.
+        let addresses = baseEntries.map { $0.address }
+        await KNSService.shared.refreshIfNeeded(for: addresses)
+        guard loadToken == token else { return }
+        var owners: Set<String> = []
+        for address in addresses where KNSService.shared.domainCache[address]?.allDomains.isEmpty == false {
+            owners.insert(address)
+        }
+        domainOwningAddresses = owners
     }
 
-    private func hideAddress(_ entry: ColdStorageAddressEntry) {
-        Task {
-            let hidden = manager.setAddressHidden(accountId: currentAccount.id, index: entry.index, hidden: true, balanceSompi: entry.balanceSompi)
-            if hidden {
-                await loadEntries()
+    /// Stamps the fresh hidden set onto the rows already loaded and adds any newly revealed
+    /// indices (pager-derived addresses beyond what this screen had), so the list reflects
+    /// the user's edits the moment they hit Done. The full loadEntries() that follows fills
+    /// in balances/used. Mirrors Manage Addresses' applyVisibilityChangesInstantly.
+    private func applyVisibilityChangesInstantly() {
+        let hidden = manager.hiddenIndexSet(accountId: currentAccount.id)
+        var updated = entries
+        for i in updated.indices {
+            updated[i].hidden = hidden.contains(updated[i].index)
+        }
+        let known = Set(updated.map(\.index))
+        let maxIndex = currentAccount.maxAddressIndex
+        if maxIndex >= 0 {
+            for index in 0...maxIndex where !known.contains(index) && !hidden.contains(index) {
+                guard let address = manager.address(for: currentAccount, at: index) else { continue }
+                updated.append(ColdStorageAddressEntry(
+                    index: index,
+                    address: address,
+                    balanceSompi: 0,
+                    hidden: false
+                ))
             }
         }
+        entries = updated.sorted { $0.index < $1.index }
     }
 
     private func generateMore() {
         guard !isGenerating else { return }
         isGenerating = true
-        manager.generateNextAddress(for: currentAccount)
         Task {
+            let index = await manager.lowestUnusedAddress(for: currentAccount)
             await loadEntries()
             isGenerating = false
+            showToast("Address #\(index) is ready.")
         }
     }
 
@@ -733,20 +841,16 @@ private struct ColdStorageAddressQRView: View {
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 32)
 
-                        Button {
-                            UIPasteboard.general.string = entry.address
-                            Haptics.success()
-                            showToast("Address copied to clipboard.")
-                        } label: {
-                            Label("Copy Address", systemImage: "doc.on.doc")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundColor(.accentColor)
-                        }
+                        Text("Tap anywhere to copy")
+                            .font(.footnote)
+                            .foregroundColor(Color.black.opacity(0.4))
 
                         Spacer()
                         Spacer()
                     }
                 )
+                .contentShape(Rectangle())
+                .onTapGesture { copyAddress() }
                 .navigationTitle(entry.displayLabel)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -757,6 +861,12 @@ private struct ColdStorageAddressQRView: View {
                 .onAppear { generateQR() }
                 .toast(message: toastMessage)
         }
+    }
+
+    private func copyAddress() {
+        UIPasteboard.general.string = entry.address
+        Haptics.success()
+        showToast(entry.address.addressCopiedToastText)
     }
 
     private func showToast(_ message: String) {
@@ -1768,8 +1878,9 @@ private struct ColdStorageAddressTransactionHistoryView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
 
     private enum Tab: String, CaseIterable {
-        case transactions = "Transaction History"
+        case transactions = "History"
         case utxos = "UTXOs"
+        case knsDomains = "KNS Domains"
     }
 
     @State private var selectedTab: Tab = .transactions
@@ -1777,6 +1888,9 @@ private struct ColdStorageAddressTransactionHistoryView: View {
     @State private var isLoading = false
     @State private var utxos: [UTXO] = []
     @State private var isLoadingUtxos = false
+    @State private var knsDomains: [KNSDomain] = []
+    @State private var isLoadingDomains = false
+    @State private var domainsLoadFailed = false
     @State private var showReceiveSheet = false
     @State private var showSendSheet = false
     @State private var showCompoundSheet = false
@@ -1792,6 +1906,7 @@ private struct ColdStorageAddressTransactionHistoryView: View {
         switch tab {
         case .transactions: return tab.rawValue
         case .utxos: return "\(tab.rawValue) (\(utxos.count))"
+        case .knsDomains: return "\(tab.rawValue) (\(knsDomains.count))"
         }
     }
 
@@ -1821,6 +1936,8 @@ private struct ColdStorageAddressTransactionHistoryView: View {
                 transactionsList
             case .utxos:
                 utxosList
+            case .knsDomains:
+                knsDomainsList
             }
         }
         .navigationTitle(entry.displayLabel)
@@ -1904,7 +2021,60 @@ private struct ColdStorageAddressTransactionHistoryView: View {
             utxoLabels = ColdStorageManager.shared.loadUtxoLabels(address: entry.address)
             await loadTransactions()
             await loadUtxos()
+            await loadDomains()
         }
+    }
+
+    /// KNS domains owned by this cold storage address (same assets-by-owner lookup and teal
+    /// KNSDomainCard rows as the spending-address KNS Domains tab). Deliberately watch-only:
+    /// a KNS domain transfer is a commit/reveal inscription pair whose reveal input spends a
+    /// P2SH redeem script, and the KSPT QR format KaChat and the KasSigner exchange only
+    /// carries plain single-sig Schnorr inputs (KsptCodec rejects redeem-script payloads), so
+    /// no send flow is offered here — see the footer note shown to the user.
+    private var knsDomainsList: some View {
+        List {
+            if isLoadingDomains && knsDomains.isEmpty {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+            } else if domainsLoadFailed && knsDomains.isEmpty {
+                Text("Could not load KNS domains. Pull to retry.")
+                    .foregroundColor(.secondary)
+            } else if knsDomains.isEmpty {
+                Text("No KNS domains on this address.")
+                    .foregroundColor(.secondary)
+            } else {
+                Section {
+                    ForEach(knsDomains, id: \.inscriptionId) { domain in
+                        KNSDomainCard(domain: domain)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                    }
+                } footer: {
+                    Text("Sending domains from a cold storage address requires signing on the KasSigner, which doesn't support inscription transactions yet.")
+                        .padding(.horizontal, 4)
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .refreshable {
+            await loadDomains()
+        }
+    }
+
+    private func loadDomains() async {
+        isLoadingDomains = true
+        if let info = await KNSService.shared.fetchInfo(for: entry.address) {
+            knsDomains = info.allDomains
+            domainsLoadFailed = false
+        } else {
+            knsDomains = []
+            domainsLoadFailed = true
+        }
+        isLoadingDomains = false
     }
 
     private var transactionsList: some View {
@@ -2079,98 +2249,186 @@ private struct ColdStorageAddressTransactionHistoryView: View {
     }
 }
 
-/// Addresses hidden from the main Cold Storage detail list (swipe-to-hide there). Never
-/// includes an address with a balance — those can't be hidden in the first place.
-private struct HiddenColdStorageAddressesView: View {
+/// Bulk address-visibility checklist for one cold storage account: a paged list of EVERY
+/// derived address (and, past the derived set, future indices derived on the fly) with a
+/// whole-row check toggle. Mirrors Manage Addresses' SpendingAddressVisibilityView minus
+/// the primary-address concept, which cold storage doesn't have.
+private struct ColdStorageAddressVisibilityView: View {
     let account: ColdStorageAccount
 
     @ObservedObject private var manager = ColdStorageManager.shared
+    @Environment(\.dismiss) private var dismiss
 
     @State private var entries: [ColdStorageAddressEntry] = []
-    @State private var isLoading = false
+    @State private var isLoading = true
+    /// Lazily-filled history results for zero-balance addresses (address -> ever used).
+    @State private var usedByAddress: [String: Bool] = [:]
+    /// Pager: 50 addresses per page, endless - pages past the derived set derive future
+    /// indices on the fly (checking one reveals it without flooding the main list).
+    @State private var page = 0
+    private let pageSize = 50
 
-    private var hiddenEntries: [ColdStorageAddressEntry] {
-        entries.filter { $0.hidden }.sorted { $0.index > $1.index }
+    private var currentAccount: ColdStorageAccount {
+        manager.accounts.first { $0.id == account.id } ?? account
+    }
+
+    /// The rows for the current page, by raw index order. Derived indices come from the
+    /// loaded entries; anything beyond derives its address fresh (underived = unchecked).
+    private var pageEntries: [ColdStorageAddressEntry] {
+        let byIndex = Dictionary(uniqueKeysWithValues: entries.map { ($0.index, $0) })
+        let start = page * pageSize
+        return (start..<(start + pageSize)).compactMap { index in
+            if let existing = byIndex[index] { return existing }
+            guard let address = manager.address(for: currentAccount, at: index) else { return nil }
+            return ColdStorageAddressEntry(index: index, address: address, balanceSompi: 0, hidden: true)
+        }
     }
 
     var body: some View {
-        List {
-            if isLoading && entries.isEmpty {
-                HStack {
-                    Spacer()
+        NavigationStack {
+            Group {
+                if isLoading && entries.isEmpty {
                     ProgressView()
-                    Spacer()
-                }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            } else if hiddenEntries.isEmpty {
-                Text("No hidden addresses.")
-                    .foregroundColor(.secondary)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            } else {
-                ForEach(hiddenEntries) { entry in
-                    addressRow(entry)
-                        .padding(.vertical, 6)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .swipeActions(edge: .trailing) {
-                            Button {
-                                unhide(entry)
-                            } label: {
-                                Label("Unhide", systemImage: "eye")
-                            }
-                            .tint(.accentColor)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        ForEach(pageEntries) { entry in
+                            row(entry)
                         }
+                    }
+                    .listStyle(.plain)
                 }
             }
-        }
-        .listStyle(.plain)
-        .navigationTitle("Hidden Addresses")
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            await loadEntries()
-        }
-        .refreshable {
-            await loadEntries()
+            .safeAreaInset(edge: .bottom) {
+                pagerBar
+            }
+            .navigationTitle("Address Visibility")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
+            .task { await load() }
         }
     }
 
-    private func addressRow(_ entry: ColdStorageAddressEntry) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(entry.displayLabel)
-                .font(.caption)
-                .fontWeight(.bold)
+    /// Bottom pager: "#start - #end" with arrows; the right arrow never runs out (pages past
+    /// the derived set derive future addresses).
+    private var pagerBar: some View {
+        HStack {
+            Button {
+                page = max(0, page - 1)
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.headline)
+                    .frame(width: 44, height: 36)
+            }
+            .disabled(page == 0)
+            Spacer()
+            Text("#\(page * pageSize) - #\(page * pageSize + pageSize - 1)")
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+            Spacer()
+            Button {
+                page += 1
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.headline)
+                    .frame(width: 44, height: 36)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.thinMaterial)
+    }
+
+    private func row(_ entry: ColdStorageAddressEntry) -> some View {
+        let funded = entry.balanceSompi > 0
+        let visible = !entry.hidden
+        return HStack(spacing: 10) {
+            Image(systemName: visible ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 20))
+                .foregroundColor(visible ? .accentColor : .secondary)
+                .opacity(funded ? 0.45 : 1)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 6) {
+                    Text("#\(entry.index)")
+                        .font(.subheadline.weight(.bold))
+                        .monospacedDigit()
+                    if let label = entry.label, !label.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Text(label)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                Text("\(entry.address.prefix(16))…\(entry.address.suffix(6))")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            usedTag(entry, funded: funded)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { toggle(entry) }
+        .listRowSeparatorTint(Color.secondary.opacity(0.2))
+        .task(id: entry.address) { await ensureUsedLoaded(entry, funded: funded) }
+    }
+
+    @ViewBuilder
+    private func usedTag(_ entry: ColdStorageAddressEntry, funded: Bool) -> some View {
+        if funded {
+            Text("\(Double(entry.balanceSompi) / 100_000_000.0, specifier: "%.4f") KAS")
+                .font(.caption2.weight(.semibold))
                 .foregroundColor(.accentColor)
-            Text(entry.shortAddress)
-                .font(.system(.subheadline, design: .monospaced))
-                .foregroundColor(.primary)
-            Text("\(formatKasExact(entry.balanceSompi)) KAS")
-                .font(.subheadline)
-                .fontWeight(.semibold)
+        } else if let used = usedByAddress[entry.address] {
+            Text(used ? "Used" : "Unused")
+                .font(.caption2.weight(.semibold))
+                .foregroundColor(used ? .orange : .secondary)
+        } else {
+            Text("…")
+                .font(.caption2)
+                .foregroundColor(.secondary)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(glassBackground(cornerRadius: 18))
     }
 
-    private func loadEntries() async {
-        isLoading = true
-        entries = await manager.getAddressList(for: account)
+    private func load() async {
+        entries = await manager.getAddressList(for: currentAccount)
         isLoading = false
     }
 
-    private func unhide(_ entry: ColdStorageAddressEntry) {
-        Task {
-            _ = manager.setAddressHidden(accountId: account.id, index: entry.index, hidden: false, balanceSompi: entry.balanceSompi)
-            await loadEntries()
+    /// One history lookup per zero-balance address, cached for the session of this sheet.
+    /// A failed probe stores nothing, so the row keeps its neutral "…" badge (never a
+    /// possibly-wrong "Unused") and the next appearance of the row retries.
+    private func ensureUsedLoaded(_ entry: ColdStorageAddressEntry, funded: Bool) async {
+        guard !funded, usedByAddress[entry.address] == nil else { return }
+        if let used = await ChatService.shared.spendingAddressUsedState(entry.address) {
+            usedByAddress[entry.address] = used
         }
     }
 
-    private func formatKasExact(_ sompi: UInt64) -> String {
-        String(format: "%.8f", Double(sompi) / 100_000_000.0)
+    private func toggle(_ entry: ColdStorageAddressEntry) {
+        // Funded rows don't toggle - mirrors the manager-side guard.
+        guard entry.balanceSompi == 0 else { return }
+        Task {
+            let derivedMax = entries.map(\.index).max() ?? -1
+            if entry.index > derivedMax {
+                // A derived future index from the endless pager: reveal exactly this one
+                // (indices in between stay hidden so the main list doesn't flood).
+                manager.revealAddress(for: currentAccount, at: entry.index)
+                entries = await manager.getAddressList(for: currentAccount)
+            } else {
+                let ok = await manager.setAddressHidden(account: currentAccount, index: entry.index, hidden: !entry.hidden)
+                guard ok else { return }
+                if let position = entries.firstIndex(where: { $0.id == entry.id }) {
+                    var updated = entries[position]
+                    updated.hidden.toggle()
+                    entries[position] = updated
+                }
+            }
+        }
     }
 }

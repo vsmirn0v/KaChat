@@ -1,8 +1,25 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct PortfolioTransactionsView: View {
+/// Shared formatter at file scope - the view is generic now (header slot), and generic types
+/// can't carry static stored properties.
+private let kasAmountFormatter: NumberFormatter = {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.usesGroupingSeparator = true
+    formatter.groupingSeparator = ","
+    formatter.minimumFractionDigits = 0
+    formatter.maximumFractionDigits = 4
+    formatter.locale = Locale(identifier: "en_US")
+    return formatter
+}()
+
+struct PortfolioTransactionsView<Header: View>: View {
     @ObservedObject var viewModel: PortfolioViewModel
+    /// Rendered above the Transactions section - PortfolioView passes the picker cards and
+    /// data cards here so the whole page is ONE list (continuous scroll, native large-title
+    /// collapse, transactions reachable by just scrolling).
+    @ViewBuilder let header: () -> Header
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
 
     @State private var editingTransaction: PortfolioTransaction?
@@ -13,6 +30,7 @@ struct PortfolioTransactionsView: View {
     @State private var exportURL: URL?
     @State private var toastMessage: String?
     @State private var toastStyle: ToastStyle = .success
+    @State private var toastToken = UUID()
     @State private var editMode: EditMode = .inactive
     @State private var selectedIDs = Set<String>()
     @State private var showDeleteSelectedConfirm = false
@@ -21,26 +39,43 @@ struct PortfolioTransactionsView: View {
 
     var body: some View {
         List(selection: $selectedIDs) {
-            if viewModel.transactionsDescending.isEmpty {
-                emptyState
-            } else {
-                ForEach(viewModel.transactionsDescending) { tx in
-                    Button {
-                        editingTransaction = tx
-                    } label: {
-                        transactionRow(tx)
-                    }
-                    .buttonStyle(.plain)
-                    .tag(tx.id)
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            viewModel.deleteTransaction(id: tx.id)
+            header()
+
+            Section {
+                if viewModel.transactionsDescending.isEmpty {
+                    emptyState
+                } else {
+                    ForEach(viewModel.transactionsDescending) { tx in
+                        Button {
+                            editingTransaction = tx
                         } label: {
-                            Label("Delete", systemImage: "trash")
+                            transactionRow(tx)
                         }
-                        .tint(.red)
+                        .buttonStyle(.plain)
+                        .tag(tx.id)
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                viewModel.deleteTransaction(id: tx.id)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            .tint(.red)
+                        }
                     }
                 }
+            } header: {
+                // Add + import/export live right on the section header now, replacing the old
+                // floating overlay buttons.
+                HStack(spacing: 16) {
+                    Text("Transactions")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                        .textCase(nil)
+                    Spacer()
+                    addTransactionButton
+                    importExportButton
+                }
+                .padding(.bottom, 2)
             }
         }
         .listStyle(.insetGrouped)
@@ -86,15 +121,6 @@ struct PortfolioTransactionsView: View {
                 .disabled(viewModel.transactionsDescending.isEmpty && !isSelecting)
             }
         }
-        .overlay(alignment: .bottom) {
-            if !isSelecting {
-                HStack(spacing: 12) {
-                    addTransactionButton
-                    importExportButton
-                }
-                .padding(.bottom, 16)
-            }
-        }
         .sheet(isPresented: $showAddSheet) {
             PortfolioTransactionEditor(viewModel: viewModel, existing: nil)
         }
@@ -105,14 +131,16 @@ struct PortfolioTransactionsView: View {
             AddPortfolioAddressSheet(viewModel: viewModel) { result in
                 switch result {
                 case .success(let importResult):
-                    toastStyle = .success
-                    let base = "Imported \(importResult.imported.count) transaction\(importResult.imported.count == 1 ? "" : "s")"
-                    toastMessage = importResult.missingPriceCount > 0
-                        ? base + " (\(importResult.missingPriceCount) need a price — edit to set manually)"
-                        : base
+                    var message = "Imported \(importResult.imported.count) transaction\(importResult.imported.count == 1 ? "" : "s")"
+                    if importResult.missingPriceCount > 0 {
+                        message += ". Prices for \(importResult.missingPriceCount) are still loading and will fill in automatically"
+                    }
+                    if !importResult.historyComplete {
+                        message += ". Some history couldn't be fetched, re-add this address later to import the rest"
+                    }
+                    showToast(message)
                 case .failure(let error):
-                    toastStyle = .error
-                    toastMessage = error.errorDescription ?? "Import failed."
+                    showToast(error.errorDescription ?? "Import failed.", style: .error)
                 }
             }
         }
@@ -126,10 +154,10 @@ struct PortfolioTransactionsView: View {
             case .success(let url):
                 let count = viewModel.importCsv(from: url)
                 toastStyle = count > 0 ? .success : .error
-                toastMessage = count > 0 ? "Imported \(count) transaction\(count == 1 ? "" : "s")" : "Import failed. Check the CSV format"
+                showToast(count > 0 ? "Imported \(count) transaction\(count == 1 ? "" : "s")" : "Import failed. Check the CSV format", style: count > 0 ? .success : .error)
             case .failure:
                 toastStyle = .error
-                toastMessage = "Import failed. Check the CSV format"
+                showToast("Import failed. Check the CSV format", style: .error)
             }
         }
         .toast(message: toastMessage, style: toastStyle)
@@ -143,6 +171,18 @@ struct PortfolioTransactionsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This can't be undone.")
+        }
+    }
+
+    private func showToast(_ message: String, style: ToastStyle = .success) {
+        let token = UUID()
+        toastToken = token
+        toastStyle = style
+        withAnimation(.easeOut(duration: 0.2)) { toastMessage = message }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) { toastMessage = nil }
+            }
         }
     }
 
@@ -182,7 +222,7 @@ struct PortfolioTransactionsView: View {
     }
 
     private func transactionRow(_ tx: PortfolioTransaction) -> some View {
-        let needsPrice = tx.notes == PortfolioAddressImporter.priceUnavailableNote
+        let needsPrice = PortfolioAddressImporter.isPricePending(tx.notes)
         return HStack(spacing: 12) {
             Image(systemName: tx.type == .buy ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
                 .font(.title2)
@@ -196,7 +236,7 @@ struct PortfolioTransactionsView: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.caption)
                             .foregroundColor(.yellow)
-                            .accessibilityLabel("Price needed — tap to set")
+                            .accessibilityLabel("Price still loading, tap to set manually")
                     }
                 }
                 Text(tx.timestamp.formatted(date: .abbreviated, time: .shortened))
@@ -223,16 +263,6 @@ struct PortfolioTransactionsView: View {
         .padding(.vertical, 4)
     }
 
-    private static let kasAmountFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.usesGroupingSeparator = true
-        formatter.groupingSeparator = ","
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 4
-        formatter.locale = Locale(identifier: "en_US")
-        return formatter
-    }()
 
     /// Comma-grouped for display only (e.g. "12,345.6789 KAS") — never used for a value that
     /// gets parsed back, unlike the plain, non-grouped formatting the editable quantity field uses.
@@ -255,16 +285,9 @@ struct PortfolioTransactionsView: View {
                 Label("Add Kaspa Address", systemImage: "arrow.left.arrow.right")
             }
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 20, weight: .semibold))
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: 22))
                 .foregroundColor(.accentColor)
-                .frame(width: 56, height: 56)
-                .background(
-                    Circle()
-                        .fill(.regularMaterial)
-                        .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
-                        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
-                )
         }
         .tint(.accentColor)
     }
@@ -283,16 +306,9 @@ struct PortfolioTransactionsView: View {
                 Label("Export CSV", systemImage: "square.and.arrow.up")
             }
         } label: {
-            Image(systemName: "arrow.up.arrow.down")
-                .font(.system(size: 18, weight: .semibold))
+            Image(systemName: "square.and.arrow.up.on.square")
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundColor(.accentColor)
-                .frame(width: 56, height: 56)
-                .background(
-                    Circle()
-                        .fill(.regularMaterial)
-                        .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
-                        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
-                )
         }
         .tint(.accentColor)
     }
@@ -335,6 +351,12 @@ private struct PortfolioCsvShareSheet: UIViewControllerRepresentable {
 /// `PortfolioAddressImporter`) — deliberately no attempt to filter out ordinary KaChat payments
 /// or protocol overhead, a simplification the user explicitly chose over building a "real trade"
 /// classifier.
+///
+/// The field accepts a raw kaspa:/kaspatest: address OR a KNS domain (e.g. alice.kas), with
+/// paste/scan helpers — the KNS live-resolve + Paste/Scan QR row mirrors the withdraw flow in
+/// `ManageAddressesView` (same debounce, same `QRScannerView`). A valid domain imports its
+/// RESOLVED address; portfolio rows have no display-label field, so the domain itself isn't
+/// stored (rows dedupe/group purely by `sourceAddress`).
 private struct AddPortfolioAddressSheet: View {
     @ObservedObject var viewModel: PortfolioViewModel
     let onCompletion: (Result<PortfolioAddressImporter.ImportResult, PortfolioAddressImporter.ImportError>) -> Void
@@ -343,9 +365,33 @@ private struct AddPortfolioAddressSheet: View {
     @State private var addressText = ""
     @State private var isImporting = false
     @State private var progressText = "Starting…"
+    @State private var showQRScanner = false
 
-    private var isValidAddress: Bool {
-        KaspaAddress.isValid(addressText.trimmingCharacters(in: .whitespacesAndNewlines))
+    @State private var isResolvingKNS = false
+    @State private var resolvedAddress: String?
+    @State private var resolvedDomain: String?
+    @State private var knsNotFound = false
+
+    private var trimmedInput: String {
+        addressText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var looksLikeRawAddress: Bool {
+        trimmedInput.hasPrefix("kaspa:") || trimmedInput.hasPrefix("kaspatest:")
+    }
+
+    private var isValidRawAddress: Bool {
+        KaspaAddress.isValid(trimmedInput)
+    }
+
+    /// The address the import actually runs on — resolved from a KNS domain when one was
+    /// entered, otherwise the raw input. Same precedence as ManageAddressesView's withdraw flow.
+    private var effectiveAddress: String {
+        resolvedAddress ?? trimmedInput
+    }
+
+    private var canImport: Bool {
+        resolvedAddress != nil || isValidRawAddress
     }
 
     var body: some View {
@@ -362,12 +408,32 @@ private struct AddPortfolioAddressSheet: View {
                     }
                 } else {
                     Section {
-                        TextField("kaspa:qr...", text: $addressText)
+                        TextField("kaspa:qr... or name.kas", text: $addressText)
                             .font(.system(.body, design: .monospaced))
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
+                            .onChange(of: addressText) { handleInputChange($0) }
+
+                        validationStatus
+
+                        HStack {
+                            Button {
+                                if let pasted = UIPasteboard.general.string {
+                                    addressText = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+                                }
+                            } label: {
+                                Label("Paste", systemImage: "doc.on.clipboard")
+                            }
+                            Spacer()
+                            Button {
+                                showQRScanner = true
+                            } label: {
+                                Label("Scan QR", systemImage: "qrcode.viewfinder")
+                            }
+                        }
+                        .buttonStyle(.borderless)
                     } footer: {
-                        Text("Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import.")
+                        Text("Enter a Kaspa address or a KNS domain like name.kas. Every received transaction on this address becomes a buy, every sent transaction becomes a sell, priced at that day's historical KAS price. Re-adding the same address later only imports transactions found since the last import.")
                     }
                 }
             }
@@ -382,16 +448,112 @@ private struct AddPortfolioAddressSheet: View {
                     Button("Import") {
                         startImport()
                     }
-                    .disabled(!isValidAddress || isImporting)
+                    .disabled(!canImport || isImporting)
+                }
+            }
+            .sheet(isPresented: $showQRScanner) {
+                QRScannerView { code in
+                    handleScannedQRCode(code)
                 }
             }
         }
         .interactiveDismissDisabled(isImporting)
     }
 
+    /// Under-field status line: nothing while empty or mid-debounce, "Resolves to" + green
+    /// check for a resolved domain, a quiet "Domain not found", or the raw address's
+    /// valid/invalid affordance (same shape as ManageAddressesView's withdraw flow).
+    @ViewBuilder
+    private var validationStatus: some View {
+        if trimmedInput.isEmpty || isResolvingKNS {
+            EmptyView()
+        } else if let resolvedAddress {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("Resolves to \(Self.shortened(resolvedAddress))")
+                    .font(.caption)
+                    .foregroundColor(.green)
+                    .lineLimit(1)
+            }
+        } else if knsNotFound {
+            Text("Domain not found")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        } else if looksLikeRawAddress {
+            HStack(spacing: 6) {
+                Image(systemName: isValidRawAddress ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundColor(isValidRawAddress ? .green : .red)
+                Text(isValidRawAddress ? "Valid address" : "Invalid address format")
+                    .font(.caption)
+                    .foregroundColor(isValidRawAddress ? .green : .red)
+            }
+        }
+    }
+
+    private static func shortened(_ address: String) -> String {
+        guard address.count > 26 else { return address }
+        return "\(address.prefix(16))...\(address.suffix(8))"
+    }
+
+    private func handleInputChange(_ input: String) {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        resolvedAddress = nil
+        resolvedDomain = nil
+        knsNotFound = false
+        isResolvingKNS = false
+
+        guard !trimmed.isEmpty else { return }
+        if trimmed.hasPrefix("kaspa:") || trimmed.hasPrefix("kaspatest:") { return }
+        if KNSService.looksLikeDomain(trimmed) {
+            resolveKNSDomain(trimmed)
+        }
+    }
+
+    /// Debounced forward resolution — same 300ms wait-then-check-input-unchanged pattern the
+    /// contacts/withdraw flows use, so mid-typing keystrokes never each fire a KNS request.
+    private func resolveKNSDomain(_ domain: String) {
+        isResolvingKNS = true
+        Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard addressText.trimmingCharacters(in: .whitespacesAndNewlines) == domain else { return }
+
+            let resolution = await KNSService.shared.resolveDomain(domain)
+            await MainActor.run {
+                // Input may have moved on while the lookup was in flight — a stale answer
+                // must not overwrite the state for what's in the field now.
+                guard addressText.trimmingCharacters(in: .whitespacesAndNewlines) == domain else { return }
+                if let resolution {
+                    resolvedAddress = resolution.ownerAddress
+                    resolvedDomain = resolution.domain
+                    knsNotFound = false
+                } else {
+                    resolvedAddress = nil
+                    resolvedDomain = nil
+                    knsNotFound = true
+                }
+                isResolvingKNS = false
+            }
+        }
+    }
+
+    /// Same normalization as ManageAddressesView's scan handler: strip URI query params
+    /// (kaspa:addr?amount=...) so only the address itself lands in the field. Setting
+    /// `addressText` triggers `handleInputChange` via `.onChange`.
+    private func handleScannedQRCode(_ code: String) {
+        var address = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        if address.lowercased().hasPrefix("kaspa:") || address.lowercased().hasPrefix("kaspatest:") {
+            if let queryIndex = address.firstIndex(of: "?") {
+                address = String(address[..<queryIndex])
+            }
+        }
+        addressText = address
+    }
+
     private func startImport() {
         isImporting = true
-        let address = addressText
+        let address = effectiveAddress
         Task {
             let result = await viewModel.importAddress(address) { text in
                 Task { @MainActor in

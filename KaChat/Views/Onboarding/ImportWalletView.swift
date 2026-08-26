@@ -3,6 +3,11 @@ import SwiftUI
 struct ImportWalletView: View {
     @EnvironmentObject var walletManager: WalletManager
 
+    /// Identity derivation-path family of the wallet this seed comes from, chosen on the
+    /// source-wallet screen (`ImportSourceWalletView`) BEFORE this seed-entry screen. Standard
+    /// (KaChat's own path) unless the user picked a wallet on another branch.
+    var sourceFamily: WalletSourceFamily = .kaspaStandard
+
     @State private var alias = "Imported Account"
     @State private var seedWordCount = 24
     // Fixed-capacity backing store; only the first `seedWordCount` entries are used.
@@ -105,10 +110,15 @@ struct ImportWalletView: View {
         // `currentWallet` and suspends at an await, which can mount MainTabView - whose onAppear
         // consumes this one-shot flag - before control returns here.
         walletManager.justCreatedNewWallet = true
+        // Import-only marker (create never sets it): lets the Welcome Guide's funding step offer
+        // "Change Chatting Address" - only an imported seed can have its identity at a nonzero
+        // derivation index. Cleared by the guide on Finish, or here on failure.
+        walletManager.justImportedWallet = true
         do {
-            _ = try await walletManager.importWallet(from: seedPhraseText, alias: alias, passphrase: passphrase)
+            _ = try await walletManager.importWallet(from: seedPhraseText, alias: alias, passphrase: passphrase, family: sourceFamily)
         } catch {
             walletManager.justCreatedNewWallet = false
+            walletManager.justImportedWallet = false
             throw error
         }
     }

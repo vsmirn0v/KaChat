@@ -665,17 +665,17 @@ extension ChatService {
         guard let payloadString = Self.payloadPrefixString(from: payloadHex, byteCount: 21) else {
             return false
         }
-        return payloadString.hasPrefix("ciph_msg:1:handshake:")
+        return payloadString.hasPrefix("kchat:1:handshake:") || payloadString.hasPrefix("ciph_msg:1:handshake:")
     }
 
     func isContextualPayload(_ payloadHex: String) -> Bool {
         guard let payloadString = Self.payloadPrefixString(from: payloadHex, byteCount: 16) else {
             return false
         }
-        let matches = payloadString.hasPrefix("ciph_msg:1:comm:")
-        if !matches && payloadString.hasPrefix("ciph_msg:") {
+        let matches = payloadString.hasPrefix("kchat:1:comm:") || payloadString.hasPrefix("ciph_msg:1:comm:")
+        if !matches && (payloadString.hasPrefix("kchat:") || payloadString.hasPrefix("ciph_msg:")) {
             // Log near-miss for debugging
-            AppLog.log("[ChatService] Payload prefix '%@' starts with 'ciph_msg:' but not 'ciph_msg:1:comm:'", payloadString)
+            AppLog.log("[ChatService] Payload prefix '%@' is a KaChat root but not comm", payloadString)
         }
         return matches
     }
@@ -684,10 +684,10 @@ extension ChatService {
         guard let payloadString = Self.payloadPrefixString(from: payloadHex, byteCount: 22) else {
             return false
         }
-        let matches = payloadString.hasPrefix("ciph_msg:1:self_stash:")
-        if !matches && payloadString.hasPrefix("ciph_msg:") {
+        let matches = payloadString.hasPrefix("kchat:1:self_stash:") || payloadString.hasPrefix("ciph_msg:1:self_stash:")
+        if !matches && (payloadString.hasPrefix("kchat:") || payloadString.hasPrefix("ciph_msg:")) {
             // Log near-miss for debugging
-            AppLog.log("[ChatService] Payload prefix '%@' starts with 'ciph_msg:' but not 'ciph_msg:1:self_stash:'", payloadString)
+            AppLog.log("[ChatService] Payload prefix '%@' is a KaChat root but not self_stash", payloadString)
         }
         return matches
     }
@@ -1400,10 +1400,40 @@ extension ChatService {
         }
     }
 
+    /// Per-phase retry budget for fetches running INSIDE a sync cycle. `fetchNewMessages`
+    /// holds `isSyncInProgress` (which gates the foreground contact sweep) and, via
+    /// `maybeRunCatchUpSync`, `catchUpSyncInFlight` for the whole cycle INCLUDING every retry
+    /// backoff sleep - so a phase burning the default 8-attempt budget (~60s of sleeps) on a
+    /// persistently failing endpoint starves the sweep for a minute per cycle, every cycle.
+    /// 3 attempts = initial try + 1s + 2s backoff: enough to absorb a transient blip, cheap
+    /// enough (~3s) that a broken endpoint barely delays the cycle. The cycle cadence itself
+    /// (catch-up syncs, fallback poll, sweep) is the real retry loop for persistent failures;
+    /// un-advanced per-object cursors mean nothing is lost by giving up early. Chosen over
+    /// releasing `isSyncInProgress` across backoff sleeps (the flag also drives Core Data
+    /// write batching and resubscription deferral, so toggling it mid-cycle would change save
+    /// semantics) and over exempting the sweep from the gate (which would let the sweep and
+    /// the full contextual fetch hit the indexer concurrently in the healthy case too).
+    /// Bootstrap handshake fetches keep the default 8: nothing else can deliver until they
+    /// succeed, and the sweep is gated off until the initial sync finishes anyway.
+    static let syncPhaseMaxRetryAttempts = 3
+
+    /// Retry with exponential backoff, bounded by `maxAttempts` (~75s of trying at the
+    /// defaults). This must NOT retry forever: `fetchNewMessages` holds `isSyncInProgress`
+    /// (and, via `maybeRunCatchUpSync`, `catchUpSyncInFlight`) across these calls, and both
+    /// flags gate every other delivery backstop - the foreground contact sweep skips while a
+    /// sync is "in progress" and future catch-up syncs skip while one is "in flight". An
+    /// unbounded retry on a persistently failing endpoint (indexer 5xx on one query, DPI,
+    /// decode error) therefore used to wedge those flags permanently, starving all live
+    /// message delivery except the open-chat poll - exactly the "messages only appear when I
+    /// open the chat" failure. Giving up returns nil; callers treat nil as "skip this phase
+    /// for this cycle" (see `fetchNewMessages`) - the phase's cursor doesn't advance and the
+    /// remaining phases still run, so the fallback poll / sweep / next catch-up simply retry
+    /// the missed window later. Sync-cycle phases pass `syncPhaseMaxRetryAttempts`.
     func retryUntilSuccess<T>(
         label: String,
         initialDelayNs: UInt64 = 1_000_000_000,
         maxDelayNs: UInt64 = 15_000_000_000,
+        maxAttempts: Int = 8,
         operation: @escaping () async throws -> T
     ) async -> T? {
         var attempt = 0
@@ -1414,6 +1444,11 @@ extension ChatService {
                 return try await operation()
             } catch {
                 attempt += 1
+                if attempt >= maxAttempts {
+                    AppLog.log("[ChatService] %@ failed (attempt %d): %@. Giving up until the next sync",
+                          label, attempt, error.localizedDescription)
+                    return nil
+                }
                 let delaySeconds = Double(delay) / 1_000_000_000.0
                 AppLog.log("[ChatService] %@ failed (attempt %d): %@. Retrying in %.1fs",
                       label, attempt, error.localizedDescription, delaySeconds)
@@ -1480,6 +1515,12 @@ extension ChatService {
     ) async -> Bool {
         // Don't fetch/store this wallet's conversation history if it's no longer the active wallet.
         guard isActiveWallet(myAddress) else { return false }
+        // Self-chat ("Note to Self"): seed routing state + a contact for your own address (unless
+        // you deleted it) so your self→self notes get swept and there's an entry point in the list.
+        if !contactsManager.isAddressDeleted(myAddress) {
+            ensureRoutingState(for: myAddress, privateKey: privateKey)
+            _ = contactsManager.getOrCreateContact(address: myAddress)
+        }
         // Build contact set from routing states (preferred) + legacy aliases (fallback)
         let allContactAddresses = Array(Set(routingStates.keys).union(conversationAliases.keys))
         AppLog.log("%@", "[ChatService] Fetching contextual messages for \(allContactAddresses.count) contacts")
@@ -1500,11 +1541,14 @@ extension ChatService {
                 nowMs: nowMs
             )
         }
-        guard incomingSucceeded else { return false }
+        // Phase isolation: a failed incoming pass (some contact exhausted its retry budget)
+        // must not starve the outgoing pass - each alias advances only its own cursor, so
+        // running the rest is always safe. Only bail if the wallet changed mid-fetch.
+        guard isActiveWallet(myAddress) else { return false }
 
         // Fetch OUTGOING messages (from us to contacts)
         let allOutgoingAddresses = Array(Set(routingStates.keys).union(ourAliases.keys))
-        return await fetchContactsConcurrently(
+        let outgoingSucceeded = await fetchContactsConcurrently(
             allOutgoingAddresses,
             limit: Self.contextualFetchConcurrencyLimit
         ) { [self] contactAddress in
@@ -1516,12 +1560,14 @@ extension ChatService {
                 nowMs: nowMs
             )
         }
+        return incomingSucceeded && outgoingSucceeded
     }
 
     /// Runs `operation` over `addresses` with at most `limit` running concurrently, starting the
-    /// next one as soon as a slot frees up. Returns `false` if any operation returned `false`
-    /// (matches `retryUntilSuccess`'s cancellation signal - it otherwise retries indefinitely
-    /// rather than truly failing).
+    /// next one as soon as a slot frees up. Every address is still attempted even after one
+    /// fails; the return value is `false` if ANY operation returned `false` (retry budget
+    /// exhausted, cancellation, or wallet switch), so the caller can withhold cycle-level
+    /// success without any contact starving another.
     private func fetchContactsConcurrently(
         _ addresses: [String],
         limit: Int,
@@ -1550,7 +1596,9 @@ extension ChatService {
     }
 
     /// Fetches incoming contextual messages for a single contact across all its known incoming
-    /// aliases. Returns `false` only when the fetch was cancelled (see `retryUntilSuccess`).
+    /// aliases. Returns `false` when any alias's fetch exhausted its retry budget or was
+    /// cancelled, or the wallet changed mid-fetch; a failed alias is skipped (its cursor stays
+    /// put) and the remaining aliases are still fetched.
     private func fetchIncomingContextualMessages(
         contactAddress: String,
         myAddress: String,
@@ -1586,6 +1634,7 @@ extension ChatService {
             defer { endContextualFetch(fetchKey) }
             guard let messages = await retryUntilSuccess(
                 label: "fetch incoming contextual messages from \(contactAddress.suffix(10))",
+                maxAttempts: Self.syncPhaseMaxRetryAttempts,
                 operation: { [apiClient] in
                     do {
                         return try await apiClient.getContextualMessagesBySender(
@@ -1603,7 +1652,7 @@ extension ChatService {
                 }
             ) else {
                 contactSuccess = false
-                return false
+                continue  // Skip this alias for this cycle; still try the contact's other aliases.
             }
             advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
 
@@ -1630,7 +1679,8 @@ extension ChatService {
                     timestamp: Date(timeIntervalSince1970: TimeInterval((contextMsg.blockTime ?? 0) / 1000)),
                     blockTime: contextMsg.blockTime ?? 0,
                     acceptingBlock: contextMsg.acceptingBlock,
-                    isOutgoing: false,
+                    // Self-chat: a note you sent to yourself is outgoing on every device.
+                    isOutgoing: contactAddress == myAddress,
                     messageType: msgType
                 )
 
@@ -1652,11 +1702,13 @@ extension ChatService {
                 }
             }
         }
-        return true
+        return contactSuccess
     }
 
     /// Fetches outgoing contextual messages for a single contact across all its known outgoing
-    /// aliases. Returns `false` only when the fetch was cancelled (see `retryUntilSuccess`).
+    /// aliases. Returns `false` when any alias's fetch exhausted its retry budget or was
+    /// cancelled; a failed alias is skipped (its cursor stays put) and the remaining aliases
+    /// are still fetched.
     private func fetchOutgoingContextualMessages(
         contactAddress: String,
         myAddress: String,
@@ -1665,6 +1717,10 @@ extension ChatService {
         nowMs: UInt64
     ) async -> Bool {
         guard !contactsManager.isAddressDeleted(contactAddress) else { return true }
+        // Self-chat: skip the outgoing scan. Self→self messages are already returned with real
+        // decrypted content by the INCOMING scan (marked outgoing there); the outgoing scan would
+        // only race in a "📤 Sent via another device" placeholder that hides the real note.
+        guard contactAddress != myAddress else { return true }
         let aliasSet = outgoingFetchAliases(for: contactAddress)
         guard !aliasSet.isEmpty else { return true }
         beginChatFetch(contactAddress)
@@ -1692,6 +1748,7 @@ extension ChatService {
             defer { endContextualFetch(fetchKey) }
             guard let messages = await retryUntilSuccess(
                 label: "fetch outgoing contextual messages to \(contactAddress.suffix(10))",
+                maxAttempts: Self.syncPhaseMaxRetryAttempts,
                 operation: { [apiClient] in
                     do {
                         return try await apiClient.getContextualMessagesBySender(
@@ -1709,7 +1766,7 @@ extension ChatService {
                 }
             ) else {
                 contactSuccess = false
-                return false
+                continue  // Skip this alias for this cycle; still try the contact's other aliases.
             }
             advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
 
@@ -1740,7 +1797,7 @@ extension ChatService {
                 // Outgoing messages are encrypted for the recipient, we can't decrypt them
                 // Check if we have this message stored locally with content
                 let existingMessage = await findLocalMessage(txId: contextMsg.txId)
-                let content = existingMessage?.content ?? "📤 Sent via another device"
+                let content = existingMessage?.content ?? ChatMessage.sentViaOtherDevicePlaceholder
                 let msgType = existingMessage?.messageType ?? messageType(for: content)
 
                 let message = ChatMessage(
@@ -1764,7 +1821,7 @@ extension ChatService {
                 }
             }
         }
-        return true
+        return contactSuccess
     }
 
     func fetchContextualMessagesForActive(
@@ -1813,6 +1870,7 @@ extension ChatService {
                 defer { endContextualFetch(fetchKey) }
                 guard let messages = await retryUntilSuccess(
                     label: "fetch incoming contextual messages (active) from \(contactAddress.suffix(10))",
+                    maxAttempts: Self.syncPhaseMaxRetryAttempts,
                     operation: { [apiClient] in
                         do {
                             return try await apiClient.getContextualMessagesBySender(
@@ -1830,7 +1888,7 @@ extension ChatService {
                     }
             ) else {
                 contactSuccess = false
-                return false
+                continue  // Skip this alias for this cycle; still try the remaining aliases.
                 }
                 if !forceExactBlockTime {
                     advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
@@ -1856,7 +1914,8 @@ extension ChatService {
                         timestamp: Date(timeIntervalSince1970: TimeInterval((contextMsg.blockTime ?? 0) / 1000)),
                         blockTime: contextMsg.blockTime ?? 0,
                         acceptingBlock: contextMsg.acceptingBlock,
-                        isOutgoing: false,
+                        // Self-chat: a note you sent to yourself is outgoing on every device.
+                        isOutgoing: contactAddress == myAddress,
                         messageType: .contextual
                     )
 
@@ -1877,8 +1936,10 @@ extension ChatService {
             }
         }
 
-        // Outgoing from us (use routing state aliases + legacy fallback)
-        let outAliases = outgoingFetchAliases(for: contactAddress)
+        // Outgoing from us (use routing state aliases + legacy fallback). Skipped for self-chat —
+        // the incoming scan above already returns self→self notes with real content marked
+        // outgoing, so the outgoing scan would only race in a hiding placeholder.
+        let outAliases = contactAddress == myAddress ? [] : outgoingFetchAliases(for: contactAddress)
         if !outAliases.isEmpty {
             for ourAlias in outAliases {
                 let syncObjectKey = contextualSyncObjectKey(
@@ -1907,6 +1968,7 @@ extension ChatService {
                 defer { endContextualFetch(fetchKey) }
                 guard let messages = await retryUntilSuccess(
                     label: "fetch outgoing contextual messages (active) to \(contactAddress.suffix(10))",
+                    maxAttempts: Self.syncPhaseMaxRetryAttempts,
                     operation: { [apiClient] in
                         do {
                             return try await apiClient.getContextualMessagesBySender(
@@ -1924,7 +1986,7 @@ extension ChatService {
                     }
             ) else {
                 contactSuccess = false
-                return false
+                continue  // Skip this alias for this cycle; still try the remaining aliases.
                 }
                 if !forceExactBlockTime {
                     advanceSyncCursor(for: syncObjectKey, maxBlockTime: messages.compactMap { $0.blockTime }.max())
@@ -1944,7 +2006,7 @@ extension ChatService {
 
                 for contextMsg in sortedMessages {
                     let existingMessage = await findLocalMessage(txId: contextMsg.txId)
-                    let content = existingMessage?.content ?? "📤 Sent via another device"
+                    let content = existingMessage?.content ?? ChatMessage.sentViaOtherDevicePlaceholder
 
                     let message = ChatMessage(
                         txId: contextMsg.txId,
@@ -1966,7 +2028,7 @@ extension ChatService {
             }
         }
 
-        return true
+        return contactSuccess
     }
 
     /// Fetch contextual messages with polling (triggered by UTXO notification)
@@ -2010,9 +2072,12 @@ extension ChatService {
     }
 
     /// Fetch contextual messages from a specific contact (triggered by UTXO notification)
-    /// Returns true if any new messages were added
+    /// Returns true if any new messages were added.
+    /// `reorgRewindMs`: high-frequency live-tail callers (open-chat poll, foreground sweep)
+    /// pass `liveTailReorgBufferMs` to avoid re-downloading a 10-minute window every few
+    /// seconds; catch-up/notification callers omit it for the full reorg buffer.
     @discardableResult
-    func fetchContextualMessagesFromContact(contactAddress: String, myAddress: String, privateKey: Data) async -> ContactFetchResult {
+    func fetchContextualMessagesFromContact(contactAddress: String, myAddress: String, privateKey: Data, reorgRewindMs: UInt64? = nil) async -> ContactFetchResult {
         // Get incoming aliases for this contact (deterministic + legacy)
         let aliases = incomingAliases(for: contactAddress)
         guard !aliases.isEmpty else {
@@ -2035,7 +2100,8 @@ extension ChatService {
                 let startBlockTime = syncStartBlockTime(
                     for: syncObjectKey,
                     fallbackBlockTime: fallbackSince,
-                    nowMs: nowMs
+                    nowMs: nowMs,
+                    rewindMs: reorgRewindMs
                 )
                 let effectiveSince = applyMessageRetention(to: startBlockTime)
                 let fetchKey = contextualFetchKey(address: contactAddress, alias: alias, limit: 10, since: effectiveSince)
@@ -2077,7 +2143,8 @@ extension ChatService {
                         timestamp: Date(timeIntervalSince1970: TimeInterval((contextMsg.blockTime ?? 0) / 1000)),
                         blockTime: contextMsg.blockTime ?? 0,
                         acceptingBlock: contextMsg.acceptingBlock,
-                        isOutgoing: false,
+                        // Self-chat: a message you sent to yourself is outgoing on every device.
+                        isOutgoing: contactAddress == myAddress,
                         messageType: .contextual
                     )
 
@@ -2316,7 +2383,23 @@ extension ChatService {
             }
 
             // Decode payment message
-            let content = paymentContent(payment, isOutgoing: isOutgoing)
+            var content = paymentContent(payment, isOutgoing: isOutgoing)
+
+            // A plain KAS payment from an address we have NO contact for must not open a
+            // chat with the stranger. Internal moves from our own spending chain surface
+            // nowhere in chats; genuinely unknown senders collect in the SELF-chat (the
+            // conversation with our own chatting address) with the sender noted in the
+            // bubble. Wallet history and notifications are unaffected. Outgoing payments
+            // (withdrawals from the chatting address) keep creating destination chats.
+            var conversationAddress = contactAddress
+            if !isOutgoing, contactsManager.getContact(byAddress: contactAddress) == nil {
+                if WalletManager.shared.allSpendingAddresses().contains(contactAddress) {
+                    AppLog.log("[ChatService] Skipping payment %@ - internal move from own spending chain", String(payment.txId.prefix(16)))
+                    continue
+                }
+                conversationAddress = myAddress
+                content = "\(content)\n\(AppLocalization.string("From:")) \(contactAddress)"
+            }
 
             // Use resolved sender for incoming payments
             let resolvedSender = isOutgoing ? payment.sender : contactAddress
@@ -2348,7 +2431,7 @@ extension ChatService {
                 deliveryStatus: deliveryStatus
             )
 
-            addMessageToConversation(message, contactAddress: contactAddress)
+            addMessageToConversation(message, contactAddress: conversationAddress)
 
             if !isOutgoing {
                 if deliveryStatus == .sent {
@@ -2426,7 +2509,7 @@ extension ChatService {
 
         // Check if message already exists with content (not placeholder)
         if let existingMsg = await findLocalMessage(txId: txId),
-           existingMsg.content != "📤 Sent via another device" {
+           !existingMsg.isSentPlaceholder {
             AppLog.log("[ChatService] Outgoing push already exists with content: %@", txId)
             return true
         }
@@ -2449,7 +2532,7 @@ extension ChatService {
 
             // Check if CloudKit delivered the content
             if let cloudKitMsg = await findLocalMessage(txId: txId),
-               cloudKitMsg.content != "📤 Sent via another device" {
+               !cloudKitMsg.isSentPlaceholder {
                 AppLog.log("[ChatService] Outgoing push resolved via CloudKit: %@", txId)
                 return true
             }
@@ -2489,7 +2572,7 @@ extension ChatService {
                 txId: txId,
                 senderAddress: sender,
                 receiverAddress: contactAddress,
-                content: "📤 Sent via another device",
+                content: ChatMessage.sentViaOtherDevicePlaceholder,
                 timestamp: Date(timeIntervalSince1970: TimeInterval(timestamp) / 1000),
                 blockTime: UInt64(timestamp),
                 acceptingBlock: nil,
@@ -2545,7 +2628,7 @@ extension ChatService {
 
             // Check if content arrived
             if let msg = await findLocalMessage(txId: txId),
-               msg.content != "📤 Sent via another device" {
+               !msg.isSentPlaceholder {
                 AppLog.log("[ChatService] CloudKit retry successful for outgoing: %@", txId)
                 return
             }
@@ -2555,7 +2638,7 @@ extension ChatService {
             await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
 
             if let msg = await findLocalMessage(txId: txId),
-               msg.content == "📤 Sent via another device" {
+               msg.isSentPlaceholder {
                 AppLog.log("[ChatService] Outgoing message %@ still awaiting CloudKit sync", txId)
             }
         }
@@ -2572,14 +2655,14 @@ extension ChatService {
         if let payloadHint,
            let data = Data(base64Encoded: payloadHint),
            let raw = String(data: data, encoding: .utf8),
-           raw.hasPrefix("ciph_msg:") {
+           (raw.hasPrefix("kchat:") || raw.hasPrefix("ciph_msg:")) {
             return raw.data(using: .utf8)?.hexString
         }
 
         if let payloadHint,
            let data = Data(hexString: payloadHint),
            let raw = String(data: data, encoding: .utf8),
-           raw.hasPrefix("ciph_msg:") {
+           (raw.hasPrefix("kchat:") || raw.hasPrefix("ciph_msg:")) {
             return payloadHint
         }
 
@@ -2639,6 +2722,16 @@ extension ChatService {
             return
         }
 
+        // Fresh-address payment pool envelopes (addr_pool / addr_pool_request / payment_notice)
+        // are likewise never chat bubbles - same interception pattern as reactions above. A
+        // payment_notice DOES produce a payment bubble, but the handler constructs that bubble
+        // itself and re-enters this function with plain payment content. See
+        // `ChatService+PaymentPools.swift` and MESSAGING.md ("Fresh-Address Payment Pools").
+        if let poolEnvelope = PaymentPoolCodec.parse(message.content) {
+            handlePaymentPoolEnvelope(poolEnvelope, message: message, contactAddress: contactAddress)
+            return
+        }
+
         let contact = contactsManager.getOrCreateContact(address: contactAddress)
         if message.isOutgoing {
             contactsManager.markHasSentOutgoingMessage(address: contactAddress)
@@ -2674,6 +2767,12 @@ extension ChatService {
         let isUserViewing = activeConversationAddress == contactAddress &&
             UIApplication.shared.applicationState == .active
 
+        // Floor the per-contact read cursor at the wallet-import moment: anything mined before
+        // the wallet first landed on this device is backfilled history (seed re-import initial
+        // sync, forced from-genesis contact sync, catch-up after an archive restore), not new
+        // mail - it must land read and must not notify. 0 for pre-existing wallets (no gating).
+        let importBaselineMs = walletImportBaselineMs(for: WalletManager.shared.currentWallet?.publicAddress)
+
         if let index = conversations.firstIndex(where: { $0.contact.address == contactAddress }) {
             updateConversation(at: index) { conversation in
                 if !conversation.messages.contains(where: { $0.txId == message.txId }) {
@@ -2682,10 +2781,11 @@ extension ChatService {
                     if !message.isOutgoing {
                         if isUserViewing {
                             conversation.unreadCount = 0
-                        } else if Int64(message.blockTime) > (readCursorByAddress[contactAddress] ?? 0) {
-                            // Only bump for messages newer than the persisted read cursor - a
-                            // re-fetched already-read message (initial full re-sync) must not
-                            // resurrect unread. See `readCursorByAddress`.
+                        } else if Int64(message.blockTime) > max(readCursorByAddress[contactAddress] ?? 0, importBaselineMs) {
+                            // Only bump for messages newer than the persisted read cursor (floored
+                            // at the wallet-import baseline) - a re-fetched already-read message
+                            // (initial full re-sync) or pre-import history must not resurrect
+                            // unread. See `readCursorByAddress` / `walletImportBaselineMs`.
                             conversation.unreadCount += 1
                         }
                     }
@@ -2700,7 +2800,7 @@ extension ChatService {
             isNewMessage = true
             isNewConversation = true
             if !message.isOutgoing {
-                let isAlreadyRead = Int64(message.blockTime) <= (readCursorByAddress[contactAddress] ?? 0)
+                let isAlreadyRead = Int64(message.blockTime) <= max(readCursorByAddress[contactAddress] ?? 0, importBaselineMs)
                 conversation.unreadCount = (isUserViewing || isAlreadyRead) ? 0 : 1
             }
             conversations.append(conversation)
@@ -2718,6 +2818,10 @@ extension ChatService {
 
         if isNewMessage {
             AppLog.log("%@", "[ChatService] Added message \(message.txId.prefix(16))... to \(contactAddress.suffix(10)), type: \(message.messageType), isNew: \(isNewConversation)")
+            // Continuous Nextcloud sync: every message that lands - incoming or outgoing,
+            // whatever the delivery path - marks the archive dirty and (re)arms the debounced
+            // merge upload. No-op unless Automatic Sync is on and a server is connected.
+            NextcloudService.shared.noteMessageActivity()
         }
 
         // If user is currently viewing this chat, advance read marker immediately
@@ -2734,7 +2838,9 @@ extension ChatService {
         // Only suppress when the app is actively in the foreground AND the user is viewing that conversation.
         let isViewingConversation = activeConversationAddress == contactAddress &&
             UIApplication.shared.applicationState == .active
-        if isNewMessage && !message.isOutgoing && !isViewingConversation {
+        // Backfilled pre-import history never notifies either - restoring is not receiving.
+        let isBackfilledHistory = message.blockTime > 0 && Int64(message.blockTime) <= importBaselineMs
+        if isNewMessage && !message.isOutgoing && !isViewingConversation && !isBackfilledHistory {
             sendLocalNotification(for: message, from: contact)
         }
     }
@@ -2770,11 +2876,75 @@ extension ChatService {
         return false
     }
 
+    /// Removes DELIVERED notifications for one thread from the lock screen / Notification
+    /// Center - reading a chat must take its banners with it, or they linger (and can appear
+    /// to "come back" when the lock screen re-sorts). Matches every notification the app or
+    /// its extension posts, local and push alike, by threadIdentifier.
+    /// Throttle bookkeeping for `clearDeliveredNotifications` - the sweep is an XPC
+    /// round-trip to the notification daemon, and mark-read paths can fire in bursts
+    /// during catch-up sync. One sweep per thread per 2s is plenty.
+    /// NSLock, not DispatchQueue.sync: callers run inside Swift Concurrency tasks, and a
+    /// forced dispatch sync from the cooperative pool trips the runtime's
+    /// "unsafeForcedSync called from Swift Concurrent context" diagnostic. A lock around
+    /// a dictionary lookup is the sanctioned pattern for a critical section this small.
+    private nonisolated static let clearThrottleLock = NSLock()
+    nonisolated(unsafe) private static var lastClearByThread: [String: Date] = [:]
+
+    nonisolated static func clearDeliveredNotifications(threadIdentifier: String) {
+        clearThrottleLock.lock()
+        let now = Date()
+        let allowed: Bool
+        if let last = lastClearByThread[threadIdentifier], now.timeIntervalSince(last) < 2.0 {
+            allowed = false
+        } else {
+            lastClearByThread[threadIdentifier] = now
+            allowed = true
+        }
+        clearThrottleLock.unlock()
+        guard allowed else { return }
+        UNUserNotificationCenter.current().getDeliveredNotifications { delivered in
+            let ids = delivered
+                .filter { $0.request.content.threadIdentifier == threadIdentifier }
+                .map { $0.request.identifier }
+            if !ids.isEmpty {
+                // Re-fetched rather than captured - UNUserNotificationCenter isn't Sendable.
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ids)
+            }
+        }
+    }
+
+    /// App Group ledger of 1:1 txIds the MAIN APP posted a local banner for - the 1:1
+    /// counterpart of `GroupChatService.localPostedTxIdsKey`. `AppDelegate.willPresent` drops
+    /// a foreground push whose tx_id appears here.
+    static let localPostedTxIdsKey = "chat_local_posted_txids"
+
+    /// Returns false when this txId already produced a banner - the notification extension
+    /// handled its push (`chat_push_handled_txids`, written in NotificationService.didReceive),
+    /// or the main app already posted a local banner for it. Records the claim and returns
+    /// true otherwise. Bounded FIFO, mirroring `GroupChatService.claimGroupBannerSlot`.
+    private static func claimChatBannerSlot(txId: String) -> Bool {
+        guard let defaults = UserDefaults(suiteName: "group.com.kachat.app") else { return true }
+        let pushHandled = defaults.stringArray(forKey: "chat_push_handled_txids") ?? []
+        guard !pushHandled.contains(txId) else { return false }
+        var posted = defaults.stringArray(forKey: localPostedTxIdsKey) ?? []
+        guard !posted.contains(txId) else { return false }
+        posted.append(txId)
+        if posted.count > 300 { posted.removeFirst(posted.count - 300) }
+        defaults.set(posted, forKey: localPostedTxIdsKey)
+        return true
+    }
+
     func sendLocalNotification(for message: ChatMessage, from contact: Contact) {
         let settings = currentSettings
         // Check if notifications are enabled
         guard settings.notificationsEnabled else { return }
-        guard settings.notificationMode != .remotePush else { return }
+        // Foreground: the app's own live sync paths (subscription, sweep, open-chat poll,
+        // catch-up) are the notification source no matter the push mode - remote push only
+        // matters for background/closed. Background keeps the remote-push suppression so
+        // users whose push works don't get double banners there.
+        if UIApplication.shared.applicationState != .active {
+            guard settings.notificationMode != .remotePush else { return }
+        }
 
         // Don't notify during initial sync after wallet import/create
         guard !suppressNotificationsUntilSynced else { return }
@@ -2785,12 +2955,18 @@ extension ChatService {
         // Don't notify for pending messages
         guard message.deliveryStatus != .pending else { return }
 
+        // One banner per txId across the local-vs-APNs race: skip if the notification
+        // extension already handled this message's push, and record this local post so a
+        // foreground push duplicate is dropped in AppDelegate.willPresent.
+        guard Self.claimChatBannerSlot(txId: message.txId) else { return }
+
         let content = UNMutableNotificationContent()
         content.title = contact.alias
         content.body = formatNotificationBody(message.content)
         let shouldPlaySound = settings.shouldPlayIncomingNotificationSound(for: contact)
         content.sound = shouldPlaySound ? .default : nil
         content.threadIdentifier = contact.address
+        content.categoryIdentifier = AppDelegate.messageCategoryId
 
         if !shouldPlaySound &&
             settings.incomingNotificationVibrationEnabled &&
@@ -2815,6 +2991,26 @@ extension ChatService {
         // Unwrap a reply envelope first, so a reply's own text (or its attachment, below) is
         // what's notified rather than the raw `{"type":"reply",...}` JSON.
         let unwrapped = MessageReplyCodec.unwrappedText(content)
+
+        // Chess envelopes are JSON in the message content; without this they banner as raw
+        // JSON on the local (foreground) path while the push extension shows friendly text.
+        // Wording matches the NSE's chessPreviewText exactly.
+        if let chessEnvelope = ChessCodec.parseAny(unwrapped) {
+            switch chessEnvelope {
+            case .invite:
+                return "♟️ Invited you to a game of chess"
+            case .response(let response):
+                return response.accepted ? "♟️ Accepted your chess game" : "♟️ Declined your chess game"
+            case .move(let move):
+                return "♟️ Played \(move.from) → \(move.to)"
+            case .resign(let resign):
+                return resign.reason == "timeout" ? "♟️ Lost on time" : "♟️ Resigned the chess game"
+            }
+        }
+        // Same guard for reaction envelopes, mirroring the NSE's reactionPreviewText.
+        if let reaction = MessageReactionCodec.parse(unwrapped) {
+            return "Reacted \(reaction.emoji)"
+        }
 
         // Check if content is a file JSON payload
         let trimmed = unwrapped.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2872,7 +3068,9 @@ extension ChatService {
         guard let hexPayload = hexPayload else { return nil }
         // Remove "ciph_msg:" prefix if present
         var payload = hexPayload
-        if payload.hasPrefix("ciph_msg:") {
+        if payload.hasPrefix("kchat:") {
+            payload = String(payload.dropFirst(6))
+        } else if payload.hasPrefix("ciph_msg:") {
             payload = String(payload.dropFirst(9))
         }
 
@@ -2898,7 +3096,9 @@ extension ChatService {
     func decodePaymentPayload(_ hexPayload: String?) -> PaymentPayload? {
         guard let hexPayload = hexPayload else { return nil }
         var payload = hexPayload
-        if payload.hasPrefix("ciph_msg:") {
+        if payload.hasPrefix("kchat:") {
+            payload = String(payload.dropFirst(6))
+        } else if payload.hasPrefix("ciph_msg:") {
             payload = String(payload.dropFirst(9))
         }
 
@@ -2975,4 +3175,213 @@ extension ChatService {
         return formatter.string(from: NSNumber(value: kas)) ?? String(format: "%.8f", kas)
     }
 
+}
+
+// MARK: - Danger Zone: wipe & re-sync incoming messages
+
+extension ChatService {
+    /// Progress events reported by `wipeAndResyncIncomingMessages`, in order. The coordinator
+    /// driving the blocking modal maps these onto the same stage-weight pattern the Nextcloud
+    /// restore modal uses.
+    enum IncomingResyncEvent {
+        case wiping
+        case fetchingHandshakes
+        case fetchingPayments
+        /// Per-contact contextual re-fetch: `done` of `total` chats finished.
+        case syncingChats(done: Int, total: Int)
+        case finalizing
+    }
+
+    struct IncomingResyncSummary {
+        let chats: Int
+        let messages: Int
+    }
+
+    enum IncomingResyncError: LocalizedError {
+        case noWallet
+        case notConfigured
+        case walletChanged
+        case handshakeFetchFailed
+        case paymentFetchFailed
+        case chatsFailed(failed: Int, total: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .noWallet:
+                return "No active account. Log in and try again."
+            case .notConfigured:
+                return "The indexer connection is not available. Check Connection Settings and try again."
+            case .walletChanged:
+                return "The active account changed while re-syncing. Messages already recovered were kept."
+            case .handshakeFetchFailed:
+                return "Could not re-fetch handshakes from the indexer. Messages already recovered were kept; try again on a better connection."
+            case .paymentFetchFailed:
+                return "Could not re-fetch payments from the indexer. Messages already recovered were kept; try again on a better connection."
+            case .chatsFailed(let failed, let total):
+                return "\(failed) of \(total) chats could not be re-synced. Messages already recovered were kept; try again on a better connection."
+            }
+        }
+    }
+
+    /// Wipes incoming messages and re-fetches them from the indexer, scoped to `contacts`
+    /// (nil = every known 1:1 chat). Owned by `IncomingResyncCoordinator`, never by a view.
+    ///
+    /// Scope mechanics: the wipe deletes only the selected conversations' incoming rows (in
+    /// memory and in the Core Data store, matched by `contactAddress`) and drops only those
+    /// contacts' incoming contextual cursors, so the per-contact re-fetch below starts from
+    /// block time 0 (retention-clamped) for exactly those chats and nothing else. Handshake and
+    /// payment rows are incoming messages too, so both phases re-run from 0 - they are
+    /// wallet-global endpoints and idempotent (`addMessageToConversation` dedupes by txId), so
+    /// untouched chats simply no-op. The global `lastPollTime` fallback cursor is never
+    /// advanced by this flow (`endSyncBlockTime(success: false)`): only the re-fetched objects'
+    /// own cursors move, so unrelated sync windows cannot be skipped.
+    func wipeAndResyncIncomingMessages(
+        contacts selectedAddresses: [String]?,
+        progress: @escaping (IncomingResyncEvent) -> Void
+    ) async throws -> IncomingResyncSummary {
+        guard let wallet = WalletManager.shared.currentWallet else {
+            throw IncomingResyncError.noWallet
+        }
+        await configureAPIIfNeeded()
+        guard isConfigured else {
+            throw IncomingResyncError.notConfigured
+        }
+        let myAddress = wallet.publicAddress
+        let privateKey = WalletManager.shared.getPrivateKey()
+        let scopeIsAll = selectedAddresses == nil
+
+        // Target set: the picked chats, or (for All Chats) the same contact universe the full
+        // sync sweeps - routing states + legacy aliases + every live conversation. Ordered by
+        // conversation recency so the progress bar works through visible chats first.
+        var targetPool: Set<String>
+        if let selectedAddresses {
+            targetPool = Set(selectedAddresses)
+        } else {
+            targetPool = Set(routingStates.keys)
+                .union(conversationAliases.keys)
+                .union(conversations.map { $0.contact.address })
+        }
+        let recency: [String: Date] = Dictionary(
+            conversations.compactMap { convo -> (String, Date)? in
+                guard let last = convo.lastMessage else { return nil }
+                return (convo.contact.address.lowercased(), last.timestamp)
+            },
+            uniquingKeysWith: { max($0, $1) }
+        )
+        let targets = targetPool.sorted { a, b in
+            let la = recency[a.lowercased()]
+            let lb = recency[b.lowercased()]
+            switch (la, lb) {
+            case let (da?, db?) where da != db: return da > db
+            case (.some, .none): return true
+            case (.none, .some): return false
+            default: return a < b
+            }
+        }
+        let targetSet = Set(targets.map { $0.lowercased() })
+
+        // PHASE 1 - wipe. In-memory first (synchronous, so the UI empties immediately), then
+        // the store (awaited, so the re-fetch cannot race the batch delete), then the cursors.
+        progress(.wiping)
+        var updated = conversations
+        for index in updated.indices where targetSet.contains(updated[index].contact.address.lowercased()) {
+            updated[index].messages.removeAll(where: { !$0.isOutgoing })
+            updated[index].unreadCount = 0
+        }
+        conversations = updated
+        await MessageStore.shared.clearIncomingMessagesAndWait(forContacts: scopeIsAll ? nil : targets)
+        MessageStore.shared.clearDpiCorruptionWarning()
+        removeIncomingSyncCursors(for: targets, includeIncomingHandshakes: true)
+        saveMessages()
+
+        // Re-fetch under sync batching, with notifications suppressed: everything below is
+        // historical data the user has already seen.
+        let previousSuppress = suppressNotificationsUntilSynced
+        suppressNotificationsUntilSynced = true
+        beginSyncBlockTime()
+        defer {
+            // Never advance the global lastPollTime fallback off this scoped run - per-object
+            // cursors advanced above are the only state this flow is allowed to move forward.
+            endSyncBlockTime(success: false)
+            suppressNotificationsUntilSynced = previousSuppress
+        }
+
+        let nowMs = currentTimeMs()
+        let historyStart = applyMessageRetention(to: 0)
+
+        // PHASE 2 - incoming handshakes (restores wiped handshake rows and re-derives aliases).
+        progress(.fetchingHandshakes)
+        var handshakeTxIds = Set<String>()
+        if let fetched = await retryUntilSuccess(
+            label: "re-sync incoming handshakes",
+            maxAttempts: Self.syncPhaseMaxRetryAttempts,
+            operation: { [self] in try await fetchIncomingHandshakes(for: myAddress, blockTime: historyStart) }
+        ) {
+            handshakeTxIds = Set(fetched.map { $0.txId })
+            await processHandshakes(fetched, isOutgoing: false, myAddress: myAddress, privateKey: privateKey)
+            advanceSyncCursor(
+                for: handshakeSyncObjectKey(direction: "in", address: myAddress),
+                maxBlockTime: fetched.compactMap { $0.blockTime }.max()
+            )
+        } else {
+            throw IncomingResyncError.handshakeFetchFailed
+        }
+        guard isActiveWallet(myAddress) else { throw IncomingResyncError.walletChanged }
+
+        // PHASE 3 - incoming payments (payment rows are incoming messages and were wiped too).
+        // Handshake txIds are filtered out so a handshake is never re-added as a payment (the
+        // same Bug 4 guard the full sync applies).
+        progress(.fetchingPayments)
+        if let fetched = await retryUntilSuccess(
+            label: "re-sync incoming payments",
+            maxAttempts: Self.syncPhaseMaxRetryAttempts,
+            operation: { [self] in try await fetchIncomingPayments(for: myAddress, blockTime: historyStart) }
+        ) {
+            let payments = fetched.filter { !handshakeTxIds.contains($0.txId) }
+            await processPayments(payments, isOutgoing: false, myAddress: myAddress, privateKey: privateKey)
+        } else {
+            throw IncomingResyncError.paymentFetchFailed
+        }
+        guard isActiveWallet(myAddress) else { throw IncomingResyncError.walletChanged }
+
+        // PHASE 4 - per-contact contextual history. Serial on purpose: the modal's bar advances
+        // one chat at a time, and a re-sync is a repair operation, not a latency-critical sync.
+        // Each contact's incoming cursor was dropped above, so `fallbackSince: 0` makes
+        // `fetchIncomingContextualMessages` page through that chat's full (retention-clamped)
+        // history; contacts with no incoming alias yet return immediately.
+        var failedChats = 0
+        var done = 0
+        progress(.syncingChats(done: 0, total: targets.count))
+        for address in targets {
+            guard isActiveWallet(myAddress) else { throw IncomingResyncError.walletChanged }
+            let ok = await fetchIncomingContextualMessages(
+                contactAddress: address,
+                myAddress: myAddress,
+                privateKey: privateKey,
+                fallbackSince: 0,
+                nowMs: nowMs
+            )
+            if !ok { failedChats += 1 }
+            done += 1
+            progress(.syncingChats(done: done, total: targets.count))
+        }
+
+        // PHASE 5 - persist everything the phases touched.
+        progress(.finalizing)
+        saveConversationAliases()
+        saveOurAliases()
+        saveConversationIds()
+        saveRoutingStates()
+        saveMessages()
+
+        if failedChats > 0 {
+            throw IncomingResyncError.chatsFailed(failed: failedChats, total: targets.count)
+        }
+
+        let restoredMessages = conversations.reduce(0) { count, convo in
+            guard targetSet.contains(convo.contact.address.lowercased()) else { return count }
+            return count + convo.messages.filter { !$0.isOutgoing }.count
+        }
+        return IncomingResyncSummary(chats: targets.count, messages: restoredMessages)
+    }
 }

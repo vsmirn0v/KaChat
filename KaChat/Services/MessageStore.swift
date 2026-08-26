@@ -966,12 +966,17 @@ final class MessageStore {
         touchCloudKitExportMarker(useViewContext: false)
     }
 
+    /// `onConversationProgress` (optional) fires after each conversation's records are staged
+    /// in the background context, as `(done, total)`. Invoked on the Core Data background
+    /// queue, so callers must hop to the main actor themselves. Drives the restore progress
+    /// modal's determinate bar during archive imports.
     @discardableResult
     func syncFromConversations(
         _ conversations: [Conversation],
         encryptionKey: SymmetricKey,
         retention: MessageRetention,
-        performMaintenance: Bool = true
+        performMaintenance: Bool = true,
+        onConversationProgress: (@Sendable (Int, Int) -> Void)? = nil
     ) async -> Bool {
         guard ensureStoreLoaded() else { return false }
         let walletAddr = currentWalletAddress
@@ -999,7 +1004,8 @@ final class MessageStore {
                 let batchTime = Date().timeIntervalSince(batchStart) * 1000
                 self.logInfo("[MessageStore] Batch fetch took %.0fms for %d messages", batchTime, allTxIds.count)
 
-                for conversation in conversations {
+                let totalConversations = conversations.count
+                for (conversationIndex, conversation) in conversations.enumerated() {
                     let conv = self.fetchOrCreateConversation(contactAddress: conversation.contact.address, walletAddress: walletAddr, in: context)
 
                     // Only update conversation if values differ
@@ -1041,7 +1047,7 @@ final class MessageStore {
                                 record.acceptingBlock != message.acceptingBlock
                         }
 
-                        let isPlaceholder = message.content == "📤 Sent via another device"
+                        let isPlaceholder = message.isSentPlaceholder
                         let existingHasContent = record.contentEncrypted != nil
                         let shouldForceOutgoingContent = message.isOutgoing && !isPlaceholder
 
@@ -1098,6 +1104,8 @@ final class MessageStore {
 
                         currentTxIds.insert(message.txId)
                     }
+
+                    onConversationProgress?(conversationIndex + 1, totalConversations)
                 }
 
                 // Only save if there are actual changes
@@ -1814,7 +1822,7 @@ final class MessageStore {
             let isNewRecord = record.messageId == nil
 
             // Check if record needs updating (diff-only for existing records)
-            let isPlaceholder = message.content == "📤 Sent via another device"
+            let isPlaceholder = message.isSentPlaceholder
             let existingHasContent = record.contentEncrypted != nil
             let shouldForceOutgoingContent = message.isOutgoing && !isPlaceholder
             let needsUpdate = isNewRecord ||
@@ -1958,6 +1966,47 @@ final class MessageStore {
                 }
             } catch {
                 self.logInfo("[MessageStore] Failed to clear incoming messages: \(error)")
+            }
+        }
+    }
+
+    /// Awaitable incoming-message wipe for the CURRENT wallet, optionally limited to the given
+    /// conversations (matched by `CDMessage.contactAddress`). Used by the Danger Zone
+    /// wipe-and-resync flow, which must not start re-fetching until the delete has actually
+    /// landed in the store (the fire-and-forget `clearIncomingMessages()` above could otherwise
+    /// race the re-sync's own writes).
+    func clearIncomingMessagesAndWait(forContacts contactAddresses: [String]? = nil) async {
+        guard ensureStoreLoaded() else { return }
+        if let contactAddresses, contactAddresses.isEmpty { return }
+        let walletAddr = currentWalletAddress
+        let context = container.newBackgroundContext()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            context.perform {
+                let fetch = NSFetchRequest<NSFetchRequestResult>(entityName: CDMessage.entityName)
+                var clauses = ["isOutgoing == NO"]
+                var arguments: [Any] = []
+                if let contactAddresses {
+                    clauses.append("contactAddress IN %@")
+                    arguments.append(contactAddresses)
+                }
+                if let walletAddr {
+                    clauses.append("(walletAddress == %@ OR walletAddress == nil)")
+                    arguments.append(walletAddr)
+                }
+                fetch.predicate = NSPredicate(format: clauses.joined(separator: " AND "), argumentArray: arguments)
+                let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetch)
+                deleteRequest.resultType = .resultTypeObjectIDs
+                do {
+                    let result = try context.execute(deleteRequest) as? NSBatchDeleteResult
+                    let objectIds = result?.result as? [NSManagedObjectID] ?? []
+                    if !objectIds.isEmpty {
+                        NSManagedObjectContext.mergeChanges(fromRemoteContextSave: [NSDeletedObjectsKey: objectIds], into: [self.viewContext])
+                    }
+                    self.logInfo("[MessageStore] Cleared %d incoming messages (%@)", objectIds.count, contactAddresses == nil ? "all chats" : "\(contactAddresses?.count ?? 0) chats")
+                } catch {
+                    self.logInfo("[MessageStore] Failed to clear incoming messages: \(error)")
+                }
+                continuation.resume()
             }
         }
     }
@@ -2789,7 +2838,7 @@ final class MessageStore {
                 content = "[Encrypted message]"
             }
         } else {
-            content = "📤 Sent via another device"
+            content = ChatMessage.sentViaOtherDevicePlaceholder
         }
         let messageType = ChatMessage.MessageType(rawValue: record.messageType ?? "contextual") ?? .contextual
         let deliveryStatus = ChatMessage.DeliveryStatus(rawValue: record.deliveryStatus ?? "sent") ?? .sent
@@ -3533,7 +3582,13 @@ final class MessageStore {
         guard ensureStoreLoaded() else { return }
 
         let context = container.newBackgroundContext()
-        context.performAndWait {
+        // ASYNC perform, never performAndWait: this is fired from the scene-phase handler when
+        // the app backgrounds (tapping a link -> Safari), exactly when the CloudKit export flush
+        // is using the store. performAndWait blocked the MAIN thread on the SQLite lock, iOS
+        // suspended the process mid-wait, and the app resumed still frozen inside that wait
+        // (~1min hang + "unsafeForcedSync called from Swift Concurrent context"). Every caller
+        // is fire-and-forget; a checkpoint is pure maintenance nobody needs to wait for.
+        context.perform {
             do {
                 let startTime = Date()
 
