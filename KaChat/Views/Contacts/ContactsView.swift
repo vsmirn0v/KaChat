@@ -106,38 +106,46 @@ struct ProfileView: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // Both sides mirror each other with hidden copies of the opposite side's
+                // items, so the leading and trailing bar groups always occupy the same width
+                // and the principal balance sits at TRUE screen center - two trailing buttons
+                // against one leading dot otherwise shove the title view visibly left.
                 ToolbarItem(placement: .navigationBarLeading) {
-                    ConnectionStatusIndicator()
+                    HStack(spacing: 12) {
+                        ConnectionStatusIndicator()
+                        Image(systemName: "bell").hidden()
+                        Image(systemName: "gear").hidden()
+                    }
                 }
                 ToolbarItem(placement: .principal) {
                     balanceToolbarView
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    // Global notification center: KaPosts activity, group @mentions, live
-                    // broadcasts - sits beside the Profile title. A plain red DOT (no count)
-                    // signals unread.
-                    Button {
-                        showNotifCenter = true
-                    } label: {
-                        Image(systemName: "bell")
-                            .overlay(alignment: .topTrailing) {
-                                if notifCenter.unreadCount > 0 {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 4, y: -3)
+                    HStack(spacing: 12) {
+                        ConnectionStatusIndicator().hidden()
+                        // Global notification center: KaPosts activity, group @mentions, live
+                        // broadcasts. A plain red DOT (no count) signals unread.
+                        Button {
+                            showNotifCenter = true
+                        } label: {
+                            Image(systemName: "bell")
+                                .overlay(alignment: .topTrailing) {
+                                    if notifCenter.unreadCount > 0 {
+                                        Circle()
+                                            .fill(Color.red)
+                                            .frame(width: 8, height: 8)
+                                            .offset(x: 4, y: -3)
+                                    }
                                 }
-                            }
+                        }
+                        .accessibilityLabel(Text("Notifications"))
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Image(systemName: "gear")
+                        }
+                        .accessibilityLabel(Text("Settings"))
                     }
-                    .accessibilityLabel(Text("Notifications"))
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "gear")
-                    }
-                    .accessibilityLabel(Text("Settings"))
                 }
             }
             .sheet(isPresented: $showNotifCenter) {
