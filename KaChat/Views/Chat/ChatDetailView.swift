@@ -399,13 +399,16 @@ struct ChatDetailView: View {
     }
 
     /// Shown from the moment a 1:1 chat opens - deliberately NOT gated on having typed or sent
-    /// anything - and retired only once the relationship is established. Group threads route
-    /// through `GroupChatDetailView`, so everything here is already 1:1.
+    /// anything - and retired once the relationship is established OR a handshake FROM them
+    /// exists: their handshake (whether accepting ours or initiating their own) proves their
+    /// side has the conversation and can see what we send, so waiting for a genuine reply made
+    /// the banner outlive a completed handshake. A sent-but-unanswered handshake keeps it up.
+    /// Group threads route through `GroupChatDetailView`, so everything here is already 1:1.
     private var shouldShowHandshakeNotice: Bool {
         // `hasPerformedInitialSetup` only defers the decision past the first frame (the message
         // snapshot that feeds the relationship flags is built in `onAppear`), so an established
         // chat never flashes the banner on open.
-        hasPerformedInitialSetup && !hasEstablishedRelationship && !isDeclined
+        hasPerformedInitialSetup && !hasEstablishedRelationship && !hasIncomingHandshakeMessage && !isDeclined
     }
 
     var body: some View {
