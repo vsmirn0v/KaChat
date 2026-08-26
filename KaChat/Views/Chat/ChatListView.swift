@@ -1318,8 +1318,12 @@ struct ConversationRow: View {
             return result
         }
 
-        if ChessCodec.parseAny(unwrapped) != nil {
-            result = "♟️ Chess game"
+        if let chessEnvelope = ChessCodec.parseAny(unwrapped) {
+            if case .invite(let invite) = chessEnvelope, let minutes = invite.tcMinutes {
+                result = "♟️ Chess game - \(minutes) | \(invite.tcIncSeconds ?? 0)"
+            } else {
+                result = "♟️ Chess game"
+            }
             Self.previewCache.setObject(result as NSString, forKey: key)
             return result
         }

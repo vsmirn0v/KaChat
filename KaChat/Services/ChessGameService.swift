@@ -12,13 +12,29 @@ import Foundation
 /// Gradle dependency on Android), and this project has already suffered real corruption from
 /// manual pbxproj file registration - so the whole engine is hand-written instead (see
 /// `ChessEngine.swift`).
+/// A timed game's control: initial minutes per side plus a per-move increment in seconds
+/// (chess-site style, e.g. "3 | 2"). Carried on the invite envelope (`tcMinutes`/`tcIncSeconds`);
+/// nil throughout the feature means a casual untimed game, which behaves exactly like before
+/// time controls existed.
+struct ChessTimeControl: Equatable {
+    let minutes: Int
+    let incSeconds: Int
+
+    var initialMs: Int64 { Int64(minutes) * 60_000 }
+    var incrementMs: Int64 { Int64(incSeconds) * 1_000 }
+    /// "3 | 2"-style display label, matching how chess sites name minute/increment pairs.
+    var label: String { "\(minutes) | \(incSeconds)" }
+}
+
 enum ChessGameStatus: Equatable {
     case pendingResponse
     case declined
     case inProgress
     case checkmate(winner: ChessColor)
     case stalemate
-    case resigned(loser: ChessColor)
+    /// `timeout` true when the loser flagged (their clock ran out and the app auto-sent a
+    /// `chess_resign` with reason "timeout") rather than resigning by hand.
+    case resigned(loser: ChessColor, timeout: Bool)
 
     var isGameOver: Bool {
         switch self {
@@ -61,6 +77,15 @@ struct ChessGameSummary {
     let viewerColor: ChessColor?
     /// Every move actually applied during replay, in play order.
     let moveHistory: [ChessMoveRecord]
+    /// Time control from the invite, or nil for a casual untimed game (including every game
+    /// started by a legacy client).
+    let timeControl: ChessTimeControl?
+    /// Last-known remaining clock per side in milliseconds - the `clockMs` of that side's most
+    /// recent move, or the initial allotment if they haven't moved yet. nil when untimed. The
+    /// side to move's real remaining time is this value minus their accumulated open-board
+    /// thinking time this turn, which only their own device tracks (see `ChessClockStore`).
+    let whiteClockMs: Int64?
+    let blackClockMs: Int64?
 
     /// Pieces captured so far, grouped by the color that captured them (i.e. `capturedByWhite`
     /// are black pieces White has taken) - drives a captured-pieces tray.
@@ -89,7 +114,11 @@ struct ChessGameSummary {
             return winner == viewerColor ? "Checkmate - You win!" : "Checkmate - You lost"
         case .stalemate:
             return "Stalemate - draw"
-        case .resigned(let loser):
+        case .resigned(let loser, let timeout):
+            if timeout {
+                guard let viewerColor else { return "\(loser == .white ? "White" : "Black") lost on time" }
+                return loser == viewerColor ? "You lost on time" : "They lost on time"
+            }
             guard let viewerColor else { return "\(loser == .white ? "White" : "Black") resigned" }
             return loser == viewerColor ? "You resigned" : "They resigned"
         }
@@ -107,8 +136,12 @@ enum ChessGameService {
         var response: ChessResponseContent?
         var board = ChessEngine.initialBoard()
         var resignerAddress: String?
+        var resignReason: String?
         var lastMessageTxId: String?
         var moveHistory: [ChessMoveRecord] = []
+        // Last clockMs each color reported on its own moves - resolved to a concrete remaining
+        // time (falling back to the initial allotment) after the invite's time control is known.
+        var lastClockByColor: [ChessColor: Int64] = [:]
 
         for message in messages.sorted(by: { $0.timestamp < $1.timestamp }) {
             guard let envelope = ChessCodec.parseAny(MessageReplyCodec.unwrappedText(message.content)),
@@ -132,6 +165,9 @@ enum ChessGameService {
                     ? board.piece(at: ChessSquare(file: to.file, rank: from.rank))
                     : board.piece(at: to)
                 board = ChessEngine.apply(move, to: board)
+                if let clockMs = content.clockMs {
+                    lastClockByColor[movingPiece.color] = clockMs
+                }
                 moveHistory.append(ChessMoveRecord(
                     from: from,
                     to: to,
@@ -142,8 +178,9 @@ enum ChessGameService {
                     promotion: promotion,
                     messageTxId: message.txId
                 ))
-            case .resign:
+            case .resign(let content):
                 resignerAddress = senderAddress
+                resignReason = content.reason
             }
         }
 
@@ -155,7 +192,7 @@ enum ChessGameService {
         let status: ChessGameStatus
         if let resignerAddress {
             let loser: ChessColor = resignerAddress == whiteAddress ? .white : .black
-            status = .resigned(loser: loser)
+            status = .resigned(loser: loser, timeout: resignReason == "timeout")
         } else if let response, !response.accepted {
             status = .declined
         } else if response == nil {
@@ -170,6 +207,11 @@ enum ChessGameService {
 
         let viewerColor: ChessColor? = myAddress == whiteAddress ? .white : (myAddress == blackAddress ? .black : nil)
 
+        var timeControl: ChessTimeControl?
+        if let minutes = invite.tcMinutes, minutes > 0 {
+            timeControl = ChessTimeControl(minutes: minutes, incSeconds: max(invite.tcIncSeconds ?? 0, 0))
+        }
+
         return ChessGameSummary(
             gameId: gameId,
             status: status,
@@ -178,7 +220,10 @@ enum ChessGameService {
             blackAddress: blackAddress,
             lastMessageTxId: lastMessageTxId ?? "",
             viewerColor: viewerColor,
-            moveHistory: moveHistory
+            moveHistory: moveHistory,
+            timeControl: timeControl,
+            whiteClockMs: timeControl.map { lastClockByColor[.white] ?? $0.initialMs },
+            blackClockMs: timeControl.map { lastClockByColor[.black] ?? $0.initialMs }
         )
     }
 
@@ -228,7 +273,7 @@ enum ChessGameService {
             switch summary.status {
             case .checkmate(let winner):
                 if winner == myColor { wins += 1 } else { losses += 1 }
-            case .resigned(let loser):
+            case .resigned(let loser, _):
                 if loser == myColor { losses += 1 } else { wins += 1 }
             case .pendingResponse, .declined, .inProgress, .stalemate:
                 break
@@ -251,9 +296,14 @@ enum ChessGameService {
 
     // MARK: - Sending actions
 
-    static func startGame(with contact: Contact) async throws {
+    static func startGame(with contact: Contact, timeControl: ChessTimeControl? = nil) async throws {
         let gameId = UUID().uuidString
-        let content = ChessInviteContent(gameId: gameId, inviterColor: Bool.random() ? .white : .black)
+        let content = ChessInviteContent(
+            gameId: gameId,
+            inviterColor: Bool.random() ? .white : .black,
+            tcMinutes: timeControl?.minutes,
+            tcIncSeconds: timeControl?.incSeconds
+        )
         try await ChatService.shared.sendMessage(to: contact, content: ChessCodec.encode(content))
     }
 
@@ -262,18 +312,57 @@ enum ChessGameService {
         try await ChatService.shared.sendMessage(to: contact, content: ChessCodec.encode(content))
     }
 
-    static func sendMove(_ move: ChessMove, gameId: String, to contact: Contact) async throws {
+    static func sendMove(_ move: ChessMove, gameId: String, clockMs: Int64? = nil, to contact: Contact) async throws {
         let content = ChessMoveContent(
             gameId: gameId,
             from: move.from.algebraic,
             to: move.to.algebraic,
-            promotion: move.promotion?.promotionLetter
+            promotion: move.promotion?.promotionLetter,
+            clockMs: clockMs
         )
         try await ChatService.shared.sendMessage(to: contact, content: ChessCodec.encode(content))
     }
 
-    static func resign(gameId: String, to contact: Contact) async throws {
-        let content = ChessResignContent(gameId: gameId)
+    static func resign(gameId: String, reason: String? = nil, to contact: Contact) async throws {
+        let content = ChessResignContent(gameId: gameId, reason: reason)
         try await ChatService.shared.sendMessage(to: contact, content: ChessCodec.encode(content))
+    }
+}
+
+// MARK: - Clock persistence
+
+/// Persists the local player's accumulated at-the-board thinking time for their CURRENT turn of
+/// a timed game, so a force-quit mid-think doesn't hand the time back. Timed-chess clocks here
+/// are deliberately casual: a side's clock only runs while the board is open on their device AND
+/// it is their turn (the opponent may be offline for hours - the clock measures thinking time at
+/// the board, not wall time). The record is keyed to the move count it applies to; the moment
+/// either side's move lands, the stored move count no longer matches and the elapsed time
+/// implicitly resets to zero for the new turn.
+enum ChessClockStore {
+    private static func key(_ gameId: String) -> String { "chess_clock_\(gameId)" }
+
+    /// Accumulated open-board thinking milliseconds for the turn identified by `moveCount`
+    /// (number of moves applied when this turn started). 0 if the stored record belongs to an
+    /// earlier turn or doesn't exist.
+    static func elapsedMs(gameId: String, moveCount: Int) -> Int64 {
+        guard let record = UserDefaults.standard.dictionary(forKey: key(gameId)),
+              record["moveCount"] as? Int == moveCount,
+              let ms = (record["elapsedMs"] as? NSNumber)?.int64Value else {
+            return 0
+        }
+        return max(ms, 0)
+    }
+
+    static func setElapsedMs(_ ms: Int64, gameId: String, moveCount: Int) {
+        UserDefaults.standard.set(
+            ["moveCount": moveCount, "elapsedMs": NSNumber(value: max(ms, 0))],
+            forKey: key(gameId)
+        )
+    }
+
+    /// Drops the record entirely - called once a game is over so finished games leave nothing
+    /// behind in UserDefaults.
+    static func clear(gameId: String) {
+        UserDefaults.standard.removeObject(forKey: key(gameId))
     }
 }

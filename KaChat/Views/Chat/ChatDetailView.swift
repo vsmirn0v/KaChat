@@ -73,6 +73,9 @@ struct ChatDetailView: View {
     /// row on every keystroke (any `@State` change on this view re-invokes `body`, and `messageRow`
     /// is a plain function inlined into it, not an independently-diffed `View`).
     @State private var chessSummaryCache: [String: ChessGameSummary] = [:]
+    /// Presents the time-control picker step between tapping "Play Chess" and actually sending
+    /// the invite - see `composerPlusMenu`'s confirmation dialog.
+    @State private var showChessTimeControlPicker = false
     @State private var previousMessagesCount = 0
     @State private var lastMessageSnapshotDigest: Int?
     @State private var snapshotRebuildTask: Task<Void, Never>?
@@ -1744,7 +1747,7 @@ struct ChatDetailView: View {
             // Send Kaspa left this menu: the Kaspa logo inside the input bubble is the
             // one entry point to payment mode now.
             Button {
-                startChessGame()
+                showChessTimeControlPicker = true
             } label: {
                 Label("Play Chess", systemImage: "checkerboard.rectangle")
             }
@@ -1764,6 +1767,18 @@ struct ChatDetailView: View {
         }
         .tint(.accentColor)
         .accessibilityLabel(Text("More options"))
+        // Second step after "Play Chess": pick a time control. The blitz presets send the tc
+        // fields on the invite; "Casual" omits them entirely, which is the exact legacy wire
+        // shape - so casual games with old-version contacts stay byte-compatible.
+        .confirmationDialog("Play Chess", isPresented: $showChessTimeControlPicker, titleVisibility: .visible) {
+            Button("3 | 2 Blitz") { startChessGame(timeControl: ChessTimeControl(minutes: 3, incSeconds: 2)) }
+            Button("2 | 1 Bullet") { startChessGame(timeControl: ChessTimeControl(minutes: 2, incSeconds: 1)) }
+            Button("1 | 1 Bullet") { startChessGame(timeControl: ChessTimeControl(minutes: 1, incSeconds: 1)) }
+            Button("Casual (no timer)") { startChessGame(timeControl: nil) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Timed games count down only while the board is open on your turn.")
+        }
         .photosPicker(isPresented: $showPhotoPickerFromMenu, selection: $photoPickerItem, matching: .images)
         .sheet(isPresented: $showNextcloudPicker) {
             NextcloudPickerView { url, file in
@@ -2858,13 +2873,13 @@ struct ChatDetailView: View {
     /// pending-response game is auto-resigned first rather than left orphaned alongside a second
     /// one. Uses `ChessGameService.activeGame` (not `chessSummaryCache`) so this check is correct
     /// even if the cache hasn't rebuilt since the very latest message yet.
-    private func startChessGame() {
+    private func startChessGame(timeControl: ChessTimeControl?) {
         Task {
             if let myAddress = walletManager.currentWallet?.publicAddress,
                let existing = ChessGameService.activeGame(in: messages, myAddress: myAddress, contactAddress: contact.address) {
                 try? await ChessGameService.resign(gameId: existing.gameId, to: contact)
             }
-            try? await ChessGameService.startGame(with: contact)
+            try? await ChessGameService.startGame(with: contact, timeControl: timeControl)
         }
     }
 

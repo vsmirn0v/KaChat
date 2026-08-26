@@ -707,6 +707,9 @@ struct MessageBubbleView: View {
         let showsResponseButtons = !message.isOutgoing
             && onRespondToChessInvite != nil
             && chessSummary?.status == .pendingResponse
+        // "3 | 2"-style chip when the invite carries a time control; nil (no chip) for casual
+        // games and every invite from a legacy client.
+        let timeControlLabel: String? = content.tcMinutes.map { "\($0) | \(content.tcIncSeconds ?? 0)" }
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text("♟️")
@@ -714,6 +717,18 @@ struct MessageBubbleView: View {
                 Text(message.isOutgoing ? "Chess game invite sent" : "Invited you to a game of chess")
                     .font(.subheadline)
                     .foregroundColor(.primary)
+            }
+
+            if let timeControlLabel {
+                HStack(spacing: 4) {
+                    Image(systemName: "timer")
+                    Text(timeControlLabel)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.accentColor)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(Color.accentColor.opacity(0.12)))
             }
 
             if showsResponseButtons {
@@ -765,10 +780,21 @@ struct MessageBubbleView: View {
     private func chessLiveCard(_ summary: ChessGameSummary) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             ChessBoardThumbnail(board: summary.board)
-            Text(summary.statusText)
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(summary.status.isGameOver ? .secondary : .primary)
+            HStack(spacing: 6) {
+                Text(summary.statusText)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(summary.status.isGameOver ? .secondary : .primary)
+                if let timeControl = summary.timeControl {
+                    Spacer(minLength: 4)
+                    HStack(spacing: 3) {
+                        Image(systemName: "timer")
+                        Text(timeControl.label)
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(.secondary)
+                }
+            }
         }
         .padding(10)
         .background(Color(.systemGray6))
@@ -815,8 +841,8 @@ struct MessageBubbleView: View {
         case .move(let content):
             let promotionSuffix = content.promotion.map { " (\($0.uppercased()))" } ?? ""
             return "\(content.from) → \(content.to)\(promotionSuffix)"
-        case .resign:
-            return "Resigned"
+        case .resign(let content):
+            return content.reason == "timeout" ? "Lost on time" : "Resigned"
         case .response(let content):
             return content.accepted ? "Accepted the game" : "Declined the game"
         case .invite:

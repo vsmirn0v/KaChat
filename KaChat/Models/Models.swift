@@ -887,7 +887,10 @@ enum MessageReplyCodec {
         if InlineFileSniff.isImage(unwrapped) {
             return "📷 Photo"
         }
-        if ChessCodec.parseAny(unwrapped) != nil {
+        if let chessEnvelope = ChessCodec.parseAny(unwrapped) {
+            if case .invite(let invite) = chessEnvelope, let minutes = invite.tcMinutes {
+                return "♟️ Chess - \(minutes) | \(invite.tcIncSeconds ?? 0)"
+            }
             return "♟️ Chess"
         }
         // Any other {type:"file"} media envelope (video, documents, or one whose mime the
@@ -1036,6 +1039,12 @@ struct ChessInviteContent: Codable, Equatable {
     var type: String = "chess_invite"
     let gameId: String
     let inviterColor: ChessInviteColor
+    /// Optional time control: initial minutes per side + per-move increment seconds (e.g. 3/2).
+    /// Both absent = casual untimed game, which is exactly the legacy wire shape - old clients
+    /// on both platforms ignore unknown JSON fields, and synthesized Codable omits nil optionals
+    /// entirely (encodeIfPresent), so cross-version invites stay compatible in both directions.
+    var tcMinutes: Int? = nil
+    var tcIncSeconds: Int? = nil
 }
 
 struct ChessResponseContent: Codable, Equatable {
@@ -1050,11 +1059,19 @@ struct ChessMoveContent: Codable, Equatable {
     let from: String
     let to: String
     let promotion: String?
+    /// Timed games only: the mover's remaining clock in milliseconds AFTER this move, with the
+    /// increment already added. Each side's authoritative remaining time is simply the clockMs
+    /// of their own most recent move - no separate clock-sync messages needed. Absent on
+    /// untimed games and on moves from legacy clients.
+    var clockMs: Int64? = nil
 }
 
 struct ChessResignContent: Codable, Equatable {
     var type: String = "chess_resign"
     let gameId: String
+    /// "timeout" when the sender's clock ran out (they flagged) rather than a manual resign.
+    /// Legacy clients ignore this field and render it as a plain resignation.
+    var reason: String? = nil
 }
 
 /// Any one of the four chess envelope shapes, parsed generically - `ChessGameService` uses this
