@@ -240,11 +240,16 @@ struct WelcomeGuideView: View {
     ///
     /// The Previous/Next bar stays OUTSIDE this container so it remains fixed at the bottom.
     private func centeringScroll<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        GeometryReader { geo in
+        // Built ONCE here, outside the GeometryReader: its closure is @escaping, so calling a
+        // non-escaping parameter inside it does not compile. Capturing the finished view is
+        // also the more correct shape - the builder runs once per body pass rather than on
+        // every geometry change.
+        let built = content()
+        return GeometryReader { geo in
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
-                    content()
+                    built
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, minHeight: geo.size.height)
