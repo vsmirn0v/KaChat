@@ -3596,8 +3596,8 @@ private struct KaPostCellView: View {
                         )
                     }
                     likeButton
-                    if let deadline = scheduler.deadlines["dislike:\(post.id)"] {
-                        countdownButton(key: "dislike:\(post.id)", deadline: deadline)
+                    if scheduler.deadlines["dislike:\(post.id)"] != nil {
+                        countdownButton(key: "dislike:\(post.id)")
                     } else {
                         engagementButton(
                             icon: post.dislikedByMe ? "hand.thumbsdown.fill" : "hand.thumbsdown",
@@ -3606,8 +3606,8 @@ private struct KaPostCellView: View {
                             action: onDislike
                         )
                     }
-                    if let deadline = scheduler.deadlines["repost:\(post.id)"] {
-                        countdownButton(key: "repost:\(post.id)", deadline: deadline)
+                    if scheduler.deadlines["repost:\(post.id)"] != nil {
+                        countdownButton(key: "repost:\(post.id)")
                     } else {
                         engagementButton(
                             icon: "arrow.2.squarepath",
@@ -3762,8 +3762,8 @@ private struct KaPostCellView: View {
     }
 
     private var likeButton: some View {
-        if let deadline = scheduler.deadlines["like:\(post.id)"] {
-            return AnyView(countdownButton(key: "like:\(post.id)", deadline: deadline))
+        if scheduler.deadlines["like:\(post.id)"] != nil {
+            return AnyView(countdownButton(key: "like:\(post.id)"))
         }
         return AnyView(Button {
             Haptics.impact(.light)
@@ -3926,26 +3926,24 @@ private struct KaPostCellView: View {
         }
     }
 
-    /// The in-icon 5s countdown: the action hasn't gone to the network yet - tap to cancel it.
-    private func countdownButton(key: String, deadline: Date) -> some View {
+    /// Takes the icon's place while the action is held: it hasn't gone to the network yet, so
+    /// tapping cancels it.
+    ///
+    /// Deliberately NO seconds here. The ticking number belongs in the undo toast, which is the
+    /// one place it can be read without hunting for the row it came from; on the icon it turned
+    /// a static engagement row into several digits counting down at once, and re-rendered the
+    /// cell four times a second while it did. The row just says "you can still take this back".
+    private func countdownButton(key: String) -> some View {
         Button {
             Haptics.impact(.light)
             KaPostsActionScheduler.shared.cancel(key: key)
         } label: {
-            TimelineView(.periodic(from: .now, by: 0.25)) { context in
-                let remaining = max(1, Int(ceil(deadline.timeIntervalSince(context.date))))
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.uturn.backward")
-                        .font(.caption2.weight(.bold))
-                    Text("\(remaining)")
-                        .font(.caption.weight(.bold))
-                        .monospacedDigit()
-                }
+            Image(systemName: "arrow.uturn.backward")
+                .font(.caption2.weight(.bold))
                 .foregroundColor(.orange)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
                 .background(Capsule().stroke(Color.orange.opacity(0.55), lineWidth: 1))
-            }
         }
         .buttonStyle(.plain)
     }
