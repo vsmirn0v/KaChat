@@ -4516,19 +4516,36 @@ private struct KaPostComposerView: View {
             // the editor's 120pt floor plus the quote card and fee row exceeded what was left of
             // the sheet, the VStack overflowed its container, and the bottom of the editor -
             // where the caret is - sat behind the keyboard with no way to bring it back.
-            ScrollView {
-                VStack(spacing: 0) {
-                    threadSegmentsList
-                    composerEditor
-                    if let quotedPost {
-                        quotedPostCard(quotedPost)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 10)
+            // ScrollViewReader so the editor can be kept in view as it grows. A ScrollView
+            // alone is not enough: it makes room for the keyboard, but nothing scrolls the
+            // growing field back up, so a long post walks its own last line off the bottom.
+            // Anchoring on the EDITOR rather than the content bottom keeps the line being typed
+            // against the keyboard, instead of scrolling past it to show the fee row.
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        threadSegmentsList
+                        composerEditor
+                            .id(Self.composerEditorAnchor)
+                        if let quotedPost {
+                            quotedPostCard(quotedPost)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 10)
+                        }
+                        feeEstimateRow
                     }
-                    feeEstimateRow
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: text) { _ in
+                    keepEditorVisible(proxy)
+                }
+                // The keyboard arriving shrinks the scroll viewport without the text changing,
+                // so re-reveal on focus too.
+                .onChange(of: isFocused) { focused in
+                    guard focused else { return }
+                    keepEditorVisible(proxy)
                 }
             }
-            .scrollDismissesKeyboard(.interactively)
         }
         .onAppear { isFocused = true }
         // Warm the KNS domain cache for every 1:1 contact so typing @ has a populated list -
@@ -4651,6 +4668,20 @@ private struct KaPostComposerView: View {
     /// same control the post thread's reply bar uses), so as the post gets longer the caret rides
     /// down with the text and SwiftUI's keyboard avoidance scrolls it back into view. The empty
     /// card keeps its 120pt look via the minHeight floor.
+    /// Scroll anchor for the editor, so the line being typed can be pinned above the keyboard.
+    private static let composerEditorAnchor = "kaPostComposerEditor"
+
+    /// Keeps the editor's bottom edge, where the caret sits while composing, against the bottom
+    /// of the visible area. Deferred a runloop turn so the field has already grown to its new
+    /// height by the time we scroll, otherwise this lands one line short on every keystroke.
+    private func keepEditorVisible(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.12)) {
+                proxy.scrollTo(Self.composerEditorAnchor, anchor: .bottom)
+            }
+        }
+    }
+
     private var composerEditor: some View {
         TextField(
             quotedPost == nil
