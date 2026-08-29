@@ -2978,7 +2978,7 @@ extension ChatService {
 
         let content = UNMutableNotificationContent()
         content.title = contact.alias
-        content.body = formatNotificationBody(message.content)
+        content.body = notificationBody(for: message)
         let shouldPlaySound = settings.shouldPlayIncomingNotificationSound(for: contact)
         content.sound = shouldPlaySound ? .default : nil
         content.threadIdentifier = contact.address
@@ -3001,6 +3001,29 @@ extension ChatService {
                 AppLog.log("%@", "[ChatService] Failed to send notification: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Banner text for one incoming message.
+    ///
+    /// Some message contents are internal PLACEHOLDERS, not text the sender wrote: a handshake
+    /// carries "[Request to communicate]", an undecryptable message carries "[Encrypted
+    /// message]". The chat bubble renders those as proper UI and the push extension has its own
+    /// wording for them, but this path put the bracketed placeholder straight into the banner, so
+    /// a connect request arrived on screen as literally "[Request to communicate]".
+    ///
+    /// Handshake wording is kept in step with `KaChatNotificationService`, which sees only the
+    /// push type and so cannot tell a request from an acceptance; this path can, and says so.
+    private func notificationBody(for message: ChatMessage) -> String {
+        let raw = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if message.messageType == .handshake {
+            return raw == "[Request accepted]"
+                ? NSLocalizedString("Accepted your request to communicate", comment: "Banner body when a contact accepts a handshake")
+                : NSLocalizedString("Started a conversation", comment: "Push body for handshake notification")
+        }
+        if raw == "[Encrypted message]" {
+            return NSLocalizedString("Sent you a message", comment: "Banner body for a message that could not be decrypted")
+        }
+        return formatNotificationBody(message.content)
     }
 
     func formatNotificationBody(_ content: String) -> String {

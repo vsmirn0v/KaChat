@@ -1504,10 +1504,12 @@ struct ChatDetailView: View {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Image(systemName: "hand.wave.fill")
+                    Image(systemName: hasUnansweredOutgoingHandshake ? "checkmark" : "hand.wave.fill")
                         .font(.caption2)
                 }
-                Text("Send Handshake")
+                // Says what already happened once the request is out, so the unchanged banner
+                // (it stays up until they reply) can't read as "the tap did nothing".
+                Text(hasUnansweredOutgoingHandshake ? "Handshake sent" : "Send Handshake")
                     .font(.caption.weight(.semibold))
             }
             .padding(.horizontal, 12)
@@ -1851,12 +1853,22 @@ struct ChatDetailView: View {
         isRecording || isEncodingAudio || recordedAudioPreviewURL != nil || recordedAudioURL != nil
     }
 
-    /// Always available in the "+" menu on iOS, even once the handshake exchange has already
-    /// completed - unlike Android, which still hides it at that point. Still gated on
-    /// `!isRespondingHandshake` alone, purely to prevent a double-tap firing two sends while one
-    /// is already in flight, not to hide the option itself.
+    /// A handshake we sent that they have not answered - no handshake back, no genuine message
+    /// back. Their answer (either kind) makes the option available again.
+    private var hasUnansweredOutgoingHandshake: Bool {
+        hasOutgoingHandshakeMessage && !hasIncomingHandshakeMessage && !hasGenuineIncomingMessage
+    }
+
+    /// Available in the "+" menu even once the handshake exchange has completed - unlike Android,
+    /// which hides it at that point - because a fresh ping is a legitimate thing to send an
+    /// established contact.
+    ///
+    /// What it will NOT do is send a second one while the first is still unanswered. A handshake
+    /// costs 0.2 KAS, and the notice banner deliberately stays up until they reply, so the screen
+    /// looks identical before and after a send: tapping again (reasonably, since nothing appeared
+    /// to happen) simply spent another 0.2 KAS. The button now says the request is out instead.
     private var canSendRequestToCommunicate: Bool {
-        !isRespondingHandshake
+        !isRespondingHandshake && !hasUnansweredOutgoingHandshake
     }
 
     /// Only ever reached for `.payment` now — the `.message` entry point moved to
