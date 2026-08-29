@@ -370,6 +370,9 @@ struct KaPostsView: View {
     }
     @State private var undoToast: UndoPostToast?
     @ObservedObject private var scheduler = KaPostsActionScheduler.shared
+    /// Observed for the Translate affordance. Like `scheduler`, this only changes when the user
+    /// acts (taps Translate, or flips back to the original) - never while scrolling.
+    @ObservedObject private var translation = PostTranslationService.shared
 
     struct PosterProfileTarget: Identifiable {
         let id = UUID()
@@ -557,10 +560,19 @@ struct KaPostsView: View {
                 if tab == .popular { await deepenPopularRanking() }
             }
         }
+        .background {
+            // Owns the single on-device TranslationSession for every KaPosts surface, including
+            // the thread and profile sheets (they present from here, so this stays alive under
+            // them). Renders nothing; iOS 18+ only.
+            if #available(iOS 18.0, *) {
+                PostTranslationHost()
+            }
+        }
         .onChange(of: walletManager.currentWallet?.publicAddress) { _ in
             // Account switch: every surface's cursor belongs to the old identity (K responses
             // are decorated per requesterPubkey), so drop the lot and start over. The epoch
             // bumps make any in-flight page drop its result instead of appending.
+            PostTranslationService.shared.reset()
             feedPage.reset()
             myPostsPage.reset()
             myRepliesPage.reset()
@@ -3409,10 +3421,21 @@ private struct KaPostCellView: View {
     /// Tapping the quoted-post embed opens that post's own thread (comments and all).
     var onOpenQuoted: ((String) -> Void)? = nil
 
+    private var translationKey: String {
+        PostTranslationService.translationKey(for: post.remoteId, localId: post.id)
+    }
+
+    /// The post text as it should render: the translation once one exists, the original until
+    /// then and whenever the reader asks for it back.
+    private var displayedText: String {
+        translation.displayText(for: translationKey, original: post.text)
+    }
+
     /// Long enough that the feed should fold it behind "Show more" (X-style ~280-char threshold,
-    /// or a wall of newlines).
+    /// or a wall of newlines). Measured on what is actually rendered, so a translation that runs
+    /// longer than its original still folds.
     private var isLongPost: Bool {
-        post.text.count > 280 || post.text.filter { $0 == "\n" }.count >= 8
+        displayedText.count > 280 || displayedText.filter { $0 == "\n" }.count >= 8
     }
 
     @EnvironmentObject var settingsViewModel: SettingsViewModel
@@ -3523,7 +3546,7 @@ private struct KaPostCellView: View {
                 // Text-only posts, but URLs are TAPPABLE: tapping a link opens a Copy/Open
                 // option menu (never auto-opens - OpenURLAction intercepts). No previews, no
                 // photos, no markdown - just detected links styled accent+underline.
-                Text(Self.linkified(post.text))
+                Text(Self.linkified(displayedText))
                     .font(.body)
                     .foregroundColor(.primary)
                     .tint(.accentColor)
@@ -3570,6 +3593,7 @@ private struct KaPostCellView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                translateAffordance
 
                 // X-style quote embed: the quoted post in a bordered mini card under the
                 // text - tappable through to the quoted post's own thread.
@@ -3971,6 +3995,69 @@ private struct KaPostCellView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
             burstVisible = false
         }
+    }
+
+    /// X-style translate link under the post text. Absent unless the post is confidently in
+    /// another language (and the OS can translate at all), so ordinary same-language feeds look
+    /// exactly as they did.
+    @ViewBuilder
+    private var translateAffordance: some View {
+        switch translation.state(for: translationKey) {
+        case .none:
+            if PostTranslationService.canOfferTranslation(for: post.text) {
+                translateLink("Translate post") {
+                    translation.translate(key: translationKey, text: post.text)
+                }
+            }
+        case .translating:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("Translating...")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 2)
+        case .translated(_, let sourceName):
+            if translation.isShowingOriginal(translationKey) {
+                translateLink("Show translation") {
+                    translation.showTranslation(key: translationKey)
+                }
+            } else {
+                HStack(spacing: 4) {
+                    Text("Translated from \(sourceName)")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    Text("-")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    Button {
+                        translation.showOriginal(key: translationKey)
+                    } label: {
+                        Text("Show original")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 2)
+            }
+        case .failed:
+            // Almost always a language pack that has not finished downloading - tapping again
+            // once it has is the fix, so this stays a live button rather than dead text.
+            translateLink("Translation unavailable - try again") {
+                translation.translate(key: translationKey, text: post.text)
+            }
+        }
+    }
+
+    private func translateLink(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(.accentColor)
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 2)
     }
 
     private func shareText(remoteId: String) -> String {
