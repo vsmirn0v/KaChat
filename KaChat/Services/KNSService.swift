@@ -61,6 +61,26 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
 
+
+    /// Human-readable text for a failed KNS HTTP call.
+    ///
+    /// The KNS API sits behind Cloudflare, which answers a rate limit with a FULL HTML error
+    /// page. Interpolating the response body straight into the message dumped that entire page
+    /// into the UI. Only a short, plain, non-markup body is ever shown; anything else is
+    /// described by its status instead, and a rate limit gets wording a user can act on.
+    private static func knsFailureText(_ operation: String, status: Int, body: Data) -> String {
+        if status == 429 {
+            return "\(operation) is busy right now. Please try again in a moment."
+        }
+        let raw = (String(data: body, encoding: .utf8) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let looksLikeMarkup = raw.hasPrefix("<") || raw.lowercased().hasPrefix("<!doctype")
+        guard !raw.isEmpty, !looksLikeMarkup, raw.count <= 200 else {
+            return "\(operation) failed (HTTP \(status))."
+        }
+        return "\(operation) failed (HTTP \(status)): \(raw)"
+    }
+
     // MARK: - URLSessionTaskDelegate
 
     nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
@@ -296,8 +316,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
             throw KasiaError.networkError("No HTTP response from KNS fee endpoint")
         }
         guard http.statusCode == 200 else {
-            let responseText = String(data: data, encoding: .utf8) ?? ""
-            throw KasiaError.networkError("KNS fee fetch failed (\(http.statusCode)): \(responseText)")
+            throw KasiaError.networkError(Self.knsFailureText("KNS fee lookup", status: http.statusCode, body: data))
         }
 
         let decoded = try JSONDecoder().decode(KNSInscribeFeeResponse.self, from: data)
@@ -354,8 +373,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
             throw KasiaError.networkError("No HTTP response from KNS domain check endpoint")
         }
         guard http.statusCode == 200 else {
-            let responseText = String(data: data, encoding: .utf8) ?? ""
-            throw KasiaError.networkError("KNS domain check failed (\(http.statusCode)): \(responseText)")
+            throw KasiaError.networkError(Self.knsFailureText("KNS domain check", status: http.statusCode, body: data))
         }
 
         let decoded = try JSONDecoder().decode(KNSDomainCheckResponse.self, from: data)
@@ -557,8 +575,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
             throw KasiaError.networkError("No HTTP response from KNS primary domain endpoint")
         }
         guard http.statusCode == 200 else {
-            let responseText = String(data: data, encoding: .utf8) ?? ""
-            throw KasiaError.networkError("KNS set primary failed (\(http.statusCode)): \(responseText)")
+            throw KasiaError.networkError(Self.knsFailureText("Setting your primary domain", status: http.statusCode, body: data))
         }
 
         let decoded = try JSONDecoder().decode(KNSBasicAPIResponse.self, from: data)
@@ -626,8 +643,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
             throw KasiaError.networkError("No HTTP response from KNS upload")
         }
         guard http.statusCode == 200 else {
-            let responseText = String(data: data, encoding: .utf8) ?? ""
-            throw KasiaError.networkError("KNS upload failed (\(http.statusCode)): \(responseText)")
+            throw KasiaError.networkError(Self.knsFailureText("KNS upload", status: http.statusCode, body: data))
         }
 
         let decoded = try JSONDecoder().decode(KNSImageUploadResponse.self, from: data)
