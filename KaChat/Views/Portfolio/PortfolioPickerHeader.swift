@@ -13,6 +13,16 @@ struct PortfolioCardModel: Identifiable {
     let todayChangePercent: Double?
 }
 
+/// The portfolio a long-press actually landed on, captured by value at the moment the Delete
+/// menu item is tapped (id AND the name shown on that card). The confirmation dialog is driven
+/// by this snapshot via `presenting:` and the destructive action only ever uses the snapshot's
+/// id, so the row that was pressed is the row that gets deleted - nothing re-reads shared view
+/// state after the press, which is what let the old code act on a stale portfolio.
+private struct PendingPortfolioDeletion: Identifiable, Equatable {
+    let id: UUID
+    let name: String
+}
+
 /// Robinhood-style portfolio switcher: a horizontally-scrollable row of always-visible cards
 /// (name, total balance, today's % change), one per portfolio. Also owns the add/rename/delete UI
 /// for the up-to-5 portfolio list — small enough to not need a separate management screen.
@@ -30,7 +40,7 @@ struct PortfolioPickerHeader: View {
     @State private var newPortfolioName = ""
     @State private var renamingPortfolio: Portfolio?
     @State private var renameText = ""
-    @State private var deletingPortfolio: Portfolio?
+    @State private var pendingDeletion: PendingPortfolioDeletion?
 
     private var canAddMore: Bool { portfolios.count < PortfolioManager.maxPortfolios }
 
@@ -52,22 +62,36 @@ struct PortfolioPickerHeader: View {
             } onCancel: {
                 renamingPortfolio = nil
             }
+            // Same guard as the delete path: seed the field from the item SwiftUI actually
+            // presented, not from a separate @State written just before presentation.
+            .onAppear { renameText = portfolio.name }
         }
+        // `presenting:` hands the pressed card's own snapshot to the title, the buttons and the
+        // message, so every part of the confirmation is built from the same value the long-press
+        // captured. Nothing here reads `pendingDeletion` again at fire time.
         .confirmationDialog(
-            "Delete '\(deletingPortfolio?.name ?? "")' and its transactions? This can't be undone.",
+            Text("Delete Portfolio"),
             isPresented: Binding(
-                get: { deletingPortfolio != nil },
-                set: { if !$0 { deletingPortfolio = nil } }
+                get: { pendingDeletion != nil },
+                set: { if !$0 { pendingDeletion = nil } }
             ),
-            titleVisibility: .visible
-        ) {
-            Button("Delete", role: .destructive) {
-                if let id = deletingPortfolio?.id {
-                    onDelete(id)
+            titleVisibility: .visible,
+            presenting: pendingDeletion
+        ) { target in
+            // The destructive button itself names the portfolio, so a mis-targeted delete is
+            // visible before it happens rather than only in the dialog title.
+            Button("Delete '\(target.name)'", role: .destructive) {
+                // Last line of defence: only delete if that exact id is still in the list.
+                guard portfolios.contains(where: { $0.id == target.id }) else {
+                    pendingDeletion = nil
+                    return
                 }
-                deletingPortfolio = nil
+                onDelete(target.id)
+                pendingDeletion = nil
             }
-            Button("Cancel", role: .cancel) { deletingPortfolio = nil }
+            Button("Cancel", role: .cancel) { pendingDeletion = nil }
+        } message: { target in
+            Text("'\(target.name)' and its transactions will be deleted. This can't be undone.")
         }
     }
 
@@ -76,8 +100,12 @@ struct PortfolioPickerHeader: View {
     private var cardsLayer: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                ForEach(portfolios) { portfolio in
+                // Explicit `id:` + `.id(...)` pins each card's view identity to its portfolio id,
+                // so SwiftUI can't reuse one card's context menu (and its captured portfolio) for
+                // a neighbouring card when the list reorders or a portfolio is added/removed.
+                ForEach(portfolios, id: \.id) { portfolio in
                     card(for: portfolio)
+                        .id(portfolio.id)
                 }
                 if canAddMore {
                     addCard
@@ -144,9 +172,11 @@ struct PortfolioPickerHeader: View {
             }
             if portfolios.count > 1 {
                 Button(role: .destructive) {
-                    deletingPortfolio = portfolio
+                    // Snapshot the pressed card's id and name right here; everything downstream
+                    // uses this value, never a lookup that could resolve to another card.
+                    pendingDeletion = PendingPortfolioDeletion(id: portfolio.id, name: portfolio.name)
                 } label: {
-                    Label("Delete", systemImage: "trash")
+                    Label("Delete '\(portfolio.name)'", systemImage: "trash")
                 }
             }
         }

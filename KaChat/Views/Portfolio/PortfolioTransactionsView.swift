@@ -14,6 +14,16 @@ private let kasAmountFormatter: NumberFormatter = {
     return formatter
 }()
 
+/// Identifiable wrapper so the CSV share sheet can be presented with `.sheet(item:)`. The old
+/// code paired a `Bool` with a separate `URL?` state and read that URL back inside the sheet's
+/// content closure, which SwiftUI evaluates against the view value from before the tap - the URL
+/// was still nil there, the `if let` fell through to an empty body, and the user got a blank
+/// sheet. Carrying the URL as the presentation item makes that impossible.
+private struct PortfolioCsvExport: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
 struct PortfolioTransactionsView<Header: View>: View {
     @ObservedObject var viewModel: PortfolioViewModel
     /// Rendered above the Transactions section - PortfolioView passes the picker cards and
@@ -26,8 +36,7 @@ struct PortfolioTransactionsView<Header: View>: View {
     @State private var showAddSheet = false
     @State private var showAddAddressSheet = false
     @State private var showCsvImporter = false
-    @State private var showCsvExporter = false
-    @State private var exportURL: URL?
+    @State private var csvExport: PortfolioCsvExport?
     @State private var toastMessage: String?
     @State private var toastStyle: ToastStyle = .success
     @State private var toastToken = UUID()
@@ -144,10 +153,8 @@ struct PortfolioTransactionsView<Header: View>: View {
                 }
             }
         }
-        .sheet(isPresented: $showCsvExporter) {
-            if let exportURL {
-                PortfolioCsvShareSheet(fileURL: exportURL)
-            }
+        .sheet(item: $csvExport) { export in
+            PortfolioCsvShareSheet(fileURL: export.url)
         }
         .fileImporter(isPresented: $showCsvImporter, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
             switch result {
@@ -200,6 +207,22 @@ struct PortfolioTransactionsView<Header: View>: View {
         }
         selectedIDs.removeAll()
         editMode = .inactive
+    }
+
+    /// Builds the CSV first and only presents once there is a real file on disk. A header-only
+    /// export (no transactions in this portfolio) and a failed write both surface as a toast
+    /// instead of an empty share sheet.
+    private func exportCsv() {
+        guard !viewModel.scopedTransactions.isEmpty else {
+            showToast("Nothing to export yet. Add a transaction first", style: .error)
+            return
+        }
+        guard let url = viewModel.exportCsvURL(),
+              FileManager.default.fileExists(atPath: url.path) else {
+            showToast("Export failed. Couldn't write the CSV file", style: .error)
+            return
+        }
+        csvExport = PortfolioCsvExport(url: url)
     }
 
     private var emptyState: some View {
@@ -300,8 +323,8 @@ struct PortfolioTransactionsView<Header: View>: View {
                 Label("Import CSV", systemImage: "square.and.arrow.down")
             }
             Button {
-                exportURL = viewModel.exportCsvURL()
-                showCsvExporter = exportURL != nil
+                Haptics.impact(.light)
+                exportCsv()
             } label: {
                 Label("Export CSV", systemImage: "square.and.arrow.up")
             }

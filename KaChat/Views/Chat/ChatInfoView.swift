@@ -35,6 +35,11 @@ struct ChatInfoView: View {
     @State private var toastStyle: ToastStyle = .success
     @State private var messageSent: Int = 0
     @State private var messageReceived: Int = 0
+    /// False only until the KNS address-info lookup for this contact has come back at least
+    /// once (seeded true in `onAppear` when the cache already has an entry, so a revisit shows
+    /// the list straight away instead of flashing a spinner). Purely cosmetic - the Domains
+    /// section never blocks the rest of the Form on it.
+    @State private var knsDomainsLoaded = false
     @FocusState private var isEditing: Bool
     private let qrContext = CIContext()
 
@@ -76,6 +81,39 @@ struct ChatInfoView: View {
 
     private var knsDomains: [KNSDomain] {
         knsInfo?.allDomains ?? []
+    }
+
+    /// Bare, lowercased domain key (".kas" stripped) - `/primary-name` and `/assets` don't
+    /// agree on whether the suffix is present, so compare without it.
+    private func normalizedDomainKey(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !trimmed.isEmpty else { return nil }
+        return trimmed.hasSuffix(".kas") ? String(trimmed.dropLast(4)) : trimmed
+    }
+
+    /// Which domain gets the "Primary" badge. Prefers the inscription id KNS returns with the
+    /// reverse lookup (an exact on-chain asset id), and falls back to name matching.
+    /// `explicitPrimaryDomain` is the real `/primary-name` answer; when the contact never set a
+    /// primary it's nil and KNS falls back to `allDomains.first` for `primaryDomain` (see
+    /// `KNSAddressInfo`). We badge that fallback too, since it is the name the rest of the app
+    /// already shows for this contact, and the section footer says which case applies.
+    private func isPrimaryDomain(_ domain: KNSDomain) -> Bool {
+        guard let info = knsInfo else { return false }
+        if let inscriptionId = info.primaryInscriptionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !inscriptionId.isEmpty {
+            return domain.inscriptionId == inscriptionId
+        }
+        guard let primaryKey = normalizedDomainKey(info.explicitPrimaryDomain ?? info.primaryDomain) else {
+            return false
+        }
+        return normalizedDomainKey(domain.fullName) == primaryKey
+    }
+
+    /// True when the badged primary came from an explicit reverse lookup rather than the
+    /// "first domain owned" fallback.
+    private var hasExplicitPrimaryDomain: Bool {
+        guard let explicit = knsInfo?.explicitPrimaryDomain?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+        return !explicit.isEmpty
     }
 
     private var knsProfileInfo: KNSAddressProfileInfo? {
@@ -270,6 +308,48 @@ struct ChatInfoView: View {
                                 .font(.caption)
                                 .foregroundColor(.accentColor)
                         }
+                    }
+                }
+
+                // Every KNS domain this address owns, primary first. Data comes from the same
+                // KNSService address-info cache the rest of the screen already reads
+                // (`knsInfo`/`knsDomains`), refreshed by the `.task` below - no extra network
+                // path, and the section renders whatever is cached while that refresh runs.
+                Section {
+                    if knsDomains.isEmpty {
+                        HStack(spacing: 8) {
+                            if knsDomainsLoaded {
+                                Text("No KNS domains")
+                                    .foregroundColor(.secondary)
+                            } else {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Looking up domains...")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    } else {
+                        ForEach(sortedKNSDomains) { domain in
+                            domainRow(domain)
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text("Domains")
+                        Spacer()
+                        if !knsDomains.isEmpty {
+                            Text("\(knsDomains.count)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                } footer: {
+                    if knsDomains.isEmpty {
+                        Text("Kaspa Name Service domains owned by this address.")
+                    } else if hasExplicitPrimaryDomain {
+                        Text("Primary is the domain this contact set as their KNS primary name. Tap any domain to copy it.")
+                    } else {
+                        Text("This contact hasn't set a KNS primary name, so their first domain is used as the primary. Tap any domain to copy it.")
                     }
                 }
 
@@ -472,11 +552,16 @@ struct ChatInfoView: View {
                 linkedSystemContactId = contact.systemContactId
                 linkedSystemContactName = contact.systemDisplayNameSnapshot
                 linkedSystemContactSource = contact.systemContactLinkSource
+                // Already cached? Show the domains immediately rather than a spinner.
+                if knsInfo != nil { knsDomainsLoaded = true }
             }
             .task {
                 // Always force-refresh selected contact KNS info and profile when opening chat info.
                 // This ensures profile selection is anchored to the latest primary domain metadata.
                 _ = await contactsManager.fetchKNSInfo(for: contact)
+                // The Domains section stops showing its loading row once the lookup has
+                // answered, whether or not it found anything.
+                knsDomainsLoaded = true
                 _ = await contactsManager.fetchKNSProfile(for: contact)
 
                 let stats = await MessageStore.shared.messageStats(contactAddress: contact.address)
@@ -484,6 +569,62 @@ struct ChatInfoView: View {
                 messageReceived = stats.received
             }
         }
+    }
+
+    /// Primary first, then the rest alphabetically - a stable order that doesn't jump around as
+    /// the cache refreshes. Keyed by `inscriptionId` via `KNSDomain: Identifiable`.
+    private var sortedKNSDomains: [KNSDomain] {
+        knsDomains.sorted { lhs, rhs in
+            let lhsIsPrimary = isPrimaryDomain(lhs)
+            let rhsIsPrimary = isPrimaryDomain(rhs)
+            if lhsIsPrimary != rhsIsPrimary { return lhsIsPrimary }
+            return lhs.fullName.lowercased() < rhs.fullName.lowercased()
+        }
+    }
+
+    /// One domain row: name, a Primary badge on the contact's primary, and a verified check.
+    /// Tapping copies the full domain, matching the copy-on-tap idiom the Address and Aliases
+    /// sections already use.
+    private func domainRow(_ domain: KNSDomain) -> some View {
+        let isPrimary = isPrimaryDomain(domain)
+        return Button {
+            copyProfileFieldValue(domain.fullName, fieldName: "Domain")
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: isPrimary ? "star.fill" : "at")
+                    .font(.caption)
+                    .foregroundColor(isPrimary ? .accentColor : .secondary)
+                    .frame(width: 18)
+
+                Text(domain.fullName)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                if domain.isVerified {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.caption)
+                        .foregroundColor(.accentColor)
+                        .accessibilityLabel(Text("Verified"))
+                }
+
+                Spacer(minLength: 8)
+
+                if isPrimary {
+                    Text("PRIMARY")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.accentColor)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule().fill(Color.accentColor.opacity(0.15))
+                        )
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func formatAddress(_ address: String) -> String {
