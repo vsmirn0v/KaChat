@@ -17,12 +17,14 @@
 // version each upload's CFBundleVersion must be strictly greater than the last (that's why
 // 3.0 ended at 202607032343 - an early `date +%Y%m%d%H%M` script set the high-water mark and
 // restarting low inside the 3.0 train was rejected). Moving to a NEW marketing version resets
-// the train, so 4.0 legitimately starts back at build 1 and counts up 2, 3, ... from here.
+// the train, so each train legitimately starts back at build 1 and counts up 2, 3, ... from
+// there - 4.0 did, and 4.1 does the same.
 // NOTE: Xcode Cloud archives ignore this value - ci_scripts/ci_post_clone.sh stamps every
 // target with Xcode Cloud's own $CI_BUILD_NUMBER, and that counter only goes up. Restarting
-// at 1 applies to local archives.
+// at 1 applies to local archives; to actually get build 1 out of Xcode Cloud, reset the
+// workflow's build number in App Store Connect.
 CURRENT_PROJECT_VERSION = 1
-MARKETING_VERSION = 4.0
+MARKETING_VERSION = 4.1
 
 // Required for `agvtool` (used by ci_scripts/ci_post_clone.sh) to be able to write
 // CURRENT_PROJECT_VERSION for every target - without this, agvtool fails with "not using
