@@ -3845,14 +3845,70 @@ private struct KaPostCellView: View {
         return cache
     }()
 
-    /// Post text with detected URLs carrying tappable link attributes (accent + underline);
-    /// everything else stays plain. Cached by content - see `linkifiedCache`.
+    /// Post text ready to render: KaChat markdown applied (see `KaPostsMarkdown`), detected URLs
+    /// and @mentions made tappable. Cached by SOURCE content - see `linkifiedCache`.
     static func linkified(_ text: String) -> AttributedString {
         let key = text as NSString
         if let cached = linkifiedCache.object(forKey: key) { return cached.value }
-        let built = buildLinkified(text)
+        // Markdown first: it decides what the text actually READS as (markers gone, bullets and
+        // numbers materialised), and the linkifier's offsets have to be into that string, not the
+        // source. Its spans are then layered on top.
+        let rendered = KaPostsMarkdown.render(text)
+        var built = buildLinkified(rendered.text)
+        applyMarkdownSpans(rendered.spans, to: &built)
         linkifiedCache.setObject(LinkifiedBox(built), forKey: key)
         return built
+    }
+
+    /// A quoted post's text for a preview card: markdown styling applied, but nothing tappable.
+    ///
+    /// Without this the card showed the raw `**markers**` the author typed. Links are deliberately
+    /// left inert - the card is itself a button through to the quoted post, and a tappable link
+    /// inside it would compete with that.
+    static func markdownPreview(_ text: String) -> AttributedString {
+        let rendered = KaPostsMarkdown.render(text)
+        var attributed = AttributedString(rendered.text)
+        guard rendered.hasFormatting else { return attributed }
+        applyMarkdownSpans(rendered.spans, to: &attributed, includeLinks: false)
+        return attributed
+    }
+
+    /// Layers markdown styling over the already-linkified string.
+    ///
+    /// An explicit `[label](url)` link wins over whatever the URL detector made of the same
+    /// characters, since the author named that target deliberately.
+    private static func applyMarkdownSpans(
+        _ spans: [KaPostsMarkdown.Span],
+        to attributed: inout AttributedString,
+        includeLinks: Bool = true
+    ) {
+        let total = attributed.characters.count
+        for span in spans {
+            guard span.start < span.end, span.end <= total else { continue }
+            let start = attributed.index(attributed.startIndex, offsetByCharacters: span.start)
+            let end = attributed.index(start, offsetByCharacters: span.end - span.start)
+            let style = span.style
+
+            var font: Font = style.subtext ? .footnote : .body
+            if style.bold { font = font.bold() }
+            if style.italic { font = font.italic() }
+            attributed[start..<end].font = font
+
+            if style.subtext {
+                attributed[start..<end].foregroundColor = .secondary
+            }
+            if style.underline {
+                attributed[start..<end].underlineStyle = .single
+            }
+            if style.strikethrough {
+                attributed[start..<end].strikethroughStyle = .single
+            }
+            if let link = style.link {
+                if includeLinks { attributed[start..<end].link = link }
+                attributed[start..<end].foregroundColor = .accentColor
+                attributed[start..<end].underlineStyle = .single
+            }
+        }
     }
 
     private static func buildLinkified(_ text: String) -> AttributedString {
@@ -3930,7 +3986,7 @@ private struct KaPostCellView: View {
                 }
                 Spacer(minLength: 0)
             }
-            Text(verbatim: quoted.text)
+            Text(KaPostsView.markdownPreview(quoted.text))
                 .font(.subheadline)
                 .foregroundColor(.primary)
                 .lineLimit(5)
@@ -4600,7 +4656,12 @@ private struct KaPostComposerView: View {
     /// A live KNS resolution of the CURRENT @query - lets you mention anyone with a KNS
     /// domain, not just chatted contacts (those come from the local cache).
     @State private var resolvedAnyDomain: String?
-    @FocusState private var isFocused: Bool
+    /// A plain Bool, not @FocusState: the editor is a UIViewRepresentable now (see
+    /// `MarkdownComposerField`) and SwiftUI's focus system cannot drive one.
+    @State private var isFocused = false
+    /// Caret / highlighted range in the editor, in character offsets - what the formatting
+    /// toolbar acts on.
+    @State private var selection: ClosedRange<Int> = 0...0
 
     private var trimmed: String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4695,6 +4756,14 @@ private struct KaPostComposerView: View {
                     guard focused else { return }
                     keepEditorVisible(proxy)
                 }
+            }
+            // Pinned below the scroll view so it rides directly on top of the keyboard, where a
+            // formatting bar belongs. Only while the editor has focus - with the keyboard down it
+            // would just be a row of icons with nothing to act on.
+            if isFocused {
+                Divider().opacity(0.4)
+                MarkdownFormattingToolbar(onAction: applyFormatting)
+                    .padding(.bottom, 2)
             }
         }
         .onAppear { isFocused = true }
@@ -4832,17 +4901,32 @@ private struct KaPostComposerView: View {
         }
     }
 
-    private var composerEditor: some View {
-        TextField(
-            quotedPost == nil
-                ? (threadSegments.isEmpty ? "What's happening on Kaspa?" : "Add another post")
-                : "Add a comment",
-            text: $text,
-            axis: .vertical
+    /// Applies a toolbar button to whatever is selected. The markers written here are exactly the
+    /// ones a person could type by hand, so both routes produce identical post text.
+    private func applyFormatting(_ action: KaPostsMarkdown.ToolbarAction) {
+        let edit = KaPostsMarkdown.apply(
+            action,
+            to: text,
+            selectionStart: selection.lowerBound,
+            selectionEnd: selection.upperBound
         )
-        .textFieldStyle(.plain)
-        .focused($isFocused)
-        .font(.body)
+        text = edit.text
+        // Deferred one runloop turn: the text has to reach the text view before a selection into
+        // it means anything, otherwise this lands on the pre-edit string and is clamped away.
+        DispatchQueue.main.async {
+            selection = edit.selectionStart...edit.selectionEnd
+        }
+    }
+
+    private var composerEditor: some View {
+        MarkdownComposerField(
+            text: $text,
+            selection: $selection,
+            isFocused: $isFocused,
+            placeholder: quotedPost == nil
+                ? (threadSegments.isEmpty ? "What's happening on Kaspa?" : "Add another post")
+                : "Add a comment"
+        )
         .padding(12)
         .frame(minHeight: 120, alignment: .topLeading)
         .background(
@@ -4961,7 +5045,7 @@ private struct KaPostComposerView: View {
                     .foregroundColor(.secondary)
                 Spacer(minLength: 0)
             }
-            Text(verbatim: quoted.text)
+            Text(KaPostsView.markdownPreview(quoted.text))
                 .font(.subheadline)
                 .foregroundColor(.primary)
                 .lineLimit(5)

@@ -67,6 +67,7 @@
 		ADAC00010001000100000001 /* AddressActivityNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADAC00010001000000000001 /* AddressActivityNotifier.swift */; };
 		DA0001B0000000000000001 /* DeviceAuth.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0001A0000000000000001 /* DeviceAuth.swift */; };
 		DTAL00010001000100000001 /* DeterministicAlias.swift in Sources */ = {isa = PBXBuildFile; fileRef = DTAL00010001000000000001 /* DeterministicAlias.swift */; };
+		D9F31A6B7E2C48D0A15B3C42 /* KaPostsMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1C74B28306D4A9FB8E25D13 /* KaPostsMarkdown.swift */; };
 		E81000012D4C000100000001 /* KaChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000002D4C000100000001 /* KaChatApp.swift */; };
 		E81000032D4C000100000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000022D4C000100000002 /* ContentView.swift */; };
 		E81000052D4C000100000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = E81000042D4C000100000003 /* Assets.xcassets */; };
@@ -120,6 +121,7 @@
 		KNAV00010001000100000001 /* KNSAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KNAV000100010000000001 /* KNSAvatarView.swift */; };
 		KNSPROB0000000000000001 /* KNSCreateProfileFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */; };
 		KP0002B0000000000000001 /* KaPostsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = KP0002A0000000000000001 /* KaPostsView.swift */; };
+		F2B95C1D8A374E6BA07C4D95 /* MarkdownComposerField.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D18E3F52B04C7D91FA6208 /* MarkdownComposerField.swift */; };
 		KPAPI001B000000000000001 /* KaPostsAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = KPAPI001A000000000000001 /* KaPostsAPIClient.swift */; };
 		L10N000300000001 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = L10N000200000001 /* Localizable.strings */; };
 		LPRVB0000000000000001 /* LinkPreviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = LPRVA0000000000000001 /* LinkPreviewService.swift */; };
@@ -275,6 +277,7 @@
 		ADAC00010001000000000001 /* AddressActivityNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressActivityNotifier.swift; sourceTree = "<group>"; };
 		DA0001A0000000000000001 /* DeviceAuth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceAuth.swift; sourceTree = "<group>"; };
 		DTAL00010001000000000001 /* DeterministicAlias.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeterministicAlias.swift; sourceTree = "<group>"; };
+		E1C74B28306D4A9FB8E25D13 /* KaPostsMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsMarkdown.swift; sourceTree = "<group>"; };
 		E80000002D4C000000000000 /* KaChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KaChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E81000002D4C000100000001 /* KaChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatApp.swift; sourceTree = "<group>"; };
 		E81000022D4C000100000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -331,6 +334,7 @@
 		KNAV000100010000000001 /* KNSAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSAvatarView.swift; sourceTree = "<group>"; };
 		KNSPROA0000000000000001 /* KNSCreateProfileFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSCreateProfileFlowView.swift; sourceTree = "<group>"; };
 		KP0002A0000000000000001 /* KaPostsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsView.swift; sourceTree = "<group>"; };
+		A6D18E3F52B04C7D91FA6208 /* MarkdownComposerField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownComposerField.swift; sourceTree = "<group>"; };
 		KPAPI001A000000000000001 /* KaPostsAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaPostsAPIClient.swift; sourceTree = "<group>"; };
 		L10N000100000001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10N000100000002 /* ar-EG */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "ar-EG"; path = "ar-EG.lproj/Localizable.strings"; sourceTree = "<group>"; };
@@ -638,6 +642,7 @@
 				DA0001A0000000000000001 /* DeviceAuth.swift */,
 				IMGP00010001000000000001 /* ImagePrep.swift */,
 				DTAL00010001000000000001 /* DeterministicAlias.swift */,
+				E1C74B28306D4A9FB8E25D13 /* KaPostsMarkdown.swift */,
 				E8F1A0042F4B000100000004 /* Haptics.swift */,
 				E81000362D4C00010000001C /* Bech32.swift */,
 				CS0001A0000000000000001 /* Base58.swift */,
@@ -774,6 +779,7 @@
 			isa = PBXGroup;
 			children = (
 				KP0002A0000000000000001 /* KaPostsView.swift */,
+				A6D18E3F52B04C7D91FA6208 /* MarkdownComposerField.swift */,
 			);
 			path = KaPosts;
 			sourceTree = "<group>";
@@ -1105,6 +1111,7 @@
 				SWAP003B0000000000000001 /* SwapService.swift in Sources */,
 				SWAP004B0000000000000001 /* SwapView.swift in Sources */,
 				KP0002B0000000000000001 /* KaPostsView.swift in Sources */,
+				F2B95C1D8A374E6BA07C4D95 /* MarkdownComposerField.swift in Sources */,
 				CS0010B0000000000000001 /* MultiFrameQRViews.swift in Sources */,
 				4D3D20012F72000200000002 /* MessageTextRenderPlan.swift in Sources */,
 				PQSS00010001000000000002 /* PhotoQualitySettingsSheet.swift in Sources */,
@@ -1127,6 +1134,7 @@
 				E81000232D4C000100000012 /* MainTabView.swift in Sources */,
 				E81000292D4C000100000015 /* SettingsViewModel.swift in Sources */,
 				DTAL00010001000100000001 /* DeterministicAlias.swift in Sources */,
+				D9F31A6B7E2C48D0A15B3C42 /* KaPostsMarkdown.swift in Sources */,
 				E810002F2D4C000100000018 /* CryptoUtils.swift in Sources */,
 				APLC00010000000000000BF1 /* AppLocalization.swift in Sources */,
 				DA0001B0000000000000001 /* DeviceAuth.swift in Sources */,
