@@ -1314,9 +1314,24 @@ extension ChatService {
             throw KasiaError.invalidAddress
         }
 
+        // "You start chatting back to someone who told you they are chatting with you": until
+        // this very moment we had no routing state and no alias for them, so nothing they sent
+        // us was ever queried (see recoverPreRelationshipHistory). Detect that transition BEFORE
+        // ensureRoutingState creates the state, and pull their history in the background - the
+        // send itself must not wait on a from-genesis fetch.
+        let hadNoRelationship = routingStates[contact.address] == nil
+            && (conversationAliases[contact.address]?.isEmpty ?? true)
+
         // Ensure routing state exists, then get our alias (deterministic preferred)
         ensureRoutingState(for: contact.address, privateKey: privateKey)
         let alias = outgoingAlias(for: contact.address)
+
+        if hadNoRelationship {
+            let recoveryAddress = contact.address
+            Task { [weak self] in
+                await self?.recoverPreRelationshipHistory(for: recoveryAddress)
+            }
+        }
 
         let resolvedPendingTxId = pendingTxId ?? "pending_\(UUID().uuidString)"
         var activePendingMessageId = pendingMessageId
@@ -3225,9 +3240,43 @@ extension ChatService {
         if accept {
             try await sendHandshake(to: contact, isResponse: true)
             clearDeclined(contact.address)
+            // Everything they sent us before we accepted has to become readable now - see
+            // recoverPreRelationshipHistory for why the ordinary sync would never ask for it.
+            await recoverPreRelationshipHistory(for: contact.address)
         } else {
             declineContact(contact.address)
         }
+    }
+
+    /// Re-fetches a contact's ENTIRE contextual history from block time 0 and decrypts it, once,
+    /// at the moment the relationship with them is established (we accept their handshake, or we
+    /// message them back).
+    ///
+    /// Why it is needed - two separate gates conspired to hide the earlier messages:
+    ///
+    /// 1. Discovery. The contextual endpoint is queried per (sender address, alias) pair, and the
+    ///    sweep in `fetchContextualMessages` only visits addresses in
+    ///    `routingStates ∪ conversationAliases`. A stranger who has only sent us things is in
+    ///    neither, so their messages were never requested at all.
+    /// 2. The cursor. Even once they ARE in that set, a contact with no stored
+    ///    `SyncObjectCursor` falls back to `lastPollTime - 10 minutes`
+    ///    (`syncStartBlockTime`), so the sync asks only for the last few minutes and everything
+    ///    older is skipped forever - the cursor is monotonic and never rewinds.
+    ///
+    /// Nothing is unrecoverable here: contextual messages are stateless ECIES whose ephemeral
+    /// public key travels inside the on-chain payload (`KasiaCipher.decrypt`), keyed only by our
+    /// long-term wallet key, and deterministic aliases derive from our own seed plus their
+    /// address (`DeterministicAlias`). So the whole history can always be re-derived and
+    /// re-decrypted after the fact.
+    ///
+    /// `syncContactHistoryFromGenesis` is the existing routine that does exactly this
+    /// (`ensureRoutingState` + `fetchContextualMessagesForActive(fallbackSince: 0,
+    /// forceExactBlockTime: true)`, which bypasses both the cursor and the retention clamp and
+    /// deliberately does not advance the cursor). It was previously only wired to manual
+    /// "Add Contact". Storage is idempotent - `addMessageToConversation` dedupes by txId - so a
+    /// redundant run costs bandwidth, never duplicates.
+    func recoverPreRelationshipHistory(for contactAddress: String) async {
+        await syncContactHistoryFromGenesis(contactAddress)
     }
 
     func isConversationDeclined(_ address: String) -> Bool {

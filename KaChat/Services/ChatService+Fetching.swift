@@ -524,7 +524,23 @@ extension ChatService {
             if let alias = extractedAlias {
                 addConversationAlias(alias, for: contactAddress, blockTime: handshake.blockTime)
             } else if !isOutgoing {
-                // Alias-less handshake = peer uses deterministic aliases
+                // Alias-less handshake = peer uses deterministic aliases.
+                //
+                // There is no random alias to register for this contact, so for a BRAND-NEW
+                // stranger the optional-chained assignment below was a silent no-op:
+                // `routingStates[contactAddress]` doesn't exist yet, and an incoming handshake
+                // by itself never created one. That left the contact outside the
+                // `routingStates ∪ conversationAliases` address set that `fetchContextualMessages`
+                // sweeps (see its `allContactAddresses`), and outside
+                // `fetchContextualMessagesFromContact`'s `incomingAliases` guard - so every
+                // message they sent us before we accepted was never even QUERIED.
+                //
+                // Nothing has to be waited for: a deterministic alias derives from our own seed
+                // plus their address (DeterministicAlias.deriveMyAlias/deriveTheirAlias), so the
+                // routing state can be created the moment their handshake lands. Their messages
+                // are then fetched and stored like any other; ChatDetailView still hides them
+                // behind `awaitingMyAcceptance` until we accept.
+                ensureRoutingState(for: contactAddress, privateKey: privateKey)
                 routingStates[contactAddress]?.peerSupportsDeterministic = true
             }
             if let convId = extractedConversationId {

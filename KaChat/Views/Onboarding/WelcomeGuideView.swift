@@ -227,6 +227,31 @@ struct WelcomeGuideView: View {
 
     // MARK: - Shared step scaffold
 
+    /// Every fixed-content step's body goes through here. On a tall screen the two zero-length
+    /// Spacers absorb the slack and the content sits vertically centred exactly as it did when
+    /// this was a plain VStack; on a short one (iPhone SE at 375x667, or any device at a large
+    /// Dynamic Type size) the content simply exceeds `minHeight`, the Spacers collapse and the
+    /// step scrolls instead of overflowing its container and being clipped top and bottom.
+    ///
+    /// Deliberately NOT applied to the language / currency / Adult-Child steps: those already
+    /// host their own inner ScrollView for the option list, which is the flexible element that
+    /// absorbs the squeeze there - nesting a second vertical scroll view around it would fight
+    /// with it for the drag gesture.
+    ///
+    /// The Previous/Next bar stays OUTSIDE this container so it remains fixed at the bottom.
+    private func centeringScroll<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        GeometryReader { geo in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    content()
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, minHeight: geo.size.height)
+            }
+        }
+    }
+
     @ViewBuilder
     private func scaffold(
         icon: String,
@@ -236,22 +261,25 @@ struct WelcomeGuideView: View {
         @ViewBuilder extra: () -> some View,
         action: @escaping () -> Void
     ) -> some View {
-        VStack(spacing: 20) {
-            Spacer()
-            Image(systemName: icon)
-                .font(.system(size: 56))
-                .foregroundColor(.accentColor)
-            Text(LocalizedStringKey(title))
-                .font(.title2.weight(.bold))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-            Text(LocalizedStringKey(body))
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-            extra()
-            Spacer()
+        VStack(spacing: 0) {
+            centeringScroll {
+                VStack(spacing: 20) {
+                    Image(systemName: icon)
+                        .font(.system(size: 56))
+                        .foregroundColor(.accentColor)
+                    Text(LocalizedStringKey(title))
+                        .font(.title2.weight(.bold))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                    Text(LocalizedStringKey(body))
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                    extra()
+                }
+                .padding(.vertical, 24)
+            }
             guideBottomBar(title: buttonTitle, action: action)
         }
     }
@@ -362,6 +390,11 @@ struct WelcomeGuideView: View {
                     .padding(.horizontal, 24)
                     .padding(.vertical, 4)
                 }
+                // The option list claims the leftover height BEFORE the two Spacers do.
+                // Without this the VStack split the slack three ways, which on an iPhone SE
+                // (and worse with the keyboard up for the child password fields) left the
+                // list a ~100pt viewport with the Child rows mostly out of sight.
+                .layoutPriority(1)
 
                 if let childSetupError {
                     Text(childSetupError)
@@ -462,38 +495,40 @@ struct WelcomeGuideView: View {
     /// where relying on that sync's timing would be fragile. On replay the step simply shows
     /// and edits the account's current value.
     private var paymentPrivacyStep: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "eye.slash.circle")
-                .font(.system(size: 56))
-                .foregroundColor(.accentColor)
-            Text("Chat Payment Privacy")
-                .font(.title2.weight(.bold))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-            Text("How would you like to send and receive payments in chats?")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+        VStack(spacing: 0) {
+            centeringScroll {
+                VStack(spacing: 16) {
+                    Image(systemName: "eye.slash.circle")
+                        .font(.system(size: 56))
+                        .foregroundColor(.accentColor)
+                    Text("Chat Payment Privacy")
+                        .font(.title2.weight(.bold))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                    Text("How would you like to send and receive payments in chats?")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
 
-            VStack(spacing: 10) {
-                paymentPrivacyRow(
-                    enabled: true,
-                    title: "On",
-                    badge: "Recommended",
-                    subtitle: "Payments in your chats travel between fresh private addresses. When you pay a contact who also has privacy on, the money goes to a fresh address only the two of you know about, and payments you receive arrive on fresh addresses of your own the same way. Nobody watching the network can tie chat payments to you or your contacts."
-                )
-                paymentPrivacyRow(
-                    enabled: false,
-                    title: "Off",
-                    badge: nil,
-                    subtitle: "Payments you send and receive are tied to your chatting address only, where anyone can see the full payment history."
-                )
+                    VStack(spacing: 10) {
+                        paymentPrivacyRow(
+                            enabled: true,
+                            title: "On",
+                            badge: "Recommended",
+                            subtitle: "Payments in your chats travel between fresh private addresses. When you pay a contact who also has privacy on, the money goes to a fresh address only the two of you know about, and payments you receive arrive on fresh addresses of your own the same way. Nobody watching the network can tie chat payments to you or your contacts."
+                        )
+                        paymentPrivacyRow(
+                            enabled: false,
+                            title: "Off",
+                            badge: nil,
+                            subtitle: "Payments you send and receive are tied to your chatting address only, where anyone can see the full payment history."
+                        )
+                    }
+                    .padding(.horizontal, 24)
+                }
+                .padding(.vertical, 24)
             }
-            .padding(.horizontal, 24)
-
-            Spacer()
             guideBottomBar(title: "Finish") {
                 applyPaymentPrivacyChoice()
                 // The guide is done: the one-shot import marker (funding step's "Change
@@ -804,63 +839,65 @@ struct WelcomeGuideView: View {
     // MARK: - Node connection step
 
     private var nodeConnectionStep: some View {
-        VStack(spacing: 16) {
-            Spacer()
-            Image(systemName: "server.rack")
-                .font(.system(size: 56))
-                .foregroundColor(.accentColor)
-            Text("Connect to a Node")
-                .font(.title2.weight(.bold))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-            Text("KaChat needs to connect to a node. How would you like to connect?")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-
-            VStack(spacing: 10) {
-                nodeChoiceRow(
-                    choice: .defaultNode,
-                    title: "Default",
-                    badge: "Recommended",
-                    subtitle: AppSettings.defaultTrustedNodeAddress
-                )
-                nodeChoiceRow(
-                    choice: .ownNode,
-                    title: "Connect Your Own Node",
-                    badge: "Best",
-                    subtitle: "Enter a node address you trust"
-                )
-                if nodeChoice == .ownNode {
-                    TextField("host:port or grpcs://host", text: $ownNodeInput)
-                        .font(.system(.footnote, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                        .padding(10)
-                        .background(Color(.systemGray6))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+        VStack(spacing: 0) {
+            centeringScroll {
+                VStack(spacing: 16) {
+                    Image(systemName: "server.rack")
+                        .font(.system(size: 56))
+                        .foregroundColor(.accentColor)
+                    Text("Connect to a Node")
+                        .font(.title2.weight(.bold))
+                        .multilineTextAlignment(.center)
                         .padding(.horizontal, 24)
-                        .onChange(of: ownNodeInput) { _ in nodeValidationError = nil }
-                }
-                nodeChoiceRow(
-                    choice: .autoDiscover,
-                    title: "Auto Search for Nodes",
-                    badge: nil,
-                    subtitle: "Most taxing on the device, not as reliable - depends on where you live"
-                )
-            }
-            .padding(.horizontal, 24)
+                    Text("KaChat needs to connect to a node. How would you like to connect?")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
 
-            if let nodeValidationError {
-                Text(nodeValidationError)
-                    .font(.caption)
-                    .foregroundColor(.red)
+                    VStack(spacing: 10) {
+                        nodeChoiceRow(
+                            choice: .defaultNode,
+                            title: "Default",
+                            badge: "Recommended",
+                            subtitle: AppSettings.defaultTrustedNodeAddress
+                        )
+                        nodeChoiceRow(
+                            choice: .ownNode,
+                            title: "Connect Your Own Node",
+                            badge: "Best",
+                            subtitle: "Enter a node address you trust"
+                        )
+                        if nodeChoice == .ownNode {
+                            TextField("host:port or grpcs://host", text: $ownNodeInput)
+                                .font(.system(.footnote, design: .monospaced))
+                                .autocapitalization(.none)
+                                .autocorrectionDisabled()
+                                .keyboardType(.URL)
+                                .padding(10)
+                                .background(Color(.systemGray6))
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .padding(.horizontal, 24)
+                                .onChange(of: ownNodeInput) { _ in nodeValidationError = nil }
+                        }
+                        nodeChoiceRow(
+                            choice: .autoDiscover,
+                            title: "Auto Search for Nodes",
+                            badge: nil,
+                            subtitle: "Most taxing on the device, not as reliable - depends on where you live"
+                        )
+                    }
                     .padding(.horizontal, 24)
-            }
 
-            Spacer()
+                    if let nodeValidationError {
+                        Text(nodeValidationError)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .padding(.horizontal, 24)
+                    }
+                }
+                .padding(.vertical, 24)
+            }
             guideBottomBar { applyNodeChoice() }
         }
     }
@@ -930,37 +967,43 @@ struct WelcomeGuideView: View {
 
     // MARK: - Address explainer step
 
+    /// The tallest fixed-content step in the guide (title + illustration + two captioned address
+    /// cards). On an iPhone SE it does not fit the space above the Previous/Next bar, so it goes
+    /// through `centeringScroll` - unchanged and centred on roomy screens, scrollable instead of
+    /// clipped on short ones.
     private var addressExplainerStep: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            Text("Chatting vs. Spending Address")
-                .font(.title2.weight(.bold))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+        VStack(spacing: 0) {
+            centeringScroll {
+                VStack(spacing: 20) {
+                    Text("Chatting vs. Spending Address")
+                        .font(.title2.weight(.bold))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
 
-            Image("AddressTypesExplainer")
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: 280)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                    Image("AddressTypesExplainer")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 280)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
 
-            VStack(spacing: 12) {
-                addressMockRow(
-                    icon: "bubble.left.and.bubble.right.fill",
-                    title: "Chatting Address",
-                    address: chattingAddress,
-                    caption: "Your public messaging identity. Fund it with a small amount to pay message fees and KNS profile creation fees - never send money here that you intend to spend."
-                )
-                addressMockRow(
-                    icon: "dollarsign.circle.fill",
-                    title: "Spending Address",
-                    address: walletManager.currentSpendingAddress() ?? "",
-                    caption: "Where you send and receive Kaspa you intend to use as money."
-                )
+                    VStack(spacing: 12) {
+                        addressMockRow(
+                            icon: "bubble.left.and.bubble.right.fill",
+                            title: "Chatting Address",
+                            address: chattingAddress,
+                            caption: "Your public messaging identity. Fund it with a small amount to pay message fees and KNS profile creation fees - never send money here that you intend to spend."
+                        )
+                        addressMockRow(
+                            icon: "dollarsign.circle.fill",
+                            title: "Spending Address",
+                            address: walletManager.currentSpendingAddress() ?? "",
+                            caption: "Where you send and receive Kaspa you intend to use as money."
+                        )
+                    }
+                    .padding(.horizontal, 24)
+                }
+                .padding(.vertical, 24)
             }
-            .padding(.horizontal, 24)
-
-            Spacer()
             guideBottomBar { step = .chatting }
         }
     }

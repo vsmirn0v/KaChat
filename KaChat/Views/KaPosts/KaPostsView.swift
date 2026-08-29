@@ -294,7 +294,26 @@ struct KaPostsView: View {
     /// Repost tapped on an on-chain post: choose plain repost vs quote.
     @State private var repostDialogTarget: DraftPost?
     @State private var quoteComposerTarget: DraftPost?
+    /// Quote tapped from INSIDE the poster-profile sheet, and from INSIDE an open thread.
+    /// A view can only present one sheet at a time, so `feedLayer`'s `$quoteComposerTarget`
+    /// sheet is stuck behind whichever sheet is already up: the composer only appeared after
+    /// the profile/thread was closed. These present from those sheets' own hierarchies.
+    /// Same rule (and same fix) as `profileDetailTarget` and `threadEngagementTarget`.
+    @State private var profileQuoteComposerTarget: DraftPost?
+    @State private var threadQuoteComposerTarget: DraftPost?
+    /// Quote tapped inside the side-menu sheet (Bookmarks / my Profile), which is presented by
+    /// `body`'s ZStack - a level above `feedLayer`, so it needs its own composer too.
+    @State private var menuQuoteComposerTarget: DraftPost?
     @State private var replyText = ""
+
+    /// Which presentation level a quote action came from - i.e. which view has to own the
+    /// composer sheet so it can actually appear over what the user is looking at.
+    private enum QuoteComposerLevel {
+        case feed
+        case profile
+        case thread
+        case menu
+    }
 
     struct PostDetailTarget: Identifiable {
         let id: UUID
@@ -362,17 +381,24 @@ struct KaPostsView: View {
             sideMenuOverlay
         }
         .sheet(item: $menuSheet) { item in
-            switch item {
-            case .bookmarks:
-                bookmarksSheet
-            case .muted:
-                moderationSheet(kind: .muted)
-            case .blocked:
-                moderationSheet(kind: .blocked)
-            case .profile:
-                myProfileSheet
-            case .notifications:
-                KaPostsNotificationsView()
+            Group {
+                switch item {
+                case .bookmarks:
+                    bookmarksSheet
+                case .muted:
+                    moderationSheet(kind: .muted)
+                case .blocked:
+                    moderationSheet(kind: .blocked)
+                case .profile:
+                    myProfileSheet
+                case .notifications:
+                    KaPostsNotificationsView()
+                }
+            }
+            // Quote from a Bookmarks / my-Profile cell: presented from INSIDE this sheet,
+            // since the presenter of this sheet is already busy presenting it.
+            .sheet(item: $menuQuoteComposerTarget) { target in
+                quoteComposerSheet(for: target)
             }
         }
     }
@@ -407,7 +433,10 @@ struct KaPostsView: View {
                     scheduleThread(segments)
                 }
             )
-            .presentationDetents([.medium, .large])
+            // Large only. The composer auto-focuses, and at the medium detent the keyboard
+            // takes practically all of the sheet - the editor was left with a sliver and the
+            // caret slid behind the keyboard as the post grew.
+            .presentationDetents([.large])
         }
         .sheet(item: $tipTarget) { target in
             KaPostTipSheet(address: target.address, displayName: posterDisplayName(target.address))
@@ -467,14 +496,7 @@ struct KaPostsView: View {
             KaPostEngagementView(post: target)
         }
         .sheet(item: $quoteComposerTarget) { target in
-            KaPostComposerView(
-                quotedPost: target,
-                quotedDisplayName: posterDisplayName(target.posterAddress),
-                quotedAvatarURL: knsService.profileCache[target.posterAddress]?.avatarURL
-            ) { text in
-                scheduleQuote(target: target, text: text)
-            }
-            .presentationDetents([.medium, .large])
+            quoteComposerSheet(for: target)
         }
         // Tapping an @mention anywhere in KaPosts (feed, thread detail, profiles - sheets
         // inherit this environment) resolves the KNS domain and opens that user's profile.
@@ -1447,9 +1469,14 @@ struct KaPostsView: View {
         Task {
             guard let resolution = await KNSService.shared.resolveDomain(domain) else { return }
             let pubkey = KaPostsAPIClient.kapostPubkey(fromAddress: resolution.ownerAddress)
-            let hadSheetUp = detailTarget != nil || quoteComposerTarget != nil || showComposer
+            let hadSheetUp = detailTarget != nil || quoteComposerTarget != nil
+                || threadQuoteComposerTarget != nil || profileQuoteComposerTarget != nil
+                || menuQuoteComposerTarget != nil || showComposer
             detailTarget = nil
             quoteComposerTarget = nil
+            threadQuoteComposerTarget = nil
+            profileQuoteComposerTarget = nil
+            menuQuoteComposerTarget = nil
             showComposer = false
             DispatchQueue.main.asyncAfter(deadline: .now() + (hadSheetUp ? 0.4 : 0)) {
                 profileTarget = PosterProfileTarget(address: resolution.ownerAddress, pubkey: pubkey)
@@ -1890,7 +1917,8 @@ struct KaPostsView: View {
 
     /// X-style anchored repost menu actions (the cell shows the popover; this runs the choice).
     /// Same 5s undo toast + scheduler behavior as the old confirmation dialog.
-    private func handleRepostAction(_ post: DraftPost, _ action: KaPostRepostAction) {
+    /// `level` says which hierarchy must own the quote composer sheet - see QuoteComposerLevel.
+    private func handleRepostAction(_ post: DraftPost, _ action: KaPostRepostAction, level: QuoteComposerLevel = .feed) {
         switch action {
         case .repost:
             let key = "repost:\(post.id)"
@@ -1907,8 +1935,27 @@ struct KaPostsView: View {
                 performUnrepost(post)
             }
         case .quote:
-            quoteComposerTarget = post
+            switch level {
+            case .feed: quoteComposerTarget = post
+            case .profile: profileQuoteComposerTarget = post
+            case .thread: threadQuoteComposerTarget = post
+            case .menu: menuQuoteComposerTarget = post
+            }
         }
+    }
+
+    /// The one quote composer, built once and hung off whichever hierarchy is on screen.
+    private func quoteComposerSheet(for target: DraftPost) -> some View {
+        KaPostComposerView(
+            quotedPost: target,
+            quotedDisplayName: posterDisplayName(target.posterAddress),
+            quotedAvatarURL: knsService.profileCache[target.posterAddress]?.avatarURL
+        ) { text in
+            scheduleQuote(target: target, text: text)
+        }
+        // Single large detent: the composer auto-focuses, and on a medium sheet the keyboard
+        // leaves no usable room for the editor (see the composer's own layout notes).
+        .presentationDetents([.large])
     }
 
     /// K's repost mechanism is the quote action: nil text = plain repost (marker-only message),
@@ -2145,7 +2192,10 @@ struct KaPostsView: View {
             onLike: { toggleLike(item) },
             onDislike: { toggleDislike(item) },
             onRepost: { handleRepostTap(item) },
-            onRepostAction: { handleRepostAction(item, $0) },
+            // Quoting a post or one of its comments from in here presents from the thread
+            // sheet's own hierarchy - the top-level $quoteComposerTarget sheet can't present
+            // while the thread sheet is up, so the composer only showed after closing the post.
+            onRepostAction: { handleRepostAction(item, $0, level: .thread) },
             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
         )
         .equatable()
@@ -2639,6 +2689,11 @@ struct KaPostsView: View {
             .sheet(item: $profileDetailTarget) { target in
                 postDetailSheet(postId: target.id)
             }
+            // Quote tapped on a post in this profile - presented from the profile's OWN
+            // NavigationStack for the same reason as the thread sheet above it.
+            .sheet(item: $profileQuoteComposerTarget) { target in
+                quoteComposerSheet(for: target)
+            }
             .task(id: target.id) {
                 posterProfilePosts = []
                 posterProfileReplies = []
@@ -2814,7 +2869,9 @@ struct KaPostsView: View {
             onLike: { toggleLike(post) },
             onDislike: { toggleDislike(post) },
             onRepost: { handleRepostTap(post) },
-            onRepostAction: { handleRepostAction(post, $0) },
+            // My-profile cell: this profile lives inside the side-menu sheet (a level
+            // ABOVE feedLayer), so the composer has to present from that sheet.
+            onRepostAction: { handleRepostAction(post, $0, level: .menu) },
             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
         )
         .equatable()
@@ -2842,7 +2899,9 @@ struct KaPostsView: View {
             onLike: { toggleLike(post) },
             onDislike: { toggleDislike(post) },
             onRepost: { handleRepostTap(post) },
-            onRepostAction: { handleRepostAction(post, $0) },
+            // Poster profile is itself a sheet presented by feedLayer, so feedLayer cannot
+            // put the composer up on top of it - it presents from the profile instead.
+            onRepostAction: { handleRepostAction(post, $0, level: .profile) },
             onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
         )
         .equatable()
@@ -2973,7 +3032,8 @@ struct KaPostsView: View {
                             onLike: { toggleLike(post) },
                                     onDislike: { toggleDislike(post) },
                                     onRepost: { handleRepostTap(post) },
-                                onRepostAction: { handleRepostAction(post, $0) },
+                                    // Bookmarks lives inside the side-menu sheet - same rule.
+                                    onRepostAction: { handleRepostAction(post, $0, level: .menu) },
                                     onOpenQuoted: { txId in Task { await openSharedPost(txId: txId) } }
                                 )
                                 .equatable()
@@ -3229,6 +3289,13 @@ struct KaPostsView: View {
                     // the funding card above: feedLayer's $engagementTarget sheet can't
                     // present while this thread sheet is up, so it presents from in here.
                     KaPostEngagementView(post: target)
+                }
+                .sheet(item: $threadQuoteComposerTarget) { target in
+                    // Quote on the open post OR on one of its comments. Exactly the same
+                    // nested-sheet rule: feedLayer's $quoteComposerTarget sheet cannot come
+                    // up while this thread sheet is, which is why the composer used to appear
+                    // only after the post was dismissed.
+                    quoteComposerSheet(for: target)
                 }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
@@ -4440,152 +4507,28 @@ private struct KaPostComposerView: View {
             .padding(.top, 14)
             .padding(.bottom, 10)
 
-            // Already-stacked thread segments, numbered, each removable.
-            if !threadSegments.isEmpty {
-                ScrollView {
-                    VStack(spacing: 8) {
-                        ForEach(Array(threadSegments.enumerated()), id: \.offset) { index, segment in
-                            HStack(alignment: .top, spacing: 10) {
-                                Text("\(index + 1)")
-                                    .font(.caption.weight(.bold))
-                                    .foregroundColor(.accentColor)
-                                    .frame(width: 20, height: 20)
-                                    .background(Circle().fill(Color.accentColor.opacity(0.15)))
-                                Text(segment)
-                                    .font(.subheadline)
-                                    .lineLimit(2)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Button {
-                                    threadSegments.remove(at: index)
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundColor(.secondary)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .padding(10)
-                            .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
-                .frame(maxHeight: 150)
-                .padding(.bottom, 6)
-            }
+            // @mention autocomplete stays PINNED between the header and the scroll view, so
+            // scrolling the post text can never carry the suggestion list out of sight.
+            mentionSuggestionBar
 
-            // @mention autocomplete: a SCROLLABLE vertical list of the KNS domains of everyone
-            // you've chatted with 1:1 (plus a live-resolved non-contact match), shown the moment
-            // an @token is being typed. Placed ABOVE the editor - below it the keyboard pushed
-            // the list off-screen in the medium sheet, which read as "no list at all".
-            if !mentionSuggestions.isEmpty {
-                let rows = VStack(alignment: .leading, spacing: 0) {
-                    ForEach(mentionSuggestions, id: \.self) { domain in
-                        Button {
-                            insertMention(domain)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text("@")
-                                    .font(.subheadline.weight(.bold))
-                                    .foregroundColor(.accentColor)
-                                Text(domain)
-                                    .font(.subheadline)
-                                    .foregroundColor(.primary)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 9)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        if domain != mentionSuggestions.last {
-                            Divider()
-                        }
+            // Everything that can grow lives in ONE scroll view, which respects the keyboard's
+            // safe area. This used to be a plain VStack: with the keyboard up, the header plus
+            // the editor's 120pt floor plus the quote card and fee row exceeded what was left of
+            // the sheet, the VStack overflowed its container, and the bottom of the editor -
+            // where the caret is - sat behind the keyboard with no way to bring it back.
+            ScrollView {
+                VStack(spacing: 0) {
+                    threadSegmentsList
+                    composerEditor
+                    if let quotedPost {
+                        quotedPostCard(quotedPost)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 10)
                     }
-                }
-                Group {
-                    // Short lists hug their content; longer ones get an EXACT-height ScrollView
-                    // (~4.5 rows so it visibly reads as scrollable) - group chat's pattern.
-                    if mentionSuggestions.count > 4 {
-                        ScrollView {
-                            rows
-                        }
-                        .frame(height: 168)
-                    } else {
-                        rows
-                    }
-                }
-                .frame(maxWidth: 280, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.06)))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.12), lineWidth: 1))
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            // Bordered editor card, like the desktop textarea.
-            TextEditor(text: $text)
-                .focused($isFocused)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .frame(minHeight: 120)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.primary.opacity(0.35), lineWidth: 1)
-                )
-                .overlay(alignment: .topLeading) {
-                    if text.isEmpty {
-                        Text(quotedPost == nil
-                             ? (threadSegments.isEmpty ? "What's happening on Kaspa?" : "Add another post")
-                             : "Add a comment")
-                            .font(.body)
-                            .foregroundColor(.secondary.opacity(0.6))
-                            .padding(.horizontal, 13)
-                            .padding(.top, 16)
-                            .allowsHitTesting(false)
-                    }
-                }
-                // X-style +: appears once you start typing; stacks this text as a segment and
-                // clears the editor for the next post in the thread.
-                .overlay(alignment: .bottomTrailing) {
-                    if threadingEnabled, !trimmed.isEmpty {
-                        Button {
-                            threadSegments.append(trimmed)
-                            text = ""
-                            isFocused = true
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.subheadline.weight(.bold))
-                                .foregroundColor(.accentColor)
-                                .frame(width: 32, height: 32)
-                                .background(Circle().fill(Color.accentColor.opacity(0.15)))
-                        }
-                        .buttonStyle(.plain)
-                        .padding(10)
-                    }
-                }
-                .padding(.horizontal, 16)
-
-            if let quotedPost {
-                quotedPostCard(quotedPost)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 10)
-            }
-            HStack {
-                Spacer()
-                // Live network-fee estimate while typing (Settings > Show Fee Estimate),
-                // matching the chat composer's behavior.
-                if settingsViewModel.settings.showFeeEstimate, !trimmed.isEmpty,
-                   let fee = KaPostsAPIClient.estimatePostFee(text: trimmed) {
-                    Text("Est. fee: \(String(format: "%.8f", Double(fee) / 100_000_000.0)) KAS")
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundColor(.secondary)
+                    feeEstimateRow
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            Spacer(minLength: 0)
+            .scrollDismissesKeyboard(.interactively)
         }
         .onAppear { isFocused = true }
         // Warm the KNS domain cache for every 1:1 contact so typing @ has a populated list -
@@ -4612,6 +4555,156 @@ private struct KaPostComposerView: View {
                 text = String(newValue.prefix(KaPostsView.postCharacterLimit))
             }
         }
+    }
+
+    /// Already-stacked thread segments, numbered, each removable. No longer its own ScrollView:
+    /// it now rides inside the composer's single outer scroll view, and a vertical scroll view
+    /// nested in another one fights it for the drag.
+    @ViewBuilder
+    private var threadSegmentsList: some View {
+        if !threadSegments.isEmpty {
+            VStack(spacing: 8) {
+                ForEach(Array(threadSegments.enumerated()), id: \.offset) { index, segment in
+                    HStack(alignment: .top, spacing: 10) {
+                        Text("\(index + 1)")
+                            .font(.caption.weight(.bold))
+                            .foregroundColor(.accentColor)
+                            .frame(width: 20, height: 20)
+                            .background(Circle().fill(Color.accentColor.opacity(0.15)))
+                        Text(segment)
+                            .font(.subheadline)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button {
+                            threadSegments.remove(at: index)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 6)
+        }
+    }
+
+    /// @mention autocomplete: a SCROLLABLE vertical list of the KNS domains of everyone you've
+    /// chatted with 1:1 (plus a live-resolved non-contact match), shown the moment an @token is
+    /// being typed. Pinned ABOVE the editor - below it the keyboard pushed the list off-screen,
+    /// which read as "no list at all".
+    @ViewBuilder
+    private var mentionSuggestionBar: some View {
+        if !mentionSuggestions.isEmpty {
+            let rows = VStack(alignment: .leading, spacing: 0) {
+                ForEach(mentionSuggestions, id: \.self) { domain in
+                    Button {
+                        insertMention(domain)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("@")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundColor(.accentColor)
+                            Text(domain)
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if domain != mentionSuggestions.last {
+                        Divider()
+                    }
+                }
+            }
+            Group {
+                // Short lists hug their content; longer ones get an EXACT-height ScrollView
+                // (~4.5 rows so it visibly reads as scrollable) - group chat's pattern.
+                if mentionSuggestions.count > 4 {
+                    ScrollView {
+                        rows
+                    }
+                    .frame(height: 168)
+                } else {
+                    rows
+                }
+            }
+            .frame(maxWidth: 280, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.12), lineWidth: 1))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// The bordered editor card. A growing multi-line TextField, deliberately NOT a TextEditor:
+    /// TextEditor is greedy in both axes and has no intrinsic content height, so inside a scroll
+    /// view it cannot size itself and the scroll view has no caret rectangle to bring above the
+    /// keyboard. An axis-based TextField grows line by line with a real intrinsic height (the
+    /// same control the post thread's reply bar uses), so as the post gets longer the caret rides
+    /// down with the text and SwiftUI's keyboard avoidance scrolls it back into view. The empty
+    /// card keeps its 120pt look via the minHeight floor.
+    private var composerEditor: some View {
+        TextField(
+            quotedPost == nil
+                ? (threadSegments.isEmpty ? "What's happening on Kaspa?" : "Add another post")
+                : "Add a comment",
+            text: $text,
+            axis: .vertical
+        )
+        .textFieldStyle(.plain)
+        .focused($isFocused)
+        .font(.body)
+        .padding(12)
+        .frame(minHeight: 120, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.primary.opacity(0.35), lineWidth: 1)
+        )
+        // X-style +: appears once you start typing; stacks this text as a segment and
+        // clears the editor for the next post in the thread.
+        .overlay(alignment: .bottomTrailing) {
+            if threadingEnabled, !trimmed.isEmpty {
+                Button {
+                    threadSegments.append(trimmed)
+                    text = ""
+                    isFocused = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(.accentColor)
+                        .frame(width: 32, height: 32)
+                        .background(Circle().fill(Color.accentColor.opacity(0.15)))
+                }
+                .buttonStyle(.plain)
+                .padding(10)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    /// Live network-fee estimate while typing (Settings > Show Fee Estimate), matching the chat
+    /// composer's behavior.
+    private var feeEstimateRow: some View {
+        HStack {
+            Spacer()
+            if settingsViewModel.settings.showFeeEstimate, !trimmed.isEmpty,
+               let fee = KaPostsAPIClient.estimatePostFee(text: trimmed) {
+                Text("Est. fee: \(String(format: "%.8f", Double(fee) / 100_000_000.0)) KAS")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     private func postAll() {
