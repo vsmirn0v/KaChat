@@ -91,7 +91,7 @@ struct BroadcastListView: View {
             // notification handler) is consumed on mount - ChatListView no longer brokers this.
             if let pending = broadcastService.pendingBroadcastNavigation {
                 broadcastService.pendingBroadcastNavigation = nil
-                selectedChannel = pending
+                openChannelFromHandoff(pending)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { notification in
@@ -99,13 +99,29 @@ struct BroadcastListView: View {
             // notification is tapped - swap straight to the new room instead of no-oping, since
             // `ChatListView`'s own handling only covers opening the list from scratch.
             guard let channel = notification.userInfo?["channel"] as? String else { return }
-            selectedChannel = channel
+            openChannelFromHandoff(channel)
         }
         .onChange(of: broadcastService.pendingBroadcastNavigation) { newValue in
             guard let channel = newValue else { return }
             broadcastService.pendingBroadcastNavigation = nil
-            selectedChannel = channel
+            openChannelFromHandoff(channel)
         }
+    }
+
+    /// Opens a room handed over from outside the list: a tapped notification, or a shared room
+    /// link (`KaChatInternalLink`). Two things this needs that a plain assignment doesn't:
+    /// - the name is re-validated, since a pasted link's channel name is attacker-controlled and
+    ///   this is the last hop before it becomes a store row;
+    /// - a room with no store row yet gets one first. A link can name a room this device has
+    ///   never joined, and on a cold start the router's own join runs before the store has
+    ///   finished loading (a no-op), so the room would otherwise open while being absent from
+    ///   the list behind it. Same join-then-open shape as `openCuratedChannel`.
+    private func openChannelFromHandoff(_ rawName: String) {
+        guard let normalized = KaChatInternalLink.normalizeAndValidateChannel(rawName) else { return }
+        if !broadcastService.channels.contains(where: { $0.channelName == normalized }) {
+            broadcastService.joinChannel(normalized)
+        }
+        selectedChannel = normalized
     }
 
     private var broadcastListContent: some View {
@@ -233,6 +249,7 @@ struct BroadcastListView: View {
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+            .contextMenu { roomShareMenuItems(name) }
         }
 
         // "Other Languages": a collapsed category inside Popular (so the section
@@ -392,6 +409,7 @@ struct BroadcastListView: View {
         // Deeper leading inset than the cards above: these read as children of the
         // "Other Languages" row they slid out from.
         .listRowInsets(EdgeInsets(top: 4, leading: 32, bottom: 4, trailing: 16))
+        .contextMenu { roomShareMenuItems(name) }
     }
 
     /// Opens a curated room, creating its store row first when it has none (the language rooms
@@ -472,12 +490,31 @@ struct BroadcastListView: View {
         .listRowSeparator(.hidden)
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        .contextMenu { roomShareMenuItems(channel.channelName) }
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
                 channelToLeave = channel.channelName
             } label: {
                 Label("Leave", systemImage: "rectangle.portrait.and.arrow.right")
             }
+        }
+    }
+
+    /// Share / copy this room's invite link, offered from a long press on any room row (the room
+    /// screen itself carries the same thing as a toolbar Share button). Emits BOTH accepted
+    /// forms - see `KaChatInternalLink`.
+    @ViewBuilder
+    private func roomShareMenuItems(_ name: String) -> some View {
+        let normalized = BroadcastChannelName.normalize(name)
+        let link = KaChatInternalLink.broadcastRoom(channel: normalized)
+        ShareLink(item: KaChatInternalLink.broadcastRoomShareText(channel: normalized)) {
+            Label("Share Room Link", systemImage: "square.and.arrow.up")
+        }
+        Button {
+            UIPasteboard.general.string = link.shareLinkString
+            showToast("Room link copied")
+        } label: {
+            Label("Copy Room Link", systemImage: "doc.on.doc")
         }
     }
 

@@ -273,13 +273,13 @@ struct KaChatApp: App {
     }
 
     private func handleIncomingURL(_ url: URL) {
-        // Universal link https://kachat.duckdns.org/post/<txid> - preferred share form: with
-        // the app installed iOS routes it here; without it, the domain 302s to the App Store.
-        if url.scheme?.lowercased() == "https",
-           url.host?.lowercased() == "kachat.duckdns.org",
-           url.pathComponents.count >= 3,
-           url.pathComponents[1].lowercased() == "post" {
-            openKaPostDeepLink(txId: url.pathComponents[2])
+        // Every in-app target link - KaPosts posts and broadcast rooms, in both their
+        // `kachat://` and `https://kachat.duckdns.org/...` forms - is parsed and validated in
+        // ONE place (`KaChatInternalLink.parse`) and routed through ONE place
+        // (`KaChatLinkRouter.open`), shared with the in-chat preview cards so a tapped card and
+        // a tapped system link can never diverge.
+        if let link = KaChatInternalLink.parse(url) {
+            KaChatLinkRouter.open(link)
             return
         }
 
@@ -288,12 +288,6 @@ struct KaChatApp: App {
         // kachat://portfolio - the Home Screen widget's tap target.
         if url.host?.lowercased() == "portfolio" {
             NotificationCenter.default.post(name: .openPortfolio, object: nil)
-            return
-        }
-
-        // kachat://kapost/<txid> - legacy scheme form of the same link.
-        if url.host?.lowercased() == "kapost" {
-            openKaPostDeepLink(txId: url.lastPathComponent)
             return
         }
 
@@ -308,19 +302,6 @@ struct KaChatApp: App {
         Task {
             await processPendingOutboundShareIfNeeded()
         }
-    }
-
-    private func openKaPostDeepLink(txId rawTxId: String) {
-        // Child Mode: KaPosts links (universal https://.../post/<txid> and kachat://kapost/...)
-        // no-op to the main screen instead of opening the hidden feature.
-        guard !AppSettings.load().childModeEnabled else {
-            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
-            return
-        }
-        let txId = rawTxId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !txId.isEmpty, txId != "/" else { return }
-        KaPostsDeepLink.pendingPostTxId = txId
-        NotificationCenter.default.post(name: .openKaPost, object: nil, userInfo: ["txId": txId])
     }
 
     /// Drains the Share Extension's outbound queue. Auto-send shares (composed and confirmed in
@@ -947,6 +928,64 @@ enum KaPostsDeepLink {
     static var pendingPostTxId: String?
     /// KaPosts push tapped without a specific post - open the Notifications screen on mount.
     static var pendingOpenNotifications = false
+}
+
+/// The single place an already-validated `KaChatInternalLink` becomes navigation. Used by the
+/// system URL router (`KaChatApp.handleIncomingURL`, for links tapped outside the app) AND by
+/// the in-chat preview cards (`KaChatInternalLinkCardView`), so a link opens the same screen
+/// whichever way the user reached it - and never bounces out to Safari for an in-app target.
+enum KaChatLinkRouter {
+    @MainActor
+    static func open(_ link: KaChatInternalLink) {
+        switch link {
+        case .kaPost(let txId):
+            openKaPost(txId: txId)
+        case .broadcastRoom(let channel):
+            openBroadcastRoom(channel: channel)
+        }
+    }
+
+    @MainActor
+    private static func openKaPost(txId: String) {
+        // Child Mode: KaPosts links (universal https://.../post/<txid> and kachat://kapost/...)
+        // no-op to the main screen instead of opening the hidden feature.
+        guard !AppSettings.load().childModeEnabled else {
+            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
+            return
+        }
+        guard !txId.isEmpty else { return }
+        // Cold-start handoff (KaPostsView may not be mounted yet) plus the live notification for
+        // an already-mounted one - KaPostsView consumes whichever arrives.
+        KaPostsDeepLink.pendingPostTxId = txId
+        NotificationCenter.default.post(name: .openKaPost, object: nil, userInfo: ["txId": txId])
+    }
+
+    @MainActor
+    private static func openBroadcastRoom(channel: String) {
+        // Child Mode removes Broadcasts entirely (see AppTab.isEnabled) - same no-op to the main
+        // screen KaPosts links get, rather than opening a hidden feature by link.
+        guard !AppSettings.load().childModeEnabled else {
+            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
+            return
+        }
+        // Re-validate even though `KaChatInternalLink.parse` already did: this is the last gate
+        // before a name from a pasted link can create a store row, and the router is callable
+        // from anywhere.
+        guard let normalized = KaChatInternalLink.normalizeAndValidateChannel(channel) else { return }
+        // Curated rooms (Popular + the language rooms) always exist - just open them. Anything
+        // else has to land in the user's own channel list first, exactly as if they'd typed the
+        // name into "Join or Create a Channel", or the room screen would open something the
+        // list screen doesn't know about.
+        if !BroadcastService.indexedChannels.contains(normalized) {
+            BroadcastService.shared.joinChannel(normalized)
+        }
+        BroadcastService.shared.pendingBroadcastNavigation = normalized
+        NotificationCenter.default.post(
+            name: .openBroadcast,
+            object: nil,
+            userInfo: ["channel": normalized]
+        )
+    }
 }
 
 extension Notification.Name {

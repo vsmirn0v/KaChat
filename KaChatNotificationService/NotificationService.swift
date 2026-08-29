@@ -67,6 +67,20 @@ class NotificationService: UNNotificationServiceExtension {
         // Extract push data from userInfo
         let userInfo = request.content.userInfo
 
+        // Broadcast-room pushes (thread-id `broadcast:<channel>`, see PUSH_EXTENSIONS.md §2).
+        // They carry none of the tx_id/sender/type keys the 1:1 pipeline below needs, so
+        // without this they'd fall straight through the guard untouched. Broadcast content is
+        // public and unencrypted - there is nothing to decrypt - but it IS the raw on-chain
+        // message body, which for a reply/voice/photo/reaction is a JSON envelope
+        // (`MessageReplyCodec` & co. in the main app). Run it through the same friendly-preview
+        // rules 1:1 bodies get, so a reply shows the reply's text and a media/reaction envelope
+        // shows its placeholder instead of raw JSON on the lock screen.
+        if request.content.threadIdentifier.hasPrefix("broadcast:") {
+            content.body = broadcastPreviewText(for: content.body)
+            contentHandler(content)
+            return
+        }
+
         guard let txId = userInfo["tx_id"] as? String,
               let senderAddress = userInfo["sender"] as? String,
               let messageType = userInfo["type"] as? String else {
@@ -795,6 +809,21 @@ class NotificationService: UNNotificationServiceExtension {
         let kas = Double(amountSompi) / 100_000_000.0
         let format = NSLocalizedString("Received %.8f KAS", comment: "Push body for incoming payment with amount")
         return String(format: format, kas)
+    }
+
+    /// Local mirror of the main app's `MessageReplyCodec.previewText` for BROADCAST push bodies,
+    /// assembled from the same envelope mirrors the 1:1 path already uses. Order matches the main
+    /// app's: reaction, then chess, then reply-unwrap (which itself falls through to the inline
+    /// media sniff for direct photo/voice/video sends). The `{`-prefix guard keeps a plain text
+    /// broadcast - the overwhelming majority - completely untouched.
+    /// `inGroup: true` for the reaction wording: a public room's reaction almost never targets
+    /// the reader's own message, and this target has no store to check against.
+    private func broadcastPreviewText(for body: String) -> String {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{" else { return body }
+        return reactionPreviewText(for: body, inGroup: true)
+            ?? chessPreviewText(for: body)
+            ?? unwrapReplyText(body)
     }
 
     private func inlineAttachmentPreview(for text: String) -> String {

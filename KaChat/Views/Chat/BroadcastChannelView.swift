@@ -78,6 +78,14 @@ struct BroadcastChannelView: View {
         BroadcastService.indexedChannels.contains(BroadcastChannelName.normalize(channelName))
     }
 
+    /// Shareable invite for this room. Mirrors KaPosts' post-share text shape: a human line,
+    /// then the `kachat://` link, then its https twin for people who don't have KaChat (the
+    /// domain 302s to the App Store). Both forms are accepted by `KaChatInternalLink.parse` on
+    /// iOS and Android.
+    private var roomShareText: String {
+        KaChatInternalLink.broadcastRoomShareText(channel: channelName)
+    }
+
     var body: some View {
         messageList
             // Hosting the compose bar as a real `safeAreaInset` (rather than a floating ZStack
@@ -113,6 +121,16 @@ struct BroadcastChannelView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 ConnectionStatusIndicator()
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                // Share this room: a kachat:// link that drops other KaChat users straight into
+                // it (joining it for them first if it isn't one of the curated rooms), plus the
+                // https twin for anyone without the app. Same share-text shape KaPosts uses for
+                // a post.
+                ShareLink(item: roomShareText) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("Share this room")
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -1287,7 +1305,16 @@ private struct BroadcastMessageRow: View {
     /// `{`-prefix guard skips JSON envelopes (voice payloads etc.) without paying their decode.
     @ViewBuilder
     private var trailingLinkPreview: some View {
-        if displayText.first != "{",
+        if displayText.first != "{", let internalLink, !internalLink.coversWholeMessage {
+            // Links back into KaChat (shared post / room invite) preview from local state and
+            // route in-app - never scraped, so the "tap to load" gate below doesn't apply.
+            KaChatInternalLinkCardView(
+                match: internalLink,
+                txId: message.id,
+                onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil
+            )
+        } else if displayText.first != "{",
+           internalLink == nil,
            !MessageTextRenderPlan.isEntirelyLink(displayText),
            let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
             LinkPreviewCardView(
@@ -1302,6 +1329,13 @@ private struct BroadcastMessageRow: View {
         }
     }
 
+    /// A link into KaChat itself inside this row's text, if any - see
+    /// `MessageBubbleView.internalLink` (same rule, same cache).
+    private var internalLink: KaChatInternalLink.Match? {
+        guard displayText.first != "{" else { return nil }
+        return KaChatInternalLink.match(in: displayText)
+    }
+
     private var bubble: some View {
         // Computed once here rather than letting `bubbleContent` and this context menu each call
         // the (uncached) `VoiceMessageSniff.decode` independently - that decode does a full
@@ -1311,13 +1345,28 @@ private struct BroadcastMessageRow: View {
         // Message is nothing but a link - the preview card replaces the plain-text bubble
         // entirely (matches iMessage and group/1:1 chat) instead of showing both. `fallbackText`
         // keeps the raw link visible/tappable if no preview data is ever found.
+        // A message that is nothing but a KaChat-internal link gets the native card instead,
+        // claimed here before the generic (network-scraping) one below.
+        let matchedInternalLink = self.internalLink
+        let loneInternalLink: KaChatInternalLink.Match? = (voicePayload == nil
+            && displayText.utf8.count <= Self.inlineTextTruncationThreshold
+            && matchedInternalLink?.coversWholeMessage == true)
+            ? matchedInternalLink
+            : nil
         let loneLinkURL: URL? = (voicePayload == nil
+            && matchedInternalLink == nil
             && displayText.utf8.count <= Self.inlineTextTruncationThreshold
             && MessageTextRenderPlan.isEntirelyLink(displayText))
             ? MessageTextRenderPlan.firstHTTPLink(in: displayText)
             : nil
         return Group {
-            if let loneLinkURL {
+            if let loneInternalLink {
+                KaChatInternalLinkCardView(
+                    match: loneInternalLink,
+                    txId: message.id,
+                    onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil
+                )
+            } else if let loneLinkURL {
                 LinkPreviewCardView(
                     url: loneLinkURL,
                     txId: message.id,
@@ -1337,7 +1386,13 @@ private struct BroadcastMessageRow: View {
                     .contextMenu {
                         if let firstLink {
                             Button {
-                                UIApplication.shared.open(firstLink)
+                                // Internal KaChat links open in-app rather than in Safari - see
+                                // `LinkifiedMessageTextView.Coordinator.handleTap`.
+                                if let internalLink = KaChatInternalLink.parse(firstLink) {
+                                    KaChatLinkRouter.open(internalLink)
+                                } else {
+                                    UIApplication.shared.open(firstLink)
+                                }
                             } label: {
                                 Label("Open Link", systemImage: "safari")
                             }

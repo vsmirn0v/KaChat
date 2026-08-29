@@ -1,5 +1,271 @@
 import Foundation
 
+// MARK: - Internal KaChat links
+
+/// A link that points back INSIDE KaChat rather than out at the web. Recognized anywhere a
+/// message body is rendered so it previews as a native in-app card and opens the target screen
+/// on tap, instead of leaving the app (or, for the universal-link form, being scraped over the
+/// network like any stranger's URL - see `LinkPreviewService`).
+///
+/// Wire contract, shared with the Android client (both platforms emit AND accept both forms):
+///
+/// | Target         | Custom scheme                  | Universal link                                    |
+/// |----------------|--------------------------------|---------------------------------------------------|
+/// | KaPosts post   | `kachat://kapost/<txid>`       | `https://kachat.duckdns.org/post/<txid>`          |
+/// | Broadcast room | `kachat://broadcast/<channel>` | `https://kachat.duckdns.org/broadcast/<channel>`  |
+///
+/// `<channel>` is the NORMALIZED room name with no leading `#` (see `BroadcastChannelName`).
+/// Everything a pasted link carries is attacker-controlled, so `parse` re-validates the channel
+/// name from scratch (`normalizeAndValidateChannel`) rather than trusting the URL's text - a
+/// malformed or hostile name is rejected outright, never joined.
+enum KaChatInternalLink: Equatable {
+    case kaPost(txId: String)
+    case broadcastRoom(channel: String)
+
+    /// The universal-link host. With the app installed iOS routes these into
+    /// `KaChatApp.handleIncomingURL`; without it, the domain 302s to the App Store.
+    static let universalLinkHost = "kachat.duckdns.org"
+
+    /// The form the share sheets emit, matching KaPosts' existing share text (`KaPostsView`).
+    var shareLinkString: String {
+        switch self {
+        case .kaPost(let txId): return "kachat://kapost/\(txId)"
+        case .broadcastRoom(let channel): return "kachat://broadcast/\(channel)"
+        }
+    }
+
+    /// The https twin of `shareLinkString` - survives apps that strip unknown schemes, and
+    /// falls back to the web/App Store for people who don't have KaChat installed.
+    var universalLinkString: String {
+        switch self {
+        case .kaPost(let txId): return "https://\(Self.universalLinkHost)/post/\(txId)"
+        case .broadcastRoom(let channel): return "https://\(Self.universalLinkHost)/broadcast/\(channel)"
+        }
+    }
+
+    /// The share sheet's text for a broadcast-room invite - one human line, then BOTH accepted
+    /// link forms. Shape mirrors KaPosts' existing post-share text (`KaPostsView.shareText`).
+    /// Single definition so the room screen's Share button and the list row's share menu can't
+    /// drift apart.
+    static func broadcastRoomShareText(channel: String) -> String {
+        // Through the same gate an INCOMING link goes through, so a share can never emit a link
+        // this app would refuse to open (and a stray leading "#" is stripped, not doubled).
+        let normalized = normalizeAndValidateChannel(channel) ?? BroadcastChannelName.normalize(channel)
+        let link = KaChatInternalLink.broadcastRoom(channel: normalized)
+        return """
+        Join #\(normalized) on KaChat.
+
+        Open in KaChat: \(link.shareLinkString)
+        Or: \(link.universalLinkString)
+        """
+    }
+
+    // MARK: Parsing
+
+    /// Both link forms -> a validated target, or nil for anything else (including a
+    /// well-formed-looking link whose payload fails validation).
+    static func parse(_ url: URL) -> KaChatInternalLink? {
+        guard let scheme = url.scheme?.lowercased() else { return nil }
+        // `pathComponents` percent-decodes for us, and drops the leading "/" marker below.
+        let parts = url.pathComponents.filter { $0 != "/" }
+        switch scheme {
+        case "kachat":
+            // kachat://<target>/<payload> - exactly one payload component, so a link with extra
+            // path segments (kachat://broadcast/a/b) is rejected rather than silently truncated.
+            guard let host = url.host?.lowercased(), parts.count == 1, let payload = parts.first else { return nil }
+            switch host {
+            case "kapost": return kaPostLink(rawTxId: payload)
+            case "broadcast": return broadcastLink(rawChannel: payload)
+            default: return nil
+            }
+        case "http", "https":
+            var host = url.host?.lowercased() ?? ""
+            if host.hasPrefix("www.") { host.removeFirst(4) }
+            guard host == universalLinkHost, parts.count == 2 else { return nil }
+            switch parts[0].lowercased() {
+            case "post": return kaPostLink(rawTxId: parts[1])
+            case "broadcast": return broadcastLink(rawChannel: parts[1])
+            default: return nil
+            }
+        default:
+            return nil
+        }
+    }
+
+    /// A KaPosts id is a Kaspa transaction id (hex), but the id charset is the indexer's to
+    /// define, so this stays deliberately tolerant: alphanumerics plus `-`/`_` only, bounded
+    /// length. That is strict enough to rule out path traversal, embedded schemes and query
+    /// smuggling while never rejecting a legitimate id.
+    private static func kaPostLink(rawTxId: String) -> KaChatInternalLink? {
+        let id = rawTxId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard id.count >= 8, id.count <= 128 else { return nil }
+        guard id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else { return nil }
+        return .kaPost(txId: id)
+    }
+
+    private static func broadcastLink(rawChannel: String) -> KaChatInternalLink? {
+        guard let channel = normalizeAndValidateChannel(rawChannel) else { return nil }
+        return .broadcastRoom(channel: channel)
+    }
+
+    /// The single gate every pasted/scanned room name passes through before it can be joined or
+    /// opened. Beyond `BroadcastChannelName`'s own rules (non-empty, <= 36 chars, no whitespace,
+    /// no colon) this rejects:
+    /// - URL-structural characters (`/ \ ? # % @`), which can only come from a malformed link;
+    /// - `..`, so no path-traversal-looking name ever reaches the store's file/key paths;
+    /// - control characters and Unicode bidi/zero-width formatting, the classic way to make a
+    ///   room invite *render* as a different room than the one it actually joins.
+    /// A leading `#` is tolerated and stripped (people paste "#kaspa"), matching the contract's
+    /// "normalized channel name with no leading #".
+    static func normalizeAndValidateChannel(_ rawChannel: String) -> String? {
+        var raw = rawChannel.trimmingCharacters(in: .whitespacesAndNewlines)
+        while raw.hasPrefix("#") { raw.removeFirst() }
+        let normalized = BroadcastChannelName.normalize(raw)
+        guard BroadcastChannelName.isValid(normalized) else { return nil }
+        guard !normalized.contains("..") else { return nil }
+        let structural: Set<Character> = ["/", "\\", "?", "#", "%", "@", "\"", "'", "<", ">"]
+        guard !normalized.contains(where: { structural.contains($0) }) else { return nil }
+        guard !normalized.unicodeScalars.contains(where: isDisallowedScalar) else { return nil }
+        return normalized
+    }
+
+    private static func isDisallowedScalar(_ scalar: Unicode.Scalar) -> Bool {
+        if scalar.properties.generalCategory == .control || scalar.properties.generalCategory == .format {
+            return true
+        }
+        switch scalar.value {
+        case 0x200B...0x200F, 0x202A...0x202E, 0x2066...0x2069, 0xFEFF: return true
+        default: return false
+        }
+    }
+
+    // MARK: Detection inside message text
+
+    /// One internal link found inside a message body.
+    struct Match: Equatable {
+        let link: KaChatInternalLink
+        let url: URL
+        /// The exact substring matched, so the caller can tell "the message IS this link" from
+        /// "the message mentions this link".
+        let matchedText: String
+        /// True when the trimmed message consists of nothing but this link - the card then
+        /// replaces the text bubble entirely (matching how a bare http link already renders).
+        let coversWholeMessage: Bool
+    }
+
+    /// Both link forms, anywhere in free text. `NSDataDetector` (what `MessageTextRenderPlan`
+    /// uses) only ever yields http(s) URLs, so the `kachat://` form needs its own scan; the
+    /// universal form is matched here too so it is claimed as INTERNAL before the generic
+    /// preview path can fetch it over the network.
+    private static let pattern =
+        #"(?:kachat://(?:kapost|broadcast)/|https?://(?:www\.)?kachat\.duckdns\.org/(?:post|broadcast)/)[^\s<>"']+"#
+
+    private static let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+
+    /// Trailing prose punctuation is not part of the link ("... open kachat://broadcast/kaspa.").
+    private static let trailingTrim = CharacterSet(charactersIn: ".,;:!?)]}'\"")
+
+    private final class MatchBox: NSObject {
+        let value: Match?
+        init(_ value: Match?) { self.value = value }
+    }
+
+    /// Same caching convention (and reason) as `MessageTextRenderPlan.firstLinkCache`: this runs
+    /// from message-row bodies, several times per row per frame while scrolling.
+    private static let matchCache: NSCache<NSString, MatchBox> = {
+        let cache = NSCache<NSString, MatchBox>()
+        cache.countLimit = 2_048
+        return cache
+    }()
+
+    static func match(in text: String) -> Match? {
+        let key = text as NSString
+        if let cached = matchCache.object(forKey: key) { return cached.value }
+        let result = uncachedMatch(in: text)
+        matchCache.setObject(MatchBox(result), forKey: key)
+        return result
+    }
+
+    private static func uncachedMatch(in text: String) -> Match? {
+        // Cheap bail-out before paying for the regex: neither form can appear without one of
+        // these two literals, and the overwhelming majority of messages contain neither.
+        let lowered = text.lowercased()
+        guard lowered.contains("kachat://") || lowered.contains(universalLinkHost) else { return nil }
+        guard let regex else { return nil }
+        let ns = text as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        var found: Match?
+        regex.enumerateMatches(in: text, options: [], range: full) { result, _, stop in
+            guard let result else { return }
+            var candidate = ns.substring(with: result.range)
+            while let last = candidate.unicodeScalars.last, trailingTrim.contains(last) {
+                candidate.removeLast()
+            }
+            guard let url = URL(string: candidate), let link = parse(url) else { return }
+            found = Match(
+                link: link,
+                url: url,
+                matchedText: candidate,
+                coversWholeMessage: text.trimmingCharacters(in: .whitespacesAndNewlines) == candidate
+            )
+            stop.pointee = true
+        }
+        return found
+    }
+}
+
+/// Author + text snippet for KaPosts posts the app has ALREADY loaded, so a pasted
+/// `kachat://kapost/<txid>` link can render a rich card with ZERO network access (an internal
+/// link must never be scraped like a stranger's URL - see `KaChatInternalLink`). A miss simply
+/// renders the neutral "KaPosts post" card, so nothing here is load-bearing for correctness.
+///
+/// Feed it from wherever posts are already in hand, e.g. right after a feed/thread page decodes:
+/// `KaPostLinkPreviewCache.shared.record(postId: post.id, authorName: displayName, text: text)`.
+/// Thread-safe and non-isolated so a card's `init` can read it synchronously on first render,
+/// exactly like `LinkPreviewService.cachedResultIfKnown`.
+final class KaPostLinkPreviewCache: @unchecked Sendable {
+    static let shared = KaPostLinkPreviewCache()
+
+    struct Entry: Equatable {
+        /// KNS domain or shortened address of the poster, when the caller knew it.
+        let authorName: String?
+        /// Already trimmed to a card-sized snippet.
+        let snippet: String
+    }
+
+    /// Bounded FIFO eviction, matching `LinkPreviewService`'s cache convention.
+    private let lock = NSLock()
+    private var storage: [String: Entry] = [:]
+    private var order: [String] = []
+    private let limit = 512
+    private static let snippetMaxLength = 180
+
+    private init() {}
+
+    func record(postId: String, authorName: String?, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !postId.isEmpty, !trimmed.isEmpty else { return }
+        let snippet = trimmed.count > Self.snippetMaxLength
+            ? String(trimmed.prefix(Self.snippetMaxLength)) + "…"
+            : trimmed
+        lock.lock()
+        defer { lock.unlock() }
+        if storage[postId] == nil {
+            order.append(postId)
+            if order.count > limit, !order.isEmpty {
+                storage.removeValue(forKey: order.removeFirst())
+            }
+        }
+        storage[postId] = Entry(authorName: authorName, snippet: snippet)
+    }
+
+    func entry(for postId: String) -> Entry? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage[postId]
+    }
+}
+
 /// Open Graph metadata scraped from a message link, for rendering a rich preview card.
 struct LinkPreviewData: Equatable {
     let url: URL

@@ -346,10 +346,16 @@ final class BroadcastService: ObservableObject {
             }
             // Global notification center: live (session-gated) incoming channel messages. The
             // center dedupes by txId, so re-serving the same history every poll is a no-op.
+            // The center stores the body verbatim, so hand it the FRIENDLY preview rather than
+            // the raw wire content: a broadcast reply/voice/photo/chess message is a JSON
+            // envelope (`MessageReplyCodec` and friends) and would otherwise show as raw JSON
+            // in the bell list. Same call the scan-driven local banner already makes below in
+            // `notifyIfEnabled`.
             for row in rows {
                 GlobalNotificationCenter.shared.recordBroadcastIfLive(
                     channel: channel, senderAddress: row.senderAddress,
-                    content: row.content, txId: row.id, blockTime: row.blockTime
+                    content: MessageReplyCodec.previewText(for: row.content),
+                    txId: row.id, blockTime: row.blockTime
                 )
             }
         } catch {

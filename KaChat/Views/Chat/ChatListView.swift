@@ -1310,6 +1310,20 @@ struct ConversationRow: View {
         // what's previewed rather than the raw `{"type":"reply",...}` JSON.
         let unwrapped = MessageReplyCodec.unwrappedText(content)
 
+        // A message that is nothing but a link back into KaChat previews as what it OPENS
+        // rather than as a raw `kachat://…` URL - matching the rich card the bubble itself
+        // renders for it (see `KaChatInternalLinkCardView`).
+        if let internalLink = KaChatInternalLink.match(in: unwrapped), internalLink.coversWholeMessage {
+            switch internalLink.link {
+            case .kaPost:
+                result = "Shared a KaPosts post"
+            case .broadcastRoom(let channel):
+                result = "Broadcast room #\(channel)"
+            }
+            Self.previewCache.setObject(result as NSString, forKey: key)
+            return result
+        }
+
         // Check if content is a file JSON payload
         let trimmed = unwrapped.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else {

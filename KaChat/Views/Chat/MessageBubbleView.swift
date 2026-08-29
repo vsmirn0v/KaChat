@@ -141,6 +141,13 @@ struct MessageBubbleView: View {
         replyQuote?.text ?? message.content
     }
 
+    /// A link into KaChat itself (shared KaPosts post / broadcast-room invite) inside this
+    /// message, if any. Cached inside `KaChatInternalLink.match`, like the http-link helpers it
+    /// sits next to, since this is evaluated from `body` on every visible row.
+    private var internalLink: KaChatInternalLink.Match? {
+        KaChatInternalLink.match(in: displayText)
+    }
+
     private var timeText: String {
         SharedFormatting.chatTime.string(from: message.timestamp)
     }
@@ -258,7 +265,19 @@ struct MessageBubbleView: View {
                                 onSelect: onSelect
                             )
                             .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
-                        } else if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText), MessageTextRenderPlan.isEntirelyLink(displayText) {
+                        } else if let internalLink, internalLink.coversWholeMessage {
+                            // A link back into KaChat (shared KaPosts post / broadcast-room
+                            // invite) is claimed here BEFORE the generic link branch below -
+                            // the universal-link form is a perfectly ordinary https URL, so
+                            // without this it would be scraped over the network like a
+                            // stranger's link instead of previewing from local state.
+                            KaChatInternalLinkCardView(
+                                match: internalLink,
+                                txId: message.txId,
+                                onSelect: onSelect,
+                                onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil
+                            )
+                        } else if internalLink == nil, let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText), MessageTextRenderPlan.isEntirelyLink(displayText) {
                             // Message is nothing but a link - the preview card replaces the plain-text
                             // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
                             // keeps the raw link visible/tappable if no preview data is ever found,
@@ -290,7 +309,17 @@ struct MessageBubbleView: View {
 
                     // Only the plain-text-bubble case (no media, and not itself entirely a link,
                     // both handled inside the Group above) gets this extra preview card below it.
-                    if media == nil,
+                    // An internal KaChat link wins over an external one in the same message, so
+                    // a post/room mentioned alongside other text still previews natively.
+                    if media == nil, let internalLink, !internalLink.coversWholeMessage {
+                        KaChatInternalLinkCardView(
+                            match: internalLink,
+                            txId: message.txId,
+                            onSelect: onSelect,
+                            onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil
+                        )
+                    } else if media == nil,
+                       internalLink == nil,
                        !MessageTextRenderPlan.isEntirelyLink(displayText),
                        let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
                         LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil, autoFetch: linkPreviewsAutoLoad || message.isOutgoing)
@@ -522,7 +551,13 @@ struct MessageBubbleView: View {
                 presenting: linkMenuURL
             ) { url in
                 Button("Open Link") {
-                    UIApplication.shared.open(url)
+                    // Internal KaChat links open the target screen in-app - see the same
+                    // branch in `LinkifiedMessageTextView.Coordinator.handleTap`.
+                    if let internalLink = KaChatInternalLink.parse(url) {
+                        KaChatLinkRouter.open(internalLink)
+                    } else {
+                        UIApplication.shared.open(url)
+                    }
                 }
                 Button("Copy Link") {
                     handleCopy(url.absoluteString, toast: "Link copied to clipboard.")
@@ -1092,6 +1127,153 @@ struct MessageBubbleView: View {
     }
 }
 
+/// The preview card for a link that points back INSIDE KaChat (`KaChatInternalLink`): a shared
+/// KaPosts post or a broadcast-room invite. Deliberately NOT a `LinkPreviewCardView`: that card
+/// scrapes the URL's server for Open Graph metadata, which for our own links would mean a
+/// pointless network round trip (and, for a stranger's message, a tap-to-load placeholder) to
+/// learn something the app already knows. Everything here is built locally, and a tap routes
+/// in-app through `KaChatLinkRouter` instead of handing the URL to Safari.
+///
+/// Used by 1:1 bubbles (`MessageBubbleView`) and broadcast rows (`BroadcastChannelView`).
+struct KaChatInternalLinkCardView: View {
+    let match: KaChatInternalLink.Match
+    /// The owning message's transaction id, for the shared "View in Explorer" action - matches
+    /// every other bubble type's identical action.
+    let txId: String
+    /// Enters the chat's message multi-select mode with this message pre-selected - nil disables
+    /// the "Select" context-menu action, matching `LinkPreviewCardView`'s convention.
+    var onSelect: (() -> Void)?
+    /// Double-tap opens the owning message's quick-reaction bar, exactly like a normal bubble.
+    var onDoubleTap: (() -> Void)?
+
+    @EnvironmentObject private var settingsViewModel: SettingsViewModel
+
+    /// A KaPosts post the app already has in hand renders with the real author + text; a post it
+    /// has never loaded renders the neutral card below. Read synchronously (no network, ever).
+    private var kaPostEntry: KaPostLinkPreviewCache.Entry? {
+        guard case .kaPost(let txId) = match.link else { return nil }
+        return KaPostLinkPreviewCache.shared.entry(for: txId)
+    }
+
+    private var iconName: String {
+        switch match.link {
+        case .kaPost: return "square.and.pencil"          // AppTab.kaposts.icon
+        case .broadcastRoom: return "dot.radiowaves.left.and.right" // AppTab.broadcasts.icon
+        }
+    }
+
+    private var eyebrow: String {
+        switch match.link {
+        case .kaPost: return "KaPosts"
+        case .broadcastRoom: return "Broadcast Room"
+        }
+    }
+
+    private var title: String {
+        switch match.link {
+        case .kaPost:
+            return kaPostEntry?.authorName ?? "KaPosts post"
+        case .broadcastRoom(let channel):
+            return "#\(channel)"
+        }
+    }
+
+    private var subtitle: String {
+        switch match.link {
+        case .kaPost:
+            return kaPostEntry?.snippet ?? "Tap to open this post in KaChat."
+        case .broadcastRoom(let channel):
+            // Curated rooms and rooms already in the list just open; anything else is created
+            // and added to the user's channel list on tap, so say so before they tap.
+            let known = BroadcastService.indexedChannels.contains(channel)
+                || BroadcastService.shared.channels.contains { $0.channelName == channel }
+            return known
+                ? "Tap to open this KaChat broadcast room."
+                : "Tap to join this KaChat broadcast room."
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.18))
+                Image(systemName: iconName)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.accentColor)
+            }
+            .frame(width: 40, height: 40)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(eyebrow)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(.accentColor)
+                    .textCase(.uppercase)
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(3)
+                    .multilineTextAlignment(.leading)
+            }
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: 280, alignment: .leading)
+        // Same glass card LinkPreviewCardView's placeholder uses, so an internal link sits in
+        // the thread as a sibling of the external link cards rather than a foreign element.
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(.regularMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+                )
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        // Listed first so a double-tap is claimed here instead of also firing the single tap -
+        // matches LinkPreviewCardView's identical pairing.
+        .onTapGesture(count: 2) { onDoubleTap?() }
+        .onTapGesture { KaChatLinkRouter.open(match.link) }
+        .contextMenu { contextMenuItems }
+    }
+
+    @ViewBuilder
+    private var contextMenuItems: some View {
+        Button {
+            KaChatLinkRouter.open(match.link)
+        } label: {
+            Label("Open in KaChat", systemImage: "arrow.up.forward.app")
+        }
+        Button {
+            UIPasteboard.general.string = match.url.absoluteString
+        } label: {
+            Label("Copy Link", systemImage: "doc.on.doc")
+        }
+        if let explorerURL = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
+            Link(destination: explorerURL) {
+                Label("View in Explorer", systemImage: "safari")
+            }
+        }
+        if let onSelect {
+            Button {
+                onSelect()
+            } label: {
+                Label("Select", systemImage: "checkmark.circle")
+            }
+        }
+    }
+}
+
 struct LinkifiedMessageTextView: UIViewRepresentable {
     let text: String
     let isOutgoing: Bool
@@ -1257,6 +1439,13 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
             guard parent.tapOpensLink else { return }
             let point = gesture.location(in: textView)
             guard let url = url(at: point, in: textView) else { return }
+            // A link that points back into KaChat routes in-app. Handing our own universal link
+            // to `UIApplication.shared.open` would bounce the user out to Safari instead - iOS
+            // deliberately does not re-enter the app that opened it.
+            if let link = KaChatInternalLink.parse(url) {
+                KaChatLinkRouter.open(link)
+                return
+            }
             UIApplication.shared.open(url)
         }
 
