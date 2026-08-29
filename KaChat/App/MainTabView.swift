@@ -75,6 +75,9 @@ struct MainTabView: View {
         .onAppear {
             chatService.startPolling()
             preloadProfileResources()
+            // A notification tapped from a cold start routed before this view existed - replay
+            // its tab switch now that there's something to switch.
+            consumePendingNotificationRoute()
             // Warm the portfolio view model: its init fetches the price and publishes the
             // Home Screen widget snapshot - without this, the widget stays empty until the
             // user first visits the Portfolio tab.
@@ -151,42 +154,22 @@ struct MainTabView: View {
             selectedTab = 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { _ in
-            // Broadcast-room notification tapped: land on Broadcasts wherever it lives - its
-            // own dock tab when visible, else the Chats slot cycled onto it. BroadcastListView
-            // consumes the pending channel itself once mounted.
-            if AppTab.visible(from: settingsViewModel.settings).contains(.broadcasts) {
-                selectedTab = AppTab.broadcasts.tag
-            } else if AppTab.broadcastsAccessibleViaChatsTab(from: settingsViewModel.settings) {
-                chatsSlotTab = .broadcasts
-                selectedTab = 1
-            } else {
-                if chatsSlotTab != .chats { chatsSlotTab = .chats }
-                selectedTab = 1
-            }
+            routeToBroadcasts()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openKaPost)) { _ in
-            // Shared-post link: land on KaPosts - its own dock tab when visible, else the
-            // Chats slot cycled onto it. KaPostsView picks up the pending txid itself.
-            if AppTab.visible(from: settingsViewModel.settings).contains(.kaposts) {
-                selectedTab = AppTab.kaposts.tag
-            } else if AppTab.kaPostsAccessibleViaChatsTab(from: settingsViewModel.settings) {
-                chatsSlotTab = .kaposts
-                selectedTab = 1
-            }
+            routeToKaPosts()
         }
         .onReceive(NotificationCenter.default.publisher(for: .openPortfolio)) { _ in
-            // Widget tap: land on Portfolio when it's in the dock (its data is what the
-            // widget shows either way).
-            if AppTab.visible(from: settingsViewModel.settings).contains(.portfolio) {
-                handleTabSelectionChange(AppTab.portfolio.tag)
-            }
+            // Widget tap and spending-address receipts: land on Portfolio (its data is what the
+            // widget shows either way), or Profile when Portfolio isn't in the dock.
+            PendingTabRoute.pending = nil
+            routeToWalletTab(.portfolio)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openColdStorage)) { _ in
-            // Cold-storage address-activity notification tapped: land on the Storage tab
-            // when it's in the dock; otherwise the default landing screen is fine.
-            if AppTab.visible(from: settingsViewModel.settings).contains(.coldStorage) {
-                handleTabSelectionChange(AppTab.coldStorage.tag)
-            }
+            // Cold-storage address-activity notification tapped: the Storage tab, or the next
+            // best wallet surface when it's hidden.
+            PendingTabRoute.pending = nil
+            routeToWalletTab(.coldStorage)
         }
         .onReceive(NotificationCenter.default.publisher(for: .openGroup)) { _ in
             if chatsSlotTab != .chats { chatsSlotTab = .chats }
@@ -434,6 +417,77 @@ struct MainTabView: View {
             withAnimation(.easeOut(duration: 0.15)) { slotMenuVisible = false }
         }
         slotMenuHighlight = nil
+    }
+
+    // MARK: - Notification tap routing
+
+    /// Broadcast-room notification tapped: land on Broadcasts wherever it lives - its own dock
+    /// tab when visible, else the Chats slot cycled onto it. BroadcastListView consumes the
+    /// pending channel itself once mounted.
+    private func routeToBroadcasts() {
+        if AppTab.visible(from: settingsViewModel.settings).contains(.broadcasts) {
+            selectedTab = AppTab.broadcasts.tag
+        } else if AppTab.broadcastsAccessibleViaChatsTab(from: settingsViewModel.settings) {
+            chatsSlotTab = .broadcasts
+            selectedTab = 1
+        } else {
+            if chatsSlotTab != .chats { chatsSlotTab = .chats }
+            selectedTab = 1
+        }
+    }
+
+    /// KaPosts notification or shared-post link: its own dock tab when visible, else the Chats
+    /// slot cycled onto it. KaPostsView picks up the pending txid itself.
+    private func routeToKaPosts() {
+        if AppTab.visible(from: settingsViewModel.settings).contains(.kaposts) {
+            selectedTab = AppTab.kaposts.tag
+        } else if AppTab.kaPostsAccessibleViaChatsTab(from: settingsViewModel.settings) {
+            chatsSlotTab = .kaposts
+            selectedTab = 1
+        } else {
+            // KaPosts hidden from the dock entirely, yet its notifications still arrive (they
+            // aren't gated on tab visibility) - land on Chats like the broadcast branch does,
+            // rather than leaving the tap on whatever screen was last open. The pending post
+            // survives and opens if the user brings the tab back.
+            if chatsSlotTab != .chats { chatsSlotTab = .chats }
+            selectedTab = 1
+        }
+    }
+
+    /// Wallet-event notifications (address activity, widget). `preferred` is the ideal tab;
+    /// when the user has hidden it, fall back to Portfolio and finally to Profile, which is
+    /// never hideable and shows the wallet's addresses and balances - so one of these always
+    /// lands somewhere the money is visible.
+    private func routeToWalletTab(_ preferred: AppTab) {
+        let visible = AppTab.visible(from: settingsViewModel.settings)
+        let target = [preferred, .portfolio, .profile].first { visible.contains($0) } ?? .profile
+        handleTabSelectionChange(target.tag)
+    }
+
+    /// Cold-start replay of a notification tap's tab switch: the tap's NotificationCenter post
+    /// is delivered before this view exists (the app is still on the loading/onboarding route),
+    /// so its tab switch is lost while the pending target survives. The destination screens
+    /// consume the target itself; this only puts the user on the tab that mounts them.
+    private func consumePendingNotificationRoute() {
+        if let tab = PendingTabRoute.pending {
+            PendingTabRoute.pending = nil
+            routeToWalletTab(tab)
+            return
+        }
+        if BroadcastService.shared.pendingBroadcastNavigation != nil {
+            routeToBroadcasts()
+            return
+        }
+        if KaPostsDeepLink.pendingPostTxId != nil || KaPostsDeepLink.pendingOpenNotifications {
+            routeToKaPosts()
+            return
+        }
+        if chatService.pendingChatNavigation != nil ||
+            GroupChatService.shared.pendingGroupNavigation != nil ||
+            GroupChatService.shared.pendingGroupListNavigation {
+            if chatsSlotTab != .chats { chatsSlotTab = .chats }
+            selectedTab = 1
+        }
     }
 
     private func selectChatsSlot(_ tab: AppTab) {

@@ -285,8 +285,11 @@ struct KaChatApp: App {
 
         guard url.scheme?.lowercased() == "kachat" else { return }
 
-        // kachat://portfolio - the Home Screen widget's tap target.
+        // kachat://portfolio - the Home Screen widget's tap target. Staged as well as posted:
+        // on a cold start this runs while the app is still on the loading route, where nothing
+        // is listening (see PendingTabRoute).
         if url.host?.lowercased() == "portfolio" {
+            PendingTabRoute.pending = .portfolio
             NotificationCenter.default.post(name: .openPortfolio, object: nil)
             return
         }
@@ -841,12 +844,18 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
         // Own-address activity (spending / cold-storage receive) notification tapped: these
         // are wallet events, not chats - the thread id must never fall through to the
         // contact-address branch below (it would stage a bogus pendingChatNavigation). Cold
-        // storage has its own dock tab, so land there; spending-address taps just open the
-        // app (Manage Addresses is a sheet several screens deep - no cheap deep link).
+        // storage has its own dock tab; a spending-address receipt lands on the wallet screen
+        // (Portfolio, or Profile when Portfolio is hidden - MainTabView picks), which is where
+        // the balance that just moved is shown. `PendingTabRoute` covers the cold start, where
+        // the post below has no observer yet.
         if threadIdentifier == AddressActivityNotifier.notificationThreadIdentifier {
             let kind = response.notification.request.content.userInfo["kind"] as? String
             if kind == "cold" {
+                PendingTabRoute.pending = .coldStorage
                 NotificationCenter.default.post(name: .openColdStorage, object: nil)
+            } else {
+                PendingTabRoute.pending = .portfolio
+                NotificationCenter.default.post(name: .openPortfolio, object: nil)
             }
             completionHandler()
             return
@@ -893,6 +902,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                     userInfo: ["groupId": groupId]
                 )
             }
+        } else if threadIdentifier == "group" {
+            // Undecryptable group push: NotificationService's `deliverGroupFallback` can only
+            // tag it with the bare "group" thread id (it never learned WHICH group), so there's
+            // no room to open. Land on the Groups list - the branch below would otherwise treat
+            // "group" as a contact address and go nowhere at all.
+            Task { @MainActor in
+                GroupChatService.shared.pendingGroupListNavigation = true
+            }
+            NotificationCenter.default.post(name: .openGroup, object: nil, userInfo: [:])
         } else if !threadIdentifier.isEmpty {
             let contactAddress = threadIdentifier
             // Store pending navigation for cold start scenario
@@ -906,6 +924,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 object: nil,
                 userInfo: ["contactAddress": contactAddress]
             )
+        } else {
+            // No thread id at all - a server push that predates (or drops) the thread-id
+            // contract. Nothing to route by, so land on the main Chats screen rather than
+            // leaving the user wherever the app happened to be.
+            NotificationCenter.default.post(name: .openChat, object: nil, userInfo: [:])
         }
         completionHandler()
     }
@@ -928,6 +951,16 @@ enum KaPostsDeepLink {
     static var pendingPostTxId: String?
     /// KaPosts push tapped without a specific post - open the Notifications screen on mount.
     static var pendingOpenNotifications = false
+}
+
+/// Cold-start handoff for a notification tap whose whole destination IS a dock tab (wallet
+/// receipts, cold-storage activity). The `.openPortfolio`/`.openColdStorage` posts those taps
+/// make are delivered synchronously to whoever is listening RIGHT THEN - on a cold start that
+/// is nobody, since the app is still on the loading/onboarding route and `MainTabView` hasn't
+/// mounted. It consumes this on mount instead (`consumePendingNotificationRoute`); the
+/// destinations that carry their own pending state (chat, group, room, post) don't need it.
+enum PendingTabRoute {
+    static var pending: AppTab?
 }
 
 /// The single place an already-validated `KaChatInternalLink` becomes navigation. Used by the

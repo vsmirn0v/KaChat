@@ -298,17 +298,12 @@ struct GlobalNotificationListView: View {
                             }
                         }
                         .padding(.vertical, 2)
-                        // KaPosts rows deep-open the exact post/comment via the same
-                        // pending-deep-link flow notification taps use.
+                        // Every row deep-opens its subject through the same pending-deep-link
+                        // flow the OS notification taps use: KaPosts rows the exact
+                        // post/comment, group rows the group thread, broadcast rows the room,
+                        // wallet rows the wallet screen.
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            guard entry.source == .kaposts, let target = entry.targetId, !target.isEmpty else { return }
-                            KaPostsDeepLink.pendingPostTxId = target
-                            dismiss()
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                                NotificationCenter.default.post(name: .openKaPost, object: nil)
-                            }
-                        }
+                        .onTapGesture { open(entry) }
                     }
                     .listStyle(.plain)
                 }
@@ -325,6 +320,53 @@ struct GlobalNotificationListView: View {
                 }
             }
             .onAppear { center.markAllSeen() }
+        }
+    }
+
+    /// Routes a tapped row to its subject. The sheet has to close first (only one sheet presents
+    /// at a time), so the pending target is staged now and the tab switch posted after the
+    /// dismissal animation - the same two-step every notification tap uses.
+    private func open(_ entry: GlobalNotificationCenter.Entry) {
+        let target = entry.targetId ?? ""
+        let childMode = AppSettings.load().childModeEnabled
+        switch entry.source {
+        case .kaposts:
+            // Child Mode hides KaPosts entirely - a row left over from before it was switched
+            // on must not open it (mirrors the notification-tap guard in KaChatApp).
+            guard !childMode, !target.isEmpty else { return }
+            KaPostsDeepLink.pendingPostTxId = target
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                NotificationCenter.default.post(name: .openKaPost, object: nil)
+            }
+        case .group:
+            guard !target.isEmpty else { return }
+            GroupChatService.shared.pendingGroupNavigation = target
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                NotificationCenter.default.post(
+                    name: .openGroup,
+                    object: nil,
+                    userInfo: ["groupId": target]
+                )
+            }
+        case .broadcast:
+            guard !childMode, !target.isEmpty else { return }
+            BroadcastService.shared.pendingBroadcastNavigation = target
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                NotificationCenter.default.post(
+                    name: .openBroadcast,
+                    object: nil,
+                    userInfo: ["channel": target]
+                )
+            }
+        case .wallet:
+            // Receipts carry no target of their own - the wallet screen is the subject.
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                NotificationCenter.default.post(name: .openPortfolio, object: nil)
+            }
         }
     }
 }

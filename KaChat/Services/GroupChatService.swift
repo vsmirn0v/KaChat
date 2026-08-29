@@ -51,6 +51,11 @@ final class GroupChatService: ObservableObject {
     /// (cold start) - consumed and cleared by `ChatListView.checkPendingGroupNavigation()`.
     @Published var pendingGroupNavigation: String?
 
+    /// Set when a group notification that names no group is tapped - the undecryptable-push
+    /// fallback (thread id "group", see `NotificationService.deliverGroupFallback`). There's no
+    /// room to open, so the Groups LIST is the destination; consumed by `ChatListView`.
+    @Published var pendingGroupListNavigation = false
+
     /// The group currently on-screen, if any - mirrors `ChatService.activeConversationAddress`.
     /// Checked when a new incoming message arrives so it doesn't bump the unread badge for a
     /// group the user is already actively reading (see `handleIncomingGroupMessage`).

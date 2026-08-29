@@ -300,6 +300,7 @@ struct ChatListView: View {
         .onAppear {
             checkPendingNavigation()
             checkPendingGroupNavigation()
+            checkPendingGroupListNavigation()
             requestNotificationPermissionIfNeeded()
             loadedConversationCount = conversationPageSize
             refreshFilteredConversations()
@@ -314,12 +315,16 @@ struct ChatListView: View {
             }
         }
         .onChange(of: chatService.conversations) { _ in
+            // A pending chat tap whose contact didn't exist yet resolves the moment the
+            // conversation (or the contact, below) is created by the catch-up sync.
+            checkPendingNavigation()
             // Suppressed during a pull-to-refresh; the pull's completion handler rebuilds once.
             guard !isPullRefreshing else { return }
             scheduleFilteredConversationsRefresh(debounce: false)
             scheduleAvatarPrefetch()
         }
         .onChange(of: contactsManager.contacts) { _ in
+            checkPendingNavigation()
             guard !isPullRefreshing else { return }
             scheduleFilteredConversationsRefresh(debounce: false)
         }
@@ -342,6 +347,9 @@ struct ChatListView: View {
                 checkPendingGroupNavigation()
             }
         }
+        .onChange(of: groupChatService.pendingGroupListNavigation) { newValue in
+            if newValue { checkPendingGroupListNavigation() }
+        }
         .onChange(of: groupChatService.groups) { _ in
             // A pending group tap that arrived before its group was created (catch-up in flight)
             // resolves the instant the group is inserted into the list.
@@ -357,13 +365,45 @@ struct ChatListView: View {
 
     private func checkPendingNavigation() {
         guard let contactAddress = chatService.pendingChatNavigation else { return }
+        // Same rule as checkPendingGroupNavigation: don't consume the tap until its contact
+        // actually exists locally. A notification from someone not in the address book yet (a
+        // handshake, or a first message/payment whose contact the catch-up sync creates moments
+        // later) is tapped on a cold start BEFORE that sync lands - consuming it here would
+        // clear the target and navigate nowhere. The contacts/conversations onChange handlers
+        // below re-run this the instant the contact appears.
+        guard contactsManager.contacts.contains(where: { $0.address == contactAddress }) ||
+                chatService.conversations.contains(where: { $0.contact.address == contactAddress }) else { return }
         chatService.pendingChatNavigation = nil
+        if let open = selectedContact, open.address != contactAddress {
+            // A chat is already open on top of this list, so the swap belongs to ChatDetailView's
+            // own in-place handler (navigateToChat deliberately no-ops in that case). It only
+            // listens for the notification, and the one this tap posted arrived before the
+            // contact existed - re-post it now that it resolves.
+            NotificationCenter.default.post(
+                name: .openChat,
+                object: nil,
+                userInfo: ["contactAddress": contactAddress]
+            )
+            return
+        }
         navigateToChat(address: contactAddress)
     }
 
     private func handleOpenGroupNotification(_ notification: Notification) {
-        guard let groupId = notification.userInfo?["groupId"] as? String else { return }
+        guard let groupId = notification.userInfo?["groupId"] as? String, !groupId.isEmpty else {
+            // Group notification with no group to open (the undecryptable-push fallback, thread
+            // id "group") - show the Groups list, which is as specific as that tap can get.
+            groupChatService.pendingGroupListNavigation = false
+            selectedListTab = .groups
+            return
+        }
         navigateToGroup(groupId: groupId)
+    }
+
+    private func checkPendingGroupListNavigation() {
+        guard groupChatService.pendingGroupListNavigation else { return }
+        groupChatService.pendingGroupListNavigation = false
+        selectedListTab = .groups
     }
 
     private func checkPendingGroupNavigation() {
