@@ -216,6 +216,8 @@ struct KaPostsView: View {
     /// switching to/from Following swaps the source and starts over.
     @State private var loadedFeedSource: FeedSource?
     @State private var feedError: String?
+    /// True while the Popular tab is pulling its deep ranking window (see `deepenPopularRanking`).
+    @State private var isDeepeningPopular = false
     @State private var showComposer = false
     /// Poster being tipped via the quick-tip sheet (amount + direct send).
     @State private var tipTarget: TipTarget?
@@ -544,8 +546,16 @@ struct KaPostsView: View {
             // Feed <-> Popular share the global feed: keep every page already scrolled in
             // (Popular is just a re-sort of the same set). Only a real source change - to or
             // from Following - starts a new paginated feed.
-            guard feedSource(for: tab) != loadedFeedSource || remotePosts.isEmpty else { return }
-            Task { await loadFeed() }
+            guard feedSource(for: tab) != loadedFeedSource || remotePosts.isEmpty else {
+                // Already have the feed; Popular still needs its window deepened before its
+                // order is meaningful.
+                if tab == .popular { Task { await deepenPopularRanking() } }
+                return
+            }
+            Task {
+                await loadFeed()
+                if tab == .popular { await deepenPopularRanking() }
+            }
         }
         .onChange(of: walletManager.currentWallet?.publicAddress) { _ in
             // Account switch: every surface's cursor belongs to the old identity (K responses
@@ -805,9 +815,58 @@ struct KaPostsView: View {
         }
     }
 
-    /// UI-only placeholder logic: your own session posts show in Feed and Following; Popular
-    /// sorts them by engagement (likes + reposts + dislikes - all interactions count toward
-    /// popularity, matching the intended ranking once wired).
+    /// How many ranked posts Popular wants under it before its top row means anything.
+    ///
+    /// The indexer has no popularity endpoint - every feed comes back reverse-chronological - so
+    /// Popular can only rank what the client has actually pulled. Ranking one 50-row page made
+    /// "most popular" mean "the most-liked of the last few dozen posts", and a genuinely big post
+    /// from last week never appeared. Popular therefore sweeps this far back before it trusts its
+    /// own order.
+    private static let popularRankingDepth = 300
+    /// Request budget for one sweep pass. `KaPostsPaginator` follows the server's cursors, so
+    /// each pass is up to this many round-trips; the loop below runs passes until it reaches
+    /// `popularRankingDepth`, the feed is exhausted, or the user leaves the tab.
+    private static let popularSweepRequestsPerPass = 6
+    /// Hard ceiling on passes. Heavily-filtered stretches of history (a run of non-KaChat posts,
+    /// a muted author) can return two visible rows for a whole pass, so depth alone is not a
+    /// bound - without this, one tab tap could spend dozens of requests on cellular.
+    private static let popularSweepMaxPasses = 4
+
+    /// A post's popularity score. Every interaction counts - a post people argue with is popular
+    /// in the same sense a post people like is - including comments, which the feed cell already
+    /// shows but the old ordering ignored entirely.
+    private func popularityScore(of post: DraftPost) -> Int {
+        post.likes + post.reposts + post.dislikes + commentCount(of: post)
+    }
+
+    /// Pulls the global feed until Popular has `popularRankingDepth` posts to rank, so its top
+    /// row is the most popular post in a real window of history rather than the most popular of
+    /// whatever page one happened to contain. Runs only while Popular is on screen: switching
+    /// tabs or accounts bumps the page epoch, which this checks between passes.
+    private func deepenPopularRanking() async {
+        guard selectedFeed == .popular, !isDeepeningPopular else { return }
+        isDeepeningPopular = true
+        defer { isDeepeningPopular = false }
+        var passes = 0
+        while remotePosts.count < Self.popularRankingDepth, passes < Self.popularSweepMaxPasses {
+            passes += 1
+            let epoch = feedPage.epoch
+            guard selectedFeed == .popular,
+                  feedPage.hasMore,
+                  !feedPage.stalled,
+                  feedPage.errorMessage == nil else { return }
+            let before = remotePosts.count
+            await loadFeedPage(reset: false, maxRequests: Self.popularSweepRequestsPerPass)
+            // Tab switch, refresh or account change landed mid-pass - that load's result was
+            // already discarded, and continuing would page a feed the user has left.
+            guard feedPage.epoch == epoch else { return }
+            // A pass that added nothing (all filtered out, or an error) would loop forever.
+            guard remotePosts.count > before else { return }
+        }
+    }
+
+    /// Your own session posts show in Feed and Following; Popular ranks by engagement across the
+    /// whole swept window (see `deepenPopularRanking`), newest first among equal scores.
     private func posts(for tab: FeedTab) -> [DraftPost] {
         // Session posts first (newest local compose on top), then remote feed - deduped by
         // remote id once Phase B starts round-tripping our own posts.
@@ -824,7 +883,12 @@ struct KaPostsView: View {
         case .feed:
             return visible
         case .popular:
-            return visible.sorted { ($0.likes + $0.reposts + $0.dislikes) > ($1.likes + $1.reposts + $1.dislikes) }
+            // Ties broken by recency so equal-scoring posts (very common at 0-1 interactions,
+            // deep in the window) keep a stable, sensible order instead of the sort's whim.
+            return visible.sorted {
+                let (a, b) = (popularityScore(of: $0), popularityScore(of: $1))
+                return a == b ? $0.timestamp > $1.timestamp : a > b
+            }
         }
     }
 
@@ -931,7 +995,7 @@ struct KaPostsView: View {
     /// Because the client filters hard (KaChat marker, muted/blocked, dedup), one trigger may
     /// need several server pages - `KaPostsPaginator.collect` follows the server's cursor until
     /// it has enough VISIBLE rows, or the feed is exhausted, or it hits its request cap.
-    private func loadFeedPage(reset: Bool) async {
+    private func loadFeedPage(reset: Bool, maxRequests: Int = KaPostsPaginator.maxRequestsPerTrigger) async {
         guard !feedPage.isLoading else { return }
         guard reset || (feedPage.hasMore && feedPage.errorMessage == nil && !feedPage.stalled) else { return }
         let source = feedSource(for: selectedFeed)
@@ -950,6 +1014,7 @@ struct KaPostsView: View {
             var seen: Set<String> = reset ? [] : Set(remotePosts.compactMap(\.remoteId))
             let batch = try await KaPostsPaginator.collect(
                 from: startCursor,
+                maxRequests: maxRequests,
                 fetch: { (before: String?, limit: Int) -> (items: [KaPostsAPIClient.KPost], pagination: KaPostsAPIClient.KPagination?) in
                     switch source {
                     case .following:
