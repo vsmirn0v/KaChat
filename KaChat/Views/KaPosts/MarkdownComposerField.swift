@@ -15,12 +15,17 @@ struct MarkdownComposerField: UIViewRepresentable {
     @Binding var selection: ClosedRange<Int>
     @Binding var isFocused: Bool
     let placeholder: String
+    /// Height at which the field stops growing and starts scrolling internally. nil grows without
+    /// limit, which is what the full-screen composer wants; the thread's reply bar caps instead,
+    /// so a long reply cannot push the thread off the screen.
+    var maxHeight: CGFloat? = nil
 
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
         view.delegate = context.coordinator
         // Self-sizing: the composer's own ScrollView does the scrolling, and this view reports a
-        // height instead of eating the space greedily.
+        // height instead of eating the space greedily. `sizeThatFits` turns this back on if a
+        // `maxHeight` is set and the text outgrows it.
         view.isScrollEnabled = false
         view.backgroundColor = .clear
         view.font = .preferredFont(forTextStyle: .body)
@@ -77,7 +82,15 @@ struct MarkdownComposerField: UIViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UITextView, context: Context) -> CGSize? {
         let width = proposal.width ?? UIScreen.main.bounds.width
         let fitted = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        return CGSize(width: width, height: fitted.height)
+        guard let maxHeight else {
+            return CGSize(width: width, height: fitted.height)
+        }
+        // Past the cap the field keeps its size and scrolls its own content, which is the only way
+        // the caret stays visible once the text is taller than the box. `sizeThatFits` on a
+        // UITextView reports content height either way, so this settles after one pass.
+        let shouldScroll = fitted.height > maxHeight
+        if uiView.isScrollEnabled != shouldScroll { uiView.isScrollEnabled = shouldScroll }
+        return CGSize(width: width, height: min(fitted.height, maxHeight))
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }

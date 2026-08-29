@@ -307,6 +307,10 @@ struct KaPostsView: View {
     /// `body`'s ZStack - a level above `feedLayer`, so it needs its own composer too.
     @State private var menuQuoteComposerTarget: DraftPost?
     @State private var replyText = ""
+    /// Caret / highlighted range in the thread's reply bar, in character offsets - what its
+    /// formatting toolbar acts on.
+    @State private var replySelection: ClosedRange<Int> = 0...0
+    @State private var isReplyFocused = false
 
     /// Which presentation level a quote action came from - i.e. which view has to own the
     /// composer sheet so it can actually appear over what the user is looking at.
@@ -1860,6 +1864,24 @@ struct KaPostsView: View {
 
     /// Removes an optimistic comment from whichever post's comment tree holds it —
     /// the same collections mutatePost() searches.
+    /// The thread reply bar's formatting buttons. Same rules as the post composer's - see
+    /// `KaPostComposerView.applyFormatting`.
+    private func applyReplyFormatting(_ action: KaPostsMarkdown.ToolbarAction) {
+        let edit = KaPostsMarkdown.apply(
+            action,
+            to: replyText,
+            selectionStart: replySelection.lowerBound,
+            selectionEnd: replySelection.upperBound
+        )
+        guard edit.text.count <= KaPostsView.postCharacterLimit else { return }
+        replyText = edit.text
+        // Deferred one runloop turn: the text has to reach the text view before a selection into
+        // it means anything, otherwise this lands on the pre-edit string and is clamped away.
+        DispatchQueue.main.async {
+            replySelection = edit.selectionStart...edit.selectionEnd
+        }
+    }
+
     private func removeReply(withId id: UUID) {
         func strip(_ list: inout [DraftPost]) -> Bool {
             for index in list.indices {
@@ -3258,17 +3280,30 @@ struct KaPostsView: View {
                     Divider()
                     // @mention autocomplete for COMMENTS - the same suggestion list as the post
                     // composer, rendered above the input so the keyboard can never hide it.
-                    KaPostMentionSuggestionBar(text: $replyText)
+                    KaPostMentionSuggestionBar(text: $replyText, selection: $replySelection)
+                    // Replies are posts, so they get the same formatting bar - only while the
+                    // reply bar has focus, since with the keyboard down it would be a row of
+                    // icons with nothing to act on.
+                    if isReplyFocused {
+                        MarkdownFormattingToolbar(onAction: applyReplyFormatting)
+                        Divider().opacity(0.4)
+                    }
                     // X's "Post your reply" bar - text only, same rule as posts.
                     HStack(spacing: 10) {
-                        TextField("Post your reply", text: $replyText, axis: .vertical)
+                        MarkdownComposerField(
+                            text: $replyText,
+                            selection: $replySelection,
+                            isFocused: $isReplyFocused,
+                            placeholder: "Post your reply",
+                            // Roughly four lines, matching the lineLimit(1...4) this replaced: past
+                            // that the field scrolls instead of pushing the thread off screen.
+                            maxHeight: 92
+                        )
                             .onChange(of: replyText) { newValue in
                                 if newValue.count > KaPostsView.postCharacterLimit {
                                     replyText = String(newValue.prefix(KaPostsView.postCharacterLimit))
                                 }
                             }
-                            .lineLimit(1...4)
-                            .textFieldStyle(.plain)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
                             // Fixed-radius rectangle, NOT a Capsule: a capsule's corner radius is
@@ -4541,6 +4576,10 @@ private struct CompactPopoverAdaptation: ViewModifier {
 /// completes the @token in the bound text.
 private struct KaPostMentionSuggestionBar: View {
     @Binding var text: String
+    /// The bound field's caret. Completing a mention rewrites the text from OUTSIDE the field, so
+    /// without this the caret keeps its old offset and lands mid-sentence; the completion always
+    /// happens at the end, so that is where the caret belongs.
+    var selection: Binding<ClosedRange<Int>>? = nil
     @ObservedObject private var knsService = KNSService.shared
     @State private var resolvedAnyDomain: String? = nil
 
@@ -4582,6 +4621,8 @@ private struct KaPostMentionSuggestionBar: View {
                         Button {
                             if let range = text.range(of: "@[a-z0-9-]*$", options: [.regularExpression, .caseInsensitive]) {
                                 text.replaceSubrange(range, with: "@\(domain) ")
+                                let end = text.count
+                                DispatchQueue.main.async { selection?.wrappedValue = end...end }
                             }
                         } label: {
                             HStack(spacing: 8) {
@@ -5025,6 +5066,11 @@ private struct KaPostComposerView: View {
     private func insertMention(_ domain: String) {
         guard let range = text.range(of: "@[a-z0-9-]*$", options: [.regularExpression, .caseInsensitive]) else { return }
         text.replaceSubrange(range, with: "@\(domain) ")
+        // The editor's caret has to be moved with it: this rewrites the text from OUTSIDE the
+        // field, so the old offset would leave the caret mid-sentence. The completion always
+        // happens at the end, so that is where the caret belongs.
+        let end = text.count
+        DispatchQueue.main.async { selection = end...end }
     }
 
     /// X-style embedded preview of the post being quoted.
