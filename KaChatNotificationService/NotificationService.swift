@@ -220,8 +220,11 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     override func serviceExtensionTimeWillExpire() {
-        // Called just before the extension will be terminated by the system.
+        // Called just before the extension is terminated. Whatever we hand back here is the
+        // SERVER's payload, not ours - decryption never finished - so at minimum make its title
+        // legible rather than a full wrapped address.
         if let contentHandler = contentHandler, let bestAttemptContent = bestAttemptContent {
+            sanitizeUnprocessedTitle(bestAttemptContent)
             contentHandler(bestAttemptContent)
         }
     }
@@ -645,6 +648,22 @@ class NotificationService: UNNotificationServiceExtension {
     /// compile Models.swift) exactly - "kaspa:xxxx....xxxx" - so a contact with no alias/KNS name
     /// yet shows the same fallback everywhere instead of this extension's own, different-looking
     /// last-8-characters shorthand.
+    /// Last-resort tidy-up for content we are about to deliver WITHOUT having processed it -
+    /// the expiry path, and the copy-failed path. The server's fallback payload titles the
+    /// notification with the sender's full address, which wraps to four lines on the lock
+    /// screen and tells the user nothing. Resolve it to the contact's name where we can (a
+    /// local App Group read, no network, safe even when time is nearly up), and shorten it
+    /// otherwise. Anything that is not a raw address is left exactly as it is.
+    private func sanitizeUnprocessedTitle(_ content: UNMutableNotificationContent) {
+        let title = content.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard title.hasPrefix("kaspa:") || title.hasPrefix("kaspatest:") else { return }
+        if let alias = getSharedContact(address: title)?.alias, !alias.isEmpty {
+            content.title = alias
+            return
+        }
+        content.title = formatAddress(title)
+    }
+
     private func formatAddress(_ address: String) -> String {
         let parts = address.split(separator: ":", maxSplits: 1)
         guard parts.count == 2 else { return address }
