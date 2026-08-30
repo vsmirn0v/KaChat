@@ -374,9 +374,6 @@ struct KaPostsView: View {
     }
     @State private var undoToast: UndoPostToast?
     @ObservedObject private var scheduler = KaPostsActionScheduler.shared
-    /// Observed for the Translate affordance. Like `scheduler`, this only changes when the user
-    /// acts (taps Translate, or flips back to the original) - never while scrolling.
-    @ObservedObject private var translation = PostTranslationService.shared
 
     struct PosterProfileTarget: Identifiable {
         let id = UUID()
@@ -3488,6 +3485,9 @@ private struct KaPostCellView: View {
     /// name/avatar strings in; combined with the Equatable conformance below, a cache update
     /// re-renders only the cells whose own inputs actually changed.
     @ObservedObject private var scheduler = KaPostsActionScheduler.shared
+    /// Observed for the Translate affordance. Like `scheduler`, this only changes when the user
+    /// acts (taps Translate, or flips back to the original) - never while scrolling.
+    @ObservedObject private var translation = PostTranslationService.shared
 
     /// Your own post: no follow affordance (you can't follow yourself).
     private var isOwnPost: Bool {
@@ -4093,7 +4093,7 @@ private struct KaPostCellView: View {
                 }
                 Spacer(minLength: 0)
             }
-            Text(KaPostsView.markdownPreview(quoted.text))
+            Text(KaPostCellView.markdownPreview(quoted.text))
                 .font(.subheadline)
                 .foregroundColor(.primary)
                 .lineLimit(5)
@@ -5163,7 +5163,7 @@ private struct KaPostComposerView: View {
                     .foregroundColor(.secondary)
                 Spacer(minLength: 0)
             }
-            Text(KaPostsView.markdownPreview(quoted.text))
+            Text(KaPostCellView.markdownPreview(quoted.text))
                 .font(.subheadline)
                 .foregroundColor(.primary)
                 .lineLimit(5)
