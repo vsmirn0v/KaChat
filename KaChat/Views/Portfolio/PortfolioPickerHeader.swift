@@ -13,12 +13,11 @@ struct PortfolioCardModel: Identifiable {
     let todayChangePercent: Double?
 }
 
-/// The portfolio a long-press actually landed on, captured by value at the moment the Delete
-/// menu item is tapped (id AND the name shown on that card). The confirmation dialog is driven
-/// by this snapshot via `presenting:` and the destructive action only ever uses the snapshot's
-/// id, so the row that was pressed is the row that gets deleted - nothing re-reads shared view
-/// state after the press, which is what let the old code act on a stale portfolio.
-private struct PendingPortfolioDeletion: Identifiable, Equatable {
+/// The portfolio a long-press actually landed on, captured by value at the moment the press
+/// fires (id AND the name shown on that card). Every dialog is driven by this snapshot via
+/// `presenting:`, and the destructive action only ever uses the snapshot's id, so the card that
+/// was pressed is the card that gets acted on.
+private struct PressedPortfolio: Identifiable, Equatable {
     let id: UUID
     let name: String
 }
@@ -35,12 +34,18 @@ struct PortfolioPickerHeader: View {
     let onAdd: (String) -> Void
     let onRename: (UUID, String) -> Void
     let onDelete: (UUID) -> Void
+    /// Commits a drag-and-drop reorder; the argument is the full list of ids in their new order.
+    let onReorder: ([UUID]) -> Void
 
     @State private var showAddSheet = false
     @State private var newPortfolioName = ""
     @State private var renamingPortfolio: Portfolio?
     @State private var renameText = ""
-    @State private var pendingDeletion: PendingPortfolioDeletion?
+    /// The card whose long-press menu is open.
+    @State private var pressedPortfolio: PressedPortfolio?
+    /// The card the user chose Delete for, held separately so the confirmation is its own step.
+    @State private var pendingDeletion: PressedPortfolio?
+    @State private var showReorderSheet = false
 
     private var canAddMore: Bool { portfolios.count < PortfolioManager.maxPortfolios }
 
@@ -65,6 +70,50 @@ struct PortfolioPickerHeader: View {
             // Same guard as the delete path: seed the field from the item SwiftUI actually
             // presented, not from a separate @State written just before presentation.
             .onAppear { renameText = portfolio.name }
+        }
+        // The long-press menu. This is a plain confirmationDialog rather than `.contextMenu`
+        // because the whole card row lives inside ONE row of the Portfolio screen's List: a
+        // context menu attached to each card there is claimed by the row's own menu interaction,
+        // which resolves to the first card whichever card you actually pressed. That is what made
+        // Delete always remove the first portfolio no matter which one was held.
+        .confirmationDialog(
+            Text(pressedPortfolio?.name ?? "Portfolio"),
+            isPresented: Binding(
+                get: { pressedPortfolio != nil },
+                set: { if !$0 { pressedPortfolio = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pressedPortfolio
+        ) { target in
+            Button("Rename") {
+                pressedPortfolio = nil
+                guard let portfolio = portfolios.first(where: { $0.id == target.id }) else { return }
+                renameText = portfolio.name
+                renamingPortfolio = portfolio
+            }
+            if portfolios.count > 1 {
+                Button("Reorder Portfolios") {
+                    pressedPortfolio = nil
+                    showReorderSheet = true
+                }
+                Button("Delete '\(target.name)'", role: .destructive) {
+                    pressedPortfolio = nil
+                    pendingDeletion = target
+                }
+            }
+            Button("Cancel", role: .cancel) { pressedPortfolio = nil }
+        }
+        .sheet(isPresented: $showReorderSheet) {
+            PortfolioReorderSheet(
+                portfolios: portfolios,
+                formatCurrency: formatCurrency,
+                cardModel: cardModel,
+                onDone: { ordered in
+                    onReorder(ordered)
+                    showReorderSheet = false
+                },
+                onCancel: { showReorderSheet = false }
+            )
         }
         // `presenting:` hands the pressed card's own snapshot to the title, the buttons and the
         // message, so every part of the confirmation is built from the same value the long-press
@@ -163,22 +212,11 @@ struct PortfolioPickerHeader: View {
             Haptics.impact(.light)
             onSelect(portfolio.id)
         }
-        .contextMenu {
-            Button {
-                renameText = portfolio.name
-                renamingPortfolio = portfolio
-            } label: {
-                Label("Rename", systemImage: "pencil")
-            }
-            if portfolios.count > 1 {
-                Button(role: .destructive) {
-                    // Snapshot the pressed card's id and name right here; everything downstream
-                    // uses this value, never a lookup that could resolve to another card.
-                    pendingDeletion = PendingPortfolioDeletion(id: portfolio.id, name: portfolio.name)
-                } label: {
-                    Label("Delete '\(portfolio.name)'", systemImage: "trash")
-                }
-            }
+        // Snapshot the pressed card's id and name right here; everything downstream uses this
+        // value, never a lookup that could resolve to another card.
+        .onLongPressGesture(minimumDuration: 0.4) {
+            Haptics.impact(.medium)
+            pressedPortfolio = PressedPortfolio(id: portfolio.id, name: portfolio.name)
         }
     }
 
@@ -229,5 +267,69 @@ struct PortfolioPickerHeader: View {
             }
         }
         .presentationDetents([.height(180)])
+    }
+}
+
+/// Drag-and-drop reordering for the portfolio cards.
+///
+/// A sheet with a standard editable List, not dragging the cards in place: the cards live in a
+/// horizontally-scrolling row inside the Portfolio screen's List, so a horizontal drag-to-reorder
+/// gesture would be competing with two scroll views for the same finger. A List in edit mode gets
+/// the native drag handles, the usual lift-and-slide animation, and VoiceOver's move actions for
+/// free, and it cannot fight a scroll.
+///
+/// The order is committed only on Done, so a drag that turns out wrong is undone by Cancel rather
+/// than by dragging everything back.
+private struct PortfolioReorderSheet: View {
+    let portfolios: [Portfolio]
+    let formatCurrency: (Double) -> String
+    let cardModel: (Portfolio) -> PortfolioCardModel
+    let onDone: ([UUID]) -> Void
+    let onCancel: () -> Void
+
+    /// Working copy. Seeded once on appear - re-seeding on every render would fight the drag.
+    @State private var draft: [Portfolio] = []
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(draft, id: \.id) { portfolio in
+                        HStack(spacing: 12) {
+                            Text(portfolio.name)
+                                .font(.body.weight(.medium))
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                            Text(formatCurrency(cardModel(portfolio).currentValue))
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .onMove { indices, destination in
+                        draft.move(fromOffsets: indices, toOffset: destination)
+                        Haptics.impact(.light)
+                    }
+                } footer: {
+                    Text("Drag a portfolio to change the order its card appears in.")
+                }
+            }
+            // Always-on edit mode: the sheet exists only to reorder, so making the user tap Edit
+            // first would be a step with no other purpose.
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Reorder Portfolios")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { onDone(draft.map(\.id)) }
+                }
+            }
+        }
+        .onAppear {
+            if draft.isEmpty { draft = portfolios }
+        }
     }
 }

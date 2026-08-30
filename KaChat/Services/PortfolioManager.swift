@@ -39,7 +39,13 @@ final class PortfolioManager: ObservableObject {
             loaded = [seeded]
             PortfolioLedgerStore.savePortfolios(loaded, walletAddress: normalizedAddress)
         }
-        portfolios = loaded.sorted { $0.sortOrder < $1.sortOrder }
+        // Tie-broken by createdAt: `sortOrder` was never renumbered after a delete, so older
+        // installs can hold duplicates (delete the middle of three, add another, and the new one
+        // is handed a sortOrder the survivor already has). Swift's sort is not stable, so equal
+        // keys alone let two cards swap places between launches.
+        portfolios = Self.normalizingSortOrder(loaded.sorted {
+            $0.sortOrder == $1.sortOrder ? $0.createdAt < $1.createdAt : $0.sortOrder < $1.sortOrder
+        })
 
         let storedActiveId = PortfolioLedgerStore.loadActivePortfolioId(walletAddress: normalizedAddress)
         activePortfolioId = (storedActiveId.flatMap { id in portfolios.contains { $0.id == id } ? id : nil })
@@ -56,16 +62,35 @@ final class PortfolioManager: ObservableObject {
 
     // MARK: - CRUD
 
+    /// Rewrites `sortOrder` to match array position. Called after every mutation so the stored
+    /// order is always 0..<count with no gaps and no duplicates.
+    private static func normalizingSortOrder(_ list: [Portfolio]) -> [Portfolio] {
+        list.enumerated().map { index, portfolio in
+            var updated = portfolio
+            updated.sortOrder = index
+            return updated
+        }
+    }
+
     @discardableResult
     func addPortfolio(name: String) -> Portfolio? {
         guard portfolios.count < Self.maxPortfolios else { return nil }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolved = trimmed.isEmpty ? "Portfolio \(portfolios.count + 1)" : trimmed
         let portfolio = Portfolio(id: UUID(), name: resolved, sortOrder: portfolios.count, createdAt: Date())
-        portfolios.append(portfolio)
+        portfolios = Self.normalizingSortOrder(portfolios + [portfolio])
         persist()
         setActivePortfolio(portfolio.id)
         return portfolio
+    }
+
+    /// Moves cards to match a drag-and-drop reorder. `orderedIds` must be a permutation of the
+    /// current list; anything else is ignored rather than partially applied.
+    func reorderPortfolios(_ orderedIds: [UUID]) {
+        guard Set(orderedIds) == Set(portfolios.map(\.id)), orderedIds.count == portfolios.count else { return }
+        let byId = Dictionary(uniqueKeysWithValues: portfolios.map { ($0.id, $0) })
+        portfolios = Self.normalizingSortOrder(orderedIds.compactMap { byId[$0] })
+        persist()
     }
 
     func renamePortfolio(_ id: UUID, to newName: String) {
@@ -79,7 +104,7 @@ final class PortfolioManager: ObservableObject {
     /// least one. Also deletes that portfolio's own ledger rows.
     func deletePortfolio(_ id: UUID) {
         guard portfolios.count > 1, portfolios.contains(where: { $0.id == id }) else { return }
-        portfolios.removeAll { $0.id == id }
+        portfolios = Self.normalizingSortOrder(portfolios.filter { $0.id != id })
         persist()
         PortfolioLedgerStore.deleteTransactions(portfolioId: id, walletAddress: activeWalletAddress)
         if activePortfolioId == id {

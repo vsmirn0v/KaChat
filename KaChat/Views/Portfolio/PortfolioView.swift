@@ -27,7 +27,8 @@ struct PortfolioView: View {
                         onSelect: { portfolioManager.setActivePortfolio($0) },
                         onAdd: { portfolioManager.addPortfolio(name: $0) },
                         onRename: { portfolioManager.renamePortfolio($0, to: $1) },
-                        onDelete: { portfolioManager.deletePortfolio($0) }
+                        onDelete: { portfolioManager.deletePortfolio($0) },
+                        onReorder: { portfolioManager.reorderPortfolios($0) }
                     )
                 }
                 .listRowInsets(EdgeInsets())
