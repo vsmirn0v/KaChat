@@ -1587,7 +1587,11 @@ struct KaPostsView: View {
     /// contacts resolve from the local KNS cache; ANYONE else with a KNS domain resolves live
     /// through resolveDomain (owner address -> pubkey). Unresolvable tokens stay plain text.
     private func mentionedPubkeys(in text: String) async -> [String] {
-        let domains = Self.mentionDomains(in: text)
+        // Scanned on the RENDERED text, not the source. The @ token has to start a word, so
+        // "**@alice.kas**" hides the mention behind the bold markers: the reader would see a
+        // highlighted, tappable mention (the cell renders the same rendered text) while the
+        // signed mentions array went out empty and @alice was never notified.
+        let domains = Self.mentionDomains(in: KaPostsMarkdown.render(text).text)
         guard !domains.isEmpty else { return [] }
         var byDomain: [String: String] = [:]
         for candidate in mentionCandidates() { byDomain[candidate.domain] = candidate.pubkey }
@@ -3890,9 +3894,37 @@ private struct KaPostCellView: View {
         // source. Its spans are then layered on top.
         let rendered = KaPostsMarkdown.render(text)
         var built = buildLinkified(rendered.text)
-        applyMarkdownSpans(rendered.spans, to: &built)
+        applyMarkdownSpans(
+            rendered.spans,
+            to: &built,
+            protecting: Self.mentionCharacterRanges(in: rendered.text)
+        )
         linkifiedCache.setObject(LinkifiedBox(built), forKey: key)
         return built
+    }
+
+    /// Character ranges of the @mention tokens in already-rendered text.
+    ///
+    /// A mention is an identity, not prose: it always looks the same so it stays recognisable at a
+    /// glance, and formatting never applies to it. `**@alice.kas** ships it` bolds "ships it" and
+    /// leaves the mention alone.
+    static func mentionCharacterRanges(in text: String) -> [Range<Int>] {
+        guard let mentionRegex else { return [] }
+        let ns = text as NSString
+        var out: [Range<Int>] = []
+        for match in mentionRegex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
+            let domainRange = match.range(at: 2)
+            let tokenStart = domainRange.location - 1 // include the '@'
+            guard tokenStart >= 0,
+                  let stringRange = Range(
+                      NSRange(location: tokenStart, length: domainRange.length + 1),
+                      in: text
+                  ) else { continue }
+            let start = text.distance(from: text.startIndex, to: stringRange.lowerBound)
+            let end = text.distance(from: text.startIndex, to: stringRange.upperBound)
+            out.append(start..<end)
+        }
+        return out
     }
 
     /// A quoted post's text for a preview card: markdown styling applied, but nothing tappable.
@@ -3904,7 +3936,12 @@ private struct KaPostCellView: View {
         let rendered = KaPostsMarkdown.render(text)
         var attributed = AttributedString(rendered.text)
         guard rendered.hasFormatting else { return attributed }
-        applyMarkdownSpans(rendered.spans, to: &attributed, includeLinks: false)
+        applyMarkdownSpans(
+            rendered.spans,
+            to: &attributed,
+            includeLinks: false,
+            protecting: Self.mentionCharacterRanges(in: rendered.text)
+        )
         return attributed
     }
 
@@ -3915,34 +3952,69 @@ private struct KaPostCellView: View {
     private static func applyMarkdownSpans(
         _ spans: [KaPostsMarkdown.Span],
         to attributed: inout AttributedString,
-        includeLinks: Bool = true
+        includeLinks: Bool = true,
+        protecting protectedRanges: [Range<Int>] = []
     ) {
         let total = attributed.characters.count
         for span in spans {
             guard span.start < span.end, span.end <= total else { continue }
-            let start = attributed.index(attributed.startIndex, offsetByCharacters: span.start)
-            let end = attributed.index(start, offsetByCharacters: span.end - span.start)
-            let style = span.style
+            // A span crossing a mention is applied to the pieces either side of it, never over it.
+            for piece in Self.subtract(protectedRanges, from: span.start..<span.end) {
+                applyStyle(span.style, over: piece, to: &attributed, includeLinks: includeLinks)
+            }
+        }
+    }
 
-            var font: Font = style.subtext ? .footnote : .body
-            if style.bold { font = font.bold() }
-            if style.italic { font = font.italic() }
-            attributed[start..<end].font = font
+    /// `range` minus every protected range, in order. Returns `[range]` when nothing overlaps,
+    /// which is the case for the overwhelming majority of posts.
+    private static func subtract(_ protectedRanges: [Range<Int>], from range: Range<Int>) -> [Range<Int>] {
+        let overlapping = protectedRanges
+            .filter { $0.lowerBound < range.upperBound && $0.upperBound > range.lowerBound }
+            .sorted { $0.lowerBound < $1.lowerBound }
+        guard !overlapping.isEmpty else { return [range] }
+        var out: [Range<Int>] = []
+        var cursor = range.lowerBound
+        for blocked in overlapping {
+            if blocked.lowerBound > cursor {
+                out.append(cursor..<blocked.lowerBound)
+            }
+            cursor = max(cursor, blocked.upperBound)
+        }
+        if cursor < range.upperBound {
+            out.append(cursor..<range.upperBound)
+        }
+        return out
+    }
 
-            if style.subtext {
-                attributed[start..<end].foregroundColor = .secondary
-            }
-            if style.underline {
-                attributed[start..<end].underlineStyle = .single
-            }
-            if style.strikethrough {
-                attributed[start..<end].strikethroughStyle = .single
-            }
-            if let link = style.link {
-                if includeLinks { attributed[start..<end].link = link }
-                attributed[start..<end].foregroundColor = .accentColor
-                attributed[start..<end].underlineStyle = .single
-            }
+    private static func applyStyle(
+        _ style: KaPostsMarkdown.Style,
+        over range: Range<Int>,
+        to attributed: inout AttributedString,
+        includeLinks: Bool
+    ) {
+        let total = attributed.characters.count
+        guard range.lowerBound < range.upperBound, range.upperBound <= total else { return }
+        let start = attributed.index(attributed.startIndex, offsetByCharacters: range.lowerBound)
+        let end = attributed.index(start, offsetByCharacters: range.count)
+
+        var font: Font = style.subtext ? .footnote : .body
+        if style.bold { font = font.bold() }
+        if style.italic { font = font.italic() }
+        attributed[start..<end].font = font
+
+        if style.subtext {
+            attributed[start..<end].foregroundColor = .secondary
+        }
+        if style.underline {
+            attributed[start..<end].underlineStyle = .single
+        }
+        if style.strikethrough {
+            attributed[start..<end].strikethroughStyle = .single
+        }
+        if let link = style.link {
+            if includeLinks { attributed[start..<end].link = link }
+            attributed[start..<end].foregroundColor = .accentColor
+            attributed[start..<end].underlineStyle = .single
         }
     }
 
