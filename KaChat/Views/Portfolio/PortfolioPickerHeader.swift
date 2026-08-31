@@ -221,118 +221,54 @@ struct PortfolioPickerHeader: View {
         // Frozen while a drag is running, live otherwise - see `frozenCards`.
         let frozen = frozenCards[portfolio.id]
         let model = frozen?.model ?? cardModel(portfolio)
-        let valueText = frozen?.valueText ?? formatCurrency(model.currentValue)
-        let isActive = portfolio.id == activePortfolioId
-        let isPositive = (model.todayChangeAmount ?? 0) >= 0
-        let isPressing = pressingCardId == portfolio.id
         let isDragging = draggingCardId == portfolio.id
-        // Stays lifted while ITS sheet is open, the way a home-screen icon stays raised under its
-        // context menu - the sheet only covers the lower half, so the card it belongs to is still
-        // on screen and worth identifying.
-        let isMenuTarget = pressedPortfolio?.id == portfolio.id
 
-        return VStack(alignment: .leading, spacing: 6) {
-            Text(model.name)
-                .font(.subheadline)
-                .fontWeight(.bold)
-                .foregroundColor(isActive ? .primary : .secondary)
-                .lineLimit(1)
-            Text(valueText)
-                .font(.title3)
-                .fontWeight(.bold)
-                .foregroundColor(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            if let percent = model.todayChangePercent {
-                HStack(spacing: 2) {
-                    Image(systemName: isPositive ? "arrow.up" : "arrow.down")
-                        .font(.caption2)
-                    Text("\(String(format: "%.2f", abs(percent)))%")
-                        .font(.caption)
-                        .fontWeight(.semibold)
+        return PortfolioCardView(
+            portfolio: portfolio,
+            valueText: frozen?.valueText ?? formatCurrency(model.currentValue),
+            changePercent: model.todayChangePercent,
+            isActive: portfolio.id == activePortfolioId,
+            isPressing: pressingCardId == portfolio.id,
+            isDragging: isDragging,
+            // Stays lifted while ITS sheet is open, the way a home-screen icon stays raised under
+            // its context menu - the sheet only covers the lower half, so the card it belongs to
+            // is still on screen and worth identifying.
+            isMenuTarget: pressedPortfolio?.id == portfolio.id,
+            dragOffset: isDragging ? dragCarryOffset(for: portfolio) : 0,
+            flattenBackground: draggingCardId != nil,
+            onTap: {
+                Haptics.impact(.light)
+                onSelect(portfolio.id)
+            },
+            onPressBegan: {
+                if pressingCardId != portfolio.id {
+                    pressingCardId = portfolio.id
+                    Haptics.impact(.medium)
                 }
-                .foregroundColor(isPositive ? .green : .red)
-            } else {
-                Text("—")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(12)
-        .frame(width: 140, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.regularMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(
-                            isMenuTarget || isActive ? Color.accentColor : Color.white.opacity(0.15),
-                            lineWidth: isMenuTarget ? 2 : (isActive ? 1.5 : 0.8)
-                        )
-                )
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        // Shrinks under the finger and lifts once the sheet is up. Springs rather than linear
-        // fades, so the card settles the way a pressed icon does.
-        .scaleEffect(isDragging ? 1.06 : (isPressing ? 0.94 : (isMenuTarget ? 1.04 : 1)))
-        .brightness(isPressing && !isDragging ? -0.04 : 0)
-        .offset(x: isDragging ? dragCarryOffset(for: portfolio) : 0)
-        .shadow(
-            color: Color.black.opacity(isMenuTarget || isDragging ? 0.35 : 0),
-            radius: isMenuTarget || isDragging ? 14 : 0,
-            x: 0,
-            y: isMenuTarget || isDragging ? 6 : 0
-        )
-        .animation(.spring(response: 0.3, dampingFraction: 0.68), value: isPressing)
-        .animation(.spring(response: 0.34, dampingFraction: 0.7), value: isMenuTarget)
-        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: isDragging)
-        .onTapGesture {
-            Haptics.impact(.light)
-            onSelect(portfolio.id)
-        }
-        // Snapshot the pressed card's id and name right here; everything downstream uses this
-        // value, never a lookup that could resolve to another card.
-        // Hold, then EITHER move to reorder OR let go to open the menu - the same choice a
-        // home-screen icon offers. A long press is required first, so an immediate swipe still
-        // belongs to the enclosing scroll view rather than picking a card up by accident.
-        .gesture(
-            LongPressGesture(minimumDuration: 0.4)
-                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
-                .onChanged { value in
-                    switch value {
-                    case .first(true):
-                        // Held long enough, not yet moved.
-                        if pressingCardId != portfolio.id {
-                            pressingCardId = portfolio.id
-                            Haptics.impact(.medium)
-                        }
-                    case .second(true, let drag):
-                        guard let drag else { return }
-                        if draggingCardId == nil {
-                            guard abs(drag.translation.width) > Self.dragActivationDistance,
-                                  portfolios.count > 1 else { return }
-                            beginDrag(of: portfolio)
-                        }
-                        dragTranslation = drag.translation.width
-                        updateDragTarget(for: portfolio)
-                    default:
-                        break
-                    }
+            },
+            onDragChanged: { translation in
+                if draggingCardId == nil {
+                    guard abs(translation) > Self.dragActivationDistance,
+                          portfolios.count > 1 else { return }
+                    beginDrag(of: portfolio)
                 }
-                .onEnded { _ in
-                    if draggingCardId != nil {
-                        commitDrag()
-                    } else if pressingCardId == portfolio.id {
-                        // Held and released without moving: the menu.
-                        pressingCardId = nil
-                        pressedPortfolio = PressedPortfolio(id: portfolio.id, name: portfolio.name)
-                    }
+                dragTranslation = translation
+                updateDragTarget(for: portfolio)
+            },
+            onDragEnded: {
+                if draggingCardId != nil {
+                    commitDrag()
+                } else if pressingCardId == portfolio.id {
+                    // Held and released without moving: the menu.
                     pressingCardId = nil
+                    pressedPortfolio = PressedPortfolio(id: portfolio.id, name: portfolio.name)
                 }
+                pressingCardId = nil
+            }
         )
-        // Covers the press being cancelled by the enclosing scroll view, which ends the sequence
-        // without ever reaching `onEnded`.
-        .onDisappear { if draggingCardId == portfolio.id { cancelDrag() } }
+        // Without this every card is rebuilt on every touch move of a drag. Only the dragged
+        // card's inputs actually change, so the other four compare equal and are skipped.
+        .equatable()
     }
 
     private var addCard: some View {
@@ -585,6 +521,142 @@ private struct PortfolioActionsSheet: View {
             case .menu, .confirmDelete:
                 EmptyView()
             }
+        }
+    }
+}
+
+/// One portfolio card, as its own `Equatable` view.
+///
+/// Equatable matters here: a drag writes state on every touch move, which re-evaluates the
+/// header's body and with it all five cards. Only the dragged card's inputs actually change, so
+/// the rest compare equal and SwiftUI skips them entirely. The closures are excluded from `==`
+/// deliberately - they are rebuilt every time the header renders and would never compare equal,
+/// which would defeat the whole point. They only ever read the header's `@State` (stable storage)
+/// and the portfolio list, which cannot change mid-drag.
+private struct PortfolioCardView: View, Equatable {
+    let portfolio: Portfolio
+    let valueText: String
+    let changePercent: Double?
+    let isActive: Bool
+    let isPressing: Bool
+    let isDragging: Bool
+    let isMenuTarget: Bool
+    let dragOffset: CGFloat
+    /// True while ANY card is being dragged. See `cardBackground`.
+    let flattenBackground: Bool
+    let onTap: () -> Void
+    let onPressBegan: () -> Void
+    let onDragChanged: (CGFloat) -> Void
+    let onDragEnded: () -> Void
+
+    static func == (lhs: PortfolioCardView, rhs: PortfolioCardView) -> Bool {
+        lhs.portfolio == rhs.portfolio
+            && lhs.valueText == rhs.valueText
+            && lhs.changePercent == rhs.changePercent
+            && lhs.isActive == rhs.isActive
+            && lhs.isPressing == rhs.isPressing
+            && lhs.isDragging == rhs.isDragging
+            && lhs.isMenuTarget == rhs.isMenuTarget
+            && lhs.dragOffset == rhs.dragOffset
+            && lhs.flattenBackground == rhs.flattenBackground
+    }
+
+    private var isPositive: Bool { (changePercent ?? 0) >= 0 }
+    private var isLifted: Bool { isMenuTarget || isDragging }
+
+    /// `.regularMaterial` is a live backdrop blur: it re-samples and re-blurs whatever is behind
+    /// it every time the view moves. Five of them being transformed at display rate is the
+    /// expensive part of a drag, and the blur is invisible anyway while everything is sliding, so
+    /// a drag swaps all the cards to an opaque fill for its duration.
+    @ViewBuilder
+    private var cardBackground: some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        let border = shape.stroke(
+            isMenuTarget || isActive ? Color.accentColor : Color.white.opacity(0.15),
+            lineWidth: isMenuTarget ? 2 : (isActive ? 1.5 : 0.8)
+        )
+        if flattenBackground {
+            shape.fill(Color(uiColor: .secondarySystemBackground)).overlay(border)
+        } else {
+            shape.fill(.regularMaterial).overlay(border)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(portfolio.name)
+                .font(.subheadline)
+                .fontWeight(.bold)
+                .foregroundColor(isActive ? .primary : .secondary)
+                .lineLimit(1)
+            Text(valueText)
+                .font(.title3)
+                .fontWeight(.bold)
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            if let changePercent {
+                HStack(spacing: 2) {
+                    Image(systemName: isPositive ? "arrow.up" : "arrow.down")
+                        .font(.caption2)
+                    Text("\(String(format: "%.2f", abs(changePercent)))%")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                }
+                .foregroundColor(isPositive ? .green : .red)
+            } else {
+                Text("—")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(width: 140, alignment: .leading)
+        .background(cardBackground)
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // Shrinks under the finger and lifts once picked up or once its sheet is open. Springs
+        // rather than linear fades, so the card settles the way a pressed icon does.
+        .scaleEffect(isDragging ? 1.06 : (isPressing ? 0.94 : (isMenuTarget ? 1.04 : 1)))
+        .brightness(isPressing && !isDragging ? -0.04 : 0)
+        .offset(x: dragOffset)
+        // Applied only when there is a shadow to draw. A shadow forces an offscreen pass, and
+        // leaving a transparent one installed on every card pays for it on all of them.
+        .modifier(LiftShadow(active: isLifted))
+        .animation(.spring(response: 0.3, dampingFraction: 0.68), value: isPressing)
+        .animation(.spring(response: 0.34, dampingFraction: 0.7), value: isMenuTarget)
+        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: isDragging)
+        .onTapGesture(perform: onTap)
+        // Hold, then EITHER move to reorder OR let go to open the menu - the same choice a
+        // home-screen icon offers. A long press is required first, so an immediate swipe still
+        // belongs to the enclosing scroll view rather than picking a card up by accident.
+        .gesture(
+            LongPressGesture(minimumDuration: 0.4)
+                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+                .onChanged { value in
+                    switch value {
+                    case .first(true):
+                        onPressBegan()
+                    case .second(true, let drag):
+                        guard let drag else { return }
+                        onDragChanged(drag.translation.width)
+                    default:
+                        break
+                    }
+                }
+                .onEnded { _ in onDragEnded() }
+        )
+    }
+}
+
+/// Adds the lifted shadow only when it is actually visible.
+private struct LiftShadow: ViewModifier {
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        if active {
+            content.shadow(color: Color.black.opacity(0.35), radius: 14, x: 0, y: 6)
+        } else {
+            content
         }
     }
 }
