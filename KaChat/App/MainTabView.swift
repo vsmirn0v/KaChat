@@ -32,8 +32,7 @@ struct MainTabView: View {
                 tabContent(for: tab)
                     .tabItem {
                         // Single Label whose VALUES vary (no structural if) - conditional tabItem
-                        // content churns the tab bar's identity on every render. While the Chats
-                        // slot shows KaPosts (full-dock re-tap mode), the item reads as KaPosts.
+                        // content churns the tab bar's identity on every render.
                         Label(
                             tab.label,
                             systemImage: tab.icon
@@ -207,6 +206,45 @@ struct MainTabView: View {
             // it), so this page is unreachable - kept only so the switch stays exhaustive,
             // and opaque just in case.
             Color(uiColor: .systemBackground).ignoresSafeArea()
+        }
+    }
+
+    private var tabSelection: Binding<Int> {
+        Binding(
+            get: { selectedTab },
+            set: { newValue in
+                handleTabSelectionChange(newValue)
+            }
+        )
+    }
+
+    private func handleTabSelectionChange(_ newValue: Int) {
+        let previousValue = selectedTab
+        selectedTab = newValue
+
+        // Re-tapping Ecosystem while inside one of its sections steps back out to the grid -
+        // the same button that got you in gets you out.
+        if previousValue == AppTab.ecosystem.tag, newValue == AppTab.ecosystem.tag {
+            EcosystemRouter.shared.closeSection()
+            return
+        }
+
+        // Off-chat-tab power saving, DEBOUNCED so rapidly flipping tabs can't thrash start/stop
+        // (which was restarting the initial sync and freezing the UI). Only the settled tab - after
+        // a short quiet period - pauses or resumes the node pool's aggressive discovery/probe loops
+        // and the fallback message-poll timer. The pool + UTXO subscription stay live, so sending,
+        // on-demand balance/history and push keep working; only background scanning stops.
+        tabWorkTask?.cancel()
+        tabWorkTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return }
+            if newValue == AppTab.chats.tag {
+                await NodePoolService.shared.resumeDiscovery()
+                chatService.startPolling()
+            } else {
+                await NodePoolService.shared.pauseDiscovery()
+                chatService.stopPollingTimerOnly()
+            }
         }
     }
 
