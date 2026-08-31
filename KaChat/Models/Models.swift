@@ -1464,8 +1464,10 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case kaposts
     case broadcasts
     case apps
-    /// The container the other feature tabs live in when they are not in the dock
-    /// themselves - see `ecosystemSections(from:)`.
+    /// The container the other feature tabs live in when they are not in the dock themselves -
+    /// see `ecosystemSections(from:)`. Displayed as "Kaspa Hub"; the case name and its raw
+    /// value stay `ecosystem` because the raw value is PERSISTED in `tabOrder`, so renaming it
+    /// would invalidate every saved dock arrangement for the sake of an internal label.
     case ecosystem
     /// RETIRED (4.0): the "+ More" dock item was removed - Customize Dock is reached via
     /// Settings > Customization instead. The case survives only so saved `tabOrder` /
@@ -1487,7 +1489,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         // Short enough for a dock label. `ecosystemTitle` carries the full name, which is what
         // the Ecosystem grid and the screen itself show.
         case .apps: return "Websites"
-        case .ecosystem: return "Ecosystem"
+        case .ecosystem: return "Kaspa Hub"
         case .more: return "More"
         }
     }

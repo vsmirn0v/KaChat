@@ -32,8 +32,8 @@ struct MenuVisibilityView: View {
         let settings = settingsViewModel.settings
         guard !hidden else { return nil }
         if AppTab.visible(from: settings).contains(tab) { return "In your dock" }
-        if AppTab.ecosystemSections(from: settings).contains(tab) { return "In Ecosystem" }
-        return "Dock is full and Ecosystem is off - turn one on to reach it"
+        if AppTab.ecosystemSections(from: settings).contains(tab) { return "In \(AppTab.ecosystem.label)" }
+        return "Dock is full and \(AppTab.ecosystem.label) is off - turn one on to reach it"
     }
 
     var body: some View {

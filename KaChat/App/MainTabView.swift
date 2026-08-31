@@ -379,8 +379,8 @@ struct DockWizardView: View {
             TabView(selection: $page) {
                 wizardPage(
                     icon: "sparkles",
-                    title: "Meet Ecosystem",
-                    text: "KaPosts, Broadcasts, Swap and the Kaspa websites list now live together in one place - Ecosystem, right in your dock.",
+                    title: "Meet Kaspa Hub",
+                    text: "KaPosts, Broadcasts, ChangeNOW Swap and the Kaspa websites list now live together in one place - Kaspa Hub, right in your dock.",
                     demo: { dockMock(highlightIcon: AppTab.ecosystem.icon, label: AppTab.ecosystem.label) }
                 )
                 .tag(0)
@@ -388,7 +388,7 @@ struct DockWizardView: View {
                 wizardPage(
                     icon: "square.grid.2x2",
                     title: "Everything Inside",
-                    text: "Open Ecosystem and pick what you want. Tap the Ecosystem tab again to come straight back out.",
+                    text: "Open Kaspa Hub and pick what you want. Tap the Kaspa Hub tab again to come straight back out.",
                     demo: {
                         dockMock(highlightIcon: demoIcons[demoIndex], label: demoLabels[demoIndex])
                             .onAppear { demoIndex = 0 }
@@ -407,7 +407,7 @@ struct DockWizardView: View {
                 wizardPage(
                     icon: "slider.horizontal.3",
                     title: "Make It Yours",
-                    text: "Prefer one of them in the dock itself? Turn it on in Settings > Customization > Customize Dock. Anything you put in the dock leaves Ecosystem, so nothing is listed twice.",
+                    text: "Prefer one of them in the dock itself? Turn it on in Settings > Customization > Customize Dock. Anything you put in the dock leaves Kaspa Hub, so nothing is listed twice.",
                     demo: { dockMock(highlightIcon: "slider.horizontal.3", label: "Customize") }
                 )
                 .tag(2)

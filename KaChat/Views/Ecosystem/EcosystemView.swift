@@ -24,7 +24,10 @@ final class EcosystemRouter: ObservableObject {
     }
 }
 
-/// The Ecosystem tab: a grid of everything that isn't in the dock, and the section you picked.
+/// The Kaspa Hub tab: a grid of everything that isn't in the dock, and the section you picked.
+///
+/// The type and `AppTab.ecosystem` keep their original names because that case's raw value is
+/// persisted in saved dock arrangements - see the note on the enum case.
 ///
 /// Membership is computed, not configured - `AppTab.ecosystemSections` drops anything the user has
 /// hidden and anything that already has its own dock slot, so a feature is never in both places at
@@ -105,7 +108,7 @@ struct EcosystemView: View {
                     .padding(.top, 8)
                 }
             }
-            .navigationTitle("Ecosystem")
+            .navigationTitle(AppTab.ecosystem.label)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     ConnectionStatusIndicator()
@@ -160,7 +163,7 @@ struct EcosystemView: View {
                 .foregroundColor(.secondary)
             Text("Nothing here right now")
                 .font(.headline)
-            Text("KaPosts, Broadcasts, Swap and the websites list appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock.")
+            Text("KaPosts, Broadcasts, ChangeNOW Swap and the Kaspa websites list appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
