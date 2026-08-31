@@ -624,7 +624,7 @@ struct ProfileView: View {
             await MainActor.run {
                 knsPrimaryDomain = domain.fullName
             }
-            await refreshKNSData(for: walletAddress)
+            await refreshKNSUntilPrimarySettles(address: walletAddress, expected: domain.fullName)
             await MainActor.run {
                 settingPrimaryDomainId = nil
                 Haptics.success()
@@ -642,6 +642,32 @@ struct ProfileView: View {
                 Haptics.impact(.medium)
                 setPrimaryMessage = KNSSetPrimaryMessage(text: message, isError: true)
             }
+        }
+    }
+
+    /// Refreshes until KNS actually reports the new primary, or the attempts run out.
+    ///
+    /// A KNS profile belongs to a domain, so the avatar, banner and details all change with the
+    /// primary - but the write has only just been submitted, and one immediate refresh often
+    /// races the indexer and reads back the OLD primary. That left the editor showing the
+    /// previous domain's profile until it was closed and reopened. Bounded, and it keeps whatever
+    /// the last refresh produced either way, so a slow indexer costs a stale screen rather than a
+    /// hang.
+    private func refreshKNSUntilPrimarySettles(address: String, expected: String) async {
+        let expectedKey = expected.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        for attempt in 0..<3 {
+            if attempt > 0 {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+            await refreshKNSData(for: address)
+            // Read on the main actor like every other access to this state - refreshKNSData has
+            // just written it from there.
+            let settled = await MainActor.run {
+                (knsPrimaryDomain ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .lowercased() == expectedKey
+            }
+            if settled { return }
         }
     }
 
@@ -1967,8 +1993,16 @@ private struct KNSProfileEditorSheet: View {
 
     @EnvironmentObject private var walletManager: WalletManager
     @Environment(\.dismiss) private var dismiss
+    /// Observed so this screen follows the profile as it changes underneath it. A KNS profile
+    /// belongs to a DOMAIN, so promoting a different domain to primary swaps which avatar, banner
+    /// and details are in effect - and `profileInfo` is the snapshot taken when the sheet opened,
+    /// which would keep showing the old domain's until the sheet was closed and reopened.
+    @ObservedObject private var knsService = KNSService.shared
     @State private var showSetupGuide = false
     @State private var showSaveConfirmation = false
+    /// Identity of the profile the editable fields were last seeded from, so a refresh that
+    /// returns the SAME profile never overwrites what the user is part-way through typing.
+    @State private var seededProfileIdentity: String?
 
     @State private var avatarUrl: String
     @State private var bannerUrl: String
@@ -2032,6 +2066,47 @@ private struct KNSProfileEditorSheet: View {
         _redirectUrl = State(initialValue: profile.redirectUrl ?? "")
     }
 
+    /// The profile as it stands NOW, falling back to the opening snapshot until the cache has an
+    /// entry for this address.
+    private var liveProfileInfo: KNSAddressProfileInfo {
+        knsService.profileCache[profileInfo.address] ?? profileInfo
+    }
+
+    /// Changes when the effective profile changes domain - which is exactly when the fields below
+    /// need to be re-read, and only then.
+    private var profileIdentity: String {
+        let info = liveProfileInfo
+        return [info.assetId, info.domainName].map { $0 ?? "" }.joined(separator: "|")
+    }
+
+    /// Re-reads every editable field from `info`.
+    ///
+    /// Also drops any staged avatar/banner upload: those were picked for the previous domain's
+    /// profile, and silently carrying them onto a different one would save the wrong images.
+    private func seedFields(from info: KNSAddressProfileInfo) {
+        let profile = info.profile ?? .empty
+        avatarUrl = profile.avatarUrl ?? ""
+        bannerUrl = profile.bannerUrl ?? ""
+        bio = profile.bio ?? ""
+        x = profile.x ?? ""
+        website = profile.website ?? ""
+        telegram = profile.telegram ?? ""
+        discord = profile.discord ?? ""
+        contactEmail = profile.contactEmail ?? ""
+        github = profile.github ?? ""
+        redirectUrl = profile.redirectUrl ?? ""
+
+        avatarUploadData = nil
+        avatarUploadMimeType = nil
+        avatarPreviewImage = nil
+        avatarPickerItem = nil
+        bannerUploadData = nil
+        bannerUploadMimeType = nil
+        bannerPreviewImage = nil
+        bannerPickerItem = nil
+        imageLoadError = nil
+    }
+
     private var canSave: Bool {
         !isLoadingAvatar && !isLoadingBanner
     }
@@ -2041,7 +2116,7 @@ private struct KNSProfileEditorSheet: View {
     /// spending anything. Mirrors Android's identical `pendingChanges` computation in
     /// `EditKnsProfileScreen`.
     private var pendingChanges: [String] {
-        let existing = profileInfo.profile
+        let existing = liveProfileInfo.profile
         var changes: [String] = []
         if avatarUploadData != nil {
             changes.append("Avatar")
@@ -2065,7 +2140,7 @@ private struct KNSProfileEditorSheet: View {
     }
 
     private var displayName: String {
-        guard let raw = profileInfo.domainName else { return "KNS Profile" }
+        guard let raw = liveProfileInfo.domainName else { return "KNS Profile" }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "KNS Profile" : trimmed
     }
@@ -2246,7 +2321,7 @@ private struct KNSProfileEditorSheet: View {
                         Text(displayName)
                             .foregroundColor(.secondary)
                     }
-                    if let assetId = profileInfo.assetId, !assetId.isEmpty {
+                    if let assetId = liveProfileInfo.assetId, !assetId.isEmpty {
                         HStack {
                             Text("Asset ID")
                             Spacer()
@@ -2257,6 +2332,12 @@ private struct KNSProfileEditorSheet: View {
                         }
                     }
                 }
+            }
+            .onAppear { seededProfileIdentity = profileIdentity }
+            .onChange(of: profileIdentity) { identity in
+                guard identity != seededProfileIdentity else { return }
+                seededProfileIdentity = identity
+                seedFields(from: liveProfileInfo)
             }
             .navigationTitle("Edit KNS Profile")
             .navigationBarTitleDisplayMode(.inline)
