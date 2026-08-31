@@ -1809,7 +1809,19 @@ struct AppSettings: Codable {
     /// the same box/domain as the KaPosts indexer.
     var broadcastIndexerURL: String
     var pushIndexerURL: String
-    var knsBaseURL: String
+    /// The Kaspa Name Service endpoint. Fixed to the current network's default, never stored and
+    /// never user-editable.
+    ///
+    /// It used to be an editable field with no empty-string fallback (unlike the KaPosts and
+    /// broadcast indexer fields, which fall back to their defaults). Saving Connection Settings
+    /// with that field blank wrote "" straight through, and an empty base URL builds a
+    /// scheme-less URL that URLSession rejects with NSURLErrorUnsupportedURL (-1002) - so every
+    /// KNS call failed until it was typed back in by hand.
+    ///
+    /// Deriving it from `networkType` also means switching networks moves it, instead of leaving
+    /// a testnet wallet pointed at the mainnet registry.
+    var knsBaseURL: String { Self.defaultKNSURL(for: networkType) }
+
     var kaspaRestAPIURL: String
     var kaspaExplorer: KaspaExplorer
     /// A user-pinned "host:port" gRPC node - when non-blank, NodePoolService stops discovery
@@ -1932,7 +1944,6 @@ struct AppSettings: Codable {
             kaPostIndexerURL: defaultKaPostIndexerURL,
             broadcastIndexerURL: defaultBroadcastIndexerURL,
             pushIndexerURL: defaultPushIndexerURL,
-            knsBaseURL: defaultKNSMainnetURL,
             kaspaRestAPIURL: defaultKaspaMainnetURL,
             kaspaExplorer: .default,
             trustedNodeAddress: defaultTrustedNodeAddress,
@@ -1987,7 +1998,6 @@ struct AppSettings: Codable {
         case kaPostIndexerURL
         case broadcastIndexerURL
         case pushIndexerURL
-        case knsBaseURL
         case kaspaRestAPIURL
         case kaspaExplorer
         case trustedNodeAddress
@@ -2050,7 +2060,6 @@ struct AppSettings: Codable {
         kaPostIndexerURL: String = AppSettings.defaultKaPostIndexerURL,
         broadcastIndexerURL: String = AppSettings.defaultBroadcastIndexerURL,
         pushIndexerURL: String,
-        knsBaseURL: String,
         kaspaRestAPIURL: String,
         kaspaExplorer: KaspaExplorer = .default,
         trustedNodeAddress: String = AppSettings.defaultTrustedNodeAddress,
@@ -2103,7 +2112,6 @@ struct AppSettings: Codable {
         self.kaPostIndexerURL = kaPostIndexerURL
         self.broadcastIndexerURL = broadcastIndexerURL
         self.pushIndexerURL = pushIndexerURL
-        self.knsBaseURL = knsBaseURL
         self.kaspaRestAPIURL = kaspaRestAPIURL
         self.kaspaExplorer = kaspaExplorer
         self.trustedNodeAddress = trustedNodeAddress
@@ -2215,12 +2223,10 @@ struct AppSettings: Codable {
             pushIndexerURL = AppSettings.defaultPushIndexerURL
         }
 
-        knsBaseURL = try container.decodeIfPresent(String.self, forKey: .knsBaseURL) ?? AppSettings.defaultKNSURL(for: networkType)
+        // knsBaseURL is computed from networkType now, so any value in an existing blob - including
+        // the empty string that broke it - is simply ignored.
         kaspaRestAPIURL = try container.decodeIfPresent(String.self, forKey: .kaspaRestAPIURL) ?? AppSettings.defaultKaspaRestURL(for: networkType)
         if storedNetworkType == .testnet {
-            if knsBaseURL == AppSettings.defaultKNSURL(for: .testnet) {
-                knsBaseURL = AppSettings.defaultKNSURL(for: .mainnet)
-            }
             if kaspaRestAPIURL == AppSettings.defaultKaspaRestURL(for: .testnet) {
                 kaspaRestAPIURL = AppSettings.defaultKaspaRestURL(for: .mainnet)
             }
@@ -2289,7 +2295,6 @@ struct AppSettings: Codable {
         try container.encode(kaPostIndexerURL, forKey: .kaPostIndexerURL)
         try container.encode(broadcastIndexerURL, forKey: .broadcastIndexerURL)
         try container.encode(pushIndexerURL, forKey: .pushIndexerURL)
-        try container.encode(knsBaseURL, forKey: .knsBaseURL)
         try container.encode(kaspaRestAPIURL, forKey: .kaspaRestAPIURL)
         try container.encode(kaspaExplorer, forKey: .kaspaExplorer)
         try container.encode(trustedNodeAddress, forKey: .trustedNodeAddress)

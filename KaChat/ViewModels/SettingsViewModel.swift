@@ -292,13 +292,8 @@ final class SettingsViewModel: ObservableObject {
         }
     }
 
-    var knsBaseURL: String {
-        get { settings.knsBaseURL }
-        set {
-            settings.knsBaseURL = newValue
-            saveSettings()
-        }
-    }
+    /// Read-only: the KNS endpoint is fixed to the network's default (see `AppSettings`).
+    var knsBaseURL: String { settings.knsBaseURL }
 
     var kaspaRestAPIURL: String {
         get { settings.kaspaRestAPIURL }

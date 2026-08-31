@@ -1906,7 +1906,6 @@ struct ConnectionSettingsView: View {
     @State private var kaPostIndexerURL: String = ""
     @State private var broadcastIndexerURL: String = ""
     @State private var pushIndexerURL: String = ""
-    @State private var knsBaseURL: String = ""
     @State private var kaspaRestAPIURL: String = ""
     @State private var trustedNodeValidationError: String?
 
@@ -2024,16 +2023,17 @@ struct ConnectionSettingsView: View {
             }
 
             Section {
+                // Shown, not editable. This field had no empty-string fallback, so saving it
+                // blank wrote "" and every KNS call then failed with an unsupported-URL error
+                // until it was typed back in. It now follows the selected network.
                 VStack(alignment: .leading, spacing: 4) {
                     Text("KNS API URL")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    TextField("https://api.knsdomains.org/mainnet/api/v1", text: $knsBaseURL)
+                    Text(settingsViewModel.knsBaseURL)
                         .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    httpsInlineError(for: knsBaseURL)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
                 }
             } header: {
                 Text("Kaspa Name Service")
@@ -2240,27 +2240,39 @@ struct ConnectionSettingsView: View {
         kaPostIndexerURL = settingsViewModel.settings.kaPostIndexerURL
         broadcastIndexerURL = settingsViewModel.settings.broadcastIndexerURL
         pushIndexerURL = settingsViewModel.settings.pushIndexerURL
-        knsBaseURL = settingsViewModel.settings.knsBaseURL
         kaspaRestAPIURL = settingsViewModel.settings.kaspaRestAPIURL
     }
 
     /// Persists the endpoint fields, or returns false without saving anything when any field
     /// still holds an http:// value (its inline error is already visible; a toast repeats the
     /// reason so the refusal can't be missed). Non-empty scheme-less values are normalized to
+    /// A blank field means "use the default", never an empty URL.
+    private func normalizedOrDefault(_ value: String, _ fallback: String) -> String {
+        let normalized = normalizedHTTPSURL(value)
+        return normalized.isEmpty ? fallback : normalized
+    }
+
     /// https:// (Decision 3A).
     @discardableResult
     private func saveSettings() -> Bool {
-        let allFields = [indexerURL, kaPostIndexerURL, broadcastIndexerURL, pushIndexerURL, knsBaseURL, kaspaRestAPIURL]
+        let allFields = [indexerURL, kaPostIndexerURL, broadcastIndexerURL, pushIndexerURL, kaspaRestAPIURL]
         guard !allFields.contains(where: isCleartextHTTP) else {
             showToast(Self.httpsRequiredError, style: .error)
             return false
         }
-        settingsViewModel.settings.indexerURL = normalizedHTTPSURL(indexerURL)
-        settingsViewModel.settings.kaPostIndexerURL = normalizedHTTPSURL(kaPostIndexerURL).isEmpty ? AppSettings.defaultKaPostIndexerURL : normalizedHTTPSURL(kaPostIndexerURL)
-        settingsViewModel.settings.broadcastIndexerURL = normalizedHTTPSURL(broadcastIndexerURL).isEmpty ? AppSettings.defaultBroadcastIndexerURL : normalizedHTTPSURL(broadcastIndexerURL)
-        settingsViewModel.settings.pushIndexerURL = normalizedHTTPSURL(pushIndexerURL)
-        settingsViewModel.settings.knsBaseURL = normalizedHTTPSURL(knsBaseURL)
-        settingsViewModel.settings.kaspaRestAPIURL = normalizedHTTPSURL(kaspaRestAPIURL)
+        // Every field falls back to its default when left blank. Two of these already did; the
+        // rest wrote "" straight through, and an empty base URL builds a scheme-less URL that
+        // URLSession rejects with -1002 - which is exactly how the KNS endpoint got wiped, with
+        // no error anywhere pointing at the setting that caused it.
+        let network = settingsViewModel.settings.networkType
+        settingsViewModel.settings.indexerURL = normalizedOrDefault(indexerURL, AppSettings.defaultIndexerURL)
+        settingsViewModel.settings.kaPostIndexerURL = normalizedOrDefault(kaPostIndexerURL, AppSettings.defaultKaPostIndexerURL)
+        settingsViewModel.settings.broadcastIndexerURL = normalizedOrDefault(broadcastIndexerURL, AppSettings.defaultBroadcastIndexerURL)
+        settingsViewModel.settings.pushIndexerURL = normalizedOrDefault(pushIndexerURL, AppSettings.defaultPushIndexerURL)
+        settingsViewModel.settings.kaspaRestAPIURL = normalizedOrDefault(
+            kaspaRestAPIURL,
+            AppSettings.defaultKaspaRestURL(for: network)
+        )
         settingsViewModel.saveSettings()
         return true
     }
