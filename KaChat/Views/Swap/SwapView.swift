@@ -42,7 +42,7 @@ struct SwapView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
-            .navigationTitle("Swap")
+            .navigationTitle(AppTab.swap.ecosystemTitle)
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {

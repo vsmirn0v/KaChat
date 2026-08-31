@@ -76,7 +76,7 @@ struct MenuVisibilityView: View {
                 if !childModeOn {
                     menuRow(
                         icon: AppTab.swap.icon,
-                        label: AppTab.swap.label,
+                        label: AppTab.swap.ecosystemTitle,
                         isOn: Binding(
                             get: { !settingsViewModel.settings.hideSwapTab },
                             set: { settingsViewModel.settings.hideSwapTab = !$0; settingsViewModel.saveSettings() }
@@ -96,7 +96,7 @@ struct MenuVisibilityView: View {
                 }
                 menuRow(
                     icon: AppTab.apps.icon,
-                    label: AppTab.apps.label,
+                    label: AppTab.apps.ecosystemTitle,
                     isOn: Binding(
                         get: { !settingsViewModel.settings.hideAppsTab },
                         set: { settingsViewModel.settings.hideAppsTab = !$0; settingsViewModel.saveSettings() }

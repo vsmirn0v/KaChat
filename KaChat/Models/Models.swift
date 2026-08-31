@@ -1507,10 +1507,17 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         }
     }
 
-    /// The name shown inside the Ecosystem grid and at the top of the section it opens. Differs
-    /// from `label` only where a dock label has to stay short.
+    /// The name shown inside the Ecosystem grid, at the top of the section it opens, and in
+    /// Customize Dock. Differs from `label` only where a dock label has to stay short - the tab
+    /// bar truncates hard, so these full names live here rather than in `label`.
     var ecosystemTitle: String {
-        self == .apps ? "Popular Kaspa Websites" : label
+        switch self {
+        case .apps: return "Popular Kaspa Websites"
+        // ChangeNOW's own capitalization, matching how the app already names it everywhere else
+        // (swap transaction rows, the settings section).
+        case .swap: return "ChangeNOW Swap"
+        default: return label
+        }
     }
 
     var tag: Int {
