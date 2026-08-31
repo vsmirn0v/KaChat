@@ -13,6 +13,16 @@ struct PortfolioCardModel: Identifiable {
     let todayChangePercent: Double?
 }
 
+/// The one spring the reorder uses.
+///
+/// Shared deliberately: a dragged card's slot moves when the order changes, and the offset that
+/// keeps it under the finger has to cancel that move exactly. If the two use different curves -
+/// or if one animates and the other jumps - the card is drawn a full card-width away for the
+/// length of the animation.
+private enum PortfolioDragMotion {
+    static let reorder = Animation.spring(response: 0.3, dampingFraction: 0.8)
+}
+
 /// The portfolio a long-press actually landed on, captured by value at the moment the press
 /// fires (id AND the name shown on that card). Every dialog is driven by this snapshot via
 /// `presenting:`, and the destructive action only ever uses the snapshot's id, so the card that
@@ -120,16 +130,17 @@ struct PortfolioPickerHeader: View {
 
     // MARK: - Drag reordering
 
-    /// How far the dragged card must be pushed to stay under the finger.
+    /// How far the dragged card's slot has moved since the drag began, negated.
     ///
-    /// Its slot moves as the preview reorders, so the raw translation would leave the card
-    /// drifting a full slot away every time it swapped with a neighbour. Subtracting the distance
-    /// its slot has already travelled cancels that out.
-    private func dragCarryOffset(for portfolio: Portfolio) -> CGFloat {
+    /// Its slot moves as the preview reorders, so without this the card would jump a full slot
+    /// away every time it swapped with a neighbour. It is kept SEPARATE from the finger offset
+    /// because the slot move is animated: this half has to animate with it, on the same curve,
+    /// while the finger half must track the touch exactly and never animate at all.
+    private func slotCompensation(for portfolio: Portfolio) -> CGFloat {
         guard let dragStartIndex,
               let currentIndex = orderedPortfolios.firstIndex(where: { $0.id == portfolio.id })
-        else { return dragTranslation }
-        return dragTranslation - CGFloat(currentIndex - dragStartIndex) * Self.cardStride
+        else { return 0 }
+        return -CGFloat(currentIndex - dragStartIndex) * Self.cardStride
     }
 
     private func beginDrag(of portfolio: Portfolio) {
@@ -163,7 +174,7 @@ struct PortfolioPickerHeader: View {
         order.insert(moved, at: target)
         // Animated HERE rather than by an `.animation(value:)` on every card - that modifier had
         // to build and compare an id array per card per frame just to notice this same change.
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(PortfolioDragMotion.reorder) {
             liveOrder = order
         }
         Haptics.impact(.light)
@@ -234,7 +245,8 @@ struct PortfolioPickerHeader: View {
             // its context menu - the sheet only covers the lower half, so the card it belongs to
             // is still on screen and worth identifying.
             isMenuTarget: pressedPortfolio?.id == portfolio.id,
-            dragOffset: isDragging ? dragCarryOffset(for: portfolio) : 0,
+            fingerOffset: isDragging ? dragTranslation : 0,
+            slotCompensation: isDragging ? slotCompensation(for: portfolio) : 0,
             flattenBackground: draggingCardId != nil,
             onTap: {
                 Haptics.impact(.light)
@@ -541,7 +553,11 @@ private struct PortfolioCardView: View, Equatable {
     let isPressing: Bool
     let isDragging: Bool
     let isMenuTarget: Bool
-    let dragOffset: CGFloat
+    /// Tracks the touch. Never animated - it must follow the finger exactly.
+    let fingerOffset: CGFloat
+    /// Cancels the movement of this card's slot as the order changes. Animated on the SAME curve
+    /// as the reorder, so the two stay cancelled throughout it rather than only at the ends.
+    let slotCompensation: CGFloat
     /// True while ANY card is being dragged. See `cardBackground`.
     let flattenBackground: Bool
     let onTap: () -> Void
@@ -557,7 +573,8 @@ private struct PortfolioCardView: View, Equatable {
             && lhs.isPressing == rhs.isPressing
             && lhs.isDragging == rhs.isDragging
             && lhs.isMenuTarget == rhs.isMenuTarget
-            && lhs.dragOffset == rhs.dragOffset
+            && lhs.fingerOffset == rhs.fingerOffset
+            && lhs.slotCompensation == rhs.slotCompensation
             && lhs.flattenBackground == rhs.flattenBackground
     }
 
@@ -618,7 +635,16 @@ private struct PortfolioCardView: View, Equatable {
         // rather than linear fades, so the card settles the way a pressed icon does.
         .scaleEffect(isDragging ? 1.06 : (isPressing ? 0.94 : (isMenuTarget ? 1.04 : 1)))
         .brightness(isPressing && !isDragging ? -0.04 : 0)
-        .offset(x: dragOffset)
+        // Two offsets, deliberately. The inner one cancels the slot move and animates with it;
+        // the outer one follows the finger and is applied after the animation modifier, so it is
+        // not governed by it. Collapsing these into a single value is what drew the card a full
+        // card-width off to the left for the length of every swap.
+        .offset(x: slotCompensation)
+        // Only while the drag is live. On release both offsets go to zero in the same update, and
+        // animating just this one would walk the card a slot to the left all over again on the way
+        // out - the same jump, at the other end of the gesture.
+        .animation(isDragging ? PortfolioDragMotion.reorder : nil, value: slotCompensation)
+        .offset(x: fingerOffset)
         // Applied only when there is a shadow to draw. A shadow forces an offscreen pass, and
         // leaving a transparent one installed on every card pays for it on all of them.
         .modifier(LiftShadow(active: isLifted))
