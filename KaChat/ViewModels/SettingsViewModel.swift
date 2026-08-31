@@ -165,6 +165,9 @@ extension AppSettings {
         if !userDefaults.bool(forKey: ecosystemRulesKey) {
             settings.tabOrder = AppTab.defaultOrder.map(\.rawValue)
             settings.hideEcosystemTab = false
+            // Turned on for everyone too: it was off by default while it had to win a dock slot,
+            // and its home is now a tile in Ecosystem that costs nothing to keep.
+            settings.hideAppsTab = false
             userDefaults.set(true, forKey: ecosystemRulesKey)
             save(settings)
         }

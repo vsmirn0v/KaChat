@@ -74,8 +74,8 @@ struct EcosystemView: View {
             SwapView()
         case .apps:
             NavigationStack {
+                // ProfileAppsView sets its own title; only the shared header items are added.
                 ProfileAppsView()
-                    .navigationTitle(AppTab.apps.ecosystemTitle)
                     .toolbar {
                         ToolbarItem(placement: .navigationBarLeading) {
                             ConnectionStatusIndicator()

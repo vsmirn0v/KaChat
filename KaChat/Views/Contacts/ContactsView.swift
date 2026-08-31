@@ -450,13 +450,13 @@ struct ProfileView: View {
         .padding(.top, -8)
     }
 
-    /// Entry to the Apps screen: quick bubble launchers for Kaspa ecosystem sites.
+    /// Entry to the websites screen: quick bubble launchers for Kaspa ecosystem sites.
     private var appsSection: some View {
         NavigationLink {
             ProfileAppsView()
         } label: {
             HStack {
-                Label("Apps", systemImage: "square.grid.2x2")
+                Label(AppTab.apps.ecosystemTitle, systemImage: AppTab.apps.icon)
                     .foregroundColor(.primary)
                 Spacer()
                 Image(systemName: "chevron.right")
@@ -5096,7 +5096,7 @@ struct ProfileAppsView: View {
             }
             .padding(24)
         }
-        .navigationTitle("Apps")
+        .navigationTitle(AppTab.apps.ecosystemTitle)
         .navigationBarTitleDisplayMode(.large)
         .fullScreenCover(isPresented: Binding(
             get: { browserURL != nil },

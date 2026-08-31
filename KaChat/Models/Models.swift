@@ -2204,7 +2204,10 @@ struct AppSettings: Codable {
         hideKaPostsTab = try container.decodeIfPresent(Bool.self, forKey: .hideKaPostsTab) ?? false
         hideMoreItem = try container.decodeIfPresent(Bool.self, forKey: .hideMoreItem) ?? false
         hideBroadcasts = try container.decodeIfPresent(Bool.self, forKey: .hideBroadcasts) ?? false
-        hideAppsTab = try container.decodeIfPresent(Bool.self, forKey: .hideAppsTab) ?? true
+        // Defaults to SHOWN. It used to default to hidden because it competed for a dock slot;
+        // it now lives in Ecosystem, where it costs nothing, so an install that predates this key
+        // should have it rather than not.
+        hideAppsTab = try container.decodeIfPresent(Bool.self, forKey: .hideAppsTab) ?? false
         // Defaults to SHOWN for everyone, new and existing: Ecosystem is where Swap, KaPosts,
         // Broadcasts and the websites list live now, so hiding it by default would strand them.
         hideEcosystemTab = try container.decodeIfPresent(Bool.self, forKey: .hideEcosystemTab) ?? false
