@@ -23,32 +23,17 @@ struct MenuVisibilityView: View {
         settingsViewModel.settings.childModeEnabled
     }
 
-    /// KaPosts is on but the dock is full, so it opens via re-tapping the Chats tab - surfaced as
-    /// a hint on its row so the behavior is discoverable right where it was toggled on.
-    private var kaPostsReTapHint: String? {
+    /// Where a feature currently lives, shown on its own row.
+    ///
+    /// The three states worth saying out loud: it has a dock slot, it does not fit and so sits in
+    /// Ecosystem, or Ecosystem itself is off and it has nowhere to go. The last one is the only
+    /// way to lose access to an enabled feature, so it is the one that most needs saying.
+    private func placementHint(for tab: AppTab, hidden: Bool) -> String? {
         let settings = settingsViewModel.settings
-        guard !settings.hideKaPostsTab else { return nil }
-        return AppTab.kaPostsAccessibleViaChatsTab(from: settings)
-            ? "Dock is full - open it by tapping the Chats tab again" : nil
-    }
-
-    /// Same discoverability hint for Broadcasts when it's masked behind the Chats-tab cycle.
-    private var broadcastsReTapHint: String? {
-        let settings = settingsViewModel.settings
-        guard !settings.hideBroadcasts else { return nil }
-        return AppTab.broadcastsAccessibleViaChatsTab(from: settings)
-            ? "Dock is full - open it by tapping the Chats tab again" : nil
-    }
-
-    /// Apps doesn't ride the Chats-tab cycle - it's a regular dock tab that needs a free slot.
-    /// Enabled but not visible means the dock is full: tell the user to free a slot. While it
-    /// actually sits in the dock, note that it moved off the Profile screen instead.
-    private var appsHint: String? {
-        let settings = settingsViewModel.settings
-        guard !settings.hideAppsTab else { return nil }
-        return AppTab.visible(from: settings).contains(.apps)
-            ? "Moved out of Profile while on the dock"
-            : "Dock is full - turn another tab off to show Apps"
+        guard !hidden else { return nil }
+        if AppTab.visible(from: settings).contains(tab) { return "In your dock" }
+        if AppTab.ecosystemSections(from: settings).contains(tab) { return "In Ecosystem" }
+        return "Dock is full and Ecosystem is off - turn one on to reach it"
     }
 
     var body: some View {
@@ -76,6 +61,18 @@ struct MenuVisibilityView: View {
                     ),
                     locked: false
                 )
+                menuRow(
+                    icon: AppTab.ecosystem.icon,
+                    label: AppTab.ecosystem.label,
+                    isOn: Binding(
+                        get: { !settingsViewModel.settings.hideEcosystemTab },
+                        set: { settingsViewModel.settings.hideEcosystemTab = !$0; settingsViewModel.saveSettings() }
+                    ),
+                    locked: false,
+                    hint: settingsViewModel.settings.hideEcosystemTab
+                        ? nil
+                        : "Holds whatever is turned on below but not in your dock"
+                )
                 if !childModeOn {
                     menuRow(
                         icon: AppTab.swap.icon,
@@ -94,7 +91,7 @@ struct MenuVisibilityView: View {
                             set: { settingsViewModel.settings.hideKaPostsTab = !$0; settingsViewModel.saveSettings() }
                         ),
                         locked: false,
-                        hint: kaPostsReTapHint
+                        hint: placementHint(for: .kaposts, hidden: settingsViewModel.settings.hideKaPostsTab)
                     )
                 }
                 menuRow(
@@ -105,7 +102,7 @@ struct MenuVisibilityView: View {
                         set: { settingsViewModel.settings.hideAppsTab = !$0; settingsViewModel.saveSettings() }
                     ),
                     locked: false,
-                    hint: appsHint
+                    hint: placementHint(for: .apps, hidden: settingsViewModel.settings.hideAppsTab)
                 )
                 if !childModeOn {
                     menuRow(
@@ -116,7 +113,7 @@ struct MenuVisibilityView: View {
                             set: { settingsViewModel.settings.hideBroadcasts = !$0; settingsViewModel.saveSettings() }
                         ),
                         locked: false,
-                        hint: broadcastsReTapHint
+                        hint: placementHint(for: .broadcasts, hidden: settingsViewModel.settings.hideBroadcasts)
                     )
                 }
             } header: {

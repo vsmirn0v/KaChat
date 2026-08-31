@@ -85,6 +85,7 @@
 		E810001D2D4C00010000000F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810001C2D4C00010000000F /* SettingsView.swift */; };
 		E81000212D4C000100000011 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000202D4C000100000011 /* Models.swift */; };
 		E81000232D4C000100000012 /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000222D4C000100000012 /* MainTabView.swift */; };
+		C3F79B2E51A64D08B7E1265A /* EcosystemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */; };
 		E81000292D4C000100000015 /* SettingsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000282D4C000100000015 /* SettingsViewModel.swift */; };
 		E810002F2D4C000100000018 /* CryptoUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810002E2D4C000100000018 /* CryptoUtils.swift */; };
 		E81000332D4C00010000001A /* AddContactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000322D4C00010000001A /* AddContactView.swift */; };
@@ -296,6 +297,7 @@
 		E810001C2D4C00010000000F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		E81000202D4C000100000011 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		E81000222D4C000100000012 /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EcosystemView.swift; sourceTree = "<group>"; };
 		E81000282D4C000100000015 /* SettingsViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsViewModel.swift; sourceTree = "<group>"; };
 		E810002E2D4C000100000018 /* CryptoUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoUtils.swift; sourceTree = "<group>"; };
 		E81000322D4C00010000001A /* AddContactView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddContactView.swift; sourceTree = "<group>"; };
@@ -537,6 +539,7 @@
 				E81000022D4C000100000002 /* ContentView.swift */,
 				3F4C10012F72000100000001 /* LaunchRouter.swift */,
 				E81000222D4C000100000012 /* MainTabView.swift */,
+				D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -1132,6 +1135,7 @@
 				KNAV00010001000100000001 /* KNSAvatarView.swift in Sources */,
 				E81000212D4C000100000011 /* Models.swift in Sources */,
 				E81000232D4C000100000012 /* MainTabView.swift in Sources */,
+				C3F79B2E51A64D08B7E1265A /* EcosystemView.swift in Sources */,
 				E81000292D4C000100000015 /* SettingsViewModel.swift in Sources */,
 				DTAL00010001000100000001 /* DeterministicAlias.swift in Sources */,
 				D9F31A6B7E2C48D0A15B3C42 /* KaPostsMarkdown.swift in Sources */,

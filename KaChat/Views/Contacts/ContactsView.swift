@@ -64,11 +64,11 @@ struct ProfileView: View {
                         profileHeroSection(wallet)
                         qrButtonsSection(wallet)
                         addressDropdownsSection(wallet)
-                        if !AppTab.visible(from: settingsViewModel.settings).contains(.apps) {
-                            // Apps lives here only while it's NOT actually on the dock - either
-                            // toggled off in Customize Dock, or toggled on but tail-dropped
-                            // because the dock is full (Apps doesn't ride the Chats-tab cycle).
-                            // On the dock, this row disappears.
+                        if !AppTab.visible(from: settingsViewModel.settings).contains(.apps),
+                           !AppTab.ecosystemSections(from: settingsViewModel.settings).contains(.apps) {
+                            // The websites list lives here only while it is reachable NOWHERE
+                            // else - not on the dock and not in Ecosystem. Once either of those
+                            // holds it, this row disappears rather than offering a third copy.
                             appsSection
                         }
                         helpSection

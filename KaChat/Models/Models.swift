@@ -1464,6 +1464,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     case kaposts
     case broadcasts
     case apps
+    /// The container the other feature tabs live in when they are not in the dock
+    /// themselves - see `ecosystemSections(from:)`.
+    case ecosystem
     /// RETIRED (4.0): the "+ More" dock item was removed - Customize Dock is reached via
     /// Settings > Customization instead. The case survives only so saved `tabOrder` /
     /// per-account `DockOverlay` blobs that contain "more" still decode; `isEnabled` hard-codes
@@ -1481,7 +1484,10 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .profile: return "Profile"
         case .kaposts: return "KaPosts"
         case .broadcasts: return "Broadcasts"
-        case .apps: return "Apps"
+        // Short enough for a dock label. `ecosystemTitle` carries the full name, which is what
+        // the Ecosystem grid and the screen itself show.
+        case .apps: return "Websites"
+        case .ecosystem: return "Ecosystem"
         case .more: return "More"
         }
     }
@@ -1495,9 +1501,16 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .profile: return "person.crop.circle"
         case .kaposts: return "square.and.pencil"
         case .broadcasts: return "dot.radiowaves.left.and.right"
-        case .apps: return "square.grid.2x2"
+        case .apps: return "globe"
+        case .ecosystem: return "circle.hexagongrid"
         case .more: return "plus.circle"
         }
+    }
+
+    /// The name shown inside the Ecosystem grid and at the top of the section it opens. Differs
+    /// from `label` only where a dock label has to stay short.
+    var ecosystemTitle: String {
+        self == .apps ? "Popular Kaspa Websites" : label
     }
 
     var tag: Int {
@@ -1511,6 +1524,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .more: return 7
         case .broadcasts: return 8
         case .apps: return 9
+        case .ecosystem: return 10
         }
     }
 
@@ -1519,17 +1533,21 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     var canHide: Bool {
         switch self {
         case .chats, .profile: return false
-        case .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .apps, .more: return true
+        case .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .apps, .ecosystem, .more: return true
         }
     }
 
-    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .swap, .profile, .kaposts, .broadcasts, .apps]
+    /// Ecosystem takes the dock slot Swap used to hold, so a default install shows exactly the
+    /// five the dock can fit - Portfolio, Storage, Chats, Ecosystem, Profile - with Swap, KaPosts,
+    /// Broadcasts and the websites list still ENABLED but living inside Ecosystem rather than
+    /// competing for a dock slot.
+    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .ecosystem, .profile, .swap, .kaposts, .broadcasts, .apps]
 
     /// The dock renders at most this many items (the iPhone tab bar's hard limit); anything past
     /// it falls off rather than letting the system TabView spawn its own "More" list. KaPosts and
     /// Broadcasts drop out first (in that order) when over the cap - they stay reachable by
-    /// re-tapping the Chats tab (see MainTabView.handleChatsTabReselection). Any other enabled
-    /// tab that still doesn't fit (e.g. Apps) tail-drops until the user frees a slot.
+    /// Ecosystem (see `ecosystemSections(from:)`). Anything enabled that doesn't fit simply
+    /// tail-drops out of the dock and is reached through Ecosystem instead.
     static let maxDockItems = 5
 
     /// `settings.tabOrder`, resolved into real cases with any missing/unknown entries (a fresh
@@ -1546,9 +1564,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     /// True when this tab is enabled (not hidden) in settings, independent of dock capacity.
     ///
     /// Child Mode (Settings > Security) hard-hides Swaps, KaPosts and Broadcasts here - this is
-    /// the single choke point every dock consumer flows through (`visible`, `chatsSlotCycle`,
-    /// `kaPostsAccessibleViaChatsTab`, `broadcastsAccessibleViaChatsTab`), so while it's on those
-    /// tabs can't render in the dock NOR ride the Chats-slot cycle, regardless of dock settings.
+    /// the single choke point every dock consumer flows through (`visible`, `ecosystemSections`),
+    /// so while it's on those tabs can't render in the dock NOR appear inside Ecosystem,
+    /// regardless of dock settings.
     func isEnabled(in settings: AppSettings) -> Bool {
         if settings.childModeEnabled {
             switch self {
@@ -1563,6 +1581,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .kaposts: return !settings.hideKaPostsTab
         case .broadcasts: return !settings.hideBroadcasts
         case .apps: return !settings.hideAppsTab
+        case .ecosystem: return !settings.hideEcosystemTab
         // "+ More" is retired from the dock entirely (Customize Dock lives in Settings now) -
         // hard-hidden regardless of what an old saved blob says.
         case .more: return false
@@ -1574,41 +1593,28 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     /// the dock capacity - what MainTabView actually renders and what the Menu Visibility preview
     /// strip shows. When over capacity, KaPosts drops out first (it stays reachable via re-tapping
     /// Chats); after that the tail of the order falls off.
+    /// The resolved order, filtered to what the user hasn't hidden and clamped to dock capacity.
+    ///
+    /// Anything enabled that doesn't fit simply isn't in the dock. It is not lost: the four
+    /// feature tabs are reachable through Ecosystem (see `ecosystemSections(from:)`). There is no
+    /// longer a Chats-tab cycle - re-tapping or holding Chats to reach KaPosts and Broadcasts was
+    /// removed once Ecosystem gave them a place of their own.
     static func visible(from settings: AppSettings) -> [AppTab] {
-        var tabs = resolvedOrder(from: settings).filter { $0.isEnabled(in: settings) }
-        // Over capacity: KaPosts drops out first, then Broadcasts - both stay reachable by
-        // cycling the Chats tab (see MainTabView.handleChatsTabReselection). After that the
-        // tail of the order silently falls off: a non-cyclable tab (e.g. Apps) that's toggled
-        // on but doesn't fit just doesn't appear until the user frees a slot.
-        for cyclable in [AppTab.kaposts, .broadcasts] where tabs.count > maxDockItems {
-            if let index = tabs.firstIndex(of: cyclable) {
-                tabs.remove(at: index)
-            }
-        }
-        if tabs.count > maxDockItems {
-            tabs = Array(tabs.prefix(maxDockItems))
-        }
-        return tabs
+        let tabs = resolvedOrder(from: settings).filter { $0.isEnabled(in: settings) }
+        return tabs.count > maxDockItems ? Array(tabs.prefix(maxDockItems)) : tabs
     }
 
-    /// KaPosts is enabled but didn't fit in the dock - it joins the Chats-tab cycle.
-    static func kaPostsAccessibleViaChatsTab(from settings: AppSettings) -> Bool {
-        AppTab.kaposts.isEnabled(in: settings) && !visible(from: settings).contains(.kaposts)
-    }
+    /// Everything Ecosystem can hold, in the order it lists them.
+    static let ecosystemCandidates: [AppTab] = [.kaposts, .broadcasts, .swap, .apps]
 
-    /// Broadcasts is enabled but didn't fit in the dock - it joins the Chats-tab cycle.
-    static func broadcastsAccessibleViaChatsTab(from settings: AppSettings) -> Bool {
-        AppTab.broadcasts.isEnabled(in: settings) && !visible(from: settings).contains(.broadcasts)
-    }
-
-    /// What re-tapping the Chats tab cycles through: always Chats itself, then whichever of
-    /// KaPosts/Broadcasts are enabled but masked out of the full dock. Apps is deliberately NOT
-    /// part of the cycle - it's a regular dock tab that must claim a free slot to appear.
-    static func chatsSlotCycle(from settings: AppSettings) -> [AppTab] {
-        var cycle: [AppTab] = [.chats]
-        if kaPostsAccessibleViaChatsTab(from: settings) { cycle.append(.kaposts) }
-        if broadcastsAccessibleViaChatsTab(from: settings) { cycle.append(.broadcasts) }
-        return cycle
+    /// What the Ecosystem page actually shows: its candidates, minus anything hidden, minus
+    /// anything that already has its own dock slot.
+    ///
+    /// The dock subtraction is the point - a feature sitting in the dock has no reason to also be
+    /// a tile one level deeper, and listing it twice would just make the grid look padded.
+    static func ecosystemSections(from settings: AppSettings) -> [AppTab] {
+        let inDock = Set(visible(from: settings))
+        return ecosystemCandidates.filter { $0.isEnabled(in: settings) && !inDock.contains($0) }
     }
 }
 
@@ -1769,6 +1775,7 @@ struct AppSettings: Codable {
     /// Apps (ecosystem link bubbles) as a dock tab. Hidden (default) = the Apps row lives on
     /// the Profile screen instead; toggled on = dock tab, Profile row disappears.
     var hideAppsTab: Bool
+    var hideEcosystemTab: Bool
     /// Raw values of `AppTab`, in display order - user-customizable via Settings > Customization
     /// > Menu's drag-to-reorder preview strip.
     var tabOrder: [String]
@@ -1776,7 +1783,7 @@ struct AppSettings: Codable {
     // Security
     /// Child Mode (Settings > Security): while on, the app is strictly Chats, Group Chats,
     /// Portfolio and Cold Storage - Swaps, KaPosts and Broadcasts are removed from every access
-    /// point (dock, Chats-slot cycle, deep links, notifications, push registration). Turning it
+    /// point (dock, Ecosystem, deep links, notifications, push registration). Turning it
     /// OFF is validated against the salted password hash in the Keychain (see ChildModeService) -
     /// this flag alone is just the fast-path gate the UI reads.
     var childModeEnabled: Bool
@@ -1919,10 +1926,10 @@ struct AppSettings: Codable {
             appearance: .system,
             language: .system,
             currency: .usDollar,
-            // Fresh-install dock: EVERYTHING on (4.0). The dock renders as many as fit
-            // (maxDockItems): KaPosts/Broadcasts ride the Chats slot when it's full (re-tap the
-            // Chats tab to cycle); any other enabled tab that doesn't fit (Apps, by default)
-            // tail-drops until the user frees a slot in Customize Dock. Existing users are
+            // Fresh-install dock: EVERYTHING on. The dock renders as many as fit
+            // (maxDockItems) - Portfolio, Storage, Chats, Ecosystem, Profile - and Swap,
+            // KaPosts, Broadcasts and the websites list are reached through Ecosystem rather
+            // than competing for a slot. Existing users are
             // unaffected: their saved settings decode with their own explicit values (or the ??
             // fallbacks in init(from:) for keys that predate them). "+ More" no longer exists
             // as a dock item.
@@ -1933,6 +1940,7 @@ struct AppSettings: Codable {
             hideMoreItem: true,
             hideBroadcasts: false,
             hideAppsTab: false,
+            hideEcosystemTab: false,
             tabOrder: AppTab.defaultOrder.map { $0.rawValue },
             childModeEnabled: false,
             biometricSeedPhraseEnabled: true,
@@ -1987,6 +1995,7 @@ struct AppSettings: Codable {
         case hideMoreItem
         case hideBroadcasts
         case hideAppsTab
+        case hideEcosystemTab
         case tabOrder
         case childModeEnabled
         case biometricSeedPhraseEnabled
@@ -2049,6 +2058,7 @@ struct AppSettings: Codable {
         hideMoreItem: Bool = true,
         hideBroadcasts: Bool = false,
         hideAppsTab: Bool = false,
+        hideEcosystemTab: Bool = false,
         tabOrder: [String] = AppTab.defaultOrder.map { $0.rawValue },
         childModeEnabled: Bool = false,
         biometricSeedPhraseEnabled: Bool = true,
@@ -2101,6 +2111,7 @@ struct AppSettings: Codable {
         self.hideMoreItem = hideMoreItem
         self.hideBroadcasts = hideBroadcasts
         self.hideAppsTab = hideAppsTab
+        self.hideEcosystemTab = hideEcosystemTab
         self.tabOrder = tabOrder
         self.childModeEnabled = childModeEnabled
         self.biometricSeedPhraseEnabled = biometricSeedPhraseEnabled
@@ -2180,14 +2191,16 @@ struct AppSettings: Codable {
         hidePortfolioTab = try container.decodeIfPresent(Bool.self, forKey: .hidePortfolioTab) ?? false
         hideSwapTab = try container.decodeIfPresent(Bool.self, forKey: .hideSwapTab) ?? false
         hideColdStorageTab = try container.decodeIfPresent(Bool.self, forKey: .hideColdStorageTab) ?? false
-        // 4.0 seeding for EXISTING users (blobs saved before these keys existed): KaPosts,
-        // Broadcasts and "+More" all land ENABLED. With a full 5-tab dock the cap drops
-        // KaPosts/Broadcasts into the Chats-slot cycle (dock unchanged); with a free slot,
-        // "+More" fills it (KaPosts/Broadcasts still cycle - see AppTab.visible).
+        // Seeding for EXISTING users (blobs saved before these keys existed): KaPosts and
+        // Broadcasts land ENABLED. With a full dock they don't get a slot, and are reached
+        // through Ecosystem instead - see AppTab.ecosystemSections.
         hideKaPostsTab = try container.decodeIfPresent(Bool.self, forKey: .hideKaPostsTab) ?? false
         hideMoreItem = try container.decodeIfPresent(Bool.self, forKey: .hideMoreItem) ?? false
         hideBroadcasts = try container.decodeIfPresent(Bool.self, forKey: .hideBroadcasts) ?? false
         hideAppsTab = try container.decodeIfPresent(Bool.self, forKey: .hideAppsTab) ?? true
+        // Defaults to SHOWN for everyone, new and existing: Ecosystem is where Swap, KaPosts,
+        // Broadcasts and the websites list live now, so hiding it by default would strand them.
+        hideEcosystemTab = try container.decodeIfPresent(Bool.self, forKey: .hideEcosystemTab) ?? false
         tabOrder = try container.decodeIfPresent([String].self, forKey: .tabOrder) ?? AppTab.defaultOrder.map { $0.rawValue }
         childModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .childModeEnabled) ?? false
         biometricSeedPhraseEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSeedPhraseEnabled) ?? true
@@ -2284,6 +2297,7 @@ struct AppSettings: Codable {
         try container.encode(hideMoreItem, forKey: .hideMoreItem)
         try container.encode(hideBroadcasts, forKey: .hideBroadcasts)
         try container.encode(hideAppsTab, forKey: .hideAppsTab)
+        try container.encode(hideEcosystemTab, forKey: .hideEcosystemTab)
         try container.encode(tabOrder, forKey: .tabOrder)
         try container.encode(childModeEnabled, forKey: .childModeEnabled)
         try container.encode(biometricSeedPhraseEnabled, forKey: .biometricSeedPhraseEnabled)

@@ -157,6 +157,17 @@ extension AppSettings {
             userDefaults.set(true, forKey: dockRulesKey)
             save(settings)
         }
+        // One-time 4.1 dock rules: Ecosystem replaces Swap's dock slot and takes over holding
+        // KaPosts, Broadcasts and the websites list, so every existing user is moved onto the new
+        // arrangement rather than only new installs getting it. Their per-tab on/off choices are
+        // untouched - only the ORDER is reset, which is what decides who gets a dock slot.
+        let ecosystemRulesKey = "kachat_dock_41_ecosystem_applied"
+        if !userDefaults.bool(forKey: ecosystemRulesKey) {
+            settings.tabOrder = AppTab.defaultOrder.map(\.rawValue)
+            settings.hideEcosystemTab = false
+            userDefaults.set(true, forKey: ecosystemRulesKey)
+            save(settings)
+        }
         // Per-account dock: the active account's saved arrangement wins over the global blob.
         if let address = activeDockAddress() {
             if let data = userDefaults.data(forKey: dockOverlayKey(for: address)),
