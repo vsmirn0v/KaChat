@@ -539,7 +539,6 @@
 				E81000022D4C000100000002 /* ContentView.swift */,
 				3F4C10012F72000100000001 /* LaunchRouter.swift */,
 				E81000222D4C000100000012 /* MainTabView.swift */,
-				D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -624,6 +623,7 @@
 				CS0005G0000000000000001 /* ColdStorage */,
 				SWAP005G0000000000000001 /* Swap */,
 				KP0001G0000000000000001 /* KaPosts */,
+				ECO0001G0000000000000001 /* Ecosystem */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -820,6 +820,14 @@
 				SHRT000100010000000002 /* KaChatShortcuts.swift */,
 			);
 			path = Shortcuts;
+			sourceTree = "<group>";
+		};
+		ECO0001G0000000000000001 /* Ecosystem */ = {
+			isa = PBXGroup;
+			children = (
+				D8A24E6C90B34F17A5C3782B /* EcosystemView.swift */,
+			);
+			path = Ecosystem;
 			sourceTree = "<group>";
 		};
 		SWAP005G0000000000000001 /* Swap */ = {
