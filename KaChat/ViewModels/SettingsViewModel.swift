@@ -165,10 +165,25 @@ extension AppSettings {
         if !userDefaults.bool(forKey: ecosystemRulesKey) {
             settings.tabOrder = AppTab.defaultOrder.map(\.rawValue)
             settings.hideEcosystemTab = false
-            // Turned on for everyone too: it was off by default while it had to win a dock slot,
-            // and its home is now a tile in Ecosystem that costs nothing to keep.
-            settings.hideAppsTab = false
             userDefaults.set(true, forKey: ecosystemRulesKey)
+            save(settings)
+        }
+
+        // Its OWN key, deliberately, rather than another line inside the block above.
+        //
+        // That block's flag is set the first time it runs, so a rule added to it afterwards
+        // never executes for anyone who already ran it - which is exactly what happened here:
+        // the websites list stayed switched off on every device that had already taken the
+        // Kaspa Hub migration, and the decode default could not rescue it either, since a saved
+        // blob carries an explicit `hideAppsTab` and never falls back.
+        //
+        // One rule, one key. It costs a Bool in UserDefaults and it cannot silently no-op.
+        let websitesEnabledKey = "kachat_dock_41_websites_enabled"
+        if !userDefaults.bool(forKey: websitesEnabledKey) {
+            // Off by default while it had to win one of five dock slots; its home is now a tile
+            // in Kaspa Hub that costs nothing to keep.
+            settings.hideAppsTab = false
+            userDefaults.set(true, forKey: websitesEnabledKey)
             save(settings)
         }
         // Per-account dock: the active account's saved arrangement wins over the global blob.
