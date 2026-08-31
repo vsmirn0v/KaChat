@@ -13,16 +13,6 @@ struct PortfolioCardModel: Identifiable {
     let todayChangePercent: Double?
 }
 
-/// The one spring the reorder uses.
-///
-/// Shared deliberately: a dragged card's slot moves when the order changes, and the offset that
-/// keeps it under the finger has to cancel that move exactly. If the two use different curves -
-/// or if one animates and the other jumps - the card is drawn a full card-width away for the
-/// length of the animation.
-private enum PortfolioDragMotion {
-    static let reorder = Animation.spring(response: 0.3, dampingFraction: 0.8)
-}
-
 /// The portfolio a long-press actually landed on, captured by value at the moment the press
 /// fires (id AND the name shown on that card). Every dialog is driven by this snapshot via
 /// `presenting:`, and the destructive action only ever uses the snapshot's id, so the card that
@@ -56,48 +46,8 @@ struct PortfolioPickerHeader: View {
     /// press looks like it is being registered instead of nothing happening for four tenths of a
     /// second and then a sheet appearing.
     @State private var pressingCardId: UUID?
-    /// The card being dragged to a new position, once a held card has actually moved.
-    @State private var draggingCardId: UUID?
-    /// Where the drag started in the CURRENT order, so the target index is computed from a fixed
-    /// baseline instead of from a position that keeps changing underneath it.
-    @State private var dragStartIndex: Int?
-    @State private var dragTranslation: CGFloat = 0
-    /// The order being previewed mid-drag. nil means "no drag in progress, use `portfolios`";
-    /// it is committed on release and discarded otherwise. Stored as the portfolios themselves
-    /// rather than ids: this is read several times per card per frame while dragging, and
-    /// rebuilding it from ids meant constructing a dictionary on every one of those reads.
-    @State private var liveOrder: [Portfolio]?
-
-    /// Card contents captured when a drag starts, and used for every frame of it.
-    ///
-    /// `cardModel` is NOT cheap - per card it filters the whole transaction list twice and
-    /// recomputes a seven-day value history - and `formatCurrency` allocates two NumberFormatters
-    /// on top. Dragging updates state on every touch move, which re-rendered every card, so all of
-    /// that ran for all five cards at display rate. Nothing it produces can change during a drag,
-    /// so it is computed once at the start instead.
-    @State private var frozenCards: [UUID: FrozenCard] = [:]
-
-    fileprivate struct FrozenCard {
-        let model: PortfolioCardModel
-        let valueText: String
-    }
-
-    /// Card width plus the HStack's spacing - one full slot. Cards are a fixed width, which is
-    /// what makes a drag position resolvable by arithmetic instead of by measuring every card.
-    private static let cardWidth: CGFloat = 140
-    private static let cardSpacing: CGFloat = 12
-    private static let cardStride: CGFloat = cardWidth + cardSpacing
-    /// How far a held card must move before it counts as a reorder rather than a menu open.
-    private static let dragActivationDistance: CGFloat = 12
 
     private var canAddMore: Bool { portfolios.count < PortfolioManager.maxPortfolios }
-
-    /// The cards as they should currently render: the live drag preview when one is in progress,
-    /// otherwise whatever the manager holds.
-    private var orderedPortfolios: [Portfolio] {
-        guard let liveOrder, liveOrder.count == portfolios.count else { return portfolios }
-        return liveOrder
-    }
 
     var body: some View {
         cardsLayer
@@ -128,83 +78,6 @@ struct PortfolioPickerHeader: View {
             }
     }
 
-    // MARK: - Drag reordering
-
-    /// How far the dragged card's slot has moved since the drag began, negated.
-    ///
-    /// Its slot moves as the preview reorders, so without this the card would jump a full slot
-    /// away every time it swapped with a neighbour. It is kept SEPARATE from the finger offset
-    /// because the slot move is animated: this half has to animate with it, on the same curve,
-    /// while the finger half must track the touch exactly and never animate at all.
-    private func slotCompensation(for portfolio: Portfolio) -> CGFloat {
-        guard let dragStartIndex,
-              let currentIndex = orderedPortfolios.firstIndex(where: { $0.id == portfolio.id })
-        else { return 0 }
-        return -CGFloat(currentIndex - dragStartIndex) * Self.cardStride
-    }
-
-    private func beginDrag(of portfolio: Portfolio) {
-        let order = orderedPortfolios
-        guard let index = order.firstIndex(where: { $0.id == portfolio.id }) else { return }
-        // Freeze what every card renders before the first frame of the drag - see `frozenCards`.
-        var frozen: [UUID: FrozenCard] = [:]
-        for item in order {
-            let model = cardModel(item)
-            frozen[item.id] = FrozenCard(model: model, valueText: formatCurrency(model.currentValue))
-        }
-        frozenCards = frozen
-        liveOrder = order
-        dragStartIndex = index
-        draggingCardId = portfolio.id
-        Haptics.impact(.light)
-    }
-
-    /// Moves the dragged card to whichever slot the finger is currently over.
-    ///
-    /// Computed from the FIXED start index plus whole slots travelled, so the result depends only
-    /// on where the finger is - not on the order of intermediate updates, which is what makes a
-    /// fast drag land somewhere sensible instead of oscillating.
-    private func updateDragTarget(for portfolio: Portfolio) {
-        guard let dragStartIndex, var order = liveOrder,
-              let currentIndex = order.firstIndex(where: { $0.id == portfolio.id }) else { return }
-        let slots = Int((dragTranslation / Self.cardStride).rounded())
-        let target = min(max(dragStartIndex + slots, 0), order.count - 1)
-        guard target != currentIndex else { return }
-        let moved = order.remove(at: currentIndex)
-        order.insert(moved, at: target)
-        // Animated HERE rather than by an `.animation(value:)` on every card - that modifier had
-        // to build and compare an id array per card per frame just to notice this same change.
-        withAnimation(PortfolioDragMotion.reorder) {
-            liveOrder = order
-        }
-        Haptics.impact(.light)
-    }
-
-    private func commitDrag() {
-        if let liveOrder {
-            let ids = liveOrder.map(\.id)
-            if ids != portfolios.map(\.id) {
-                onReorder(ids)
-                Haptics.success()
-            }
-        }
-        clearDragState()
-    }
-
-    private func cancelDrag() {
-        clearDragState()
-    }
-
-    private func clearDragState() {
-        draggingCardId = nil
-        dragStartIndex = nil
-        dragTranslation = 0
-        frozenCards = [:]
-        // Held until the parent publishes the committed order, so the cards do not flash back to
-        // the old positions for a frame in between.
-        DispatchQueue.main.async { liveOrder = nil }
-    }
-
     // MARK: - State A: expanded cards
 
     private var cardsLayer: some View {
@@ -213,11 +86,9 @@ struct PortfolioPickerHeader: View {
                 // Explicit `id:` + `.id(...)` pins each card's view identity to its portfolio id,
                 // so SwiftUI can't reuse one card's context menu (and its captured portfolio) for
                 // a neighbouring card when the list reorders or a portfolio is added/removed.
-                ForEach(orderedPortfolios, id: \.id) { portfolio in
+                ForEach(portfolios, id: \.id) { portfolio in
                     card(for: portfolio)
                         .id(portfolio.id)
-                        // The dragged card rides above its neighbours as they shuffle under it.
-                        .zIndex(draggingCardId == portfolio.id ? 1 : 0)
                 }
                 if canAddMore {
                     addCard
@@ -229,57 +100,34 @@ struct PortfolioPickerHeader: View {
     }
 
     private func card(for portfolio: Portfolio) -> some View {
-        // Frozen while a drag is running, live otherwise - see `frozenCards`.
-        let frozen = frozenCards[portfolio.id]
-        let model = frozen?.model ?? cardModel(portfolio)
-        let isDragging = draggingCardId == portfolio.id
+        let model = cardModel(portfolio)
 
         return PortfolioCardView(
             portfolio: portfolio,
-            valueText: frozen?.valueText ?? formatCurrency(model.currentValue),
+            valueText: formatCurrency(model.currentValue),
             changePercent: model.todayChangePercent,
             isActive: portfolio.id == activePortfolioId,
             isPressing: pressingCardId == portfolio.id,
-            isDragging: isDragging,
             // Stays lifted while ITS sheet is open, the way a home-screen icon stays raised under
             // its context menu - the sheet only covers the lower half, so the card it belongs to
             // is still on screen and worth identifying.
             isMenuTarget: pressedPortfolio?.id == portfolio.id,
-            fingerOffset: isDragging ? dragTranslation : 0,
-            slotCompensation: isDragging ? slotCompensation(for: portfolio) : 0,
-            flattenBackground: draggingCardId != nil,
             onTap: {
                 Haptics.impact(.light)
                 onSelect(portfolio.id)
             },
-            onPressBegan: {
-                if pressingCardId != portfolio.id {
-                    pressingCardId = portfolio.id
-                    Haptics.impact(.medium)
-                }
-            },
-            onDragChanged: { translation in
-                if draggingCardId == nil {
-                    guard abs(translation) > Self.dragActivationDistance,
-                          portfolios.count > 1 else { return }
-                    beginDrag(of: portfolio)
-                }
-                dragTranslation = translation
-                updateDragTarget(for: portfolio)
-            },
-            onDragEnded: {
-                if draggingCardId != nil {
-                    commitDrag()
-                } else if pressingCardId == portfolio.id {
-                    // Held and released without moving: the menu.
-                    pressingCardId = nil
-                    pressedPortfolio = PressedPortfolio(id: portfolio.id, name: portfolio.name)
-                }
+            onLongPress: {
+                Haptics.impact(.medium)
+                // Hand straight over to the lifted state - leaving the shrink on would make the
+                // card jump from small to large as the sheet appears.
                 pressingCardId = nil
+                pressedPortfolio = PressedPortfolio(id: portfolio.id, name: portfolio.name)
+            },
+            onPressingChanged: { pressing in
+                pressingCardId = pressing ? portfolio.id : nil
             }
         )
-        // Without this every card is rebuilt on every touch move of a drag. Only the dragged
-        // card's inputs actually change, so the other four compare equal and are skipped.
+        // Lets SwiftUI skip the cards whose inputs did not change when one card's press state does.
         .equatable()
     }
 
@@ -539,65 +387,33 @@ private struct PortfolioActionsSheet: View {
 
 /// One portfolio card, as its own `Equatable` view.
 ///
-/// Equatable matters here: a drag writes state on every touch move, which re-evaluates the
-/// header's body and with it all five cards. Only the dragged card's inputs actually change, so
-/// the rest compare equal and SwiftUI skips them entirely. The closures are excluded from `==`
-/// deliberately - they are rebuilt every time the header renders and would never compare equal,
-/// which would defeat the whole point. They only ever read the header's `@State` (stable storage)
-/// and the portfolio list, which cannot change mid-drag.
+/// Equatable so that pressing one card does not rebuild the others: the press state lives on the
+/// header, so any change to it re-evaluates the header's body and with it every card, even though
+/// only one card's inputs actually changed.
 private struct PortfolioCardView: View, Equatable {
     let portfolio: Portfolio
     let valueText: String
     let changePercent: Double?
     let isActive: Bool
     let isPressing: Bool
-    let isDragging: Bool
     let isMenuTarget: Bool
-    /// Tracks the touch. Never animated - it must follow the finger exactly.
-    let fingerOffset: CGFloat
-    /// Cancels the movement of this card's slot as the order changes. Animated on the SAME curve
-    /// as the reorder, so the two stay cancelled throughout it rather than only at the ends.
-    let slotCompensation: CGFloat
-    /// True while ANY card is being dragged. See `cardBackground`.
-    let flattenBackground: Bool
     let onTap: () -> Void
-    let onPressBegan: () -> Void
-    let onDragChanged: (CGFloat) -> Void
-    let onDragEnded: () -> Void
+    let onLongPress: () -> Void
+    let onPressingChanged: (Bool) -> Void
 
+    /// The closures are excluded deliberately: they are rebuilt every time the header renders and
+    /// would never compare equal, which would defeat the comparison entirely. They only ever read
+    /// the header's `@State`, whose storage is stable across renders.
     static func == (lhs: PortfolioCardView, rhs: PortfolioCardView) -> Bool {
         lhs.portfolio == rhs.portfolio
             && lhs.valueText == rhs.valueText
             && lhs.changePercent == rhs.changePercent
             && lhs.isActive == rhs.isActive
             && lhs.isPressing == rhs.isPressing
-            && lhs.isDragging == rhs.isDragging
             && lhs.isMenuTarget == rhs.isMenuTarget
-            && lhs.fingerOffset == rhs.fingerOffset
-            && lhs.slotCompensation == rhs.slotCompensation
-            && lhs.flattenBackground == rhs.flattenBackground
     }
 
     private var isPositive: Bool { (changePercent ?? 0) >= 0 }
-    private var isLifted: Bool { isMenuTarget || isDragging }
-
-    /// `.regularMaterial` is a live backdrop blur: it re-samples and re-blurs whatever is behind
-    /// it every time the view moves. Five of them being transformed at display rate is the
-    /// expensive part of a drag, and the blur is invisible anyway while everything is sliding, so
-    /// a drag swaps all the cards to an opaque fill for its duration.
-    @ViewBuilder
-    private var cardBackground: some View {
-        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
-        let border = shape.stroke(
-            isMenuTarget || isActive ? Color.accentColor : Color.white.opacity(0.15),
-            lineWidth: isMenuTarget ? 2 : (isActive ? 1.5 : 0.8)
-        )
-        if flattenBackground {
-            shape.fill(Color(uiColor: .secondarySystemBackground)).overlay(border)
-        } else {
-            shape.fill(.regularMaterial).overlay(border)
-        }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -629,48 +445,29 @@ private struct PortfolioCardView: View, Equatable {
         }
         .padding(12)
         .frame(width: 140, alignment: .leading)
-        .background(cardBackground)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.regularMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(
+                            isMenuTarget || isActive ? Color.accentColor : Color.white.opacity(0.15),
+                            lineWidth: isMenuTarget ? 2 : (isActive ? 1.5 : 0.8)
+                        )
+                )
+        )
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        // Shrinks under the finger and lifts once picked up or once its sheet is open. Springs
-        // rather than linear fades, so the card settles the way a pressed icon does.
-        .scaleEffect(isDragging ? 1.06 : (isPressing ? 0.94 : (isMenuTarget ? 1.04 : 1)))
-        .brightness(isPressing && !isDragging ? -0.04 : 0)
-        // Two offsets, deliberately. The inner one cancels the slot move and animates with it;
-        // the outer one follows the finger and is applied after the animation modifier, so it is
-        // not governed by it. Collapsing these into a single value is what drew the card a full
-        // card-width off to the left for the length of every swap.
-        .offset(x: slotCompensation)
-        // Only while the drag is live. On release both offsets go to zero in the same update, and
-        // animating just this one would walk the card a slot to the left all over again on the way
-        // out - the same jump, at the other end of the gesture.
-        .animation(isDragging ? PortfolioDragMotion.reorder : nil, value: slotCompensation)
-        .offset(x: fingerOffset)
+        // Shrinks under the finger and lifts once its sheet is open. Springs rather than linear
+        // fades, so the card settles the way a pressed icon does.
+        .scaleEffect(isPressing ? 0.94 : (isMenuTarget ? 1.04 : 1))
+        .brightness(isPressing ? -0.04 : 0)
         // Applied only when there is a shadow to draw. A shadow forces an offscreen pass, and
         // leaving a transparent one installed on every card pays for it on all of them.
-        .modifier(LiftShadow(active: isLifted))
+        .modifier(LiftShadow(active: isMenuTarget))
         .animation(.spring(response: 0.3, dampingFraction: 0.68), value: isPressing)
         .animation(.spring(response: 0.34, dampingFraction: 0.7), value: isMenuTarget)
-        .animation(.spring(response: 0.3, dampingFraction: 0.75), value: isDragging)
         .onTapGesture(perform: onTap)
-        // Hold, then EITHER move to reorder OR let go to open the menu - the same choice a
-        // home-screen icon offers. A long press is required first, so an immediate swipe still
-        // belongs to the enclosing scroll view rather than picking a card up by accident.
-        .gesture(
-            LongPressGesture(minimumDuration: 0.4)
-                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
-                .onChanged { value in
-                    switch value {
-                    case .first(true):
-                        onPressBegan()
-                    case .second(true, let drag):
-                        guard let drag else { return }
-                        onDragChanged(drag.translation.width)
-                    default:
-                        break
-                    }
-                }
-                .onEnded { _ in onDragEnded() }
-        )
+        .onLongPressGesture(minimumDuration: 0.4, perform: onLongPress, onPressingChanged: onPressingChanged)
     }
 }
 
