@@ -413,6 +413,13 @@ private struct PortfolioCardView: View, Equatable {
             && lhs.isMenuTarget == rhs.isMenuTarget
     }
 
+    /// How long the card must be held before its sheet opens.
+    ///
+    /// Shorter than the 0.5s system default and than the 0.4s this started at, which felt like a
+    /// wait. It stays comfortably above a deliberate tap, and the gesture's own 10pt movement
+    /// tolerance is what keeps a scroll of the card row from ever reaching it.
+    private static let longPressDuration: TimeInterval = 0.25
+
     private var isPositive: Bool { (changePercent ?? 0) >= 0 }
 
     var body: some View {
@@ -467,7 +474,11 @@ private struct PortfolioCardView: View, Equatable {
         .animation(.spring(response: 0.3, dampingFraction: 0.68), value: isPressing)
         .animation(.spring(response: 0.34, dampingFraction: 0.7), value: isMenuTarget)
         .onTapGesture(perform: onTap)
-        .onLongPressGesture(minimumDuration: 0.4, perform: onLongPress, onPressingChanged: onPressingChanged)
+        .onLongPressGesture(
+            minimumDuration: Self.longPressDuration,
+            perform: onLongPress,
+            onPressingChanged: onPressingChanged
+        )
     }
 }
 
