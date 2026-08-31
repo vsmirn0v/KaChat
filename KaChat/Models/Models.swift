@@ -1558,6 +1558,9 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     /// two that fill the dock to its cap. Everything else starts in Kaspa Hub.
     static let defaultDock: [AppTab] = [.chats, .profile, .ecosystem, .portfolio, .coldStorage]
 
+    /// The rest, in the order the Hub grid shows them until the user rearranges it.
+    static let defaultHub: [AppTab] = [.kaposts, .broadcasts, .swap, .apps]
+
     /// The dock renders at most this many items (the iPhone tab bar's hard limit); anything past
     /// it falls off rather than letting the system TabView spawn its own "More" list. KaPosts and
     /// Broadcasts drop out first (in that order) when over the cap - they stay reachable by
@@ -1630,15 +1633,23 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         return tabs.count > maxDockItems ? Array(tabs.prefix(maxDockItems)) : tabs
     }
 
-    /// What the Kaspa Hub grid shows: everything assignable that is not in the dock.
+    /// What the Kaspa Hub grid shows: everything assignable that is not in the dock, in the
+    /// user's own order.
     ///
-    /// Ordered by `defaultOrder` rather than by the user's dock order, so the grid keeps a stable
-    /// arrangement as things are promoted and demoted.
+    /// Anything not named in `hubTabs` - a tab added by an update, or one demoted from the dock
+    /// before this list knew about it - is appended in `defaultOrder`, so a tab can never be lost
+    /// by being absent from a stored list.
     static func ecosystemSections(from settings: AppSettings) -> [AppTab] {
         let inDock = Set(visible(from: settings))
-        return defaultOrder.filter {
-            assignable.contains($0) && $0.isEnabled(in: settings) && !inDock.contains($0)
+        func eligible(_ tab: AppTab) -> Bool {
+            assignable.contains(tab) && tab.isEnabled(in: settings) && !inDock.contains(tab)
         }
+        var ordered = settings.hubTabs.compactMap { AppTab(rawValue: $0) }.filter(eligible)
+        var seen = Set(ordered)
+        for tab in defaultOrder where eligible(tab) && seen.insert(tab).inserted {
+            ordered.append(tab)
+        }
+        return ordered
     }
 }
 
@@ -1806,6 +1817,10 @@ struct AppSettings: Codable {
     /// Routes currently IN the dock, in order. Everything assignable that is not listed here
     /// lives in Kaspa Hub instead - there is no longer an off state, only a placement.
     var dockTabs: [String]
+    /// Routes in Kaspa Hub, in the order the grid shows them. Ordered for the same reason the
+    /// dock is: a tab moved out of the dock should land where the user wants it, not wherever a
+    /// fixed default happens to put it.
+    var hubTabs: [String]
 
     // Security
     /// Child Mode (Settings > Security): while on, the app is strictly Chats, Group Chats,
@@ -1970,6 +1985,7 @@ struct AppSettings: Codable {
             hideEcosystemTab: false,
             tabOrder: AppTab.defaultOrder.map { $0.rawValue },
             dockTabs: AppTab.defaultDock.map { $0.rawValue },
+            hubTabs: AppTab.defaultHub.map { $0.rawValue },
             childModeEnabled: false,
             biometricSeedPhraseEnabled: true,
             // Account-login biometrics are opt-in (off by default) on every platform.
@@ -2026,6 +2042,7 @@ struct AppSettings: Codable {
         case hideEcosystemTab
         case tabOrder
         case dockTabs
+        case hubTabs
         case childModeEnabled
         case biometricSeedPhraseEnabled
         case biometricAccountLoginEnabled
@@ -2090,6 +2107,7 @@ struct AppSettings: Codable {
         hideEcosystemTab: Bool = false,
         tabOrder: [String] = AppTab.defaultOrder.map { $0.rawValue },
         dockTabs: [String] = AppTab.defaultDock.map { $0.rawValue },
+        hubTabs: [String] = AppTab.defaultHub.map { $0.rawValue },
         childModeEnabled: Bool = false,
         biometricSeedPhraseEnabled: Bool = true,
         biometricAccountLoginEnabled: Bool = false,
@@ -2144,6 +2162,7 @@ struct AppSettings: Codable {
         self.hideEcosystemTab = hideEcosystemTab
         self.tabOrder = tabOrder
         self.dockTabs = dockTabs
+        self.hubTabs = hubTabs
         self.childModeEnabled = childModeEnabled
         self.biometricSeedPhraseEnabled = biometricSeedPhraseEnabled
         self.biometricAccountLoginEnabled = biometricAccountLoginEnabled
@@ -2239,6 +2258,7 @@ struct AppSettings: Codable {
         // Absent on every blob saved before placement existed; the one-time migration below
         // derives a real arrangement from what those users already had.
         dockTabs = try container.decodeIfPresent([String].self, forKey: .dockTabs) ?? AppTab.defaultDock.map { $0.rawValue }
+        hubTabs = try container.decodeIfPresent([String].self, forKey: .hubTabs) ?? AppTab.defaultHub.map { $0.rawValue }
         childModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .childModeEnabled) ?? false
         biometricSeedPhraseEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSeedPhraseEnabled) ?? true
         biometricAccountLoginEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricAccountLoginEnabled) ?? false
@@ -2337,6 +2357,7 @@ struct AppSettings: Codable {
         try container.encode(hideEcosystemTab, forKey: .hideEcosystemTab)
         try container.encode(tabOrder, forKey: .tabOrder)
         try container.encode(dockTabs, forKey: .dockTabs)
+        try container.encode(hubTabs, forKey: .hubTabs)
         try container.encode(childModeEnabled, forKey: .childModeEnabled)
         try container.encode(biometricSeedPhraseEnabled, forKey: .biometricSeedPhraseEnabled)
         try container.encode(biometricAccountLoginEnabled, forKey: .biometricAccountLoginEnabled)

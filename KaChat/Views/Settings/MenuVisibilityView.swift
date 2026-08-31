@@ -55,11 +55,12 @@ struct MenuVisibilityView: View {
                     ForEach(hubTabs) { tab in
                         row(tab, inDock: false)
                     }
+                    .onMove(perform: moveWithinHub)
                 }
             } header: {
                 Text("In \(AppTab.ecosystem.label)")
             } footer: {
-                Text("Opened from the \(AppTab.ecosystem.label) tab. Nothing here is switched off - it is one tap further away than the dock.")
+                Text("Opened from the \(AppTab.ecosystem.label) tab, in this order. Nothing here is switched off - it is one tap further away than the dock. Drag to reorder.")
             }
         }
         .environment(\.editMode, $editMode)
@@ -97,23 +98,37 @@ struct MenuVisibilityView: View {
     private func move(_ tab: AppTab, toDock: Bool) {
         guard !tab.isPinnedToDock else { return }
         var dock = dockTabs
+        var hub = hubTabs
         if toDock {
             guard dock.count < AppTab.maxDockItems, !dock.contains(tab) else { return }
+            hub.removeAll { $0 == tab }
             dock.append(tab)
         } else {
             dock.removeAll { $0 == tab }
+            if !hub.contains(tab) { hub.append(tab) }
         }
-        commit(dock)
+        // Appended, then draggable into place - both lists are reorderable, so landing at the end
+        // is a starting position rather than a final one.
+        commit(dock: dock, hub: hub)
     }
 
     private func moveWithinDock(from source: IndexSet, to destination: Int) {
         var dock = dockTabs
         dock.move(fromOffsets: source, toOffset: destination)
-        commit(dock)
+        commit(dock: dock, hub: hubTabs)
     }
 
-    private func commit(_ dock: [AppTab]) {
+    private func moveWithinHub(from source: IndexSet, to destination: Int) {
+        var hub = hubTabs
+        hub.move(fromOffsets: source, toOffset: destination)
+        commit(dock: dockTabs, hub: hub)
+    }
+
+    /// Both lists are written together, so a tab can never be missing from both or present in
+    /// both after a move.
+    private func commit(dock: [AppTab], hub: [AppTab]) {
         settingsViewModel.settings.dockTabs = dock.map(\.rawValue)
+        settingsViewModel.settings.hubTabs = hub.map(\.rawValue)
         settingsViewModel.saveSettings()
     }
 }

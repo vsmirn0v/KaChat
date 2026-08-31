@@ -37,6 +37,7 @@ struct DockOverlay: Codable {
     /// decode; a nil one leaves whatever the global blob's migration produced in place rather
     /// than overwriting it with an empty dock.
     var dockTabs: [String]?
+    var hubTabs: [String]?
 }
 
 /// Extension to load settings from any context (not MainActor-isolated)
@@ -55,6 +56,9 @@ extension AppSettings {
         tabOrder = overlay.tabOrder
         if let overlayDock = overlay.dockTabs, !overlayDock.isEmpty {
             dockTabs = overlayDock
+        }
+        if let overlayHub = overlay.hubTabs, !overlayHub.isEmpty {
+            hubTabs = overlayHub
         }
         hidePortfolioTab = overlay.hiddenTabs.contains(AppTab.portfolio.rawValue)
         hideColdStorageTab = overlay.hiddenTabs.contains(AppTab.coldStorage.rawValue)
@@ -78,7 +82,7 @@ extension AppSettings {
         if hideBroadcasts { hidden.append(AppTab.broadcasts.rawValue) }
         if hideAppsTab { hidden.append(AppTab.apps.rawValue) }
         if hideMoreItem { hidden.append(AppTab.more.rawValue) }
-        return DockOverlay(tabOrder: tabOrder, hiddenTabs: hidden, dockTabs: dockTabs)
+        return DockOverlay(tabOrder: tabOrder, hiddenTabs: hidden, dockTabs: dockTabs, hubTabs: hubTabs)
     }
 
     /// Writes the dock fields of `settings` to the active account's overlay blob. Called from
@@ -205,7 +209,12 @@ extension AppSettings {
             dock.removeAll { $0 == .ecosystem }
             // Third, matching where a fresh install puts it.
             dock.insert(.ecosystem, at: min(2, dock.count))
-            settings.dockTabs = Array(dock.prefix(AppTab.maxDockItems)).map(\.rawValue)
+            let placedDock = Array(dock.prefix(AppTab.maxDockItems))
+            settings.dockTabs = placedDock.map(\.rawValue)
+            // Everything else, in the app's default order, as this account's starting Hub order.
+            settings.hubTabs = AppTab.defaultOrder
+                .filter { AppTab.assignable.contains($0) && !placedDock.contains($0) }
+                .map(\.rawValue)
             userDefaults.set(true, forKey: placementKey)
             save(settings)
         }
