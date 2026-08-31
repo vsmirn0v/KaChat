@@ -614,6 +614,8 @@ struct ProfileView: View {
 
         await MainActor.run {
             settingPrimaryDomainId = assetId
+            // Clear any previous failure so a retry does not sit under a stale error.
+            setPrimaryMessage = nil
         }
         logKNSWrite("SET_PRIMARY_START domain=\(domain.fullName) asset=\(assetId)")
 
@@ -626,12 +628,10 @@ struct ProfileView: View {
             await MainActor.run {
                 settingPrimaryDomainId = nil
                 Haptics.success()
-                // Reported through the sheet's own alert: the editor is still on screen, and a
-                // toast behind it is a message nobody sees.
-                setPrimaryMessage = KNSSetPrimaryMessage(
-                    text: localizedFormat("Primary domain set to %@.", domain.fullName),
-                    isError: false
-                )
+                // No message on success: the star moves to this domain the moment the write
+                // lands, which is the confirmation. A popup on top of that is noise.
+                setPrimaryMessage = nil
+                showToast(localizedFormat("Primary domain set to %@.", domain.fullName))
             }
             logKNSWrite("SET_PRIMARY_SUCCESS domain=\(domain.fullName)")
         } catch {
@@ -2099,6 +2099,7 @@ private struct KNSProfileEditorSheet: View {
                             domains: domains,
                             primaryDomain: primaryDomain,
                             settingPrimaryDomainId: settingPrimaryDomainId,
+                            setPrimaryError: $setPrimaryMessage,
                             onSetPrimary: onSetPrimary,
                             onInscribeComplete: onInscribeComplete,
                             onTransferComplete: onTransferComplete,
@@ -2256,19 +2257,6 @@ private struct KNSProfileEditorSheet: View {
                         }
                     }
                 }
-            }
-            // The outcome lands here, above the sheet, instead of as a toast the sheet covers.
-            .alert(
-                setPrimaryMessage?.isError == true ? "Set Primary Failed" : "Primary Domain Set",
-                isPresented: Binding(
-                    get: { setPrimaryMessage != nil },
-                    set: { if !$0 { setPrimaryMessage = nil } }
-                ),
-                presenting: setPrimaryMessage
-            ) { _ in
-                Button("OK", role: .cancel) { setPrimaryMessage = nil }
-            } message: { message in
-                Text(message.text)
             }
             .navigationTitle("Edit KNS Profile")
             .navigationBarTitleDisplayMode(.inline)
@@ -2496,6 +2484,9 @@ private struct KNSDomainsListView: View {
     let domains: [KNSDomain]
     let primaryDomain: String?
     let settingPrimaryDomainId: String?
+    /// Set only when a "Set as Primary" attempt FAILED, so the detail screen can say so in place.
+    /// Success needs no message: the star moves to the new primary as soon as the write lands.
+    @Binding var setPrimaryError: KNSSetPrimaryMessage?
     let onSetPrimary: (KNSDomain) -> Void
     let onInscribeComplete: (KNSDomainInscribeResult) -> Void
     let onTransferComplete: (KNSDomainTransferResult) -> Void
@@ -2520,6 +2511,7 @@ private struct KNSDomainsListView: View {
                                 isSetPrimaryAllowed: isSetPrimaryAllowed(domain, isPrimary: isPrimary),
                                 isTransferAllowed: isDomainTransferAllowed(domain),
                                 settingPrimaryDomainId: settingPrimaryDomainId,
+                                setPrimaryError: setPrimaryError?.isError == true ? setPrimaryError?.text : nil,
                                 onSetPrimary: onSetPrimary,
                                 onTransferComplete: onTransferComplete
                             )
@@ -2874,6 +2866,9 @@ struct KNSDomainDetailView: View {
     let isSetPrimaryAllowed: Bool
     let isTransferAllowed: Bool
     let settingPrimaryDomainId: String?
+    /// Why the last "Set as Primary" tap failed, shown inline under the row. Nil when it
+    /// succeeded or has not been tried - a success shows itself, since the star moves.
+    var setPrimaryError: String? = nil
     let onSetPrimary: (KNSDomain) -> Void
     let onTransferComplete: (KNSDomainTransferResult) -> Void
 
@@ -2934,6 +2929,18 @@ struct KNSDomainDetailView: View {
                         .buttonStyle(.plain)
                         .disabled(settingPrimaryDomainId != nil)
                         .padding(16)
+
+                        if let setPrimaryError, settingPrimaryDomainId == nil {
+                            // In place rather than as a popup. A failure has to be visible
+                            // somewhere: the operation is owned by the Profile screen, and the
+                            // toast it raises is drawn behind this sheet where nobody sees it.
+                            Text(setPrimaryError)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 16)
+                        }
                     }
 
                     if isListed {
