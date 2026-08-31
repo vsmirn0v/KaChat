@@ -1537,20 +1537,26 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         }
     }
 
-    /// Chats/Profile stay mandatory (a wallet with no way back to its own chat list or profile
-    /// isn't useful) - everything else is user-hideable.
-    var canHide: Bool {
-        switch self {
-        case .chats, .profile: return false
-        case .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .apps, .ecosystem, .more: return true
-        }
-    }
+    /// Kaspa Hub is the ONE tab pinned to the dock.
+    ///
+    /// Everything else - Chats and Profile included - can be moved into the Hub, which is what
+    /// makes the dock fully arrangeable. The Hub cannot be, because it is what holds whatever is
+    /// not in the dock: move it inside itself and the things it holds become unreachable. Pinning
+    /// exactly one tab is the smallest rule that makes "unreachable" impossible.
+    var isPinnedToDock: Bool { self == .ecosystem }
+
+    /// Tabs the user can place. Excludes the Hub (pinned) and the retired "+ More".
+    static let assignable: [AppTab] = [.chats, .profile, .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .apps]
 
     /// Ecosystem takes the dock slot Swap used to hold, so a default install shows exactly the
     /// five the dock can fit - Portfolio, Storage, Chats, Ecosystem, Profile - with Swap, KaPosts,
     /// Broadcasts and the websites list still ENABLED but living inside Ecosystem rather than
     /// competing for a dock slot.
-    static let defaultOrder: [AppTab] = [.portfolio, .coldStorage, .chats, .ecosystem, .profile, .swap, .kaposts, .broadcasts, .apps]
+    static let defaultOrder: [AppTab] = [.chats, .profile, .ecosystem, .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .apps]
+
+    /// What a fresh install starts with: the three that were asked for, in that order, plus the
+    /// two that fill the dock to its cap. Everything else starts in Kaspa Hub.
+    static let defaultDock: [AppTab] = [.chats, .profile, .ecosystem, .portfolio, .coldStorage]
 
     /// The dock renders at most this many items (the iPhone tab bar's hard limit); anything past
     /// it falls off rather than letting the system TabView spawn its own "More" list. KaPosts and
@@ -1602,28 +1608,37 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     /// the dock capacity - what MainTabView actually renders and what the Menu Visibility preview
     /// strip shows. When over capacity, KaPosts drops out first (it stays reachable via re-tapping
     /// Chats); after that the tail of the order falls off.
-    /// The resolved order, filtered to what the user hasn't hidden and clamped to dock capacity.
+    /// What the dock actually renders, in order.
     ///
-    /// Anything enabled that doesn't fit simply isn't in the dock. It is not lost: the four
-    /// feature tabs are reachable through Ecosystem (see `ecosystemSections(from:)`). There is no
-    /// longer a Chats-tab cycle - re-tapping or holding Chats to reach KaPosts and Broadcasts was
-    /// removed once Ecosystem gave them a place of their own.
+    /// Read from `settings.dockTabs` - the user's placement - rather than derived by taking the
+    /// first few of an order and letting the rest fall off the end. That derivation is what let
+    /// Profile silently disappear: nothing HID it, it was simply pushed past the cap by the tabs
+    /// ahead of it, with nowhere in the UI saying so. A tab is now either placed in the dock or
+    /// placed in the Hub, and it is always in exactly one of them.
+    ///
+    /// Kaspa Hub is inserted whatever the stored list says, so no saved arrangement - or a
+    /// hand-edited one - can leave the app with no way to reach what isn't in the dock.
     static func visible(from settings: AppSettings) -> [AppTab] {
-        let tabs = resolvedOrder(from: settings).filter { $0.isEnabled(in: settings) }
+        var tabs = settings.dockTabs.compactMap { AppTab(rawValue: $0) }
+            .filter { $0.isEnabled(in: settings) && ($0.isPinnedToDock || assignable.contains($0)) }
+        if !tabs.contains(.ecosystem) {
+            tabs.insert(.ecosystem, at: min(2, tabs.count))
+        }
+        // Deduplicate defensively; a repeated raw value would render the same tab twice.
+        var seen = Set<AppTab>()
+        tabs = tabs.filter { seen.insert($0).inserted }
         return tabs.count > maxDockItems ? Array(tabs.prefix(maxDockItems)) : tabs
     }
 
-    /// Everything Ecosystem can hold, in the order it lists them.
-    static let ecosystemCandidates: [AppTab] = [.kaposts, .broadcasts, .swap, .apps]
-
-    /// What the Ecosystem page actually shows: its candidates, minus anything hidden, minus
-    /// anything that already has its own dock slot.
+    /// What the Kaspa Hub grid shows: everything assignable that is not in the dock.
     ///
-    /// The dock subtraction is the point - a feature sitting in the dock has no reason to also be
-    /// a tile one level deeper, and listing it twice would just make the grid look padded.
+    /// Ordered by `defaultOrder` rather than by the user's dock order, so the grid keeps a stable
+    /// arrangement as things are promoted and demoted.
     static func ecosystemSections(from settings: AppSettings) -> [AppTab] {
         let inDock = Set(visible(from: settings))
-        return ecosystemCandidates.filter { $0.isEnabled(in: settings) && !inDock.contains($0) }
+        return defaultOrder.filter {
+            assignable.contains($0) && $0.isEnabled(in: settings) && !inDock.contains($0)
+        }
     }
 }
 
@@ -1788,6 +1803,9 @@ struct AppSettings: Codable {
     /// Raw values of `AppTab`, in display order - user-customizable via Settings > Customization
     /// > Menu's drag-to-reorder preview strip.
     var tabOrder: [String]
+    /// Routes currently IN the dock, in order. Everything assignable that is not listed here
+    /// lives in Kaspa Hub instead - there is no longer an off state, only a placement.
+    var dockTabs: [String]
 
     // Security
     /// Child Mode (Settings > Security): while on, the app is strictly Chats, Group Chats,
@@ -1951,6 +1969,7 @@ struct AppSettings: Codable {
             hideAppsTab: false,
             hideEcosystemTab: false,
             tabOrder: AppTab.defaultOrder.map { $0.rawValue },
+            dockTabs: AppTab.defaultDock.map { $0.rawValue },
             childModeEnabled: false,
             biometricSeedPhraseEnabled: true,
             // Account-login biometrics are opt-in (off by default) on every platform.
@@ -2006,6 +2025,7 @@ struct AppSettings: Codable {
         case hideAppsTab
         case hideEcosystemTab
         case tabOrder
+        case dockTabs
         case childModeEnabled
         case biometricSeedPhraseEnabled
         case biometricAccountLoginEnabled
@@ -2069,6 +2089,7 @@ struct AppSettings: Codable {
         hideAppsTab: Bool = false,
         hideEcosystemTab: Bool = false,
         tabOrder: [String] = AppTab.defaultOrder.map { $0.rawValue },
+        dockTabs: [String] = AppTab.defaultDock.map { $0.rawValue },
         childModeEnabled: Bool = false,
         biometricSeedPhraseEnabled: Bool = true,
         biometricAccountLoginEnabled: Bool = false,
@@ -2122,6 +2143,7 @@ struct AppSettings: Codable {
         self.hideAppsTab = hideAppsTab
         self.hideEcosystemTab = hideEcosystemTab
         self.tabOrder = tabOrder
+        self.dockTabs = dockTabs
         self.childModeEnabled = childModeEnabled
         self.biometricSeedPhraseEnabled = biometricSeedPhraseEnabled
         self.biometricAccountLoginEnabled = biometricAccountLoginEnabled
@@ -2214,6 +2236,9 @@ struct AppSettings: Codable {
         // Broadcasts and the websites list live now, so hiding it by default would strand them.
         hideEcosystemTab = try container.decodeIfPresent(Bool.self, forKey: .hideEcosystemTab) ?? false
         tabOrder = try container.decodeIfPresent([String].self, forKey: .tabOrder) ?? AppTab.defaultOrder.map { $0.rawValue }
+        // Absent on every blob saved before placement existed; the one-time migration below
+        // derives a real arrangement from what those users already had.
+        dockTabs = try container.decodeIfPresent([String].self, forKey: .dockTabs) ?? AppTab.defaultDock.map { $0.rawValue }
         childModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .childModeEnabled) ?? false
         biometricSeedPhraseEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricSeedPhraseEnabled) ?? true
         biometricAccountLoginEnabled = try container.decodeIfPresent(Bool.self, forKey: .biometricAccountLoginEnabled) ?? false
@@ -2311,6 +2336,7 @@ struct AppSettings: Codable {
         try container.encode(hideAppsTab, forKey: .hideAppsTab)
         try container.encode(hideEcosystemTab, forKey: .hideEcosystemTab)
         try container.encode(tabOrder, forKey: .tabOrder)
+        try container.encode(dockTabs, forKey: .dockTabs)
         try container.encode(childModeEnabled, forKey: .childModeEnabled)
         try container.encode(biometricSeedPhraseEnabled, forKey: .biometricSeedPhraseEnabled)
         try container.encode(biometricAccountLoginEnabled, forKey: .biometricAccountLoginEnabled)

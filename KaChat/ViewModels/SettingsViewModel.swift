@@ -33,6 +33,10 @@ private final class AppSettingsCache: @unchecked Sendable {
 struct DockOverlay: Codable {
     var tabOrder: [String]
     var hiddenTabs: [String]
+    /// Placement, per account. Optional so overlays written before placement existed still
+    /// decode; a nil one leaves whatever the global blob's migration produced in place rather
+    /// than overwriting it with an empty dock.
+    var dockTabs: [String]?
 }
 
 /// Extension to load settings from any context (not MainActor-isolated)
@@ -49,6 +53,9 @@ extension AppSettings {
 
     mutating func applyDockOverlay(_ overlay: DockOverlay) {
         tabOrder = overlay.tabOrder
+        if let overlayDock = overlay.dockTabs, !overlayDock.isEmpty {
+            dockTabs = overlayDock
+        }
         hidePortfolioTab = overlay.hiddenTabs.contains(AppTab.portfolio.rawValue)
         hideColdStorageTab = overlay.hiddenTabs.contains(AppTab.coldStorage.rawValue)
         hideSwapTab = overlay.hiddenTabs.contains(AppTab.swap.rawValue)
@@ -71,7 +78,7 @@ extension AppSettings {
         if hideBroadcasts { hidden.append(AppTab.broadcasts.rawValue) }
         if hideAppsTab { hidden.append(AppTab.apps.rawValue) }
         if hideMoreItem { hidden.append(AppTab.more.rawValue) }
-        return DockOverlay(tabOrder: tabOrder, hiddenTabs: hidden)
+        return DockOverlay(tabOrder: tabOrder, hiddenTabs: hidden, dockTabs: dockTabs)
     }
 
     /// Writes the dock fields of `settings` to the active account's overlay blob. Called from
@@ -186,6 +193,23 @@ extension AppSettings {
             userDefaults.set(true, forKey: websitesEnabledKey)
             save(settings)
         }
+        // One-time placement migration. Tabs used to be on/off with the dock taking the first
+        // five of an order; they now have an explicit placement, and a blob saved before that has
+        // no `dockTabs` at all. Derived from what the user could actually SEE rather than reset to
+        // the default, so an arrangement they built is carried over instead of discarded - with
+        // Kaspa Hub guaranteed a slot, since it is what holds everything else.
+        let placementKey = "kachat_dock_41_placement_applied"
+        if !userDefaults.bool(forKey: placementKey) {
+            var dock = AppTab.resolvedOrder(from: settings)
+                .filter { $0.isEnabled(in: settings) && AppTab.assignable.contains($0) }
+            dock.removeAll { $0 == .ecosystem }
+            // Third, matching where a fresh install puts it.
+            dock.insert(.ecosystem, at: min(2, dock.count))
+            settings.dockTabs = Array(dock.prefix(AppTab.maxDockItems)).map(\.rawValue)
+            userDefaults.set(true, forKey: placementKey)
+            save(settings)
+        }
+
         // Per-account dock: the active account's saved arrangement wins over the global blob.
         if let address = activeDockAddress() {
             if let data = userDefaults.data(forKey: dockOverlayKey(for: address)),

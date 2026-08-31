@@ -14,7 +14,7 @@ final class EcosystemRouter: ObservableObject {
     private init() {}
 
     func openSection(_ tab: AppTab) {
-        guard AppTab.ecosystemCandidates.contains(tab) else { return }
+        guard AppTab.assignable.contains(tab) else { return }
         openSectionTab = tab
     }
 
@@ -71,9 +71,20 @@ struct EcosystemView: View {
         }
     }
 
+    /// Every assignable tab renders here, not just the four feature tabs: with placement, Chats,
+    /// Profile, Portfolio and Storage can all live in the Hub too, and each has to look exactly as
+    /// it does from its own dock slot.
     @ViewBuilder
     private func sectionContent(_ tab: AppTab) -> some View {
         switch tab {
+        case .chats:
+            ChatListView()
+        case .profile:
+            ProfileView()
+        case .portfolio:
+            PortfolioView()
+        case .coldStorage:
+            NavigationStack { ColdStorageListView() }
         case .kaposts:
             KaPostsPageView()
         case .broadcasts:
@@ -124,6 +135,16 @@ struct EcosystemView: View {
                 }
                 ToolbarItem(placement: .principal) {
                     BalanceToolbarLabel()
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    // Straight to the one screen that decides what is in here and what is in the
+                    // dock, rather than making the user find it three levels into Settings.
+                    NavigationLink {
+                        MenuVisibilityView()
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                    }
+                    .accessibilityLabel(Text("Customize Dock"))
                 }
             }
         }

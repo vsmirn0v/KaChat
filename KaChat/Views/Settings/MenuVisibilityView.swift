@@ -1,240 +1,119 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import Foundation
 
-/// Settings > Customization > Customize Dock — which bottom tabs show up, and in what order. Chats/Profile
-/// are permanently on (Settings itself is reached from Profile now, not its own tab); everything
-/// else can each be hidden, all defaulting to shown for a new install (4.0). A
-/// live preview of the real tab bar is pinned to the bottom of this screen specifically (it isn't
-/// visible otherwise, since Settings now opens as a sheet over the real TabView) - press-and-drag
-/// a pill in the preview to reorder it, matching Android's own "reorder by dragging the bar
-/// itself" behavior instead of a separate up/down control.
+/// Settings > Customization > Customize Dock - where each tab lives.
+///
+/// Placement, not visibility. Every tab is either in the dock or in Kaspa Hub, and it is always in
+/// exactly one of them, so nothing can end up nowhere. That was possible before: tabs were toggled
+/// on or off and the dock then took the first five of an order, silently dropping the rest - which
+/// is how Profile could vanish from the dock with nothing on screen explaining it.
+///
+/// Kaspa Hub itself is pinned to the dock (`AppTab.isPinnedToDock`), because it is what holds
+/// whatever is not in the dock. Everything else, Chats and Profile included, is movable.
 struct MenuVisibilityView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
-    @State private var draggingTab: AppTab?
+    /// Always on: this screen exists to rearrange, so making the user find an Edit button first
+    /// would be a step with no other purpose.
+    @State private var editMode: EditMode = .active
 
-    private var visibleTabs: [AppTab] {
-        AppTab.visible(from: settingsViewModel.settings)
-    }
+    private var settings: AppSettings { settingsViewModel.settings }
 
-    /// Child Mode removes Swaps, KaPosts and Broadcasts from the whole app - their toggles
-    /// disappear from this screen too so they can't even be flipped "for later" while it's on.
-    private var childModeOn: Bool {
-        settingsViewModel.settings.childModeEnabled
-    }
+    private var dockTabs: [AppTab] { AppTab.visible(from: settings) }
 
-    /// Where a feature currently lives, shown on its own row.
-    ///
-    /// The three states worth saying out loud: it has a dock slot, it does not fit and so sits in
-    /// Ecosystem, or Ecosystem itself is off and it has nowhere to go. The last one is the only
-    /// way to lose access to an enabled feature, so it is the one that most needs saying.
-    private func placementHint(for tab: AppTab, hidden: Bool) -> String? {
-        let settings = settingsViewModel.settings
-        guard !hidden else { return nil }
-        if AppTab.visible(from: settings).contains(tab) { return "In your dock" }
-        if AppTab.ecosystemSections(from: settings).contains(tab) { return "In \(AppTab.ecosystem.label)" }
-        return "Dock is full and \(AppTab.ecosystem.label) is off - turn one on to reach it"
-    }
+    private var hubTabs: [AppTab] { AppTab.ecosystemSections(from: settings) }
+
+    private var dockIsFull: Bool { dockTabs.count >= AppTab.maxDockItems }
 
     var body: some View {
         List {
             Section {
-                // Always-shown (locked) rows first, then everything toggleable - matching
-                // Android's MenuVisibilityScreen ordering.
-                menuRow(icon: AppTab.chats.icon, label: AppTab.chats.label, isOn: .constant(true), locked: true)
-                menuRow(icon: AppTab.profile.icon, label: AppTab.profile.label, isOn: .constant(true), locked: true)
-                menuRow(
-                    icon: AppTab.portfolio.icon,
-                    label: AppTab.portfolio.label,
-                    isOn: Binding(
-                        get: { !settingsViewModel.settings.hidePortfolioTab },
-                        set: { settingsViewModel.settings.hidePortfolioTab = !$0; settingsViewModel.saveSettings() }
-                    ),
-                    locked: false
-                )
-                menuRow(
-                    icon: AppTab.coldStorage.icon,
-                    label: AppTab.coldStorage.label,
-                    isOn: Binding(
-                        get: { !settingsViewModel.settings.hideColdStorageTab },
-                        set: { settingsViewModel.settings.hideColdStorageTab = !$0; settingsViewModel.saveSettings() }
-                    ),
-                    locked: false
-                )
-                menuRow(
-                    icon: AppTab.ecosystem.icon,
-                    label: AppTab.ecosystem.label,
-                    isOn: Binding(
-                        get: { !settingsViewModel.settings.hideEcosystemTab },
-                        set: { settingsViewModel.settings.hideEcosystemTab = !$0; settingsViewModel.saveSettings() }
-                    ),
-                    locked: false,
-                    hint: settingsViewModel.settings.hideEcosystemTab
-                        ? nil
-                        : "Holds whatever is turned on below but not in your dock"
-                )
-                if !childModeOn {
-                    menuRow(
-                        icon: AppTab.swap.icon,
-                        label: AppTab.swap.ecosystemTitle,
-                        isOn: Binding(
-                            get: { !settingsViewModel.settings.hideSwapTab },
-                            set: { settingsViewModel.settings.hideSwapTab = !$0; settingsViewModel.saveSettings() }
-                        ),
-                        locked: false
-                    )
-                    menuRow(
-                        icon: AppTab.kaposts.icon,
-                        label: AppTab.kaposts.label,
-                        isOn: Binding(
-                            get: { !settingsViewModel.settings.hideKaPostsTab },
-                            set: { settingsViewModel.settings.hideKaPostsTab = !$0; settingsViewModel.saveSettings() }
-                        ),
-                        locked: false,
-                        hint: placementHint(for: .kaposts, hidden: settingsViewModel.settings.hideKaPostsTab)
-                    )
+                ForEach(dockTabs) { tab in
+                    row(tab, inDock: true)
                 }
-                menuRow(
-                    icon: AppTab.apps.icon,
-                    label: AppTab.apps.ecosystemTitle,
-                    isOn: Binding(
-                        get: { !settingsViewModel.settings.hideAppsTab },
-                        set: { settingsViewModel.settings.hideAppsTab = !$0; settingsViewModel.saveSettings() }
-                    ),
-                    locked: false,
-                    hint: placementHint(for: .apps, hidden: settingsViewModel.settings.hideAppsTab)
-                )
-                if !childModeOn {
-                    menuRow(
-                        icon: AppTab.broadcasts.icon,
-                        label: AppTab.broadcasts.label,
-                        isOn: Binding(
-                            get: { !settingsViewModel.settings.hideBroadcasts },
-                            set: { settingsViewModel.settings.hideBroadcasts = !$0; settingsViewModel.saveSettings() }
-                        ),
-                        locked: false,
-                        hint: placementHint(for: .broadcasts, hidden: settingsViewModel.settings.hideBroadcasts)
-                    )
+                .onMove(perform: moveWithinDock)
+            } header: {
+                HStack {
+                    Text("In Your Dock")
+                    Spacer()
+                    Text("\(dockTabs.count) of \(AppTab.maxDockItems)")
+                        .font(.caption)
+                        .foregroundColor(dockIsFull ? .orange : .secondary)
+                }
+            } footer: {
+                if dockIsFull {
+                    Text("The dock is full. Move something to \(AppTab.ecosystem.label) to free a slot. Drag to reorder.")
+                } else {
+                    Text("Drag to reorder. \(AppTab.ecosystem.label) always stays here - it is what holds everything below.")
+                }
+            }
+
+            Section {
+                if hubTabs.isEmpty {
+                    Text("Everything is in your dock.")
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(hubTabs) { tab in
+                        row(tab, inDock: false)
+                    }
                 }
             } header: {
-                Text("Choose which tabs appear in your dock.")
+                Text("In \(AppTab.ecosystem.label)")
             } footer: {
-                if childModeOn {
-                    Text("Press and drag a tab in the preview below to reorder it. The dock shows up to \(AppTab.maxDockItems) items. Swap, KaPosts and Broadcasts are unavailable while Child Mode is on (Settings > Security > Child Mode).")
-                } else {
-                    Text("Press and drag a tab in the preview below to reorder it. The dock shows up to \(AppTab.maxDockItems) items - if it's full, KaPosts and Broadcasts stay available by tapping the Chats tab to cycle through them; other tabs need a free slot to appear.")
-                }
+                Text("Opened from the \(AppTab.ecosystem.label) tab. Nothing here is switched off - it is one tap further away than the dock.")
             }
         }
+        .environment(\.editMode, $editMode)
         .navigationTitle("Customize Dock")
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom) {
-            tabOrderPreview
-        }
     }
 
-    private func menuRow(icon: String, label: String, isOn: Binding<Bool>, locked: Bool, hint: String? = nil) -> some View {
+    private func row(_ tab: AppTab, inDock: Bool) -> some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Label(label, systemImage: icon)
-                    .foregroundColor(.primary)
-                if let hint {
-                    Text(hint)
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                }
-            }
+            Label(tab.ecosystemTitle, systemImage: tab.icon)
+                .foregroundColor(.primary)
             Spacer()
-            if locked {
-                Text("Always shown")
+            if tab.isPinnedToDock {
+                Text("Always in dock")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
-                Toggle("", isOn: isOn)
-                    .labelsHidden()
-                    .tint(.accentColor)
-            }
-        }
-    }
-
-    // MARK: - Live reorderable preview
-
-    private var tabOrderPreview: some View {
-        VStack(spacing: 0) {
-            Divider()
-            HStack(spacing: 0) {
-                ForEach(visibleTabs) { tab in
-                    tabPreviewPill(tab)
+                Button {
+                    move(tab, toDock: !inDock)
+                } label: {
+                    // Names where it would GO, so it reads as the action it performs rather than
+                    // as a label for where the row already is.
+                    Text(inDock ? "Move to \(AppTab.ecosystem.label)" : "Move to Dock")
+                        .font(.caption.weight(.semibold))
                 }
+                // Borderless so the tap lands on the button rather than the whole row, which is
+                // also a drag handle here.
+                .buttonStyle(.borderless)
+                .disabled(!inDock && dockIsFull)
+                .foregroundColor(!inDock && dockIsFull ? .secondary : .accentColor)
             }
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-            .background(.bar)
         }
-        .animation(.default, value: visibleTabs)
     }
 
-    private func tabPreviewPill(_ tab: AppTab) -> some View {
-        VStack(spacing: 4) {
-            Image(systemName: tab.icon)
-                .font(.system(size: 20))
-            Text(tab.label)
-                .font(.caption2)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+    private func move(_ tab: AppTab, toDock: Bool) {
+        guard !tab.isPinnedToDock else { return }
+        var dock = dockTabs
+        if toDock {
+            guard dock.count < AppTab.maxDockItems, !dock.contains(tab) else { return }
+            dock.append(tab)
+        } else {
+            dock.removeAll { $0 == tab }
         }
-        .foregroundColor(.accentColor)
-        .frame(maxWidth: .infinity)
-        .opacity(draggingTab == tab ? 0.4 : 1.0)
-        .contentShape(Rectangle())
-        .onDrag {
-            draggingTab = tab
-            return NSItemProvider(object: tab.rawValue as NSString)
-        }
-        .onDrop(
-            of: [.text],
-            delegate: TabOrderDropDelegate(
-                tab: tab,
-                draggingTab: $draggingTab,
-                settingsViewModel: settingsViewModel
-            )
-        )
-    }
-}
-
-/// Reorders `settings.tabOrder` live as the dragged pill passes over a neighbor - the standard
-/// "swap on hover, commit on drop" SwiftUI drag-reorder pattern.
-private struct TabOrderDropDelegate: DropDelegate {
-    let tab: AppTab
-    @Binding var draggingTab: AppTab?
-    let settingsViewModel: SettingsViewModel
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
+        commit(dock)
     }
 
-    func performDrop(info: DropInfo) -> Bool {
-        draggingTab = nil
-        // Persisted once here, not on every `dropEntered` hover - saveSettings() does a full
-        // JSON encode + UserDefaults write + settingsDidChange broadcast, which was firing many
-        // times per second while the pill dragged across neighbors, visibly stuttering the drag.
+    private func moveWithinDock(from source: IndexSet, to destination: Int) {
+        var dock = dockTabs
+        dock.move(fromOffsets: source, toOffset: destination)
+        commit(dock)
+    }
+
+    private func commit(_ dock: [AppTab]) {
+        settingsViewModel.settings.dockTabs = dock.map(\.rawValue)
         settingsViewModel.saveSettings()
-        return true
-    }
-
-    func dropEntered(info: DropInfo) {
-        guard let draggingTab, draggingTab != tab else { return }
-
-        var order = AppTab.resolvedOrder(from: settingsViewModel.settings)
-        guard let fromIndex = order.firstIndex(of: draggingTab),
-              let toIndex = order.firstIndex(of: tab) else { return }
-
-        if fromIndex != toIndex {
-            order.move(
-                fromOffsets: IndexSet(integer: fromIndex),
-                toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex
-            )
-            settingsViewModel.settings.tabOrder = order.map { $0.rawValue }
-        }
     }
 }

@@ -407,7 +407,7 @@ struct DockWizardView: View {
                 wizardPage(
                     icon: "slider.horizontal.3",
                     title: "Make It Yours",
-                    text: "Prefer one of them in the dock itself? Turn it on in Settings > Customization > Customize Dock. Anything you put in the dock leaves Kaspa Hub, so nothing is listed twice.",
+                    text: "Every tab lives either in your dock or in Kaspa Hub - move any of them, Chats and Profile included. Five fit in the dock, and Kaspa Hub always keeps one of the slots. Customize Dock is in the Hub's top corner.",
                     demo: { dockMock(highlightIcon: "slider.horizontal.3", label: "Customize") }
                 )
                 .tag(2)
