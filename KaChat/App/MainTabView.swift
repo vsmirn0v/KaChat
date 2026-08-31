@@ -380,7 +380,7 @@ struct DockWizardView: View {
                 wizardPage(
                     icon: "sparkles",
                     title: "Meet Kaspa Hub",
-                    text: "KaPosts, Broadcasts, ChangeNOW Swap and the Kaspa websites list now live together in one place - Kaspa Hub, right in your dock.",
+                    text: "KaPosts, Broadcasts, ChangeNOW Swap and Kaspa Websites now live together in one place - Kaspa Hub, right in your dock.",
                     demo: { dockMock(highlightIcon: AppTab.ecosystem.icon, label: AppTab.ecosystem.label) }
                 )
                 .tag(0)

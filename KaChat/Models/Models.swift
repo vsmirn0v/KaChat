@@ -1514,7 +1514,7 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     /// bar truncates hard, so these full names live here rather than in `label`.
     var ecosystemTitle: String {
         switch self {
-        case .apps: return "Popular Kaspa Websites"
+        case .apps: return "Kaspa Websites"
         // ChangeNOW's own capitalization, matching how the app already names it everywhere else
         // (swap transaction rows, the settings section).
         case .swap: return "ChangeNOW Swap"

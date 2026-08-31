@@ -125,31 +125,40 @@ struct EcosystemView: View {
             Haptics.impact(.light)
             router.openSection(tab)
         } label: {
-            VStack(spacing: 10) {
-                Image(systemName: tab.icon)
-                    .font(.system(size: 26, weight: .medium))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(height: 30)
-                Text(tab.ecosystemTitle)
-                    .font(.caption.weight(.semibold))
-                    .foregroundColor(.primary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 104)
-            .padding(.horizontal, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(.regularMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.white.opacity(0.15), lineWidth: 0.8)
-                    )
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            // A square whose size comes from the column, with the content laid OVER it.
+            //
+            // The tile used to size itself - full column width, a fixed 104pt height - which was
+            // neither square nor guaranteed uniform: a longer name is a taller label, and anything
+            // that made the content exceed the fixed height would have grown that one tile alone.
+            // As an overlay the label cannot influence the size at all, so every tile is the same
+            // square whatever it is called.
+            Color.clear
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    VStack(spacing: 10) {
+                        Image(systemName: tab.icon)
+                            .font(.system(size: 26, weight: .medium))
+                            .foregroundStyle(Color.accentColor)
+                            .frame(height: 30)
+                        Text(tab.ecosystemTitle)
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.primary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .padding(.horizontal, 8)
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(.regularMaterial)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(Color.white.opacity(0.15), lineWidth: 0.8)
+                        )
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -163,7 +172,7 @@ struct EcosystemView: View {
                 .foregroundColor(.secondary)
             Text("Nothing here right now")
                 .font(.headline)
-            Text("KaPosts, Broadcasts, ChangeNOW Swap and the Kaspa websites list appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock.")
+            Text("KaPosts, Broadcasts, ChangeNOW Swap and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
