@@ -53,8 +53,24 @@ struct PortfolioPickerHeader: View {
     @State private var dragStartIndex: Int?
     @State private var dragTranslation: CGFloat = 0
     /// The order being previewed mid-drag. nil means "no drag in progress, use `portfolios`";
-    /// it is committed on release and discarded otherwise.
-    @State private var liveOrder: [UUID]?
+    /// it is committed on release and discarded otherwise. Stored as the portfolios themselves
+    /// rather than ids: this is read several times per card per frame while dragging, and
+    /// rebuilding it from ids meant constructing a dictionary on every one of those reads.
+    @State private var liveOrder: [Portfolio]?
+
+    /// Card contents captured when a drag starts, and used for every frame of it.
+    ///
+    /// `cardModel` is NOT cheap - per card it filters the whole transaction list twice and
+    /// recomputes a seven-day value history - and `formatCurrency` allocates two NumberFormatters
+    /// on top. Dragging updates state on every touch move, which re-rendered every card, so all of
+    /// that ran for all five cards at display rate. Nothing it produces can change during a drag,
+    /// so it is computed once at the start instead.
+    @State private var frozenCards: [UUID: FrozenCard] = [:]
+
+    fileprivate struct FrozenCard {
+        let model: PortfolioCardModel
+        let valueText: String
+    }
 
     /// Card width plus the HStack's spacing - one full slot. Cards are a fixed width, which is
     /// what makes a drag position resolvable by arithmetic instead of by measuring every card.
@@ -69,12 +85,8 @@ struct PortfolioPickerHeader: View {
     /// The cards as they should currently render: the live drag preview when one is in progress,
     /// otherwise whatever the manager holds.
     private var orderedPortfolios: [Portfolio] {
-        guard let liveOrder else { return portfolios }
-        let byId = Dictionary(uniqueKeysWithValues: portfolios.map { ($0.id, $0) })
-        let reordered = liveOrder.compactMap { byId[$0] }
-        // A portfolio added or deleted mid-drag would leave the preview short; fall back rather
-        // than render a list that is missing a card.
-        return reordered.count == portfolios.count ? reordered : portfolios
+        guard let liveOrder, liveOrder.count == portfolios.count else { return portfolios }
+        return liveOrder
     }
 
     var body: some View {
@@ -121,8 +133,15 @@ struct PortfolioPickerHeader: View {
     }
 
     private func beginDrag(of portfolio: Portfolio) {
-        let order = orderedPortfolios.map(\.id)
-        guard let index = order.firstIndex(of: portfolio.id) else { return }
+        let order = orderedPortfolios
+        guard let index = order.firstIndex(where: { $0.id == portfolio.id }) else { return }
+        // Freeze what every card renders before the first frame of the drag - see `frozenCards`.
+        var frozen: [UUID: FrozenCard] = [:]
+        for item in order {
+            let model = cardModel(item)
+            frozen[item.id] = FrozenCard(model: model, valueText: formatCurrency(model.currentValue))
+        }
+        frozenCards = frozen
         liveOrder = order
         dragStartIndex = index
         draggingCardId = portfolio.id
@@ -136,20 +155,27 @@ struct PortfolioPickerHeader: View {
     /// fast drag land somewhere sensible instead of oscillating.
     private func updateDragTarget(for portfolio: Portfolio) {
         guard let dragStartIndex, var order = liveOrder,
-              let currentIndex = order.firstIndex(of: portfolio.id) else { return }
+              let currentIndex = order.firstIndex(where: { $0.id == portfolio.id }) else { return }
         let slots = Int((dragTranslation / Self.cardStride).rounded())
         let target = min(max(dragStartIndex + slots, 0), order.count - 1)
         guard target != currentIndex else { return }
-        order.remove(at: currentIndex)
-        order.insert(portfolio.id, at: target)
-        liveOrder = order
+        let moved = order.remove(at: currentIndex)
+        order.insert(moved, at: target)
+        // Animated HERE rather than by an `.animation(value:)` on every card - that modifier had
+        // to build and compare an id array per card per frame just to notice this same change.
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            liveOrder = order
+        }
         Haptics.impact(.light)
     }
 
     private func commitDrag() {
-        if let liveOrder, liveOrder != portfolios.map(\.id) {
-            onReorder(liveOrder)
-            Haptics.success()
+        if let liveOrder {
+            let ids = liveOrder.map(\.id)
+            if ids != portfolios.map(\.id) {
+                onReorder(ids)
+                Haptics.success()
+            }
         }
         clearDragState()
     }
@@ -162,6 +188,7 @@ struct PortfolioPickerHeader: View {
         draggingCardId = nil
         dragStartIndex = nil
         dragTranslation = 0
+        frozenCards = [:]
         // Held until the parent publishes the committed order, so the cards do not flash back to
         // the old positions for a frame in between.
         DispatchQueue.main.async { liveOrder = nil }
@@ -191,7 +218,10 @@ struct PortfolioPickerHeader: View {
     }
 
     private func card(for portfolio: Portfolio) -> some View {
-        let model = cardModel(portfolio)
+        // Frozen while a drag is running, live otherwise - see `frozenCards`.
+        let frozen = frozenCards[portfolio.id]
+        let model = frozen?.model ?? cardModel(portfolio)
+        let valueText = frozen?.valueText ?? formatCurrency(model.currentValue)
         let isActive = portfolio.id == activePortfolioId
         let isPositive = (model.todayChangeAmount ?? 0) >= 0
         let isPressing = pressingCardId == portfolio.id
@@ -207,7 +237,7 @@ struct PortfolioPickerHeader: View {
                 .fontWeight(.bold)
                 .foregroundColor(isActive ? .primary : .secondary)
                 .lineLimit(1)
-            Text(formatCurrency(model.currentValue))
+            Text(valueText)
                 .font(.title3)
                 .fontWeight(.bold)
                 .foregroundColor(.primary)
@@ -256,9 +286,6 @@ struct PortfolioPickerHeader: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.68), value: isPressing)
         .animation(.spring(response: 0.34, dampingFraction: 0.7), value: isMenuTarget)
         .animation(.spring(response: 0.3, dampingFraction: 0.75), value: isDragging)
-        // The neighbours slide as the drag reorders them; the dragged card itself is positioned
-        // by the offset above, so it must not animate its own slot change.
-        .animation(isDragging ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: orderedPortfolios.map(\.id))
         .onTapGesture {
             Haptics.impact(.light)
             onSelect(portfolio.id)
