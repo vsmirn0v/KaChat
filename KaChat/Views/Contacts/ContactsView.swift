@@ -38,6 +38,8 @@ struct ProfileView: View {
     @State private var showKNSEditor = false
     @State private var showCreateKNSProfileFlow = false
     @State private var settingPrimaryDomainId: String?
+    /// Result of the last "Set as Primary" tap, shown by the editor sheet itself.
+    @State private var setPrimaryMessage: KNSSetPrimaryMessage?
     @State private var isSavingKNSProfile = false
     @State private var knsSaveProgressText: String?
     @State private var failedKNSUpdates: [KNSProfileFieldKey: String] = [:]
@@ -218,9 +220,10 @@ struct ProfileView: View {
                 if let profileInfo = knsProfileInfo, profileInfo.assetId != nil {
                     KNSProfileEditorSheet(
                         profileInfo: profileInfo,
-                        domains: knsDomains,
-                        primaryDomain: knsPrimaryDomain,
-                        settingPrimaryDomainId: settingPrimaryDomainId,
+                        domains: $knsDomains,
+                        primaryDomain: $knsPrimaryDomain,
+                        settingPrimaryDomainId: $settingPrimaryDomainId,
+                        setPrimaryMessage: $setPrimaryMessage,
                         onSetPrimary: { domain in
                             Task {
                                 await setPrimaryDomain(domain)
@@ -590,7 +593,10 @@ struct ProfileView: View {
         guard settingPrimaryDomainId == nil else { return }
         guard let walletAddress = walletManager.currentWallet?.publicAddress else {
             await MainActor.run {
-                showToast(localized("Wallet not available."), style: .error)
+                setPrimaryMessage = KNSSetPrimaryMessage(
+                    text: localized("Wallet not available."),
+                    isError: true
+                )
             }
             return
         }
@@ -598,7 +604,10 @@ struct ProfileView: View {
         let assetId = domain.inscriptionId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !assetId.isEmpty else {
             await MainActor.run {
-                showToast(localized("KNS domain id is missing."), style: .error)
+                setPrimaryMessage = KNSSetPrimaryMessage(
+                    text: localized("KNS domain id is missing."),
+                    isError: true
+                )
             }
             return
         }
@@ -617,7 +626,12 @@ struct ProfileView: View {
             await MainActor.run {
                 settingPrimaryDomainId = nil
                 Haptics.success()
-                showToast(localizedFormat("Primary domain set to %@.", domain.fullName))
+                // Reported through the sheet's own alert: the editor is still on screen, and a
+                // toast behind it is a message nobody sees.
+                setPrimaryMessage = KNSSetPrimaryMessage(
+                    text: localizedFormat("Primary domain set to %@.", domain.fullName),
+                    isError: false
+                )
             }
             logKNSWrite("SET_PRIMARY_SUCCESS domain=\(domain.fullName)")
         } catch {
@@ -626,7 +640,7 @@ struct ProfileView: View {
             await MainActor.run {
                 settingPrimaryDomainId = nil
                 Haptics.impact(.medium)
-                showToast(localizedFormat("Set primary failed: %@", message), style: .error)
+                setPrimaryMessage = KNSSetPrimaryMessage(text: message, isError: true)
             }
         }
     }
@@ -1923,12 +1937,28 @@ private struct KNSProfileEditorSubmission {
     }
 }
 
+/// The outcome of a "Set as Primary" tap, shown INSIDE the editor sheet.
+///
+/// The operation is owned by ContactsView, which reports through `showToast` - and a toast is
+/// drawn in ContactsView's own hierarchy, which sits BEHIND a presented sheet. So the star's every
+/// outcome, success and failure alike, was invisible to someone looking at the sheet: tapping it
+/// appeared to do nothing whether the write landed or not.
+private struct KNSSetPrimaryMessage: Identifiable, Equatable {
+    let id = UUID()
+    let text: String
+    let isError: Bool
+}
+
 private struct KNSProfileEditorSheet: View {
     let profileInfo: KNSAddressProfileInfo
     let onSave: (KNSProfileEditorSubmission) -> Void
-    let domains: [KNSDomain]
-    let primaryDomain: String?
-    let settingPrimaryDomainId: String?
+    // Bindings, not snapshots: this sheet is presented with `.sheet(isPresented:)`, whose content
+    // is built from the values captured when it opened. As plain lets, the in-flight spinner never
+    // started and the star never moved to the newly-set primary, so the row looked inert.
+    @Binding var domains: [KNSDomain]
+    @Binding var primaryDomain: String?
+    @Binding var settingPrimaryDomainId: String?
+    @Binding var setPrimaryMessage: KNSSetPrimaryMessage?
     let onSetPrimary: (KNSDomain) -> Void
     let onInscribeComplete: (KNSDomainInscribeResult) -> Void
     let onTransferComplete: (KNSDomainTransferResult) -> Void
@@ -1966,9 +1996,10 @@ private struct KNSProfileEditorSheet: View {
 
     init(
         profileInfo: KNSAddressProfileInfo,
-        domains: [KNSDomain],
-        primaryDomain: String?,
-        settingPrimaryDomainId: String?,
+        domains: Binding<[KNSDomain]>,
+        primaryDomain: Binding<String?>,
+        settingPrimaryDomainId: Binding<String?>,
+        setPrimaryMessage: Binding<KNSSetPrimaryMessage?>,
         onSetPrimary: @escaping (KNSDomain) -> Void,
         onInscribeComplete: @escaping (KNSDomainInscribeResult) -> Void,
         onTransferComplete: @escaping (KNSDomainTransferResult) -> Void,
@@ -1977,9 +2008,10 @@ private struct KNSProfileEditorSheet: View {
         onSave: @escaping (KNSProfileEditorSubmission) -> Void
     ) {
         self.profileInfo = profileInfo
-        self.domains = domains
-        self.primaryDomain = primaryDomain
-        self.settingPrimaryDomainId = settingPrimaryDomainId
+        self._domains = domains
+        self._primaryDomain = primaryDomain
+        self._settingPrimaryDomainId = settingPrimaryDomainId
+        self._setPrimaryMessage = setPrimaryMessage
         self.onSetPrimary = onSetPrimary
         self.onInscribeComplete = onInscribeComplete
         self.onTransferComplete = onTransferComplete
@@ -2224,6 +2256,19 @@ private struct KNSProfileEditorSheet: View {
                         }
                     }
                 }
+            }
+            // The outcome lands here, above the sheet, instead of as a toast the sheet covers.
+            .alert(
+                setPrimaryMessage?.isError == true ? "Set Primary Failed" : "Primary Domain Set",
+                isPresented: Binding(
+                    get: { setPrimaryMessage != nil },
+                    set: { if !$0 { setPrimaryMessage = nil } }
+                ),
+                presenting: setPrimaryMessage
+            ) { _ in
+                Button("OK", role: .cancel) { setPrimaryMessage = nil }
+            } message: { message in
+                Text(message.text)
             }
             .navigationTitle("Edit KNS Profile")
             .navigationBarTitleDisplayMode(.inline)
