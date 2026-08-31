@@ -311,46 +311,38 @@ struct ChatInfoView: View {
                     }
                 }
 
-                // Every KNS domain this address owns, primary first. Data comes from the same
-                // KNSService address-info cache the rest of the screen already reads
-                // (`knsInfo`/`knsDomains`), refreshed by the `.task` below - no extra network
-                // path, and the section renders whatever is cached while that refresh runs.
+                // One row into a dedicated screen rather than the full list inline: an address
+                // that owns a few dozen domains pushed everything below it - the aliases, the
+                // media and privacy controls - far enough down the form to be hard to reach.
+                // Data still comes from the same KNSService address-info cache the rest of the
+                // screen reads (`knsInfo`/`knsDomains`), so opening the screen costs no fetch.
                 Section {
-                    if knsDomains.isEmpty {
-                        HStack(spacing: 8) {
-                            if knsDomainsLoaded {
-                                Text("No KNS domains")
+                    NavigationLink {
+                        ContactDomainsView(
+                            domains: sortedKNSDomains,
+                            isPrimary: isPrimaryDomain,
+                            hasExplicitPrimary: hasExplicitPrimaryDomain,
+                            onCopy: { copyProfileFieldValue($0, fieldName: "Domain") }
+                        )
+                    } label: {
+                        HStack {
+                            Text("Domains")
+                            Spacer()
+                            if !knsDomains.isEmpty {
+                                Text("\(knsDomains.count)")
+                                    .foregroundColor(.secondary)
+                            } else if knsDomainsLoaded {
+                                Text("None")
                                     .foregroundColor(.secondary)
                             } else {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Looking up domains...")
-                                    .foregroundColor(.secondary)
+                                ProgressView().controlSize(.small)
                             }
                         }
-                    } else {
-                        ForEach(sortedKNSDomains) { domain in
-                            domainRow(domain)
-                        }
                     }
-                } header: {
-                    HStack {
-                        Text("Domains")
-                        Spacer()
-                        if !knsDomains.isEmpty {
-                            Text("\(knsDomains.count)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                    // Nothing to open until the lookup has produced something.
+                    .disabled(knsDomains.isEmpty)
                 } footer: {
-                    if knsDomains.isEmpty {
-                        Text("Kaspa Name Service domains owned by this address.")
-                    } else if hasExplicitPrimaryDomain {
-                        Text("Primary is the domain this contact set as their KNS primary name. Tap any domain to copy it.")
-                    } else {
-                        Text("This contact hasn't set a KNS primary name, so their first domain is used as the primary. Tap any domain to copy it.")
-                    }
+                    Text("Kaspa Name Service domains owned by this address.")
                 }
 
                 // This conversation's deterministic pair aliases (DeterministicAlias, ECDH +
@@ -585,47 +577,6 @@ struct ChatInfoView: View {
     /// One domain row: name, a Primary badge on the contact's primary, and a verified check.
     /// Tapping copies the full domain, matching the copy-on-tap idiom the Address and Aliases
     /// sections already use.
-    private func domainRow(_ domain: KNSDomain) -> some View {
-        let isPrimary = isPrimaryDomain(domain)
-        return Button {
-            copyProfileFieldValue(domain.fullName, fieldName: "Domain")
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: isPrimary ? "star.fill" : "at")
-                    .font(.caption)
-                    .foregroundColor(isPrimary ? .accentColor : .secondary)
-                    .frame(width: 18)
-
-                Text(domain.fullName)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                if domain.isVerified {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.caption)
-                        .foregroundColor(.accentColor)
-                        .accessibilityLabel(Text("Verified"))
-                }
-
-                Spacer(minLength: 8)
-
-                if isPrimary {
-                    Text("PRIMARY")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.accentColor)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(
-                            Capsule().fill(Color.accentColor.opacity(0.15))
-                        )
-                }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
 
     private func formatAddress(_ address: String) -> String {
         guard address.count > 20 else { return address }
@@ -762,5 +713,78 @@ private struct StatItem: View {
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The contact's KNS domains, primary first, on their own screen.
+///
+/// Pushed from Chat Info rather than listed inline: an address owning a few dozen domains buried
+/// everything below it in that form. The rows are handed in already sorted and already resolved,
+/// so this view does no lookups of its own and shows whatever Chat Info had cached.
+private struct ContactDomainsView: View {
+    let domains: [KNSDomain]
+    let isPrimary: (KNSDomain) -> Bool
+    /// True when the badged primary came from an explicit reverse lookup rather than the
+    /// "first domain owned" fallback - the footer says which, so a wrong-looking badge is
+    /// explainable rather than mysterious.
+    let hasExplicitPrimary: Bool
+    let onCopy: (String) -> Void
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(domains) { domain in
+                    row(domain)
+                }
+            } footer: {
+                if hasExplicitPrimary {
+                    Text("Primary is the domain this contact set as their KNS primary name. Tap any domain to copy it.")
+                } else {
+                    Text("This contact hasn't set a KNS primary name, so their first domain is used as the primary. Tap any domain to copy it.")
+                }
+            }
+        }
+        .navigationTitle("Domains")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func row(_ domain: KNSDomain) -> some View {
+        let primary = isPrimary(domain)
+        return Button {
+            onCopy(domain.fullName)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: primary ? "star.fill" : "at")
+                    .font(.caption)
+                    .foregroundColor(primary ? .accentColor : .secondary)
+                    .frame(width: 18)
+
+                Text(domain.fullName)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                if domain.isVerified {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.caption)
+                        .foregroundColor(.accentColor)
+                        .accessibilityLabel(Text("Verified"))
+                }
+
+                Spacer(minLength: 8)
+
+                if primary {
+                    Text("PRIMARY")
+                        .font(.caption2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.accentColor)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

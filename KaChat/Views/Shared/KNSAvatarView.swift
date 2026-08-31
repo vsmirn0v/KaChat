@@ -158,11 +158,28 @@ struct KNSBannerImageView: View {
     var body: some View {
         Group {
             if let loadedImage {
-                Image(uiImage: loadedImage)
-                    .resizable()
-                    .scaledToFill()
+                // The image is an OVERLAY on a fixed-size canvas, never a laid-out child.
+                //
+                // `.scaledToFill()` scales the image until it covers the frame, which for a wide
+                // banner means a rendered width far beyond the screen. As a child it reported that
+                // width up the tree, and since the Profile screen is a vertical ScrollView - which
+                // sizes its content to the content's own width rather than clamping it - the whole
+                // page became as wide as the image. Every sibling using `maxWidth: .infinity` then
+                // stretched to match, so the rows and the round launcher buttons grew with it and
+                // the page looked zoomed in, clipped on both edges. Uploading one large banner was
+                // enough to do it.
+                //
+                // An overlay is laid out against its base's size and can never change it, so the
+                // canvas below is the only thing that decides how much room this takes.
+                Color.clear
                     .frame(maxWidth: .infinity)
                     .frame(height: height)
+                    .overlay {
+                        Image(uiImage: loadedImage)
+                            .resizable()
+                            .scaledToFill()
+                    }
+                    .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             } else if KNSProfileImageDescriptor.from(raw: bannerURLString) != nil {
                 if isLoading || !didFail {

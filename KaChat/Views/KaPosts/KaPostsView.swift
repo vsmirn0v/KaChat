@@ -2431,23 +2431,28 @@ struct KaPostsView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     // Banner (KNS profile banner when set, subtle gradient fallback).
                     ZStack(alignment: .bottomLeading) {
-                        Group {
-                            if let bannerURL = myInfo?.profile?.bannerUrl,
-                               let url = URL(string: bannerURL) {
-                                AsyncImage(url: url) { phase in
-                                    if let image = phase.image {
-                                        image.resizable().scaledToFill()
-                                    } else {
-                                        bannerFallback
+                        // Overlay, not a child: see the note on `KNSBannerImageView`. A
+                        // fill-scaled banner reports a width far past the screen, and a vertical
+                        // ScrollView takes its content's width rather than clamping it, so the
+                        // whole profile stretched and looked zoomed in.
+                        Color.clear
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 140)
+                            .overlay {
+                                if let bannerURL = myInfo?.profile?.bannerUrl,
+                                   let url = URL(string: bannerURL) {
+                                    AsyncImage(url: url) { phase in
+                                        if let image = phase.image {
+                                            image.resizable().scaledToFill()
+                                        } else {
+                                            bannerFallback
+                                        }
                                     }
+                                } else {
+                                    bannerFallback
                                 }
-                            } else {
-                                bannerFallback
                             }
-                        }
-                        .frame(height: 140)
-                        .frame(maxWidth: .infinity)
-                        .clipped()
+                            .clipped()
                     }
 
                     // Avatar overlapping the banner, X-style.
@@ -2614,23 +2619,25 @@ struct KaPostsView: View {
             VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     ZStack(alignment: .bottomLeading) {
-                        Group {
-                            if let bannerURL = info?.profile?.bannerUrl,
-                               let url = URL(string: bannerURL) {
-                                AsyncImage(url: url) { phase in
-                                    if let image = phase.image {
-                                        image.resizable().scaledToFill()
-                                    } else {
-                                        bannerFallback
+                        // Overlay, not a child - see the matching note on the own-profile banner.
+                        Color.clear
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 140)
+                            .overlay {
+                                if let bannerURL = info?.profile?.bannerUrl,
+                                   let url = URL(string: bannerURL) {
+                                    AsyncImage(url: url) { phase in
+                                        if let image = phase.image {
+                                            image.resizable().scaledToFill()
+                                        } else {
+                                            bannerFallback
+                                        }
                                     }
+                                } else {
+                                    bannerFallback
                                 }
-                            } else {
-                                bannerFallback
                             }
-                        }
-                        .frame(height: 140)
-                        .frame(maxWidth: .infinity)
-                        .clipped()
+                            .clipped()
                     }
 
                     KNSAvatarView(

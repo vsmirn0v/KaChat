@@ -2123,11 +2123,18 @@ private struct KNSProfileEditorSheet: View {
                 Section("Banner") {
                     Group {
                         if let bannerPreviewImage {
-                            Image(uiImage: bannerPreviewImage)
-                                .resizable()
-                                .scaledToFill()
+                            // Overlay, not a child - same reason as `KNSBannerImageView`: the
+                            // picked photo is full-resolution, and fill-scaled it would report a
+                            // width far past the sheet and stretch the whole form.
+                            Color.clear
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 110)
+                                .overlay {
+                                    Image(uiImage: bannerPreviewImage)
+                                        .resizable()
+                                        .scaledToFill()
+                                }
+                                .clipped()
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
                         } else if KNSProfileLinkBuilder.websiteURL(from: bannerUrl) != nil {
                             KNSBannerImageView(
