@@ -13,10 +13,9 @@ struct PortfolioCardModel: Identifiable {
     let todayChangePercent: Double?
 }
 
-/// The portfolio a long-press actually landed on, captured by value at the moment the press
-/// fires (id AND the name shown on that card). Every dialog is driven by this snapshot via
-/// `presenting:`, and the destructive action only ever uses the snapshot's id, so the card that
-/// was pressed is the card that gets acted on.
+/// The portfolio whose gear was tapped, captured by value at that moment (id AND the name shown
+/// on that card). The sheet is built from this snapshot, and the destructive action only ever uses
+/// the snapshot's id, so the card whose gear was tapped is the card that gets acted on.
 private struct PressedPortfolio: Identifiable, Equatable {
     let id: UUID
     let name: String
@@ -39,13 +38,9 @@ struct PortfolioPickerHeader: View {
 
     @State private var showAddSheet = false
     @State private var newPortfolioName = ""
-    /// The card whose long-press sheet is open. Everything that sheet offers - rename, reorder,
-    /// delete - happens inside it, so this is the only presentation the long press starts.
+    /// The card whose settings sheet is open. Everything that sheet offers - rename, reorder,
+    /// delete - happens inside it, so the gear is the only presentation any card starts.
     @State private var pressedPortfolio: PressedPortfolio?
-    /// The card currently under a finger. Drives the home-screen-style press feedback, so a long
-    /// press looks like it is being registered instead of nothing happening for four tenths of a
-    /// second and then a sheet appearing.
-    @State private var pressingCardId: UUID?
 
     private var canAddMore: Bool { portfolios.count < PortfolioManager.maxPortfolios }
 
@@ -60,10 +55,9 @@ struct PortfolioPickerHeader: View {
                     showAddSheet = false
                 }
             }
-            // One half-height sheet for the whole long-press menu, matching the broadcast
-            // retention sheet. `.sheet(item:)` rather than a boolean: the sheet is built FROM the
-            // pressed card's own snapshot, so it can never be handed a different portfolio than
-            // the one that was held.
+            // One half-height sheet for the whole card menu, matching the broadcast retention
+            // sheet. `.sheet(item:)` rather than a boolean: the sheet is built FROM the tapped
+            // card's own snapshot, so it can never be handed a different portfolio.
             .sheet(item: $pressedPortfolio) { target in
                 PortfolioActionsSheet(
                     target: target,
@@ -107,7 +101,6 @@ struct PortfolioPickerHeader: View {
             valueText: formatCurrency(model.currentValue),
             changePercent: model.todayChangePercent,
             isActive: portfolio.id == activePortfolioId,
-            isPressing: pressingCardId == portfolio.id,
             // Stays lifted while ITS sheet is open, the way a home-screen icon stays raised under
             // its context menu - the sheet only covers the lower half, so the card it belongs to
             // is still on screen and worth identifying.
@@ -116,15 +109,9 @@ struct PortfolioPickerHeader: View {
                 Haptics.impact(.light)
                 onSelect(portfolio.id)
             },
-            onLongPress: {
-                Haptics.impact(.medium)
-                // Hand straight over to the lifted state - leaving the shrink on would make the
-                // card jump from small to large as the sheet appears.
-                pressingCardId = nil
+            onEdit: {
+                Haptics.impact(.light)
                 pressedPortfolio = PressedPortfolio(id: portfolio.id, name: portfolio.name)
-            },
-            onPressingChanged: { pressing in
-                pressingCardId = pressing ? portfolio.id : nil
             }
         )
         // Lets SwiftUI skip the cards whose inputs did not change when one card's press state does.
@@ -181,12 +168,12 @@ struct PortfolioPickerHeader: View {
     }
 }
 
-/// Everything a long press on a portfolio card offers, in one half-height sheet.
+/// Everything a portfolio card's gear offers, in one half-height sheet.
 ///
 /// Rename, reorder and delete all happen HERE rather than each opening its own presentation. That
 /// is partly the requested shape and partly a correctness property: the sheet is built from the
-/// pressed card's own snapshot, so every action inside it acts on the portfolio that was held,
-/// with nothing in between that could resolve to another one.
+/// tapped card's own snapshot, so every action inside it acts on that portfolio, with nothing in
+/// between that could resolve to another one.
 private struct PortfolioActionsSheet: View {
     let target: PressedPortfolio
     let portfolios: [Portfolio]
@@ -360,7 +347,7 @@ private struct PortfolioActionsSheet: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .cancellationAction) {
             // From a sub-mode this steps back to the menu rather than closing outright, so a
-            // mis-tap costs one tap instead of the whole long press.
+            // mis-tap costs one tap instead of closing the sheet outright.
             Button(mode == .menu ? "Cancel" : "Back") {
                 if mode == .menu { dismiss() } else { mode = .menu }
             }
@@ -387,7 +374,7 @@ private struct PortfolioActionsSheet: View {
 
 /// One portfolio card, as its own `Equatable` view.
 ///
-/// Equatable so that pressing one card does not rebuild the others: the press state lives on the
+/// Equatable so that opening one card's sheet does not rebuild the others: that state lives on the
 /// header, so any change to it re-evaluates the header's body and with it every card, even though
 /// only one card's inputs actually changed.
 private struct PortfolioCardView: View, Equatable {
@@ -395,11 +382,9 @@ private struct PortfolioCardView: View, Equatable {
     let valueText: String
     let changePercent: Double?
     let isActive: Bool
-    let isPressing: Bool
     let isMenuTarget: Bool
     let onTap: () -> Void
-    let onLongPress: () -> Void
-    let onPressingChanged: (Bool) -> Void
+    let onEdit: () -> Void
 
     /// The closures are excluded deliberately: they are rebuilt every time the header renders and
     /// would never compare equal, which would defeat the comparison entirely. They only ever read
@@ -409,26 +394,37 @@ private struct PortfolioCardView: View, Equatable {
             && lhs.valueText == rhs.valueText
             && lhs.changePercent == rhs.changePercent
             && lhs.isActive == rhs.isActive
-            && lhs.isPressing == rhs.isPressing
             && lhs.isMenuTarget == rhs.isMenuTarget
     }
-
-    /// How long the card must be held before its sheet opens.
-    ///
-    /// Shorter than the 0.5s system default and than the 0.4s this started at, which felt like a
-    /// wait. It stays comfortably above a deliberate tap, and the gesture's own 10pt movement
-    /// tolerance is what keeps a scroll of the card row from ever reaching it.
-    private static let longPressDuration: TimeInterval = 0.25
 
     private var isPositive: Bool { (changePercent ?? 0) >= 0 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(portfolio.name)
-                .font(.subheadline)
-                .fontWeight(.bold)
-                .foregroundColor(isActive ? .primary : .secondary)
-                .lineLimit(1)
+            // The gear shares the title row rather than floating over it, so a long name is
+            // truncated by the layout instead of running underneath the button.
+            HStack(spacing: 4) {
+                Text(portfolio.name)
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(isActive ? .primary : .secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Button(action: onEdit) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        // A deliberately generous target: the glyph alone is far below the
+                        // comfortable minimum on a card this size.
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Edit \(portfolio.name)"))
+            }
+            // Cancels the button's own frame padding so the title still sits where it did.
+            .padding(.trailing, -6)
+            .padding(.top, -4)
             Text(valueText)
                 .font(.title3)
                 .fontWeight(.bold)
@@ -464,21 +460,14 @@ private struct PortfolioCardView: View, Equatable {
                 )
         )
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        // Shrinks under the finger and lifts once its sheet is open. Springs rather than linear
-        // fades, so the card settles the way a pressed icon does.
-        .scaleEffect(isPressing ? 0.94 : (isMenuTarget ? 1.04 : 1))
-        .brightness(isPressing ? -0.04 : 0)
+        // Lifts while ITS sheet is open - the sheet covers only the lower half, so the card it
+        // belongs to is still on screen and worth identifying.
+        .scaleEffect(isMenuTarget ? 1.04 : 1)
         // Applied only when there is a shadow to draw. A shadow forces an offscreen pass, and
         // leaving a transparent one installed on every card pays for it on all of them.
         .modifier(LiftShadow(active: isMenuTarget))
-        .animation(.spring(response: 0.3, dampingFraction: 0.68), value: isPressing)
         .animation(.spring(response: 0.34, dampingFraction: 0.7), value: isMenuTarget)
         .onTapGesture(perform: onTap)
-        .onLongPressGesture(
-            minimumDuration: Self.longPressDuration,
-            perform: onLongPress,
-            onPressingChanged: onPressingChanged
-        )
     }
 }
 
