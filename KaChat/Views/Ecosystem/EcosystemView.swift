@@ -50,13 +50,18 @@ struct EcosystemView: View {
                 // The section owns the whole screen, with its own navigation bar - the way it
                 // looks when it has its own dock tab. Nothing is wrapped around it.
                 sectionContent(open)
-                    .transition(.opacity)
             } else {
                 grid
-                    .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.18), value: router.openSectionTab)
+        // Deliberately NOT animated, and no transition on either branch.
+        //
+        // A cross-fade here fades the whole subtree, navigation bar included - so the balance in
+        // the bar dimmed out of white and back on every move between sections, which read as it
+        // flickering and resettling rather than as the page changing. Each section brings its own
+        // navigation bar (that is what makes it look identical whether it is reached from here or
+        // from its own dock tab), so switching does rebuild the bar; without the fade that swap is
+        // instant and the balance simply stays put.
         // A section the user has since moved into the dock (or hidden) must not stay open here,
         // or it would be on screen twice.
         .onChange(of: sections) { current in
@@ -109,6 +114,10 @@ struct EcosystemView: View {
                 }
             }
             .navigationTitle(AppTab.ecosystem.label)
+            // Stated rather than left to the default, because it has to MATCH every section: all
+            // four use a large title, and a grid that resolved to inline would give the bar a
+            // different height, moving the balance the moment you opened anything.
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     ConnectionStatusIndicator()
