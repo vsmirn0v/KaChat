@@ -206,9 +206,12 @@ extension AppSettings {
         if !userDefaults.bool(forKey: placementKey) {
             var dock = AppTab.resolvedOrder(from: settings)
                 .filter { $0.isEnabled(in: settings) && AppTab.assignable.contains($0) }
-            dock.removeAll { $0 == .ecosystem }
-            // Third, matching where a fresh install puts it.
-            dock.insert(.ecosystem, at: min(2, dock.count))
+            // The pinned tabs go where a fresh install puts them; `AppTab.visible` would reinsert
+            // them at read time anyway, but storing them keeps the saved arrangement honest.
+            for pinned in AppTab.pinnedToDock where !dock.contains(pinned) {
+                let position = AppTab.defaultDock.firstIndex(of: pinned) ?? dock.count
+                dock.insert(pinned, at: min(position, dock.count))
+            }
             let placedDock = Array(dock.prefix(AppTab.maxDockItems))
             settings.dockTabs = placedDock.map(\.rawValue)
             // Everything else, in the app's default order, as this account's starting Hub order.

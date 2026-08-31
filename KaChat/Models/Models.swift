@@ -1537,29 +1537,35 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         }
     }
 
-    /// Kaspa Hub is the ONE tab pinned to the dock.
+    /// Tabs that always hold a dock slot and cannot be moved into Kaspa Hub.
     ///
-    /// Everything else - Chats and Profile included - can be moved into the Hub, which is what
-    /// makes the dock fully arrangeable. The Hub cannot be, because it is what holds whatever is
-    /// not in the dock: move it inside itself and the things it holds become unreachable. Pinning
-    /// exactly one tab is the smallest rule that makes "unreachable" impossible.
-    var isPinnedToDock: Bool { self == .ecosystem }
+    /// Kaspa Hub, because it is what HOLDS whatever is not in the dock - move it inside itself and
+    /// everything it holds becomes unreachable. Profile, because it is the way to Settings, the
+    /// account list and the wallet's own addresses, so it is the one screen that must never be a
+    /// level deeper than the dock.
+    var isPinnedToDock: Bool { self == .ecosystem || self == .profile }
+
+    /// In the order a fresh dock places them, so `visible` can reinsert a missing one sensibly.
+    static let pinnedToDock: [AppTab] = [.ecosystem, .profile]
 
     /// Tabs the user can place. Excludes the Hub (pinned) and the retired "+ More".
-    static let assignable: [AppTab] = [.chats, .profile, .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .apps]
+    static let assignable: [AppTab] = [.chats, .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .apps]
 
     /// Ecosystem takes the dock slot Swap used to hold, so a default install shows exactly the
     /// five the dock can fit - Portfolio, Storage, Chats, Ecosystem, Profile - with Swap, KaPosts,
     /// Broadcasts and the websites list still ENABLED but living inside Ecosystem rather than
     /// competing for a dock slot.
-    static let defaultOrder: [AppTab] = [.chats, .profile, .ecosystem, .portfolio, .coldStorage, .swap, .kaposts, .broadcasts, .apps]
+    static let defaultOrder: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile, .swap, .kaposts, .broadcasts, .apps]
 
     /// What a fresh install starts with: the three that were asked for, in that order, plus the
     /// two that fill the dock to its cap. Everything else starts in Kaspa Hub.
-    static let defaultDock: [AppTab] = [.chats, .profile, .ecosystem, .portfolio, .coldStorage]
+    static let defaultDock: [AppTab] = [.coldStorage, .portfolio, .chats, .ecosystem, .profile]
 
     /// The rest, in the order the Hub grid shows them until the user rearranges it.
     static let defaultHub: [AppTab] = [.kaposts, .broadcasts, .swap, .apps]
+
+    /// Slots the user can actually fill: the cap minus the pinned tabs.
+    static var assignableDockSlots: Int { maxDockItems - pinnedToDock.count }
 
     /// The dock renders at most this many items (the iPhone tab bar's hard limit); anything past
     /// it falls off rather than letting the system TabView spawn its own "More" list. KaPosts and
@@ -1624,8 +1630,11 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     static func visible(from settings: AppSettings) -> [AppTab] {
         var tabs = settings.dockTabs.compactMap { AppTab(rawValue: $0) }
             .filter { $0.isEnabled(in: settings) && ($0.isPinnedToDock || assignable.contains($0)) }
-        if !tabs.contains(.ecosystem) {
-            tabs.insert(.ecosystem, at: min(2, tabs.count))
+        // Reinserted whatever the stored list says, so no saved arrangement - or a hand-edited one
+        // - can leave the app without the Hub that holds everything else, or without Profile.
+        for pinned in pinnedToDock where !tabs.contains(pinned) {
+            let position = defaultDock.firstIndex(of: pinned) ?? tabs.count
+            tabs.insert(pinned, at: min(position, tabs.count))
         }
         // Deduplicate defensively; a repeated raw value would render the same tab twice.
         var seen = Set<AppTab>()
@@ -1642,7 +1651,8 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
     static func ecosystemSections(from settings: AppSettings) -> [AppTab] {
         let inDock = Set(visible(from: settings))
         func eligible(_ tab: AppTab) -> Bool {
-            assignable.contains(tab) && tab.isEnabled(in: settings) && !inDock.contains(tab)
+            assignable.contains(tab) && !tab.isPinnedToDock
+                && tab.isEnabled(in: settings) && !inDock.contains(tab)
         }
         var ordered = settings.hubTabs.compactMap { AppTab(rawValue: $0) }.filter(eligible)
         var seen = Set(ordered)

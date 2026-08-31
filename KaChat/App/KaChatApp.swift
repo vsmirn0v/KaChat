@@ -1027,6 +1027,11 @@ extension Notification.Name {
     static let openPortfolio = Notification.Name("openPortfolio")
     static let openColdStorage = Notification.Name("openColdStorage")
     static let openBroadcast = Notification.Name("openBroadcast")
+    /// Open Customize Dock. Posted rather than pushed because that screen EDITS the dock, and the
+    /// dock's tabs are the TabView's own children: changing placement rebuilds them, which
+    /// destroys any navigation stack pushed inside one. Presented from MainTabView instead, above
+    /// the TabView, where nothing it does to the dock can dismiss it.
+    static let openCustomizeDock = Notification.Name("openCustomizeDock")
     static let openGroup = Notification.Name("openGroup")
     static let showGiftClaim = Notification.Name("showGiftClaim")
 }

@@ -3,6 +3,8 @@ import UIKit
 
 struct MainTabView: View {
     @State private var selectedTab = 1
+    /// Customize Dock, hosted here rather than pushed inside a tab - see the notification's note.
+    @State private var showCustomizeDock = false
     /// Debounces the off-chat-tab discovery pause/resume so rapid tab-flipping can't thrash it.
     @State private var tabWorkTask: Task<Void, Never>?
     @State private var showGiftSheet = false
@@ -146,6 +148,19 @@ struct MainTabView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openGroup)) { _ in
             selectedTab = 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openCustomizeDock)) { _ in
+            showCustomizeDock = true
+        }
+        .sheet(isPresented: $showCustomizeDock) {
+            NavigationStack {
+                MenuVisibilityView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showCustomizeDock = false }
+                        }
+                    }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .showGiftClaim)) { _ in
             presentGiftSheetIfEligibleForZeroBalance()

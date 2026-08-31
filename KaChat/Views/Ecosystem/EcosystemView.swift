@@ -72,15 +72,13 @@ struct EcosystemView: View {
     }
 
     /// Every assignable tab renders here, not just the four feature tabs: with placement, Chats,
-    /// Profile, Portfolio and Storage can all live in the Hub too, and each has to look exactly as
-    /// it does from its own dock slot.
+    /// Portfolio and Storage can live in the Hub too, and each has to look exactly as it does from
+    /// its own dock slot. Profile and the Hub itself are pinned to the dock and never reach here.
     @ViewBuilder
     private func sectionContent(_ tab: AppTab) -> some View {
         switch tab {
         case .chats:
             ChatListView()
-        case .profile:
-            ProfileView()
         case .portfolio:
             PortfolioView()
         case .coldStorage:
@@ -139,8 +137,9 @@ struct EcosystemView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     // Straight to the one screen that decides what is in here and what is in the
                     // dock, rather than making the user find it three levels into Settings.
-                    NavigationLink {
-                        MenuVisibilityView()
+                    // Posted, not pushed - see `Notification.Name.openCustomizeDock`.
+                    Button {
+                        NotificationCenter.default.post(name: .openCustomizeDock, object: nil)
                     } label: {
                         Image(systemName: "slider.horizontal.3")
                     }

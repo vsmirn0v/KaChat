@@ -43,7 +43,7 @@ struct MenuVisibilityView: View {
                 if dockIsFull {
                     Text("The dock is full. Move something to \(AppTab.ecosystem.label) to free a slot. Drag to reorder.")
                 } else {
-                    Text("Drag to reorder. \(AppTab.ecosystem.label) always stays here - it is what holds everything below.")
+                    Text("Drag to reorder. \(AppTab.ecosystem.label) and \(AppTab.profile.label) always stay here - the Hub holds everything below, and Profile is the way to Settings and your accounts.")
                 }
             }
 
