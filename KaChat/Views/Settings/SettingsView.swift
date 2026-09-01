@@ -1271,22 +1271,37 @@ struct KaPostsNotificationSettingsView: View {
                 Toggle("Likes", isOn: $settingsViewModel.settings.kaPostsNotifyLikes)
                     .onChange(of: settingsViewModel.settings.kaPostsNotifyLikes) { _ in
                         settingsViewModel.saveSettings()
+                        // The extension reads these from the App Group; without this the switch
+                        // only ever changed a value nothing downstream could see.
+                        SharedDataManager.syncGroupsForExtension()
                     }
                 Toggle("Reposts", isOn: $settingsViewModel.settings.kaPostsNotifyReposts)
                     .onChange(of: settingsViewModel.settings.kaPostsNotifyReposts) { _ in
                         settingsViewModel.saveSettings()
+                        // The extension reads these from the App Group; without this the switch
+                        // only ever changed a value nothing downstream could see.
+                        SharedDataManager.syncGroupsForExtension()
                     }
                 Toggle("Follows", isOn: $settingsViewModel.settings.kaPostsNotifyFollows)
                     .onChange(of: settingsViewModel.settings.kaPostsNotifyFollows) { _ in
                         settingsViewModel.saveSettings()
+                        // The extension reads these from the App Group; without this the switch
+                        // only ever changed a value nothing downstream could see.
+                        SharedDataManager.syncGroupsForExtension()
                     }
                 Toggle("Dislikes", isOn: $settingsViewModel.settings.kaPostsNotifyDislikes)
                     .onChange(of: settingsViewModel.settings.kaPostsNotifyDislikes) { _ in
                         settingsViewModel.saveSettings()
+                        // The extension reads these from the App Group; without this the switch
+                        // only ever changed a value nothing downstream could see.
+                        SharedDataManager.syncGroupsForExtension()
                     }
                 Toggle("Comments", isOn: $settingsViewModel.settings.kaPostsNotifyComments)
                     .onChange(of: settingsViewModel.settings.kaPostsNotifyComments) { _ in
                         settingsViewModel.saveSettings()
+                        // The extension reads these from the App Group; without this the switch
+                        // only ever changed a value nothing downstream could see.
+                        SharedDataManager.syncGroupsForExtension()
                     }
             } footer: {
                 Text("Choose which KaPosts activity sends a notification. Quotes of your posts count as reposts.")

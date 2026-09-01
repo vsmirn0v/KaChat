@@ -94,6 +94,17 @@ Honor removal counter-actions: an `unvote`/`unquote` should not generate a push.
 - `postId` = the txid of the content acted ON (the user's post/reply), not the action's txid.
   Omit for follows.
 - `apns-collapse-id` = the ACTION's txid.
+- **NEEDED: `kaposts_kind`** (top-level custom key) = one of `vote_up`, `vote_down`, `reply`,
+  `quote`, `repost`, `follow`, `mention`. The app has five per-kind switches (Settings →
+  Notifications → KaPosts) that the server knows nothing about, so it pushes every kind and the
+  client has to filter. It does that today by matching the English body phrases below, which
+  works only because they are server-generated and unlocalized — a brittle contract. This field
+  replaces that guess.
+- **NEEDED, and better still: per-kind registration.** Alongside `kaposts_pubkey`, accept
+  `kaposts_notify_likes` / `_dislikes` / `_comments` / `_reposts` / `_follows` (booleans,
+  default true) and skip the push server-side. Filtering on the device still wakes the phone
+  and burns the push; skipping at the source is the real fix. Mentions are deliberately not
+  switchable.
 - Body text (match the app's own in-app wording): `liked your post`, `disliked your post`,
   `replied to your post: <snippet>`, `quoted your post: <snippet>`, `reposted your post`,
   `followed you`. Snippets: marker-stripped (drop the leading U+2060), ~140 chars.

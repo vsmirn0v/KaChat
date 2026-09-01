@@ -943,10 +943,29 @@ final class KaPostsNotificationService {
         }
     }
 
+    /// Does the reader still want to hear about this kind of activity?
+    ///
+    /// Settings > Notifications > KaPosts has had these five switches since the feature shipped,
+    /// and NOTHING read them - they wrote a setting nobody consulted, so turning Likes off
+    /// changed nothing and the banners kept coming. This is the gate they were always meant to
+    /// drive. A mention is deliberately not switchable: being named is the one kind of activity
+    /// that is about you specifically.
+    static func notificationsEnabled(for contentType: String?, voteType: String?) -> Bool {
+        let settings = AppSettings.load()
+        switch contentType {
+        case "vote": return voteType == "downvote" ? settings.kaPostsNotifyDislikes : settings.kaPostsNotifyLikes
+        case "reply": return settings.kaPostsNotifyComments
+        case "quote": return settings.kaPostsNotifyReposts
+        case "follow": return settings.kaPostsNotifyFollows
+        default: return true
+        }
+    }
+
     private func postLocal(_ notification: KaPostsAPIClient.KNotification) async {
         guard let address = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
               address != WalletManager.shared.currentWallet?.publicAddress,
               !KaPostsModerationStore.shared.isHidden(address) else { return }
+        guard Self.notificationsEnabled(for: notification.contentType, voteType: notification.voteType) else { return }
 
         let text = KaPostsAPIClient.stripMarker(notification.decodedContent ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)

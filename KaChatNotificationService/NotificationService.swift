@@ -81,6 +81,25 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
 
+        // KaPosts pushes (thread-id `kaposts`, see PUSH_EXTENSIONS.md §3). Like broadcasts they
+        // carry none of the 1:1 keys, so they fall through the guard below untouched - which is
+        // why the five Settings switches never suppressed a single push. Drop the ones the reader
+        // switched off; everything else passes through unchanged.
+        if request.content.threadIdentifier == "kaposts" {
+            if !kaPostsPushAllowed(userInfo: userInfo, body: content.body) {
+                // Delivered with no alert rather than not at all: a suppressed push still
+                // belongs in the in-app Notifications list when the app next opens.
+                content.title = ""
+                content.subtitle = ""
+                content.body = ""
+                content.sound = nil
+                contentHandler(content)
+                return
+            }
+            contentHandler(content)
+            return
+        }
+
         guard let txId = userInfo["tx_id"] as? String,
               let senderAddress = userInfo["sender"] as? String,
               let messageType = userInfo["type"] as? String else {
@@ -568,6 +587,44 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     /// Mirrors `SharedDataManager.syncGroupsForExtension`'s `groupMentionsOnlyNotifications` sync.
+    /// Which kinds of KaPosts activity the reader still wants pushed.
+    ///
+    /// The server pushes every kind to any device registered with a `kaposts_pubkey` - it has no
+    /// idea what the reader switched off, because nothing ever told it (see PUSH_EXTENSIONS.md
+    /// §3, where per-kind registration is now specified as the proper fix). Until it does, the
+    /// filtering has to happen here or the five switches in Settings are decoration.
+    ///
+    /// `kaposts_kind` is the field the server should send. Failing that, the body is matched
+    /// against the exact English phrases the contract specifies - they are server-generated and
+    /// not localized, so this is a fixed set, not a guess about wording.
+    private func kaPostsPushAllowed(userInfo: [AnyHashable: Any], body: String) -> Bool {
+        let kinds = UserDefaults(suiteName: appGroupIdentifier)?
+            .dictionary(forKey: "shared_kaposts_notify_kinds") as? [String: Bool] ?? [:]
+        guard !kinds.isEmpty else { return true }
+
+        let key: String
+        if let explicit = userInfo["kaposts_kind"] as? String {
+            switch explicit {
+            case "vote_up": key = "likes"
+            case "vote_down": key = "dislikes"
+            case "reply": key = "comments"
+            case "quote", "repost": key = "reposts"
+            case "follow": key = "follows"
+            // A mention is not switchable: being named is the one kind that is about you.
+            default: return true
+            }
+        } else {
+            let lowered = body.lowercased()
+            if lowered.contains("disliked your") { key = "dislikes" }
+            else if lowered.contains("liked your") { key = "likes" }
+            else if lowered.contains("replied to your") { key = "comments" }
+            else if lowered.contains("quoted your") || lowered.contains("reposted your") { key = "reposts" }
+            else if lowered.contains("followed you") { key = "follows" }
+            else { return true }
+        }
+        return kinds[key] ?? true
+    }
+
     /// Groups the user silenced outright. Read the same way as mentions-only.
     private func isSilentEnabled(groupId: String) -> Bool {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier),

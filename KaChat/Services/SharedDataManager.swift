@@ -41,6 +41,7 @@ final class SharedDataManager {
         static let verboseAPILogging = "shared_verbose_api_logging"
         static let groupMentionsOnlyNotifications = "shared_group_mentions_only"
         static let groupSilentNotifications = "shared_group_silent"
+        static let kaPostsNotificationKinds = "shared_kaposts_notify_kinds"
         static let groupOwnTxIds = "shared_group_own_txids"
         static let ownPrimaryKNSDomain = "shared_own_kns_domain"
     }
@@ -143,6 +144,15 @@ final class SharedDataManager {
         // Groups with "Only Notify if I'm Mentioned" on - the NSE checks this after decrypting a
         // group_message push, to decide whether to suppress it when the text doesn't mention the
         // wallet's own address (already shared separately via `syncWalletAddressForExtension`).
+        // The five KaPosts switches, so the extension can drop a push the reader turned off.
+        let s = AppSettings.load()
+        sharedDefaults?.set([
+            "likes": s.kaPostsNotifyLikes,
+            "dislikes": s.kaPostsNotifyDislikes,
+            "comments": s.kaPostsNotifyComments,
+            "reposts": s.kaPostsNotifyReposts,
+            "follows": s.kaPostsNotifyFollows,
+        ], forKey: Keys.kaPostsNotificationKinds)
         if let silentData = try? JSONEncoder().encode(GroupChatService.shared.groupSilentNotifications) {
             sharedDefaults?.set(silentData, forKey: Keys.groupSilentNotifications)
         }
