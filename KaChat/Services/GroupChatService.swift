@@ -2278,6 +2278,52 @@ final class GroupChatService: ObservableObject {
         }
     }
 
+    /// Groups currently being force-refreshed, so the button can show progress and refuse a
+    /// second tap.
+    @Published private(set) var refreshingGroupIds: Set<String> = []
+
+    /// Re-fetches everything this device is entitled to see in one group, from the beginning.
+    ///
+    /// Ordinary catch-up is cursor-based: each (group, member) stream remembers where it got to
+    /// and asks only for what is newer. That is right for routine sync and useless as a repair
+    /// tool - if a cursor ever advanced past a message (an epoch this device could not decrypt at
+    /// the time, an ingest that failed, a roster it did not yet know about), no amount of waiting
+    /// will go back for it. This drops those cursors and walks the streams again.
+    ///
+    /// Control comes first for the same reason `performCatchUpSync` does it in that order: the
+    /// roster and the current epoch's root have to be in hand before the messages are decrypted,
+    /// or the messages get rejected and the fresh cursor advances past them all over again.
+    func forceRefresh(groupId: String) async {
+        guard !refreshingGroupIds.contains(groupId) else { return }
+        guard let group = groups.first(where: { $0.id == groupId }) else { return }
+        refreshingGroupIds.insert(groupId)
+        defer { refreshingGroupIds.remove(groupId) }
+
+        // Drop this group's cursors so every stream is walked from the start.
+        for key in groupCatchUpCursors.keys where key.hasPrefix("gcomm|\(groupId)|") {
+            groupCatchUpCursors.removeValue(forKey: key)
+        }
+        saveGroupCatchUpCursors()
+
+        if let wallet = WalletManager.shared.currentWallet {
+            await catchUpGroupControlByRecipient(recipientAddress: wallet.publicAddress)
+        }
+        if !group.adminAddress.isEmpty {
+            await catchUpGroupControl(adminAddress: group.adminAddress)
+        }
+
+        // Re-read the group: control catch-up may have changed the roster or the epoch.
+        guard let refreshed = groups.first(where: { $0.id == groupId }),
+              let bag = try? keychain.loadGroupBag(groupId: groupId),
+              let blindingKey = Data(hexString: bag.blindingKey) else { return }
+        for member in refreshed.members {
+            guard let memberPubKey = Data(hexString: member.xOnlyPubKeyHex) else { continue }
+            let blindedGroupId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: memberPubKey)
+            await catchUpGroupMessages(groupId: groupId, blindedGroupIdHex: blindedGroupId.hexString)
+        }
+        loadMessages(for: groupId)
+    }
+
     private func catchUpGroupMessages(groupId: String, blindedGroupIdHex: String) async {
         let syncKey = "gcomm|\(groupId)|\(blindedGroupIdHex)"
         do {

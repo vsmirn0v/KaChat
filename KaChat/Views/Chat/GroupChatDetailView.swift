@@ -2604,12 +2604,25 @@ struct GroupChatInfoView: View {
             }
 
             Section {
+                Button {
+                    Task { await groupChatService.forceRefresh(groupId: group.id) }
+                } label: {
+                    HStack {
+                        Label("Refresh Messages", systemImage: "arrow.clockwise")
+                        Spacer()
+                        if groupChatService.refreshingGroupIds.contains(group.id) {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                }
+                .disabled(groupChatService.refreshingGroupIds.contains(group.id))
+
                 Toggle("Silent Group Chat", isOn: silentBinding)
                 Toggle("Only Notify if I'm Mentioned", isOn: mentionsOnlyBinding)
                     // Silent already means "never", so the finer rule underneath it is moot.
                     .disabled(groupChatService.silentNotifications(for: group.id))
             } footer: {
-                Text("Silent Group Chat never notifies you about this group at all. Only Notify if I'm Mentioned narrows it instead: you'll get banners for messages that @mention you, plus replies to your messages and reactions on them. Everything else shows up in the chat silently.")
+                Text("Refresh Messages re-fetches this group from the start, which recovers anything an earlier sync passed over. Silent Group Chat never notifies you about this group at all. Only Notify if I'm Mentioned narrows it instead: you'll get banners for messages that @mention you, plus replies to your messages and reactions on them. Everything else shows up in the chat silently.")
             }
 
             if group.isAdmin {

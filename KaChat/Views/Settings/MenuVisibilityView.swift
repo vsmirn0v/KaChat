@@ -70,8 +70,16 @@ struct MenuVisibilityView: View {
 
     private func row(_ tab: AppTab, inDock: Bool) -> some View {
         HStack {
-            Label(tab.ecosystemTitle, systemImage: tab.icon)
-                .foregroundColor(.primary)
+            Label {
+                Text(tab.ecosystemTitle)
+            } icon: {
+                if tab.usesKaspaLogo {
+                    Image("KaspaLogo").resizable().scaledToFit().frame(width: 20, height: 20)
+                } else {
+                    Image(systemName: tab.icon)
+                }
+            }
+            .foregroundColor(.primary)
             Spacer()
             if tab.isPinnedToDock {
                 Text("Always in dock")

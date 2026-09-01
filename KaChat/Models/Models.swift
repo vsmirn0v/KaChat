@@ -1504,10 +1504,16 @@ enum AppTab: String, Codable, CaseIterable, Identifiable, Equatable, Hashable {
         case .kaposts: return "square.and.pencil"
         case .broadcasts: return "dot.radiowaves.left.and.right"
         case .apps: return "globe"
+        // Kaspa Hub wears the Kaspa mark itself, not an SF Symbol - see `usesKaspaLogo`.
         case .ecosystem: return "circle.hexagongrid"
         case .more: return "plus.circle"
         }
     }
+
+    /// True for tabs drawn with the bundled Kaspa mark instead of an SF Symbol. `icon` stays the
+    /// SF Symbol name so anything that has not been taught about the asset still renders
+    /// something sensible rather than a blank square.
+    var usesKaspaLogo: Bool { self == .ecosystem }
 
     /// The name shown inside the Ecosystem grid, at the top of the section it opens, and in
     /// Customize Dock. Differs from `label` only where a dock label has to stay short - the tab

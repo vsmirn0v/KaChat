@@ -35,10 +35,17 @@ struct MainTabView: View {
                     .tabItem {
                         // Single Label whose VALUES vary (no structural if) - conditional tabItem
                         // content churns the tab bar's identity on every render.
-                        Label(
-                            tab.label,
-                            systemImage: tab.icon
-                        )
+                        Label {
+                            Text(tab.label)
+                        } icon: {
+                            // Values vary, structure does not - the comment above is why this is
+                            // one Label with a varying image rather than two Labels behind an if.
+                            if tab.usesKaspaLogo {
+                                Image("KaspaLogo").renderingMode(.template).resizable().scaledToFit()
+                            } else {
+                                Image(systemName: tab.icon)
+                            }
+                        }
                     }
                     // Profile hosts the notification bell - surface its unread state on the
                     // dock as a plain red dot (an empty badge renders as a dot, not a count).

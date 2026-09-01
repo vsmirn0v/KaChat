@@ -166,10 +166,16 @@ struct EcosystemView: View {
                 .frame(maxWidth: .infinity)
                 .overlay {
                     VStack(spacing: 10) {
-                        Image(systemName: tab.icon)
-                            .font(.system(size: 26, weight: .medium))
-                            .foregroundStyle(Color.accentColor)
-                            .frame(height: 30)
+                        Group {
+                            if tab.usesKaspaLogo {
+                                Image("KaspaLogo").resizable().scaledToFit()
+                            } else {
+                                Image(systemName: tab.icon)
+                                    .font(.system(size: 26, weight: .medium))
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                        .frame(height: 30)
                         Text(tab.ecosystemTitle)
                             .font(.caption.weight(.semibold))
                             .foregroundColor(.primary)
@@ -196,9 +202,11 @@ struct EcosystemView: View {
     /// features are still there, just not here, so this says where they went.
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "circle.hexagongrid")
-                .font(.system(size: 44))
-                .foregroundColor(.secondary)
+            Image("KaspaLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 44, height: 44)
+                .opacity(0.5)
             Text("Nothing here right now")
                 .font(.headline)
             Text("KaPosts, Broadcasts, ChangeNOW Swap and Kaspa Websites appear here when they are not in your dock. Manage them in Settings > Customization > Customize Dock.")
