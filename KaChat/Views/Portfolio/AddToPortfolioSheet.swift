@@ -115,7 +115,13 @@ struct AddToPortfolioSheet: View {
                                 Text(portfolio.name)
                                     .font(.body)
                                     .foregroundColor(.primary)
-                                if portfolio.id == portfolioManager.activePortfolioId {
+                                // Flagged here, not only after selecting: the point of the
+                                // warning is to be seen while the choice is still being made.
+                                if duplicatePortfolioIds.contains(portfolio.id) {
+                                    Label("Already added", systemImage: "exclamationmark.triangle.fill")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundColor(.orange)
+                                } else if portfolio.id == portfolioManager.activePortfolioId {
                                     Text("Current")
                                         .font(.caption2.weight(.semibold))
                                         .foregroundColor(.accentColor)
@@ -250,10 +256,14 @@ struct AddToPortfolioSheet: View {
         }
     }
 
+    /// Portfolios that already hold this transaction. Same question the ChangeNOW swap chooser
+    /// asks, through the same view-model helper, so a duplicate reads the same either way.
+    private var duplicatePortfolioIds: Set<UUID> {
+        viewModel.portfolioIdsContaining(sourceTxId: candidate.txId)
+    }
+
     private func checkForDuplicate(in portfolio: Portfolio) {
-        alreadyInPortfolio = viewModel.transactions.contains {
-            $0.portfolioId == portfolio.id && $0.sourceTxId == candidate.txId
-        }
+        alreadyInPortfolio = duplicatePortfolioIds.contains(portfolio.id)
     }
 
     private func confirm() {

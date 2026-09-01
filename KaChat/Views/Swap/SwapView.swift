@@ -17,6 +17,22 @@ struct SwapView: View {
     @State private var showToAddressPicker = false
     @State private var showCoinPicker = false
     @State private var showPortfolioConfirm = false
+
+    /// Portfolios that already hold the swap being added, so the chooser can flag the duplicate
+    /// before it happens rather than leaving the ledger quietly counting it twice.
+    private var duplicatePortfolioIds: Set<UUID> {
+        guard let swapId = pendingPortfolioSwapId else { return [] }
+        return PortfolioViewModel.shared.portfolioIdsContaining(
+            sourceTxId: PortfolioViewModel.swapSourceTxId(swapId)
+        )
+    }
+
+    private var duplicateNames: String {
+        PortfolioManager.shared.portfolios
+            .filter { duplicatePortfolioIds.contains($0.id) }
+            .map(\.name)
+            .formatted(.list(type: .and))
+    }
     @State private var pendingPortfolioPrefill: SwapService.PortfolioPrefill?
     @State private var pendingPortfolioSwapId: String?
     @State private var pendingDeleteSwap: SwapTransaction?
@@ -85,7 +101,11 @@ struct SwapView: View {
             .confirmationDialog("Add to Portfolio", isPresented: $showPortfolioConfirm, titleVisibility: .visible) {
                 // One button per portfolio - the swap lands in the one you pick.
                 ForEach(PortfolioManager.shared.portfolios) { portfolio in
-                    Button(portfolio.name) {
+                    // A portfolio that already holds this swap says so on its own button, so the
+                    // duplicate is visible at the moment of choosing rather than after the fact.
+                    Button(duplicatePortfolioIds.contains(portfolio.id)
+                           ? "\(portfolio.name) (already added)"
+                           : portfolio.name) {
                         if let prefill = pendingPortfolioPrefill, let swapId = pendingPortfolioSwapId {
                             swapService.confirmAddToPortfolio(prefill, swapId: swapId, portfolioId: portfolio.id)
                             showToast("Added to \(portfolio.name)")
@@ -100,7 +120,12 @@ struct SwapView: View {
                 }
             } message: {
                 if let prefill = pendingPortfolioPrefill {
-                    Text("\(prefill.type == .buy ? "Buy" : "Sell") \(formatKas(UInt64((prefill.amountKas * 100_000_000).rounded()))) KAS at \(currencySymbol)\(String(format: "%.2f", prefill.fiatValue)) - choose which portfolio to add it to.")
+                    let line = "\(prefill.type == .buy ? "Buy" : "Sell") \(formatKas(UInt64((prefill.amountKas * 100_000_000).rounded()))) KAS at \(currencySymbol)\(String(format: "%.2f", prefill.fiatValue)) - choose which portfolio to add it to."
+                    if duplicatePortfolioIds.isEmpty {
+                        Text(line)
+                    } else {
+                        Text("\(line)\n\nThis swap is already in \(duplicateNames). Adding it again will double-count it.")
+                    }
                 }
             }
             .confirmationDialog(

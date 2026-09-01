@@ -273,7 +273,10 @@ final class SwapService: ObservableObject {
             fiatValue: prefill.fiatValue,
             timestamp: prefill.timestamp,
             notes: prefill.notes,
-            portfolioId: portfolioId
+            portfolioId: portfolioId,
+            // Namespaced so it can never collide with a Kaspa txid. Without this a swap had no
+            // provenance at all and could be added to the same portfolio over and over.
+            sourceTxId: PortfolioViewModel.swapSourceTxId(swapId)
         )
 
         if let index = history.firstIndex(where: { $0.id == swapId }) {

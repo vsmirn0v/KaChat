@@ -522,6 +522,19 @@ final class PortfolioViewModel: ObservableObject {
 
     // MARK: - Ledger CRUD
 
+    /// Which portfolios already hold a row for this source.
+    ///
+    /// One question asked by every "Add to Portfolio" path - the address histories and ChangeNOW
+    /// swaps - so a duplicate reads the same wherever it is about to happen. Swaps namespace
+    /// their key (`changenow:<id>`) so it can never collide with a Kaspa txid.
+    func portfolioIdsContaining(sourceTxId: String) -> Set<UUID> {
+        guard !sourceTxId.isEmpty else { return [] }
+        return Set(transactions.filter { $0.sourceTxId == sourceTxId }.map(\.portfolioId))
+    }
+
+    /// The key a ChangeNOW swap is recorded under.
+    static func swapSourceTxId(_ swapId: String) -> String { "changenow:\(swapId)" }
+
     /// `sourceAddress`/`sourceTxId` are set when the row came from a real on-chain transaction
     /// (see `AddToPortfolioSheet`), so a later add of the same transaction can be recognised
     /// instead of silently double-counting it.
