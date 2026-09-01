@@ -1868,6 +1868,10 @@ struct AppSettings: Codable {
     /// the same box/domain as the KaPosts indexer.
     var broadcastIndexerURL: String
     var pushIndexerURL: String
+    /// Server-side KaPost translation (see `TRANSLATION_SERVICE.md`). Its own field rather than
+    /// riding on `kaPostIndexerURL`, so someone running their own translator does not have to run
+    /// their own KaPosts indexer as well - and the reverse.
+    var translationServiceURL: String
     /// The Kaspa Name Service endpoint. Fixed to the current network's default, never stored and
     /// never user-editable.
     ///
@@ -1918,6 +1922,8 @@ struct AppSettings: Codable {
     /// PUSH_EXTENSIONS.md). Superseded the community indexer.kasia.wtf once kachat.duckdns.org
     /// went live.
     static let defaultPushIndexerURL = "https://kachat.duckdns.org"
+    /// Server-side KaPost translation - same box as the KaPosts indexer by default.
+    static let defaultTranslationServiceURL = "https://kachat.duckdns.org"
     static let defaultKNSMainnetURL = "https://api.knsdomains.org/mainnet/api/v1"
     static let defaultKNSTestnetURL = "https://api.knsdomains.org/tn10/api/v1"
     static let defaultKaspaMainnetURL = "https://api.kaspa.org"
@@ -2006,6 +2012,7 @@ struct AppSettings: Codable {
             kaPostIndexerURL: defaultKaPostIndexerURL,
             broadcastIndexerURL: defaultBroadcastIndexerURL,
             pushIndexerURL: defaultPushIndexerURL,
+            translationServiceURL: defaultTranslationServiceURL,
             kaspaRestAPIURL: defaultKaspaMainnetURL,
             kaspaExplorer: .default,
             trustedNodeAddress: defaultTrustedNodeAddress,
@@ -2063,6 +2070,7 @@ struct AppSettings: Codable {
         case kaPostIndexerURL
         case broadcastIndexerURL
         case pushIndexerURL
+        case translationServiceURL
         case kaspaRestAPIURL
         case kaspaExplorer
         case trustedNodeAddress
@@ -2128,6 +2136,7 @@ struct AppSettings: Codable {
         kaPostIndexerURL: String = AppSettings.defaultKaPostIndexerURL,
         broadcastIndexerURL: String = AppSettings.defaultBroadcastIndexerURL,
         pushIndexerURL: String,
+        translationServiceURL: String = AppSettings.defaultTranslationServiceURL,
         kaspaRestAPIURL: String,
         kaspaExplorer: KaspaExplorer = .default,
         trustedNodeAddress: String = AppSettings.defaultTrustedNodeAddress,
@@ -2183,6 +2192,7 @@ struct AppSettings: Codable {
         self.kaPostIndexerURL = kaPostIndexerURL
         self.broadcastIndexerURL = broadcastIndexerURL
         self.pushIndexerURL = pushIndexerURL
+        self.translationServiceURL = translationServiceURL
         self.kaspaRestAPIURL = kaspaRestAPIURL
         self.kaspaExplorer = kaspaExplorer
         self.trustedNodeAddress = trustedNodeAddress
@@ -2292,6 +2302,10 @@ struct AppSettings: Codable {
         broadcastIndexerURL = storedBroadcastIndexer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || storedBroadcastIndexer == "https://kaposts.duckdns.org"
             ? AppSettings.defaultBroadcastIndexerURL : storedBroadcastIndexer
+
+        let storedTranslation = try container.decodeIfPresent(String.self, forKey: .translationServiceURL) ?? ""
+        translationServiceURL = storedTranslation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? AppSettings.defaultTranslationServiceURL : storedTranslation
 
         if let customPushIndexer = try container.decodeIfPresent(String.self, forKey: .pushIndexerURL),
            !customPushIndexer.isEmpty,

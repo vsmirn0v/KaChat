@@ -1904,6 +1904,7 @@ struct ConnectionSettingsView: View {
 
     @State private var indexerURL: String = ""
     @State private var kaPostIndexerURL: String = ""
+    @State private var translationServiceURL: String = ""
     @State private var broadcastIndexerURL: String = ""
     @State private var pushIndexerURL: String = ""
     @State private var kaspaRestAPIURL: String = ""
@@ -1984,6 +1985,24 @@ struct ConnectionSettingsView: View {
                 Text("KaPost Indexer")
             } footer: {
                 Text("K social network indexer that powers KaPosts feeds")
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Translation Service URL")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    TextField(AppSettings.defaultTranslationServiceURL, text: $translationServiceURL)
+                        .font(.system(.body, design: .monospaced))
+                        .autocapitalization(.none)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                    httpsInlineError(for: translationServiceURL)
+                }
+            } header: {
+                Text("Translation Service")
+            } footer: {
+                Text("Translates KaPosts written in another language. Runs on the KaPost indexer's box by default; point this at your own if you host one (see TRANSLATION_SERVICE.md).")
             }
 
             Section {
@@ -2238,6 +2257,7 @@ struct ConnectionSettingsView: View {
     private func loadCurrentSettings() {
         indexerURL = settingsViewModel.settings.indexerURL
         kaPostIndexerURL = settingsViewModel.settings.kaPostIndexerURL
+        translationServiceURL = settingsViewModel.settings.translationServiceURL
         broadcastIndexerURL = settingsViewModel.settings.broadcastIndexerURL
         pushIndexerURL = settingsViewModel.settings.pushIndexerURL
         kaspaRestAPIURL = settingsViewModel.settings.kaspaRestAPIURL
@@ -2255,7 +2275,7 @@ struct ConnectionSettingsView: View {
     /// https:// (Decision 3A).
     @discardableResult
     private func saveSettings() -> Bool {
-        let allFields = [indexerURL, kaPostIndexerURL, broadcastIndexerURL, pushIndexerURL, kaspaRestAPIURL]
+        let allFields = [indexerURL, kaPostIndexerURL, translationServiceURL, broadcastIndexerURL, pushIndexerURL, kaspaRestAPIURL]
         guard !allFields.contains(where: isCleartextHTTP) else {
             showToast(Self.httpsRequiredError, style: .error)
             return false
@@ -2267,6 +2287,10 @@ struct ConnectionSettingsView: View {
         let network = settingsViewModel.settings.networkType
         settingsViewModel.settings.indexerURL = normalizedOrDefault(indexerURL, AppSettings.defaultIndexerURL)
         settingsViewModel.settings.kaPostIndexerURL = normalizedOrDefault(kaPostIndexerURL, AppSettings.defaultKaPostIndexerURL)
+        // Blank falls back to the default rather than being written through - an empty base URL
+        // builds a request that fails as "unsupported URL" and reads as the server being down,
+        // which is exactly how the KNS field broke.
+        settingsViewModel.settings.translationServiceURL = normalizedOrDefault(translationServiceURL, AppSettings.defaultTranslationServiceURL)
         settingsViewModel.settings.broadcastIndexerURL = normalizedOrDefault(broadcastIndexerURL, AppSettings.defaultBroadcastIndexerURL)
         settingsViewModel.settings.pushIndexerURL = normalizedOrDefault(pushIndexerURL, AppSettings.defaultPushIndexerURL)
         settingsViewModel.settings.kaspaRestAPIURL = normalizedOrDefault(

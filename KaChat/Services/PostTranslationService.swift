@@ -203,8 +203,8 @@ final class PostTranslationService: ObservableObject {
     /// change when a "translate everything on screen" action wants a batch.
     private static func requestTranslation(text: String, postId: String?, target: String) async throws -> TranslationResult {
         let settings = AppSettings.load()
-        let raw = settings.kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard var components = URLComponents(string: raw.isEmpty ? AppSettings.defaultKaPostIndexerURL : raw) else {
+        let raw = settings.translationServiceURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var components = URLComponents(string: raw.isEmpty ? AppSettings.defaultTranslationServiceURL : raw) else {
             throw TranslationError.badURL
         }
         components.path += "/translate"
@@ -261,7 +261,7 @@ final class PostTranslationService: ObservableObject {
 
         var errorDescription: String? {
             switch self {
-            case .badURL: return "Invalid KaPost indexer URL"
+            case .badURL: return "Invalid translation service URL"
             case .badResponse: return "Unexpected response from the translation service"
             case .server(let message): return message
             }
