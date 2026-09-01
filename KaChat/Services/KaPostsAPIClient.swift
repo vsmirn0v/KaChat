@@ -467,6 +467,54 @@ enum KaPostsProtocol {
         contentId
     }
 
+    /// The on-chain record behind one post id, read straight off the transaction payload.
+    ///
+    /// The K indexer has no single-post lookup (`get-post?id=` is still a NEEDED item in
+    /// KAPOSTS_INDEXER.md), so a post outside the feed window - which is most posts someone
+    /// shares into a chat - cannot be fetched from the API at all. The chain always has it: a
+    /// post IS a transaction, and its id IS the transaction id, so the Kaspa REST API returns
+    /// the same bytes the indexer itself read.
+    struct ChainPost: Equatable {
+        /// "post", "reply" or "quote" - the three actions that carry a message.
+        let action: String
+        let authorPubkey: String
+        /// Decoded, with the KaChat exclusivity marker stripped.
+        let message: String
+    }
+
+    /// Parses a decoded transaction payload. Returns nil for anything that is not a KaPosts
+    /// message - votes, follows and unquotes carry no text, and other apps' payloads share the
+    /// chain.
+    ///
+    /// Reads the legacy `k:1:` root as well as today's `kchat:1:`, matching the indexer's own
+    /// dual-read: posts written before the migration are still perfectly good posts.
+    static func parseChainPayload(_ payload: String) -> ChainPost? {
+        let roots = [prefix, "k:1:"]
+        guard let root = roots.first(where: { payload.hasPrefix($0) }) else { return nil }
+        // Base64 has no ":" in its alphabet and neither do pubkeys, signatures or ids, so the
+        // fields split cleanly however long the message is.
+        let fields = payload.dropFirst(root.count).components(separatedBy: ":")
+        guard fields.count >= 4 else { return nil }
+        let action = fields[0]
+        let pubkey = fields[1]
+        // post:  <pubkey>:<signature>:<b64message>:<mentions>
+        // reply: <pubkey>:<signature>:<postId>:<b64message>:<mentions>
+        // quote: <pubkey>:<signature>:<contentId>:<b64message>:<quotedAuthorPubkey>
+        let messageIndex: Int
+        switch action {
+        case "post": messageIndex = 3
+        case "reply", "quote": messageIndex = 4
+        default: return nil
+        }
+        guard fields.count > messageIndex,
+              let data = Data(base64Encoded: fields[messageIndex]),
+              let decoded = String(data: data, encoding: .utf8) else { return nil }
+        // An empty message is legitimate - a quote with no added comment is just a repost - so
+        // this returns the record and lets the caller decide what to show for it.
+        let text = KaPostsAPIClient.stripMarker(decoded).trimmingCharacters(in: .whitespacesAndNewlines)
+        return ChainPost(action: action, authorPubkey: pubkey, message: text)
+    }
+
     // Full payloads:
     static func postPayload(pubkey: String, signature: String, b64Message: String, mentionsJSON: String) -> String {
         "\(prefix)post:\(pubkey):\(signature):\(b64Message):\(mentionsJSON)"

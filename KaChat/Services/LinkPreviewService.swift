@@ -214,55 +214,150 @@ enum KaChatInternalLink: Equatable {
     }
 }
 
-/// Author + text snippet for KaPosts posts the app has ALREADY loaded, so a pasted
-/// `kachat://kapost/<txid>` link can render a rich card with ZERO network access (an internal
-/// link must never be scraped like a stranger's URL - see `KaChatInternalLink`). A miss simply
-/// renders the neutral "KaPosts post" card, so nothing here is load-bearing for correctness.
+/// The author and text behind a `kachat://kapost/<txid>` link, so a shared post previews in a
+/// chat as the post itself rather than as a URL.
 ///
-/// Feed it from wherever posts are already in hand, e.g. right after a feed/thread page decodes:
-/// `KaPostLinkPreviewCache.shared.record(postId: post.id, authorName: displayName, text: text)`.
-/// Thread-safe and non-isolated so a card's `init` can read it synchronously on first render,
-/// exactly like `LinkPreviewService.cachedResultIfKnown`.
-final class KaPostLinkPreviewCache: @unchecked Sendable {
+/// Resolved from the transaction the post IS. The K indexer has no single-post lookup
+/// (`get-post?id=` is still listed as NEEDED in KAPOSTS_INDEXER.md), and a post someone shares
+/// is usually outside the feed window, so the API cannot answer for it at all. The chain always
+/// can: the post id is the transaction id, and the payload holds the same bytes the indexer
+/// read. See `KaPostsProtocol.parseChainPayload`. The author's name then comes from the KNS
+/// profile cache every other KaPosts surface fills.
+///
+/// An earlier version of this type was a cache with a `record` hand-off for posts already on
+/// screen, and nothing ever called it - so every one of these cards read "KaPosts post / Tap to
+/// open this post in KaChat", forever. One resolution path now, and it answers for any post.
+///
+/// This is the one internal link that goes to the network, and it goes to Kaspa's own REST API
+/// with a transaction id - never to the link's host. A pasted KaChat link is still never scraped
+/// like a stranger's URL (see `KaChatInternalLink`).
+@MainActor
+final class KaPostLinkPreviewCache: ObservableObject {
     static let shared = KaPostLinkPreviewCache()
 
     struct Entry: Equatable {
-        /// KNS domain or shortened address of the poster, when the caller knew it.
+        /// KNS domain, contact alias, or shortened address of the poster.
         let authorName: String?
-        /// Already trimmed to a card-sized snippet.
+        let authorAddress: String?
+        /// Already trimmed to a card-sized snippet. Empty for a comment-free quote.
         let snippet: String
+        /// "post", "reply" or "quote" - the card says which.
+        let action: String
     }
 
     /// Bounded FIFO eviction, matching `LinkPreviewService`'s cache convention.
-    private let lock = NSLock()
-    private var storage: [String: Entry] = [:]
+    @Published private(set) var entries: [String: Entry] = [:]
     private var order: [String] = []
+    private var inFlight: Set<String> = []
+    /// Ids the chain had nothing for. Retrying on every scroll would hammer the REST API for a
+    /// post that is never going to resolve (a mistyped link, a pruned node, another app's tx).
+    private var unresolvable: Set<String> = []
     private let limit = 512
-    private static let snippetMaxLength = 180
+    private static let snippetMaxLength = 240
 
     private init() {}
 
-    func record(postId: String, authorName: String?, text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !postId.isEmpty, !trimmed.isEmpty else { return }
-        let snippet = trimmed.count > Self.snippetMaxLength
-            ? String(trimmed.prefix(Self.snippetMaxLength)) + "…"
-            : trimmed
-        lock.lock()
-        defer { lock.unlock() }
-        if storage[postId] == nil {
-            order.append(postId)
-            if order.count > limit, !order.isEmpty {
-                storage.removeValue(forKey: order.removeFirst())
-            }
+    func entry(for postId: String) -> Entry? { entries[postId] }
+
+    /// Resolves a post id that nothing has recorded. Safe to call on every render: an entry
+    /// already held, a fetch already running and an id already known to be unresolvable all
+    /// return immediately.
+    func load(postId: String) async {
+        guard !postId.isEmpty, entries[postId] == nil,
+              !inFlight.contains(postId), !unresolvable.contains(postId) else { return }
+        // Child Mode hides KaPosts entirely, and the router no-ops these links - so there is
+        // nothing to preview, and no reason to spend a request finding out.
+        guard !AppSettings.load().childModeEnabled else { return }
+        inFlight.insert(postId)
+        defer { inFlight.remove(postId) }
+
+        guard let payload = await Self.fetchChainPayload(txId: postId),
+              let record = KaPostsProtocol.parseChainPayload(payload) else {
+            unresolvable.insert(postId)
+            return
         }
-        storage[postId] = Entry(authorName: authorName, snippet: snippet)
+        let address = KaPostsAPIClient.kaspaAddress(fromPubkey: record.authorPubkey)
+        // Paint the post immediately with whatever name is already known, then upgrade it if the
+        // author has a KNS domain nobody has looked up yet. The text is the point of the card;
+        // holding it back for a name lookup would leave the URL sitting there for another
+        // round trip.
+        store(postId: postId, entry: Entry(
+            authorName: Self.knownName(for: address),
+            authorAddress: address,
+            snippet: Self.snippet(from: record.message),
+            action: record.action
+        ))
+        guard let address, !address.isEmpty, KNSService.shared.profileCache[address] == nil else { return }
+        _ = await KNSService.shared.fetchProfile(for: address)
+        guard let current = entries[postId] else { return }
+        store(postId: postId, entry: Entry(
+            authorName: Self.knownName(for: address),
+            authorAddress: address,
+            snippet: current.snippet,
+            action: current.action
+        ))
     }
 
-    func entry(for postId: String) -> Entry? {
-        lock.lock()
-        defer { lock.unlock() }
-        return storage[postId]
+    private func store(postId: String, entry: Entry) {
+        if entries[postId] == nil {
+            order.append(postId)
+            if order.count > limit, !order.isEmpty {
+                entries.removeValue(forKey: order.removeFirst())
+            }
+        }
+        entries[postId] = entry
+    }
+
+    /// The same name KaPosts itself shows: a contact alias first, then the KNS domain, then the
+    /// tail of the address.
+    private static func knownName(for address: String?) -> String? {
+        guard let address, !address.isEmpty else { return nil }
+        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
+           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return KaPostsView.strippingKasSuffix(alias)
+        }
+        if let domain = KNSService.shared.profileCache[address]?.domainName,
+           !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return KaPostsView.strippingKasSuffix(domain)
+        }
+        return String(address.suffix(10))
+    }
+
+    private static func snippet(from text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count > snippetMaxLength
+            ? String(trimmed.prefix(snippetMaxLength)) + "\u{2026}"
+            : trimmed
+    }
+
+    /// The transaction payload, decoded from hex. Nil for anything the REST API will not give us
+    /// - an unknown id, an offline host, a transaction with no payload at all.
+    private static func fetchChainPayload(txId: String) async -> String? {
+        guard var components = URLComponents(string: AppSettings.load().kaspaRestAPIURL) else { return nil }
+        components.path += "/transactions/\(txId)"
+        components.queryItems = [
+            // The card needs the payload and nothing else; skipping input resolution keeps this
+            // the cheapest form of the call.
+            URLQueryItem(name: "inputs", value: "false"),
+            URLQueryItem(name: "outputs", value: "false"),
+            URLQueryItem(name: "resolve_previous_outpoints", value: "no")
+        ]
+        guard let url = components.url else { return nil }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            let tx = try JSONDecoder().decode(ChainTxPayload.self, from: data)
+            guard let hex = tx.payload, !hex.isEmpty,
+                  let bytes = CryptoUtils.hexToData(hex) else { return nil }
+            return String(data: bytes, encoding: .utf8)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Only the one field this needs, so an unrelated shape change upstream cannot break it.
+    private struct ChainTxPayload: Decodable {
+        let payload: String?
     }
 }
 

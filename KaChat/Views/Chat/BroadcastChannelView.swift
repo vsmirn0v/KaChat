@@ -1258,9 +1258,9 @@ private struct BroadcastMessageRow: View {
             BroadcastAudioBubble(data: voicePayload.data, isOwnMessage: isOwnMessage)
         } else if displayText.utf8.count > Self.inlineTextTruncationThreshold {
             truncatedTextContent
-        } else if MessageTextRenderPlan.requiresLinkTextView(displayText) {
+        } else if MessageTextRenderPlan.requiresLinkTextView(bubbleText) {
             LinkifiedMessageTextView(
-                text: displayText,
+                text: bubbleText,
                 isOutgoing: isOwnMessage,
                 isSingleEmojiOnly: false,
                 onLinkLongPress: { _ in },
@@ -1269,7 +1269,7 @@ private struct BroadcastMessageRow: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
         } else {
-            Text(displayText)
+            Text(bubbleText)
                 .foregroundColor(isOwnMessage ? .white : .primary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -1281,7 +1281,7 @@ private struct BroadcastMessageRow: View {
             showFullText = true
         } label: {
             VStack(alignment: .leading, spacing: 4) {
-                Text(String(displayText.prefix(Self.truncatedPreviewLength)) + "…")
+                Text(String(bubbleText.prefix(Self.truncatedPreviewLength)) + "…")
                     .foregroundColor(isOwnMessage ? .white : .primary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Show More")
@@ -1334,6 +1334,17 @@ private struct BroadcastMessageRow: View {
     private var internalLink: KaChatInternalLink.Match? {
         guard displayText.first != "{" else { return nil }
         return KaChatInternalLink.match(in: displayText)
+    }
+
+    /// What the text bubble draws - see `MessageBubbleView.bubbleText`, same rule: once a KaChat
+    /// link previews as a card, the raw URL under it is noise. Copy and the full-text sheet keep
+    /// using `displayText`, so the link is still there to take.
+    private var bubbleText: String {
+        guard let internalLink, !internalLink.coversWholeMessage else { return displayText }
+        let stripped = displayText
+            .replacingOccurrences(of: internalLink.matchedText, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return stripped.isEmpty ? displayText : stripped
     }
 
     private var bubble: some View {
