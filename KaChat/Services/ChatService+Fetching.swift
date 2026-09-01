@@ -934,7 +934,44 @@ extension ChatService {
             return
         }
 
-        let isOutgoing = recipient.lowercased() != myNormalized
+        // Are we actually a party to this transfer?
+        //
+        // `isOutgoing` used to be nothing but `recipient != me`, which is true for EVERY person
+        // on earth who is not the recipient. A KNS transfer is a public on-chain inscription
+        // naming its recipient in plaintext, so any third party whose client so much as looked at
+        // that transaction concluded "not addressed to me, therefore I must have sent it" and
+        // filed "Sent <domain> domain" into a chat with the recipient - a stranger they had never
+        // messaged. That is a real leak: it told an uninvolved person who received which domain
+        // from whom. Reported from the field, seen by someone with no connection to either party.
+        //
+        // Being the recipient, or having signed one of the inputs, is what makes this ours.
+        // Anything else is somebody else's transfer and must be ignored outright.
+        let myAddresses: Set<String> = {
+            var set: Set<String> = [myNormalized]
+            for address in WalletManager.shared.allSpendingAddresses() {
+                let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if !trimmed.isEmpty { set.insert(trimmed) }
+            }
+            return set
+        }()
+        let weAreRecipient = myAddresses.contains(recipient.lowercased())
+        let weSigned = (transaction.inputs ?? []).contains { input in
+            guard let address = input.previousOutpointAddress?
+                .trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                !address.isEmpty else { return false }
+            return myAddresses.contains(address)
+        }
+        guard weAreRecipient || weSigned else {
+            AppLog.log("[ChatService] KNS transfer %@ is not ours (recipient=%@) - ignoring (%@)",
+                  String(txId.prefix(12)), String(recipient.suffix(10)), source)
+            removeKNSTransferChatHint(for: txId)
+            return
+        }
+
+        // Our own sends are normally rendered from the hint recorded at submit time
+        // (`addKNSTransferMessageFromHintIfNeeded`); this covers a send whose hint is gone, e.g.
+        // after a reinstall, where the inputs prove authorship instead.
+        let isOutgoing = !weAreRecipient
         let contactAddress: String? = {
             if isOutgoing {
                 return recipient
