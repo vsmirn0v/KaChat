@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		19319293ACD84C2AB108D745 /* KNSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A61ACF41FEA483D9EF0924F /* KNSService.swift */; };
+		A4E71D3C82F5406B9C1E5D73 /* KaspaNetworkStatsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B62F94A0517D4E38A0D71C86 /* KaspaNetworkStatsService.swift */; };
 		B7A11C0E4D3F48A2915E7C21 /* PostTranslationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4E82D190A6B4F7BB3D15E60 /* PostTranslationService.swift */; };
 		3068057B0F9F4906B2600F39 /* ChatInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C4C922EA822400194F497F9 /* ChatInfoView.swift */; };
 		3F4C10012F72000100000002 /* LaunchRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F4C10012F72000100000001 /* LaunchRouter.swift */; };
@@ -234,6 +235,7 @@
 		588DACE13026E3D300D94B9B /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		588DACE33026E3D300D94B9B /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		6A61ACF41FEA483D9EF0924F /* KNSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KNSService.swift; sourceTree = "<group>"; };
+		B62F94A0517D4E38A0D71C86 /* KaspaNetworkStatsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaspaNetworkStatsService.swift; sourceTree = "<group>"; };
 		C4E82D190A6B4F7BB3D15E60 /* PostTranslationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostTranslationService.swift; sourceTree = "<group>"; };
 		A91062000000000000000002 /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
 		A91062000000000000000010 /* Version.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Version.xcconfig; sourceTree = "<group>"; };
@@ -576,6 +578,7 @@
 				MSGS00012F5C000100000001 /* MessageStore.swift */,
 				E81000382D4C00010000001D /* BIP39.swift */,
 				6A61ACF41FEA483D9EF0924F /* KNSService.swift */,
+				B62F94A0517D4E38A0D71C86 /* KaspaNetworkStatsService.swift */,
 				C4E82D190A6B4F7BB3D15E60 /* PostTranslationService.swift */,
 				FD5E2F0B0677E7F8C8570C01 /* KaChatTransactionBuilder.swift */,
 				KFPOLICY000100010002 /* KaspaFeePolicy.swift */,
@@ -1165,6 +1168,7 @@
 				CFMT00010001000000000002 /* CurrencyFormat.swift in Sources */,
 				KFAS00010001000000000002 /* KaspaFiatAmountState.swift in Sources */,
 				19319293ACD84C2AB108D745 /* KNSService.swift in Sources */,
+				A4E71D3C82F5406B9C1E5D73 /* KaspaNetworkStatsService.swift in Sources */,
 				B7A11C0E4D3F48A2915E7C21 /* PostTranslationService.swift in Sources */,
 				E83000012D4C000200000006 /* OpusBridge.m in Sources */,
 				F5A71C3C1061AA2FFE3F837F /* KaChatTransactionBuilder.swift in Sources */,

@@ -5,7 +5,9 @@ struct PortfolioView: View {
     @ObservedObject private var viewModel = PortfolioViewModel.shared
     @ObservedObject private var portfolioManager = PortfolioManager.shared
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @ObservedObject private var networkStats = KaspaNetworkStatsService.shared
     @State private var showPriceChart = false
+    @State private var showHashrateChart = false
     @State private var showValueChart = false
 
     private var currency: AppCurrency { settingsViewModel.settings.currency }
@@ -40,6 +42,15 @@ struct PortfolioView: View {
                     // opens its own full-screen chart screen. The old inline price/value
                     // sparkline sliders were removed - those views now live behind these squares.
                     launcherSquares
+                }
+                .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+
+                Section {
+                    // Network hashrate, full width under the squares: it is one series with a long
+                    // history, so it reads far better wide than squeezed into a third square.
+                    hashrateCard
                 }
                 .listRowInsets(EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 12))
                 .listRowBackground(Color.clear)
@@ -95,6 +106,45 @@ struct PortfolioView: View {
                 PortfolioValueChartScreen(viewModel: viewModel)
             }
         }
+    }
+
+    private var hashrateCard: some View {
+        Button {
+            Haptics.impact(.light)
+            showHashrateChart = true
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "bolt.horizontal")
+                    .font(.title3)
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Network Hashrate")
+                        .font(.subheadline).fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                    Text(networkStats.currentHashrate.map(HashrateFormat.display) ?? "—")
+                        .font(.system(size: 20, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                Spacer(minLength: 8)
+                // A sparkline of the recent window, so the card says which way it is going
+                // without the user having to open it.
+                if networkStats.hashrateHistory.count >= 2 {
+                    PortfolioSparkline(points: Array(networkStats.hashrateHistory.suffix(90)))
+                        .frame(width: 96, height: 34)
+                }
+                Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(portfolioGlassBackground(cornerRadius: 18))
+        }
+        .buttonStyle(.plain)
+        .navigationDestination(isPresented: $showHashrateChart) {
+            HashrateChartScreen()
+        }
+        .task { await networkStats.refreshIfNeeded() }
     }
 
     private var priceSquare: some View {
@@ -176,7 +226,7 @@ private struct KasPriceChartScreen: View {
                 header
                 chart
                 PortfolioRangePicker(viewModel: viewModel, onChange: { scrubbed = nil })
-                aboutKaspa
+                KasConverterCard(priceUsd: viewModel.currentPriceUsd, currency: currency)
             }
             .padding(16)
         }
@@ -225,28 +275,6 @@ private struct KasPriceChartScreen: View {
         }
     }
 
-    private var aboutKaspa: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("About Kaspa").font(.headline)
-            Text(Self.kaspaDescription)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(portfolioGlassBackground(cornerRadius: 18))
-    }
-
-    // Original factual summary (paraphrased, not copied from any single source).
-    private static let kaspaDescription = """
-    Kaspa is a decentralized, open-source, proof-of-work cryptocurrency. It is built on the \
-    GHOSTDAG protocol - a generalization of Nakamoto consensus that, instead of discarding blocks \
-    created in parallel, orders them together in a blockDAG. This lets Kaspa reach very high block \
-    rates and near-instant transaction confirmation while keeping the security guarantees of \
-    proof of work. Kaspa launched in November 2021 with a fair release: no pre-mine, no pre-sale, \
-    and no coin allocations. Its native coin is KAS.
-    """
 }
 
 // MARK: - Portfolio value full-screen chart + stats
@@ -526,5 +554,258 @@ private struct PortfolioAreaChart: View {
                     )
             }
         }
+    }
+}
+
+// MARK: - KAS <-> fiat converter
+
+/// Two-way converter, in the slot the static "About Kaspa" blurb used to hold.
+///
+/// The blurb was read once and never again; a converter is the thing people actually reach for on
+/// a price screen. It uses the SELECTED currency, so it answers the question in the units the rest
+/// of the portfolio is already denominated in.
+private struct KasConverterCard: View {
+    let priceUsd: Double?
+    let currency: AppCurrency
+
+    /// Which field the user is typing in. The other is derived, so only one is ever authoritative
+    /// and a rounded value can never be fed back through the rate and drift.
+    private enum Field { case kas, fiat }
+
+    @State private var kasText = "1"
+    @State private var fiatText = ""
+    @State private var editing: Field = .kas
+    @FocusState private var focused: Field?
+
+    /// Price in the SELECTED currency. `currentPriceUsd` is already converted upstream (it is what
+    /// every other figure on this screen is drawn from), so this is a rename, not a conversion.
+    private var rate: Double? {
+        guard let priceUsd, priceUsd > 0 else { return nil }
+        return priceUsd
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Converter")
+                .font(.headline)
+
+            row(
+                title: "KAS",
+                text: $kasText,
+                field: .kas,
+                trailing: "KAS"
+            )
+            row(
+                title: currency.code,
+                text: $fiatText,
+                field: .fiat,
+                trailing: PortfolioFormat.currencySymbol(for: currency)
+            )
+
+            if let rate {
+                Text("1 KAS = \(PortfolioFormat.price(rate, currency: currency))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("Waiting for a price...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(portfolioGlassBackground(cornerRadius: 18))
+        .onAppear { recompute(from: .kas) }
+        // A price refresh, or switching currency, has to move the derived side.
+        .onChange(of: priceUsd) { _ in recompute(from: editing) }
+        .onChange(of: currency) { _ in recompute(from: editing) }
+    }
+
+    private func row(title: String, text: Binding<String>, field: Field, trailing: String) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.secondary)
+                .frame(width: 44, alignment: .leading)
+            TextField("0", text: text)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .font(.system(size: 20, weight: .semibold))
+                .focused($focused, equals: field)
+                .onChange(of: text.wrappedValue) { _ in
+                    // Only the focused field drives; without this the derived write would bounce
+                    // straight back and the two would fight each other keystroke for keystroke.
+                    guard focused == field else { return }
+                    editing = field
+                    recompute(from: field)
+                }
+            Text(trailing)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .frame(width: 44, alignment: .trailing)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        )
+    }
+
+    /// Writes the OTHER field from the one being edited.
+    private func recompute(from field: Field) {
+        guard let rate else { return }
+        switch field {
+        case .kas:
+            let kas = Self.number(from: kasText)
+            fiatText = kas.map { Self.format($0 * rate, decimals: 2) } ?? ""
+        case .fiat:
+            let fiat = Self.number(from: fiatText)
+            kasText = fiat.map { Self.format($0 / rate, decimals: 4) } ?? ""
+        }
+    }
+
+    /// Accepts either separator: a decimal keypad emits the device locale's, which is a comma in
+    /// much of the world, and parsing that as an integer silently multiplied the amount.
+    private static func number(from text: String) -> Double? {
+        let normalized = text.replacingOccurrences(of: ",", with: ".")
+        guard !normalized.isEmpty else { return nil }
+        return Double(normalized)
+    }
+
+    private static func format(_ value: Double, decimals: Int) -> String {
+        String(format: "%.\(decimals)f", value)
+    }
+}
+
+// MARK: - Network hashrate
+
+/// A tiny line, no axes or labels - just the shape of the recent window.
+private struct PortfolioSparkline: View {
+    let points: [PricePoint]
+
+    var body: some View {
+        GeometryReader { geo in
+            let values = points.map(\.value)
+            let minV = values.min() ?? 0
+            let maxV = values.max() ?? 1
+            let span = max(maxV - minV, .leastNonzeroMagnitude)
+            Path { path in
+                for (index, point) in points.enumerated() {
+                    let x = geo.size.width * (points.count > 1 ? CGFloat(index) / CGFloat(points.count - 1) : 0)
+                    let y = geo.size.height * (1 - CGFloat((point.value - minV) / span))
+                    if index == 0 { path.move(to: CGPoint(x: x, y: y)) } else { path.addLine(to: CGPoint(x: x, y: y)) }
+                }
+            }
+            .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+        }
+    }
+}
+
+/// The full hashrate history, with the same range control the price and value charts use.
+private struct HashrateChartScreen: View {
+    @ObservedObject private var networkStats = KaspaNetworkStatsService.shared
+    @State private var scrubbed: PricePoint?
+    @State private var rangeDays: Int = 90
+
+    /// "All" is a real option here in a way it is not for price: the series starts at effectively
+    /// zero in 2021 and the whole shape of the network's growth is the interesting part.
+    private static let ranges: [(label: String, days: Int)] = [
+        ("1M", 30), ("3M", 90), ("1Y", 365), ("All", 0)
+    ]
+
+    private var visiblePoints: [PricePoint] {
+        let all = networkStats.hashrateHistory
+        guard rangeDays > 0 else { return all }
+        let cutoff = Date().addingTimeInterval(-Double(rangeDays) * 86_400)
+        let windowed = all.filter { $0.timestamp >= cutoff }
+        // A short window with nothing in it would draw an empty chart; fall back rather than that.
+        return windowed.count >= 2 ? windowed : all
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                if visiblePoints.count >= 2 {
+                    PortfolioAreaChart(points: visiblePoints, onScrub: { scrubbed = $0 })
+                        .frame(height: 260)
+                } else {
+                    ProgressView()
+                        .frame(height: 260)
+                        .frame(maxWidth: .infinity)
+                }
+                rangePicker
+                explanation
+            }
+            .padding(16)
+        }
+        .refreshable { await networkStats.refreshIfNeeded(force: true) }
+        .navigationTitle("Network Hashrate")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await networkStats.refreshIfNeeded() }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "bolt.horizontal")
+                    .font(.title3)
+                    .foregroundStyle(Color.accentColor)
+                Text("Kaspa Network").font(.title3).fontWeight(.semibold)
+                Spacer()
+            }
+            if let scrub = scrubbed {
+                Text(scrub.timestamp, format: .dateTime.month().day().year())
+                    .font(.subheadline).foregroundColor(.secondary)
+            }
+            Text((scrubbed?.value ?? networkStats.currentHashrate).map(HashrateFormat.display) ?? "—")
+                .font(.system(size: 34, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var rangePicker: some View {
+        HStack(spacing: 8) {
+            ForEach(Self.ranges, id: \.days) { range in
+                Button {
+                    Haptics.impact(.light)
+                    scrubbed = nil
+                    rangeDays = range.days
+                } label: {
+                    Text(range.label)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .background(
+                            Capsule().fill(rangeDays == range.days
+                                           ? Color.accentColor.opacity(0.18)
+                                           : Color.primary.opacity(0.06))
+                        )
+                        .foregroundColor(rangeDays == range.days ? .accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var explanation: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("About Hashrate").font(.headline)
+            Text("""
+            Hashrate is how much computing power miners are pointing at Kaspa. A higher hashrate \
+            means more work securing the chain, and it moves with mining profitability rather than \
+            with the price directly. Figures come from the Kaspa REST API set in Connection \
+            Settings, at one sample per day.
+            """)
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(portfolioGlassBackground(cornerRadius: 18))
     }
 }
