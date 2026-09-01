@@ -549,7 +549,7 @@ final class GroupChatService: ObservableObject {
         // suppression claims the banner slot so the reaction's own push can't banner in
         // willPresent and bypass the toggle.
         if silentNotifications(for: group.id) {
-            _ = claimGroupBannerSlot(txId: message.txId)
+            _ = claimGroupBannerSlot(txId: txId)
             return
         }
         if mentionsOnlyNotifications(for: group.id), !targetIsMine {
