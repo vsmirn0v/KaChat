@@ -148,21 +148,6 @@ struct MessageBubbleView: View {
         KaChatInternalLink.match(in: displayText)
     }
 
-    /// What the text bubble actually draws.
-    ///
-    /// When a KaChat link previews as a card, the raw `kachat://kapost/<64 hex>` is noise: the
-    /// card already says what it points at and opens it on tap, and the URL itself is a wall of
-    /// hex nobody reads. A link that is the whole message never reaches here (the card replaces
-    /// the bubble outright), so this only trims the link out of a message that also says
-    /// something. Copy, reply and forward all still use `displayText`, so the link travels with
-    /// the message even though it is not drawn.
-    private var bubbleText: String {
-        guard let internalLink, !internalLink.coversWholeMessage else { return displayText }
-        let stripped = displayText
-            .replacingOccurrences(of: internalLink.matchedText, with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return stripped.isEmpty ? displayText : stripped
-    }
 
     private var timeText: String {
         SharedFormatting.chatTime.string(from: message.timestamp)
@@ -281,12 +266,18 @@ struct MessageBubbleView: View {
                                 onSelect: onSelect
                             )
                             .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId = message.id })
-                        } else if let internalLink, internalLink.coversWholeMessage {
+                        } else if let internalLink {
                             // A link back into KaChat (shared KaPosts post / broadcast-room
                             // invite) is claimed here BEFORE the generic link branch below -
                             // the universal-link form is a perfectly ordinary https URL, so
                             // without this it would be scraped over the network like a
-                            // stranger's link instead of previewing from local state.
+                            // stranger's link instead of previewing as the post it is.
+                            //
+                            // The card is the WHOLE message, even when the link arrived with
+                            // text around it. KaPosts' own share text quotes the post above the
+                            // link, so keeping the bubble drew the post twice - once as a
+                            // truncated quote, once as the card under it. The full text is still
+                            // what Copy, reply and forward carry.
                             KaChatInternalLinkCardView(
                                 match: internalLink,
                                 txId: message.txId,
@@ -327,14 +318,7 @@ struct MessageBubbleView: View {
                     // both handled inside the Group above) gets this extra preview card below it.
                     // An internal KaChat link wins over an external one in the same message, so
                     // a post/room mentioned alongside other text still previews natively.
-                    if media == nil, let internalLink, !internalLink.coversWholeMessage {
-                        KaChatInternalLinkCardView(
-                            match: internalLink,
-                            txId: message.txId,
-                            onSelect: onSelect,
-                            onDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : nil
-                        )
-                    } else if media == nil,
+                    if media == nil,
                        internalLink == nil,
                        !MessageTextRenderPlan.isEntirelyLink(displayText),
                        let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
@@ -626,9 +610,9 @@ struct MessageBubbleView: View {
         // would itself cost real time on a huge string.
         if displayText.utf8.count > Self.inlineTextTruncationThreshold {
             truncatedMessageContent
-        } else if MessageTextRenderPlan.requiresLinkTextView(bubbleText) {
+        } else if MessageTextRenderPlan.requiresLinkTextView(displayText) {
             LinkifiedMessageTextView(
-                text: bubbleText,
+                text: displayText,
                 isOutgoing: message.isOutgoing,
                 isSingleEmojiOnly: isSingleEmojiOnly,
                 onLinkLongPress: { url in
@@ -637,7 +621,7 @@ struct MessageBubbleView: View {
                 onLinkDoubleTap: onReact != nil ? { activeQuickReactionMessageId = message.id } : {}
             )
         } else {
-            Text(bubbleText)
+            Text(displayText)
                 .font(isSingleEmojiOnly ? .system(size: UIFont.preferredFont(forTextStyle: .body).pointSize * 5.0) : .body)
                 .foregroundStyle(isSingleEmojiOnly ? Color.primary : (message.isOutgoing ? Color.white : Color.primary))
                 .fixedSize(horizontal: false, vertical: true)
@@ -656,7 +640,7 @@ struct MessageBubbleView: View {
             }
         } label: {
             VStack(alignment: .leading, spacing: 4) {
-                Text(String(bubbleText.prefix(Self.truncatedPreviewLength)) + "…")
+                Text(String(displayText.prefix(Self.truncatedPreviewLength)) + "…")
                     .font(.body)
                     .foregroundStyle(message.isOutgoing ? Color.white : Color.primary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1231,14 +1215,27 @@ struct KaChatInternalLinkCardView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.accentColor.opacity(0.18))
-                Image(systemName: iconName)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.accentColor)
+            // A resolved post shows its AUTHOR, the same avatar the KaPosts feed draws for them
+            // (KNS, falling back to their initial, and to the device contact photo where there is
+            // one). The KaPosts glyph is for a post that hasn't resolved yet, and for room
+            // invites, which have no author at all.
+            if let entry = kaPostEntry, let address = entry.authorAddress, !address.isEmpty {
+                KNSAvatarView(
+                    avatarURLString: entry.authorAvatarURL,
+                    fallbackText: entry.authorName ?? "",
+                    size: 40,
+                    contactAddress: address
+                )
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.18))
+                    Image(systemName: iconName)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.accentColor)
+                }
+                .frame(width: 40, height: 40)
             }
-            .frame(width: 40, height: 40)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(eyebrow)

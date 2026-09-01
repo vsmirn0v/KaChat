@@ -239,6 +239,8 @@ final class KaPostLinkPreviewCache: ObservableObject {
         /// KNS domain, contact alias, or shortened address of the poster.
         let authorName: String?
         let authorAddress: String?
+        /// The author's KNS avatar, once their profile has been fetched.
+        let authorAvatarURL: String?
         /// Already trimmed to a card-sized snippet. Empty for a comment-free quote.
         let snippet: String
         /// "post", "reply" or "quote" - the card says which.
@@ -284,6 +286,7 @@ final class KaPostLinkPreviewCache: ObservableObject {
         store(postId: postId, entry: Entry(
             authorName: Self.knownName(for: address),
             authorAddress: address,
+            authorAvatarURL: address.flatMap { KNSService.shared.profileCache[$0]?.avatarURL },
             snippet: Self.snippet(from: record.message),
             action: record.action
         ))
@@ -293,6 +296,7 @@ final class KaPostLinkPreviewCache: ObservableObject {
         store(postId: postId, entry: Entry(
             authorName: Self.knownName(for: address),
             authorAddress: address,
+            authorAvatarURL: KNSService.shared.profileCache[address]?.avatarURL,
             snippet: current.snippet,
             action: current.action
         ))

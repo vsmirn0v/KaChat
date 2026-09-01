@@ -1258,9 +1258,9 @@ private struct BroadcastMessageRow: View {
             BroadcastAudioBubble(data: voicePayload.data, isOwnMessage: isOwnMessage)
         } else if displayText.utf8.count > Self.inlineTextTruncationThreshold {
             truncatedTextContent
-        } else if MessageTextRenderPlan.requiresLinkTextView(bubbleText) {
+        } else if MessageTextRenderPlan.requiresLinkTextView(displayText) {
             LinkifiedMessageTextView(
-                text: bubbleText,
+                text: displayText,
                 isOutgoing: isOwnMessage,
                 isSingleEmojiOnly: false,
                 onLinkLongPress: { _ in },
@@ -1269,7 +1269,7 @@ private struct BroadcastMessageRow: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
         } else {
-            Text(bubbleText)
+            Text(displayText)
                 .foregroundColor(isOwnMessage ? .white : .primary)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -1281,7 +1281,7 @@ private struct BroadcastMessageRow: View {
             showFullText = true
         } label: {
             VStack(alignment: .leading, spacing: 4) {
-                Text(String(bubbleText.prefix(Self.truncatedPreviewLength)) + "…")
+                Text(String(displayText.prefix(Self.truncatedPreviewLength)) + "…")
                     .foregroundColor(isOwnMessage ? .white : .primary)
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Show More")
@@ -1305,15 +1305,7 @@ private struct BroadcastMessageRow: View {
     /// `{`-prefix guard skips JSON envelopes (voice payloads etc.) without paying their decode.
     @ViewBuilder
     private var trailingLinkPreview: some View {
-        if displayText.first != "{", let internalLink, !internalLink.coversWholeMessage {
-            // Links back into KaChat (shared post / room invite) preview from local state and
-            // route in-app - never scraped, so the "tap to load" gate below doesn't apply.
-            KaChatInternalLinkCardView(
-                match: internalLink,
-                txId: message.id,
-                onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil
-            )
-        } else if displayText.first != "{",
+        if displayText.first != "{",
            internalLink == nil,
            !MessageTextRenderPlan.isEntirelyLink(displayText),
            let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayText) {
@@ -1336,16 +1328,6 @@ private struct BroadcastMessageRow: View {
         return KaChatInternalLink.match(in: displayText)
     }
 
-    /// What the text bubble draws - see `MessageBubbleView.bubbleText`, same rule: once a KaChat
-    /// link previews as a card, the raw URL under it is noise. Copy and the full-text sheet keep
-    /// using `displayText`, so the link is still there to take.
-    private var bubbleText: String {
-        guard let internalLink, !internalLink.coversWholeMessage else { return displayText }
-        let stripped = displayText
-            .replacingOccurrences(of: internalLink.matchedText, with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return stripped.isEmpty ? displayText : stripped
-    }
 
     private var bubble: some View {
         // Computed once here rather than letting `bubbleContent` and this context menu each call
@@ -1359,9 +1341,11 @@ private struct BroadcastMessageRow: View {
         // A message that is nothing but a KaChat-internal link gets the native card instead,
         // claimed here before the generic (network-scraping) one below.
         let matchedInternalLink = self.internalLink
+        // The card is the WHOLE message, even when the link arrived with text around it -
+        // KaPosts' own share text quotes the post above the link, so keeping the bubble drew the
+        // post twice. Copy and the full-text dialog still carry everything.
         let loneInternalLink: KaChatInternalLink.Match? = (voicePayload == nil
-            && displayText.utf8.count <= Self.inlineTextTruncationThreshold
-            && matchedInternalLink?.coversWholeMessage == true)
+            && displayText.utf8.count <= Self.inlineTextTruncationThreshold)
             ? matchedInternalLink
             : nil
         let loneLinkURL: URL? = (voicePayload == nil
