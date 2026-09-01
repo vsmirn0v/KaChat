@@ -168,7 +168,10 @@ struct EcosystemView: View {
                     VStack(spacing: 10) {
                         Group {
                             if tab.usesKaspaLogo {
-                                Image("KaspaLogo").resizable().scaledToFit()
+                                Image("KaspaLogo")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 26, height: 26)
                             } else {
                                 Image(systemName: tab.icon)
                                     .font(.system(size: 26, weight: .medium))

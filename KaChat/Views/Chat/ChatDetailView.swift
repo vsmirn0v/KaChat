@@ -1504,12 +1504,12 @@ struct ChatDetailView: View {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Image(systemName: hasUnansweredOutgoingHandshake ? "checkmark" : "hand.wave.fill")
+                    Image(systemName: hasUnansweredOutgoingHandshake ? "arrow.clockwise" : "hand.wave.fill")
                         .font(.caption2)
                 }
                 // Says what already happened once the request is out, so the unchanged banner
                 // (it stays up until they reply) can't read as "the tap did nothing".
-                Text(hasUnansweredOutgoingHandshake ? "Handshake sent" : "Send Handshake")
+                Text(hasUnansweredOutgoingHandshake ? "Handshake sent - send again" : "Send Handshake")
                     .font(.caption.weight(.semibold))
             }
             .padding(.horizontal, 12)
@@ -1867,8 +1867,18 @@ struct ChatDetailView: View {
     /// costs 0.2 KAS, and the notice banner deliberately stays up until they reply, so the screen
     /// looks identical before and after a send: tapping again (reasonably, since nothing appeared
     /// to happen) simply spent another 0.2 KAS. The button now says the request is out instead.
+    /// A handshake can always be sent again while it is unanswered.
+    ///
+    /// This used to be blocked once one was out. But a handshake is a transaction, and
+    /// transactions get dropped, arrive at a wallet that was not listening, or land while the
+    /// other person is reinstalling - and the only recovery the app offered was to wait
+    /// indefinitely for a reply that was never coming. The button says "Handshake sent" so the
+    /// state is still visible; it just is not a dead end any more.
+    ///
+    /// The only thing still held is a send already in flight, which is about not submitting the
+    /// same transaction twice, not about rationing attempts.
     private var canSendRequestToCommunicate: Bool {
-        !isRespondingHandshake && !hasUnansweredOutgoingHandshake
+        !isRespondingHandshake
     }
 
     /// Only ever reached for `.payment` now — the `.message` entry point moved to

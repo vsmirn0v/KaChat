@@ -41,7 +41,15 @@ struct MainTabView: View {
                             // Values vary, structure does not - the comment above is why this is
                             // one Label with a varying image rather than two Labels behind an if.
                             if tab.usesKaspaLogo {
-                                Image("KaspaLogo").renderingMode(.template).resizable().scaledToFit()
+                                // A resizable Image has no intrinsic tab-bar size the way an SF
+                                // Symbol does, so without a frame it filled the slot and towered
+                                // over its neighbours. 22pt matches the rendered height of the
+                                // symbols beside it.
+                                Image("KaspaLogo")
+                                    .renderingMode(.template)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 22, height: 22)
                             } else {
                                 Image(systemName: tab.icon)
                             }
