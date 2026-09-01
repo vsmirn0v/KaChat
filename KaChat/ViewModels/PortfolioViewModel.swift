@@ -522,13 +522,18 @@ final class PortfolioViewModel: ObservableObject {
 
     // MARK: - Ledger CRUD
 
+    /// `sourceAddress`/`sourceTxId` are set when the row came from a real on-chain transaction
+    /// (see `AddToPortfolioSheet`), so a later add of the same transaction can be recognised
+    /// instead of silently double-counting it.
     func addTransaction(
         type: PortfolioTransactionType,
         amountKas: Double,
         fiatValue: Double,
         timestamp: Date,
         notes: String?,
-        portfolioId: UUID? = nil
+        portfolioId: UUID? = nil,
+        sourceAddress: String? = nil,
+        sourceTxId: String? = nil
     ) {
         guard let activePortfolioId = portfolioId ?? PortfolioManager.shared.activePortfolioId else { return }
         let tx = PortfolioTransaction(
@@ -538,7 +543,9 @@ final class PortfolioViewModel: ObservableObject {
             fiatValue: fiatValue,
             timestamp: timestamp,
             notes: notes,
-            portfolioId: activePortfolioId
+            portfolioId: activePortfolioId,
+            sourceAddress: sourceAddress,
+            sourceTxId: sourceTxId
         )
         transactions.append(tx)
         persist()

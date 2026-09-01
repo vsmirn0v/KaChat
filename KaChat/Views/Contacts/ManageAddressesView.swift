@@ -1989,6 +1989,11 @@ private struct SpendingAddressPrivateKeyView: View {
 private struct SpendingAddressTransactionHistoryView: View {
     let entry: SpendingAddressEntry
 
+    /// The transaction being filed into a portfolio, if any - see `AddToPortfolioSheet`.
+    @State private var portfolioCandidate: PortfolioCandidateTransaction?
+    /// Name of the portfolio just added to, for the confirmation capsule.
+    @State private var addedPortfolioName: String?
+
     @EnvironmentObject var chatService: ChatService
     @EnvironmentObject var settingsViewModel: SettingsViewModel
 
@@ -2194,10 +2199,46 @@ private struct SpendingAddressTransactionHistoryView: View {
                         transactionRow(tx)
                     }
                     .buttonStyle(.plain)
+                    // Both affordances on purpose: the swipe is the List idiom, and the long
+                    // press is where people look when a swipe is not obvious. Each captures ITS
+                    // OWN row's transaction rather than reading a selection back out of state,
+                    // which is what made the portfolio card menu act on the wrong card.
+                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                        if let candidate = PortfolioCandidateTransaction(transaction: tx, address: entry.address) {
+                            Button {
+                                Haptics.impact(.light)
+                                portfolioCandidate = candidate
+                            } label: {
+                                Label("Add to Portfolio", systemImage: "chart.pie")
+                            }
+                            .tint(.accentColor)
+                        }
+                    }
+                    .contextMenu {
+                        if let candidate = PortfolioCandidateTransaction(transaction: tx, address: entry.address) {
+                            Button {
+                                portfolioCandidate = candidate
+                            } label: {
+                                Label("Add to Portfolio", systemImage: "chart.pie")
+                            }
+                        }
+                    }
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .sheet(item: $portfolioCandidate) { candidate in
+            AddToPortfolioSheet(candidate: candidate) { portfolio in
+                addedPortfolioName = portfolio.name
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let addedPortfolioName {
+                PortfolioAddedCapsule(portfolioName: addedPortfolioName) {
+                    self.addedPortfolioName = nil
+                }
+            }
+        }
         .refreshable {
             await loadTransactions()
         }

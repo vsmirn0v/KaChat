@@ -146,6 +146,7 @@
 		PF0004B0000000000000001 /* PortfolioViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0004A0000000000000001 /* PortfolioViewModel.swift */; };
 		PF0005B0000000000000001 /* PortfolioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0005A0000000000000001 /* PortfolioView.swift */; };
 		PF0006B0000000000000001 /* PortfolioTransactionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0006A0000000000000001 /* PortfolioTransactionsView.swift */; };
+		C7A1F42E63B84D8195C0AE71 /* AddToPortfolioSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3B85C0917E24F6A8B24D095 /* AddToPortfolioSheet.swift */; };
 		PF0008B0000000000000001 /* PortfolioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0008A0000000000000001 /* PortfolioManager.swift */; };
 		PF0009B0000000000000001 /* PortfolioPickerHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0009A0000000000000001 /* PortfolioPickerHeader.swift */; };
 		PF0010B0000000000000001 /* PortfolioAddressImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = PF0010A0000000000000001 /* PortfolioAddressImporter.swift */; };
@@ -379,6 +380,7 @@
 		PF0004A0000000000000001 /* PortfolioViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioViewModel.swift; sourceTree = "<group>"; };
 		PF0005A0000000000000001 /* PortfolioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioView.swift; sourceTree = "<group>"; };
 		PF0006A0000000000000001 /* PortfolioTransactionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioTransactionsView.swift; sourceTree = "<group>"; };
+		D3B85C0917E24F6A8B24D095 /* AddToPortfolioSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddToPortfolioSheet.swift; sourceTree = "<group>"; };
 		PF0008A0000000000000001 /* PortfolioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioManager.swift; sourceTree = "<group>"; };
 		PF0009A0000000000000001 /* PortfolioPickerHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioPickerHeader.swift; sourceTree = "<group>"; };
 		PF0010A0000000000000001 /* PortfolioAddressImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioAddressImporter.swift; sourceTree = "<group>"; };
@@ -811,6 +813,7 @@
 			children = (
 				PF0005A0000000000000001 /* PortfolioView.swift */,
 				PF0006A0000000000000001 /* PortfolioTransactionsView.swift */,
+				D3B85C0917E24F6A8B24D095 /* AddToPortfolioSheet.swift */,
 				PF0009A0000000000000001 /* PortfolioPickerHeader.swift */,
 			);
 			path = Portfolio;
@@ -1085,6 +1088,7 @@
 				PF0004B0000000000000001 /* PortfolioViewModel.swift in Sources */,
 				PF0005B0000000000000001 /* PortfolioView.swift in Sources */,
 				PF0006B0000000000000001 /* PortfolioTransactionsView.swift in Sources */,
+				C7A1F42E63B84D8195C0AE71 /* AddToPortfolioSheet.swift in Sources */,
 				PF0008B0000000000000001 /* PortfolioManager.swift in Sources */,
 				PF0009B0000000000000001 /* PortfolioPickerHeader.swift in Sources */,
 				PF0010B0000000000000001 /* PortfolioAddressImporter.swift in Sources */,
