@@ -209,6 +209,13 @@ struct KaPostsView: View {
     @State private var posts: [DraftPost] = []
     /// Posts fetched from the K indexer (already KaChat-marker-filtered by the client).
     @State private var remotePosts: [DraftPost] = []
+    /// Posts read off the chain because the indexer could not answer for them (see `chainPost`).
+    ///
+    /// They belong to no feed and are never rendered as one - they live here only so the thread
+    /// opened onto them can FIND them. `openDetail` hands the sheet an id, not a post, and the
+    /// sheet resolves it against these collections; a post that was in none of them presented as
+    /// a blank sheet.
+    @State private var chainResolvedPosts: [DraftPost] = []
     /// Endless-scroll state for the feed currently on screen (see `feedSource`).
     @State private var feedPage = KaPostsPageState()
     /// Which endpoint `remotePosts` was filled from. Feed and Popular share the global feed, so
@@ -587,6 +594,7 @@ struct KaPostsView: View {
             // bumps make any in-flight page drop its result instead of appending.
             PostTranslationService.shared.reset()
             pendingNewPosts = []
+            chainResolvedPosts = []
             feedPage.reset()
             myPostsPage.reset()
             myRepliesPage.reset()
@@ -1543,6 +1551,7 @@ struct KaPostsView: View {
         mutate(&posterProfileReplies)
         mutate(&myProfileRemotePosts)
         mutate(&myProfileRemoteReplies)
+        mutate(&chainResolvedPosts)
         // The open thread's "Thread" section renders from threadChains COPIES (and segments
         // beyond the first exist ONLY there), so keep them in step too - otherwise an action
         // on a chain segment never renders while the thread stays open.
@@ -1569,7 +1578,8 @@ struct KaPostsView: View {
             return nil
         }
         if let hit = search(posts) ?? search(remotePosts) ?? search(posterProfilePosts)
-            ?? search(posterProfileReplies) ?? search(myProfileRemotePosts) ?? search(myProfileRemoteReplies) {
+            ?? search(posterProfileReplies) ?? search(myProfileRemotePosts) ?? search(myProfileRemoteReplies)
+            ?? search(chainResolvedPosts) {
             return hit
         }
         for chain in threadChains.values {
@@ -1588,7 +1598,8 @@ struct KaPostsView: View {
             return nil
         }
         if let hit = search(posts) ?? search(remotePosts) ?? search(posterProfilePosts)
-            ?? search(posterProfileReplies) ?? search(myProfileRemotePosts) ?? search(myProfileRemoteReplies) {
+            ?? search(posterProfileReplies) ?? search(myProfileRemotePosts) ?? search(myProfileRemoteReplies)
+            ?? search(chainResolvedPosts) {
             return hit
         }
         for chain in threadChains.values {
@@ -2430,6 +2441,11 @@ struct KaPostsView: View {
             post.dislikedByMe = engagement.dislikedByMe
             post.repostedByMe = engagement.repostedByMe
         }
+        // Held so the thread sheet can resolve the id it is about to be handed - see
+        // `chainResolvedPosts`. Replacing an existing copy keeps the stable id pointing at one
+        // node, so a like made in the thread does not land on a stale twin.
+        chainResolvedPosts.removeAll { $0.remoteId == txId }
+        chainResolvedPosts.append(post)
         return post
     }
 
@@ -3651,6 +3667,29 @@ struct KaPostsView: View {
                     ToolbarItem(placement: .cancellationAction) {
                         // Clear whichever target presented this thread (feed = detailTarget,
                         // profile = profileDetailTarget); nil-ing the other is a harmless no-op.
+                        Button("Done") { detailTarget = nil; profileDetailTarget = nil }
+                    }
+                }
+            } else {
+                // An id this view cannot resolve used to render an empty NavigationStack - a
+                // blank sheet with no way to tell whether it was loading, broken, or closed
+                // wrong. It should not be reachable (every opener registers its post first), so
+                // this says something rather than nothing if one ever slips through.
+                VStack(spacing: 12) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 40))
+                        .foregroundColor(.secondary)
+                    Text("This post could not be loaded")
+                        .font(.headline)
+                    Text("It may have been removed, or the network may be unreachable.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
                         Button("Done") { detailTarget = nil; profileDetailTarget = nil }
                     }
                 }
