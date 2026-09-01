@@ -1927,6 +1927,25 @@ private struct GroupMessageBubbleRow: View {
         return GroupMentionCodec.decodeForDisplay(raw, members: group.members, resolveDisplayName: resolveDisplayName(for:))
     }
 
+    /// A link back into KaChat (shared KaPosts post / broadcast-room invite) in this message.
+    /// Same rule as 1:1 (`MessageBubbleView.internalLink`), and it has to be claimed BEFORE the
+    /// generic link path: the universal-link form is an ordinary https URL, so without this a
+    /// shared post would be scraped over the network like a stranger's link instead of
+    /// previewing as the post it is.
+    private var internalLink: KaChatInternalLink.Match? {
+        KaChatInternalLink.match(in: displayContent)
+    }
+
+    /// What the text bubble draws - see `MessageBubbleView.bubbleText`, same rule: once the link
+    /// previews as a card, the raw URL under it is noise. Copy and reply keep the full text.
+    private var bubbleContent: String {
+        guard let internalLink, !internalLink.coversWholeMessage else { return displayContent }
+        let stripped = displayContent
+            .replacingOccurrences(of: internalLink.matchedText, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return stripped.isEmpty ? displayContent : stripped
+    }
+
     /// Members actually @mentioned in this message (their `@address` token is present in the raw text).
     private var mentionedMembers: [GroupMember] {
         let raw = replyQuote?.text ?? message.content
@@ -1950,6 +1969,14 @@ private struct GroupMessageBubbleRow: View {
             let label = mentionLabel(for: m.address)
             guard !label.isEmpty else { continue }
             display = display.replacingOccurrences(of: "@\(m.address)", with: "@\(label)")
+        }
+        // A KaChat link previewing as a card below is dropped here too, for the same reason the
+        // plain-text branch drops it - see `bubbleContent`.
+        if let internalLink, !internalLink.coversWholeMessage {
+            let stripped = display
+                .replacingOccurrences(of: internalLink.matchedText, with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !stripped.isEmpty { display = stripped }
         }
         var attributed = AttributedString(display)
         // Keep any plain URLs tappable too.
@@ -2083,7 +2110,16 @@ private struct GroupMessageBubbleRow: View {
                             onSelect: onSelect
                         )
                         .simultaneousGesture(TapGesture(count: 2).onEnded { activeQuickReactionMessageId.wrappedValue = message.id })
-                    } else if let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent), MessageTextRenderPlan.isEntirelyLink(displayContent) {
+                    } else if let internalLink, internalLink.coversWholeMessage {
+                        // Nothing but a link into KaChat: the post/invite card IS the message,
+                        // exactly as in 1:1 chats and broadcast rooms.
+                        KaChatInternalLinkCardView(
+                            match: internalLink,
+                            txId: message.txId,
+                            onSelect: onSelect,
+                            onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil
+                        )
+                    } else if internalLink == nil, let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent), MessageTextRenderPlan.isEntirelyLink(displayContent) {
                         // Message is nothing but a link - the preview card replaces the plain-text
                         // bubble entirely (matches iMessage) instead of showing both. `fallbackText`
                         // keeps the raw link visible/tappable if no preview data is ever found,
@@ -2106,9 +2142,9 @@ private struct GroupMessageBubbleRow: View {
                                         }
                                         return .systemAction
                                     })
-                            } else if MessageTextRenderPlan.requiresLinkTextView(displayContent) {
+                            } else if MessageTextRenderPlan.requiresLinkTextView(bubbleContent) {
                                 LinkifiedMessageTextView(
-                                    text: displayContent,
+                                    text: bubbleContent,
                                     isOutgoing: message.isOutgoing,
                                     isSingleEmojiOnly: false,
                                     onLinkLongPress: { url in
@@ -2117,7 +2153,7 @@ private struct GroupMessageBubbleRow: View {
                                     onLinkDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : {}
                                 )
                             } else {
-                                Text(displayContent)
+                                Text(bubbleContent)
                                     .font(.body)
                                     .foregroundColor(message.isOutgoing ? .white : .primary)
                             }
@@ -2189,7 +2225,15 @@ private struct GroupMessageBubbleRow: View {
                 // Reserve the overlay pill's ~10pt overhang so it doesn't overlap the next message.
                 .padding(.bottom, reactions.isEmpty ? 0 : 16)
 
-                if media == nil,
+                if media == nil, let internalLink, !internalLink.coversWholeMessage {
+                    KaChatInternalLinkCardView(
+                        match: internalLink,
+                        txId: message.txId,
+                        onSelect: onSelect,
+                        onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil
+                    )
+                } else if media == nil,
+                   internalLink == nil,
                    !MessageTextRenderPlan.isEntirelyLink(displayContent),
                    let linkURL = MessageTextRenderPlan.firstHTTPLink(in: displayContent) {
                     LinkPreviewCardView(url: linkURL, txId: message.txId, onSelect: onSelect, onDoubleTap: onReact != nil ? { activeQuickReactionMessageId.wrappedValue = message.id } : nil)
