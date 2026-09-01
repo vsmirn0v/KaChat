@@ -720,6 +720,8 @@ private struct PortfolioSparkline: View {
 /// The full hashrate history, with the same range control the price and value charts use.
 private struct HashrateChartScreen: View {
     @ObservedObject private var networkStats = KaspaNetworkStatsService.shared
+    @ObservedObject private var viewModel = PortfolioViewModel.shared
+    @EnvironmentObject private var settingsViewModel: SettingsViewModel
     @State private var scrubbed: PricePoint?
     @State private var rangeDays: Int = 90
 
@@ -728,6 +730,8 @@ private struct HashrateChartScreen: View {
     private static let ranges: [(label: String, days: Int)] = [
         ("1M", 30), ("3M", 90), ("1Y", 365), ("All", 0)
     ]
+
+    private var currency: AppCurrency { settingsViewModel.settings.currency }
 
     private var visiblePoints: [PricePoint] {
         let all = networkStats.hashrateHistory
@@ -751,6 +755,12 @@ private struct HashrateChartScreen: View {
                         .frame(maxWidth: .infinity)
                 }
                 rangePicker
+                MiningEstimateCard(
+                    networkHashratePHs: networkStats.currentHashrate,
+                    blockRewardKas: networkStats.blockRewardKas,
+                    priceUsd: viewModel.currentPriceUsd,
+                    currency: currency
+                )
                 explanation
             }
             .padding(16)
@@ -822,5 +832,132 @@ private struct HashrateChartScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(portfolioGlassBackground(cornerRadius: 18))
+    }
+}
+
+
+/// "If I point this much hashrate at Kaspa, what do I earn?"
+///
+/// Straight proportional share: your hashrate over the network's, times what the network pays
+/// out. Deliberately no pool fee, power cost or luck variance - those are the miner's own numbers
+/// and guessing at them would make this look more precise than it is.
+private struct MiningEstimateCard: View {
+    /// The network's hashrate in PH/s.
+    let networkHashratePHs: Double?
+    let blockRewardKas: Double?
+    let priceUsd: Double?
+    let currency: AppCurrency
+
+    /// Miners talk in TH/s (one KS5 Pro is about 21), so that is the default. The unit is part of
+    /// the input because typing 21 and meaning PH/s is a thousandfold error, which is exactly the
+    /// mistake this screen itself was shipping.
+    private enum Unit: String, CaseIterable, Identifiable {
+        case gh = "GH/s"
+        case th = "TH/s"
+        case ph = "PH/s"
+
+        var id: String { rawValue }
+
+        /// Multiplier to PH/s, the unit everything here is computed in.
+        var toPHs: Double {
+            switch self {
+            case .gh: return 1e-6
+            case .th: return 1e-3
+            case .ph: return 1
+            }
+        }
+    }
+
+    @State private var amountText = "21"
+    @State private var unit: Unit = .th
+
+    /// KAS the whole network pays out per day: reward per block times blocks per second.
+    private var dailyNetworkEmission: Double? {
+        guard let blockRewardKas, blockRewardKas > 0 else { return nil }
+        return blockRewardKas * KaspaNetworkStatsService.blocksPerSecond * 86_400
+    }
+
+    private var dailyKas: Double? {
+        guard let networkHashratePHs, networkHashratePHs > 0,
+              let dailyNetworkEmission,
+              let amount = Double(amountText.replacingOccurrences(of: ",", with: ".")),
+              amount > 0 else { return nil }
+        let share = (amount * unit.toPHs) / networkHashratePHs
+        return dailyNetworkEmission * share
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Mining Estimate")
+                .font(.headline)
+
+            HStack(spacing: 10) {
+                TextField("0", text: $amountText)
+                    .keyboardType(.decimalPad)
+                    .font(.system(size: 20, weight: .semibold))
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.primary.opacity(0.06))
+                    )
+                Picker("", selection: $unit) {
+                    ForEach(Unit.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 190)
+            }
+
+            if let dailyKas {
+                VStack(spacing: 8) {
+                    payoutRow("Per day", kas: dailyKas)
+                    Divider()
+                    payoutRow("Per week", kas: dailyKas * 7)
+                    Divider()
+                    // 30 days, not a calendar month: the reward steps down monthly anyway, so
+                    // precision past "about a month" would be false.
+                    payoutRow("Per month", kas: dailyKas * 30)
+                }
+                .padding(.top, 2)
+
+                Text(assumptionsLine)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Enter your hashrate to estimate earnings.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(portfolioGlassBackground(cornerRadius: 18))
+    }
+
+    private func payoutRow(_ title: String, kas: Double) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(PortfolioFormat.kas(kas))
+                    .font(.subheadline.weight(.semibold))
+                if let priceUsd, priceUsd > 0 {
+                    Text(PortfolioFormat.currency(kas * priceUsd, currency))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Says what the number rests on, so nobody mistakes it for a promise.
+    private var assumptionsLine: String {
+        guard let networkHashratePHs, let blockRewardKas else { return "" }
+        return "At \(HashrateFormat.display(networkHashratePHs)) network hashrate and a "
+            + "\(String(format: "%.4f", blockRewardKas)) KAS block reward. Before pool fees, "
+            + "power and luck, and both figures move."
     }
 }

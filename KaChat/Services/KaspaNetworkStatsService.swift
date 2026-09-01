@@ -8,10 +8,13 @@ import Foundation
 final class KaspaNetworkStatsService: ObservableObject {
     static let shared = KaspaNetworkStatsService()
 
-    /// Hashrate over time, in EH/s, oldest first. Empty until the first successful fetch.
+    /// Hashrate over time, in PH/s, oldest first. Empty until the first successful fetch.
     @Published private(set) var hashrateHistory: [PricePoint] = []
-    /// The most recent sample, in EH/s.
+    /// The most recent sample, in PH/s.
     @Published private(set) var currentHashrate: Double?
+    /// Current block reward in KAS, for the mining estimate. Kaspa's reward steps down every
+    /// month (the chromatic halving), so this is read from the API rather than hardcoded.
+    @Published private(set) var blockRewardKas: Double?
     @Published private(set) var isLoading = false
 
     private var lastFetchedAt: Date?
@@ -48,26 +51,59 @@ final class KaspaNetworkStatsService: ObservableObject {
             hashrateHistory = points
             currentHashrate = points.last?.value
             lastFetchedAt = Date()
+            await refreshBlockReward()
         } catch {
             // A chart nobody asked for is not worth an error banner; the card simply stays empty.
             AppLog.log("%@", "[Hashrate] Fetch failed: \(error.localizedDescription)")
         }
     }
 
-    /// Maps the API's kilohashes to EH/s and sorts oldest first.
+    /// The current block reward, for the mining estimate.
+    ///
+    /// Kaspa's reward is not a fixed number: it steps down every month on the chromatic halving
+    /// (a smooth 1/2^(1/12) per month rather than a cliff every four years), so a hardcoded
+    /// constant would be wrong within weeks.
+    private func refreshBlockReward() async {
+        guard var components = URLComponents(string: AppSettings.load().kaspaRestAPIURL) else { return }
+        components.path += "/info/blockreward"
+        guard let url = components.url else { return }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
+            let decoded = try JSONDecoder().decode(BlockRewardResponse.self, from: data)
+            if decoded.blockreward > 0 { blockRewardKas = decoded.blockreward }
+        } catch {
+            // The chart is still useful without it; the estimate just says it is unavailable.
+            AppLog.log("%@", "[Hashrate] Block reward fetch failed: \(error.localizedDescription)")
+        }
+    }
+
+    private struct BlockRewardResponse: Decodable {
+        let blockreward: Double
+    }
+
+    /// Blocks per second on mainnet since the Crescendo hardfork (May 2025) took Kaspa from 1 to
+    /// 10. Together with the block reward this gives daily emission: at today's ~2.31 KAS reward
+    /// that is about 2.0 million KAS a day, which is what the network actually pays out.
+    static let blocksPerSecond: Double = 10
+
+    /// Maps the API's kilohashes to PH/s and sorts oldest first.
     ///
     /// Deliberately UNFILTERED. The series looks like it carries wild outliers - days reporting
     /// four times the current hashrate - and an outlier filter was written before the data was
-    /// actually checked. It is not noise: the network really did climb to around 1,480 EH/s
-    /// across 2024-25 before falling back to roughly 400. Filtering on a multiple of the median
+    /// actually checked. It is not noise: the network really did climb to around 1,480 PH/s
+    /// across 2024-25 before falling back to roughly 320. Filtering on a multiple of the median
     /// deleted about a quarter of the series and drew a history that never happened.
     static func series(from samples: [HashrateSample]) -> [PricePoint] {
-        // 1 EH/s = 1e12 kH/s.
         samples
             .filter { $0.hashrate_kh > 0 }
             .map {
                 PricePoint(
                     timestamp: Date(timeIntervalSince1970: TimeInterval($0.timestamp) / 1000),
+                    // 1 PH/s = 1e12 kH/s. This divisor was right and the LABEL was wrong: the
+                    // series was drawn as EH/s, a thousand times what it is. Checked against both
+                    // endpoints - /info/hashrate/history's newest sample and /info/hashrate - and
+                    // they agree at ~317 PH/s, i.e. 0.32 EH/s.
                     value: $0.hashrate_kh / 1e12
                 )
             }
@@ -81,11 +117,13 @@ final class KaspaNetworkStatsService: ObservableObject {
     }
 }
 
-/// Formats a hashrate in EH/s, stepping down the units so an early-history value is still legible.
+/// Formats a hashrate given in PH/s, stepping the unit so both the network today (hundreds of
+/// PH/s) and a single miner (tens of TH/s) read naturally.
 enum HashrateFormat {
-    static func display(_ ehs: Double) -> String {
-        if ehs >= 1 { return String(format: "%.2f EH/s", ehs) }
-        if ehs >= 0.001 { return String(format: "%.1f PH/s", ehs * 1_000) }
-        return String(format: "%.1f TH/s", ehs * 1_000_000)
+    static func display(_ phs: Double) -> String {
+        if phs >= 1_000 { return String(format: "%.2f EH/s", phs / 1_000) }
+        if phs >= 1 { return String(format: "%.1f PH/s", phs) }
+        if phs >= 0.001 { return String(format: "%.1f TH/s", phs * 1_000) }
+        return String(format: "%.1f GH/s", phs * 1_000_000)
     }
 }
