@@ -483,6 +483,8 @@ enum KaPostsProtocol {
         let authorPubkey: String
         /// Decoded, with the KaChat exclusivity marker stripped.
         let message: String
+        /// What this one points at: the parent for a reply, the quoted post for a quote.
+        let referencedId: String?
     }
 
     /// Parses a decoded transaction payload. Returns nil for anything that is not a KaPosts
@@ -515,7 +517,13 @@ enum KaPostsProtocol {
         // An empty message is legitimate - a quote with no added comment is just a repost - so
         // this returns the record and lets the caller decide what to show for it.
         let text = KaPostsAPIClient.stripMarker(decoded).trimmingCharacters(in: .whitespacesAndNewlines)
-        return ChainPost(action: action, authorPubkey: pubkey, message: text)
+        return ChainPost(
+            action: action,
+            authorPubkey: pubkey,
+            message: text,
+            // Field 2 for both shapes that have one; a plain post references nothing.
+            referencedId: action == "post" ? nil : (fields[3].isEmpty ? nil : fields[3])
+        )
     }
 
     // Full payloads:
@@ -536,6 +544,74 @@ enum KaPostsProtocol {
     }
     static func unquotePayload(pubkey: String, signature: String, contentId: String) -> String {
         "\(prefix)unquote:\(pubkey):\(signature):\(contentId)"
+    }
+}
+
+/// Reads a KaPost straight off the transaction it was published as.
+///
+/// The K indexer has no single-post lookup (`get-post?id=` is still a NEEDED item in
+/// KAPOSTS_INDEXER.md), so any post outside the feed window is unanswerable by the API - which is
+/// why opening a shared or notified post used to fail with "Post not found - it may be older than
+/// the current feed" whenever the search through feed + own profile + the notification author's
+/// posts came up empty. The chain has every post that has ever existed: the post id IS the
+/// transaction id.
+///
+/// Deliberately nonisolated - the callers are a chat bubble and a feed, and none of this touches
+/// actor state.
+enum KaPostChainReader {
+    struct Record: Equatable {
+        let txId: String
+        let action: String
+        let authorPubkey: String
+        let message: String
+        /// Parent for a reply, quoted post for a quote.
+        let referencedId: String?
+        let blockTimeMillis: UInt64?
+    }
+
+    /// Nil when the REST API has no such transaction, when it carries no payload, or when the
+    /// payload is not a KaPosts message (a vote, a follow, or another app's transaction).
+    static func fetch(txId: String) async -> Record? {
+        guard !txId.isEmpty, var components = URLComponents(string: AppSettings.load().kaspaRestAPIURL) else { return nil }
+        components.path += "/transactions/\(txId)"
+        components.queryItems = [
+            // Nothing but the payload is wanted, and skipping input resolution keeps this the
+            // cheapest form of the call.
+            URLQueryItem(name: "inputs", value: "false"),
+            URLQueryItem(name: "outputs", value: "false"),
+            URLQueryItem(name: "resolve_previous_outpoints", value: "no")
+        ]
+        guard let url = components.url else { return nil }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            let tx = try JSONDecoder().decode(ChainTx.self, from: data)
+            guard let hex = tx.payload, !hex.isEmpty,
+                  let bytes = CryptoUtils.hexToData(hex),
+                  let payload = String(data: bytes, encoding: .utf8),
+                  let parsed = KaPostsProtocol.parseChainPayload(payload) else { return nil }
+            return Record(
+                txId: txId,
+                action: parsed.action,
+                authorPubkey: parsed.authorPubkey,
+                message: parsed.message,
+                referencedId: parsed.referencedId,
+                blockTimeMillis: tx.blockTime
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    /// Only the two fields this needs, so an unrelated shape change upstream cannot break it.
+    private struct ChainTx: Decodable {
+        let payload: String?
+        let blockTime: UInt64?
+
+        enum CodingKeys: String, CodingKey {
+            case payload
+            case blockTime = "block_time"
+        }
     }
 }
 

@@ -273,8 +273,7 @@ final class KaPostLinkPreviewCache: ObservableObject {
         inFlight.insert(postId)
         defer { inFlight.remove(postId) }
 
-        guard let payload = await Self.fetchChainPayload(txId: postId),
-              let record = KaPostsProtocol.parseChainPayload(payload) else {
+        guard let record = await KaPostChainReader.fetch(txId: postId) else {
             unresolvable.insert(postId)
             return
         }
@@ -334,35 +333,6 @@ final class KaPostLinkPreviewCache: ObservableObject {
             : trimmed
     }
 
-    /// The transaction payload, decoded from hex. Nil for anything the REST API will not give us
-    /// - an unknown id, an offline host, a transaction with no payload at all.
-    private static func fetchChainPayload(txId: String) async -> String? {
-        guard var components = URLComponents(string: AppSettings.load().kaspaRestAPIURL) else { return nil }
-        components.path += "/transactions/\(txId)"
-        components.queryItems = [
-            // The card needs the payload and nothing else; skipping input resolution keeps this
-            // the cheapest form of the call.
-            URLQueryItem(name: "inputs", value: "false"),
-            URLQueryItem(name: "outputs", value: "false"),
-            URLQueryItem(name: "resolve_previous_outpoints", value: "no")
-        ]
-        guard let url = components.url else { return nil }
-        do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
-            let tx = try JSONDecoder().decode(ChainTxPayload.self, from: data)
-            guard let hex = tx.payload, !hex.isEmpty,
-                  let bytes = CryptoUtils.hexToData(hex) else { return nil }
-            return String(data: bytes, encoding: .utf8)
-        } catch {
-            return nil
-        }
-    }
-
-    /// Only the one field this needs, so an unrelated shape change upstream cannot break it.
-    private struct ChainTxPayload: Decodable {
-        let payload: String?
-    }
 }
 
 /// Open Graph metadata scraped from a message link, for rendering a rich preview card.

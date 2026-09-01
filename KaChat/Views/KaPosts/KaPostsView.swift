@@ -2376,7 +2376,92 @@ struct KaPostsView: View {
                 return
             }
         }
+        // Last resort, and the one that always works: read the post off the transaction it was
+        // published as. Everything above searches the indexer, which has no single-post lookup
+        // (`get-post?id=` is still a NEEDED item in KAPOSTS_INDEXER.md), so a post outside the
+        // feed window and outside the fetched profiles simply could not be found - that is what
+        // "Post not found" always was. The chain has every post that ever existed.
+        if let post = await chainPost(txId: txId) {
+            await openResolvedPost(post)
+            return
+        }
         showActionToast("Post not found - it may be older than the current feed", txId: txId)
+    }
+
+    /// Builds a post from its own transaction, for the cases the indexer cannot answer.
+    ///
+    /// The payload carries the text, the author and (for a reply or a quote) what it points at;
+    /// the transaction carries the time. Engagement counts are then filled from
+    /// `get-post-engagement`, which works for ANY post id, so a post opened this way still shows
+    /// real like/dislike/repost numbers and your own vote state rather than a row of zeros.
+    private func chainPost(txId: String) async -> DraftPost? {
+        guard let record = await KaPostChainReader.fetch(txId: txId),
+              let address = KaPostsAPIClient.kaspaAddress(fromPubkey: record.authorPubkey) else { return nil }
+        var post = DraftPost(
+            text: record.message,
+            timestamp: record.blockTimeMillis.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) } ?? Date(),
+            posterAddress: address
+        )
+        post.id = Self.stableId(forTxId: txId)
+        post.remoteId = txId
+        post.posterPubkey = record.authorPubkey
+        // A quote's referenced id is the post it quotes, NOT a parent - only a reply has one.
+        post.parentRemoteId = record.action == "reply" ? record.referencedId : nil
+        if record.action == "quote", let quotedId = record.referencedId {
+            // The quoted post's own text is a second chain read, and the thread view shows it
+            // under this one; a quoted card with no text is worse than resolving it properly.
+            if let quoted = await KaPostChainReader.fetch(txId: quotedId),
+               let quotedAddress = KaPostsAPIClient.kaspaAddress(fromPubkey: quoted.authorPubkey) {
+                post.quoted = DraftPost.QuotedRef(
+                    remoteId: quotedId,
+                    text: quoted.message,
+                    posterAddress: quotedAddress,
+                    timestamp: quoted.blockTimeMillis.map { Date(timeIntervalSince1970: TimeInterval($0) / 1000) }
+                )
+            }
+        }
+        // Returned rather than written through an `inout` across the `await`, which is exactly
+        // the shape Swift's exclusivity rules refuse.
+        if let engagement = await chainEngagement(txId: txId) {
+            post.likes = engagement.likes
+            post.dislikes = engagement.dislikes
+            post.reposts = engagement.reposts
+            post.likedByMe = engagement.likedByMe
+            post.dislikedByMe = engagement.dislikedByMe
+            post.repostedByMe = engagement.repostedByMe
+        }
+        return post
+    }
+
+    private struct ChainEngagement {
+        var likes = 0
+        var dislikes = 0
+        var reposts = 0
+        var likedByMe = false
+        var dislikedByMe = false
+        var repostedByMe = false
+    }
+
+    /// Counts the actor rows `get-post-engagement` returns, and spots our own among them. That
+    /// endpoint works for any post id, unlike the notification stream (own content only), so a
+    /// post opened off the chain still shows real numbers instead of a row of zeros.
+    private func chainEngagement(txId: String) async -> ChainEngagement? {
+        guard let entries = try? await KaPostsAPIClient.shared.fetchPostEngagement(postId: txId).entries else { return nil }
+        let me = (try? KaPostsAPIClient.shared.requesterPubkey())?.lowercased()
+        // A quote counts as a repost, matching how the feed's own counts are built.
+        func isRepost(_ entry: KaPostsAPIClient.KEngagementEntry) -> Bool {
+            entry.kind == "repost" || entry.kind == "quote"
+        }
+        var result = ChainEngagement()
+        result.likes = entries.filter { $0.kind == "upvote" }.count
+        result.dislikes = entries.filter { $0.kind == "downvote" }.count
+        result.reposts = entries.filter(isRepost).count
+        if let me {
+            result.likedByMe = entries.contains { $0.kind == "upvote" && $0.actorPubkey.lowercased() == me }
+            result.dislikedByMe = entries.contains { $0.kind == "downvote" && $0.actorPubkey.lowercased() == me }
+            result.repostedByMe = entries.contains { isRepost($0) && $0.actorPubkey.lowercased() == me }
+        }
+        return result
     }
 
     /// A resolved deep-link/notification target that is itself a REPLY opens its PARENT's
@@ -2400,6 +2485,12 @@ struct KaPostsView: View {
             await loadMyProfileReplies(pubkey: pubkey, reset: true)
         }
         if let parent = findPost(byRemoteId: parentId) {
+            openDetail(parent, scrollToCommentRemoteId: post.remoteId)
+            return
+        }
+        // The parent is as unfindable through the indexer as the reply was - read it off its own
+        // transaction rather than presenting the reply as a context-free thread root.
+        if let parent = await chainPost(txId: parentId) {
             openDetail(parent, scrollToCommentRemoteId: post.remoteId)
             return
         }
