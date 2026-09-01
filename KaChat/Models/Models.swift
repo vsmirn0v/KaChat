@@ -2754,6 +2754,17 @@ struct GroupBag: Codable, Sendable {
     /// Epoch for which this admin has published its self-addressed recovery invite (nil = none
     /// yet). Drives the backfill so pre-existing admin groups become seed-recoverable.
     var selfInviteEpoch: UInt64? = nil
+    /// Roots for epochs this group has already left, keyed by epoch.
+    ///
+    /// Without these a NON-ADMIN member loses the whole thread the moment membership changes.
+    /// `groupRootEpoch` only ever held the current epoch, and the fallback that re-derives an
+    /// older root needs `groupSeed`, which only the admin has - so on every other device an epoch
+    /// rotation made every earlier message undecryptable, and the thread silently rendered as
+    /// empty. The ciphertext was never lost; the key to read it was being thrown away.
+    ///
+    /// Keeping them costs nothing in secrecy that the stored ciphertext did not already: this
+    /// device could read those messages a moment ago, and still holds them on disk.
+    var previousRoots: [UInt64: String] = [:]
 }
 
 /// Non-secret group metadata - the in-memory/view-facing model backed by GroupStore.
