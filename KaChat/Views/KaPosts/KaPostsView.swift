@@ -580,14 +580,6 @@ struct KaPostsView: View {
                 if tab == .popular { await deepenPopularRanking() }
             }
         }
-        .background {
-            // Owns the single on-device TranslationSession for every KaPosts surface, including
-            // the thread and profile sheets (they present from here, so this stays alive under
-            // them). Renders nothing; iOS 18+ only.
-            if #available(iOS 18.0, *) {
-                PostTranslationHost()
-            }
-        }
         .onChange(of: walletManager.currentWallet?.publicAddress) { _ in
             // Account switch: every surface's cursor belongs to the old identity (K responses
             // are decorated per requesterPubkey), so drop the lot and start over. The epoch
@@ -4445,7 +4437,7 @@ private struct KaPostCellView: View {
         case .none:
             if PostTranslationService.canOfferTranslation(for: post.text) {
                 translateLink("Translate post") {
-                    translation.translate(key: translationKey, text: post.text)
+                    translation.translate(key: translationKey, text: post.text, postId: post.remoteId)
                 }
             }
         case .translating:
@@ -4481,10 +4473,10 @@ private struct KaPostCellView: View {
                 .padding(.top, 2)
             }
         case .failed:
-            // Almost always a language pack that has not finished downloading - tapping again
-            // once it has is the fix, so this stays a live button rather than dead text.
+            // Almost always a dropped connection, so this stays a live button rather than dead
+            // text: tapping again once there is a network is the fix.
             translateLink("Translation unavailable - try again") {
-                translation.translate(key: translationKey, text: post.text)
+                translation.translate(key: translationKey, text: post.text, postId: post.remoteId)
             }
         }
     }

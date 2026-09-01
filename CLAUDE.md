@@ -300,6 +300,7 @@ Implementation uses:
 | `PUSH_NOTIFICATIONS.md` | Push notification architecture and rollout notes |
 | `KAPOSTS_INDEXER.md` | Handoff/build guide for the KaChat-owned KaPosts indexer (protocol, API compatibility bar, required extensions) |
 | `BROADCAST_INDEXER.md` | Handoff/build guide for the KaChat broadcast indexer (#kaspa / #kachat-bugs history, REST spec, Docker) |
+| `TRANSLATION_SERVICE.md` | Handoff/build guide for the KaChat post translation endpoint (server-side translation of KaPosts, cached by txid; replaced the on-device Apple Translation / ML Kit path) |
 | `PUSH_EXTENSIONS.md` | Server handoff: remote push for broadcasts + KaPosts (registration fields, APNs payload specs, routing contracts) |
 | `DETERMINISTIC_ALIASES.md` | Deterministic alias derivation (shipped protocol - see `Utilities/DeterministicAlias.swift`): algorithm, migration notes, legacy-alias compatibility |
 

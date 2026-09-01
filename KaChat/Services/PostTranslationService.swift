@@ -1,38 +1,30 @@
 import Foundation
 import NaturalLanguage
 import SwiftUI
-#if canImport(Translation)
-import Translation
-#endif
 
-/// On-device translation for KaPosts, X-style: a post written in another language offers a
-/// "Translate post" link, tapping it swaps the text in place, and the link becomes
-/// "Translated from Spanish - Show original".
+/// Translation for KaPosts, X-style: a post written in another language offers a "Translate post"
+/// link, tapping it swaps the text in place, and the link becomes "Translated from Spanish - Show
+/// original".
 ///
-/// Everything runs through Apple's Translation framework, which translates ON DEVICE against a
-/// downloaded language pack. No post text is ever sent to a server, which matters here more than
-/// in most apps: KaPosts content is public, but WHICH posts a given user chose to read closely is
-/// not, and a cloud translator would leak exactly that.
+/// The translation itself happens on the KaChat server (see `TRANSLATION_SERVICE.md`), the way X
+/// does it, rather than on the device. On-device translation - Apple's Translation framework here,
+/// ML Kit on Android - was private but cost the reader a language-pack download of tens of
+/// megabytes before the first translation finished, was unavailable at all on iOS 16 and 17, and
+/// re-translated the same post on every device that read it. A KaPost is immutable, so the server
+/// translates it once and serves that answer to everyone forever.
 ///
-/// The framework only vends a `TranslationSession` through the SwiftUI `.translationTask`
-/// modifier, so this service cannot translate on its own. It holds the queue and the results; one
-/// `PostTranslationHost` in the KaPosts view hierarchy owns the session and drains the queue (see
-/// that view). The host is deliberately singular - a session per cell would mean hundreds of them.
+/// The trade, stated plainly because the on-device design was chosen deliberately to avoid it:
+/// post CONTENT is public (it is on the blockDAG), but WHICH posts a reader stopped to translate
+/// now reaches the server. The request carries no identity of any kind - no pubkey, no token, no
+/// account id - and the server is specified not to log bodies and to warm its cache ahead of
+/// demand, so most requests are answered without a translation engine ever seeing them.
 ///
-/// Requires iOS 18. On 16/17 `isSupported` is false and no affordance is ever shown, rather than
-/// falling back to iOS 17.4's system translate SHEET: that is a different interaction (a modal
-/// overlay, not text swapped in place) and offering it under the same link would be a worse lie
-/// than offering nothing.
+/// Language IDENTIFICATION stays on the device. Deciding whether to offer the link at all runs for
+/// every visible post on every render pass, and asking a server that would be a request per post
+/// per scroll. `NLLanguageRecognizer` answers it offline, for free.
 @MainActor
 final class PostTranslationService: ObservableObject {
     static let shared = PostTranslationService()
-
-    /// A translation the host has yet to perform.
-    struct PendingRequest: Equatable {
-        let key: String
-        let text: String
-        let sourceLanguage: Locale.Language
-    }
 
     enum State: Equatable {
         case translating
@@ -47,18 +39,7 @@ final class PostTranslationService: ObservableObject {
     /// toggling back and forth never re-runs the translation.
     @Published private(set) var showingOriginal: Set<String> = []
 
-    /// Bumped on every new request; the host watches this rather than `pending`, so two requests
-    /// for the same post still re-trigger.
-    @Published private(set) var requestToken = 0
-    private(set) var pending: PendingRequest?
-
     private init() {}
-
-    /// False on iOS 16/17 - the whole affordance disappears rather than failing on tap.
-    static var isSupported: Bool {
-        if #available(iOS 18.0, *) { return true }
-        return false
-    }
 
     // MARK: - Detection
 
@@ -123,10 +104,13 @@ final class PostTranslationService: ObservableObject {
         return result
     }
 
-    /// Should this post offer a Translate link? Only when translation exists on this OS, the
-    /// language is identifiable, and it is not already the reader's own language.
+    /// Should this post offer a Translate link? Only when the language is identifiable and is not
+    /// already the reader's own.
+    ///
+    /// No OS gate any more: with the work on the server, iOS 16 and 17 get this too. They used to
+    /// see no affordance at all, because Apple's framework starts at 18.
     static func canOfferTranslation(for text: String) -> Bool {
-        guard isSupported, let detected = detectedLanguage(of: text) else { return false }
+        guard let detected = detectedLanguage(of: text) else { return false }
         return detected.languageCode != Locale.current.language.languageCode
     }
 
@@ -134,6 +118,11 @@ final class PostTranslationService: ObservableObject {
     static func displayName(of language: Locale.Language) -> String {
         guard let code = language.languageCode?.identifier else { return "another language" }
         return Locale.current.localizedString(forLanguageCode: code) ?? code
+    }
+
+    /// The reader's language, as the bare subtag the server expects ("en", not "en-GB").
+    private static var targetLanguageCode: String? {
+        Locale.current.language.languageCode?.identifier
     }
 
     // MARK: - Requests
@@ -151,70 +140,131 @@ final class PostTranslationService: ObservableObject {
         return translated
     }
 
-    /// Queues a translation. Re-tapping after a failure retries, which is the useful behaviour
-    /// when the failure was a language pack that had not finished downloading.
-    func translate(key: String, text: String) {
-        guard Self.isSupported, let source = Self.detectedLanguage(of: text) else { return }
+    /// Translates a post. Re-tapping after a failure retries, which is the useful behaviour when
+    /// the failure was a dropped connection.
+    ///
+    /// `postId` is the txid where there is one. The server caches by it, so a post someone else
+    /// already translated into this language comes back without a translation engine running at
+    /// all; a post with no txid (a local session post) is translated but not cached.
+    func translate(key: String, text: String, postId: String?) {
+        // A second tap while one is in flight must not start a second request.
+        if case .translating? = states[key] { return }
         showingOriginal.remove(key)
         states[key] = .translating
-        pending = PendingRequest(key: key, text: text, sourceLanguage: source)
-        requestToken &+= 1
+        Task { await perform(key: key, text: text, postId: postId) }
     }
 
     func showOriginal(key: String) { showingOriginal.insert(key) }
 
     func showTranslation(key: String) { showingOriginal.remove(key) }
 
-    /// Runs the queued request against a session the host has just been handed. Called only from
-    /// `PostTranslationHost`.
-    @available(iOS 18.0, *)
-    func perform(with session: TranslationSession) async {
-        guard let request = pending else { return }
-        pending = nil
-        do {
-            let response = try await session.translate(request.text)
-            states[request.key] = .translated(
-                text: response.targetText,
-                sourceName: Self.displayName(of: request.sourceLanguage)
-            )
-        } catch {
-            // Most often an unsupported pair or a language pack the user declined to download.
-            AppLog.log("%@", "[Translate] Failed: \(error.localizedDescription)")
-            states[request.key] = .failed
-        }
-    }
-
     /// Wipes every translation. Called on account switch, so one account's reading history does
     /// not linger on screen under another's feed.
     func reset() {
         states.removeAll()
         showingOriginal.removeAll()
-        pending = nil
     }
-}
 
-/// Owns the single `TranslationSession` for KaPosts and drains
-/// `PostTranslationService.shared`'s queue. Renders nothing.
-///
-/// A fresh `Configuration` per request is what re-arms `.translationTask`; the source language
-/// differs per post anyway, and `target: nil` means "the reader's own language", which is exactly
-/// what the affordance promises.
-@available(iOS 18.0, *)
-struct PostTranslationHost: View {
-    @ObservedObject private var service = PostTranslationService.shared
-    @State private var configuration: TranslationSession.Configuration?
+    private func perform(key: String, text: String, postId: String?) async {
+        guard let target = Self.targetLanguageCode else {
+            states[key] = .failed
+            return
+        }
+        do {
+            let result = try await Self.requestTranslation(text: text, postId: postId, target: target)
+            // The server returns the text unchanged when it decides the post was already in the
+            // reader's language - our detection is a guess and is sometimes wrong. Showing the
+            // same text back under a "Translated from" line would look broken, so this reads as
+            // a failure the reader can dismiss by tapping again.
+            guard !result.untranslated, !result.text.isEmpty else {
+                states[key] = .failed
+                return
+            }
+            let sourceName = result.source.map { Self.displayName(of: Locale.Language(identifier: $0)) }
+            states[key] = .translated(
+                text: result.text,
+                sourceName: sourceName ?? "another language"
+            )
+        } catch {
+            AppLog.log("%@", "[Translate] Failed: \(error.localizedDescription)")
+            states[key] = .failed
+        }
+    }
 
-    var body: some View {
-        Color.clear
-            .translationTask(configuration) { session in
-                await service.perform(with: session)
+    // MARK: - Wire
+
+    private struct TranslationResult {
+        let text: String
+        let source: String?
+        let untranslated: Bool
+    }
+
+    /// One post per call today. The endpoint takes an array because the shape should not have to
+    /// change when a "translate everything on screen" action wants a batch.
+    private static func requestTranslation(text: String, postId: String?, target: String) async throws -> TranslationResult {
+        let settings = AppSettings.load()
+        let raw = settings.kaPostIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var components = URLComponents(string: raw.isEmpty ? AppSettings.defaultKaPostIndexerURL : raw) else {
+            throw TranslationError.badURL
+        }
+        components.path += "/translate"
+        guard let url = components.url else { throw TranslationError.badURL }
+
+        var post: [String: String] = ["text": text]
+        if let postId, !postId.isEmpty { post["id"] = postId }
+        let body: [String: Any] = ["target": target, "posts": [post]]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Deliberately no identity header of any kind - see the note on this type.
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.timeoutInterval = 20
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw TranslationError.badResponse }
+        guard http.statusCode == 200 else {
+            let message = (try? JSONDecoder().decode(APIError.self, from: data))?.error
+            throw TranslationError.server(message ?? "HTTP \(http.statusCode)")
+        }
+        let decoded = try JSONDecoder().decode(TranslateResponse.self, from: data)
+        guard let entry = decoded.translations.first else { throw TranslationError.badResponse }
+        if let error = entry.error { throw TranslationError.server(error) }
+        guard let translated = entry.text else { throw TranslationError.badResponse }
+        return TranslationResult(
+            text: translated,
+            source: entry.source,
+            untranslated: entry.untranslated ?? false
+        )
+    }
+
+    private struct TranslateResponse: Decodable {
+        let translations: [Entry]
+
+        struct Entry: Decodable {
+            let id: String?
+            let source: String?
+            let text: String?
+            let untranslated: Bool?
+            let error: String?
+        }
+    }
+
+    private struct APIError: Decodable {
+        let error: String?
+    }
+
+    private enum TranslationError: LocalizedError {
+        case badURL
+        case badResponse
+        case server(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .badURL: return "Invalid KaPost indexer URL"
+            case .badResponse: return "Unexpected response from the translation service"
+            case .server(let message): return message
             }
-            .onChange(of: service.requestToken) {
-                guard let request = service.pending else { return }
-                configuration = TranslationSession.Configuration(
-                    source: request.sourceLanguage,
-                    target: nil
-                )
-            }
+        }
     }
 }
