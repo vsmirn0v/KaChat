@@ -28,13 +28,16 @@ final class KaPostsAPIClient: ObservableObject {
     /// U+2060 WORD JOINER: invisible everywhere, survives base64 round-trips, and comes back in
     /// `postContent` so feeds can filter on it (the raw tx payload is NOT exposed by the API,
     /// which is why the marker must live inside the message itself).
-    static let kaChatMarker = "\u{2060}"
+    /// `nonisolated` because these three are pure string work on a constant, and the payload
+    /// parser that reads a shared post off the chain (`KaPostsProtocol.parseChainPayload`) is not
+    /// on the main actor - the class is only `@MainActor` for the published API state around it.
+    nonisolated static let kaChatMarker = "\u{2060}"
 
-    static func isKaChatContent(_ text: String) -> Bool {
+    nonisolated static func isKaChatContent(_ text: String) -> Bool {
         text.hasPrefix(kaChatMarker)
     }
 
-    static func stripMarker(_ text: String) -> String {
+    nonisolated static func stripMarker(_ text: String) -> String {
         text.hasPrefix(kaChatMarker) ? String(text.dropFirst(kaChatMarker.count)) : text
     }
 
