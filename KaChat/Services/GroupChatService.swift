@@ -106,6 +106,12 @@ final class GroupChatService: ObservableObject {
     @Published private(set) var groupMentionsOnlyNotifications: Set<String> = []
     private let groupMentionsOnlyNotificationsKey = "kachat_group_mentions_only"
 
+    /// Groups muted outright - no banner, ever, mentioned or not. Sits ABOVE the mentions-only
+    /// rule: silent wins, and the extension checks it before anything else, including before the
+    /// undecryptable-push fallback that used to notify unconditionally.
+    @Published private(set) var groupSilentNotifications: Set<String> = []
+    private let groupSilentNotificationsKey = "kachat_group_silent"
+
     // Admin-set group photos (groupId -> hex of a compressed JPEG), distributed via gctl_photo and
     // persisted per wallet in UserDefaults (avoids a Core Data migration; photos aren't secret).
     @Published private(set) var groupPhotos: [String: String] = [:]
@@ -322,11 +328,30 @@ final class GroupChatService: ObservableObject {
 
     private func loadGroupMentionsOnlyNotifications() {
         groupMentionsOnlyNotifications = loadScoped(groupMentionsOnlyNotificationsKey) ?? []
+        groupSilentNotifications = loadScoped(groupSilentNotificationsKey) ?? []
     }
 
     private func saveGroupMentionsOnlyNotifications() {
         saveScoped(groupMentionsOnlyNotificationsKey, groupMentionsOnlyNotifications)
         SharedDataManager.syncGroupsForExtension()
+    }
+
+    private func saveGroupSilentNotifications() {
+        saveScoped(groupSilentNotificationsKey, groupSilentNotifications)
+        SharedDataManager.syncGroupsForExtension()
+    }
+
+    func silentNotifications(for groupId: String) -> Bool {
+        groupSilentNotifications.contains(groupId)
+    }
+
+    func setSilentNotifications(_ enabled: Bool, for groupId: String) {
+        if enabled {
+            groupSilentNotifications.insert(groupId)
+        } else {
+            groupSilentNotifications.remove(groupId)
+        }
+        saveGroupSilentNotifications()
     }
 
     func mentionsOnlyNotifications(for groupId: String) -> Bool {
@@ -465,6 +490,11 @@ final class GroupChatService: ObservableObject {
         // Suppressing must still CLAIM the banner slot: willPresent only drops a foreground push
         // whose txId is in the local-posted ledger, so an unclaimed suppression would let that
         // same message's push banner anyway and bypass the toggle.
+        // Silent wins over everything: no banner for this group at all.
+        if silentNotifications(for: group.id) {
+            _ = claimGroupBannerSlot(txId: message.txId)
+            return
+        }
         if mentionsOnlyNotifications(for: group.id), !isPersonalGroupMessage(message.content) {
             _ = claimGroupBannerSlot(txId: message.txId)
             return
@@ -518,6 +548,10 @@ final class GroupChatService: ObservableObject {
         // reactions to other members' messages stay silent. Same ledger rule as messages: the
         // suppression claims the banner slot so the reaction's own push can't banner in
         // willPresent and bypass the toggle.
+        if silentNotifications(for: group.id) {
+            _ = claimGroupBannerSlot(txId: message.txId)
+            return
+        }
         if mentionsOnlyNotifications(for: group.id), !targetIsMine {
             _ = claimGroupBannerSlot(txId: txId)
             return
@@ -670,7 +704,7 @@ final class GroupChatService: ObservableObject {
         groupHiddenMembers = [:]
         groupMutedMembers = [:]
         groupMentionsOnlyNotifications = []
-        for baseKey in [groupCatchUpCursorsKey, groupLastReadAtKey, groupHiddenMembersKey, groupMutedMembersKey, groupMentionsOnlyNotificationsKey] {
+        for baseKey in [groupCatchUpCursorsKey, groupLastReadAtKey, groupHiddenMembersKey, groupMutedMembersKey, groupMentionsOnlyNotificationsKey, groupSilentNotificationsKey] {
             if let key = scopedDefaultsKey(baseKey) {
                 UserDefaults.standard.removeObject(forKey: key)
             }

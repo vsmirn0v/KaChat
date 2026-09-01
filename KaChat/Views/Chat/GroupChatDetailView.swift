@@ -2583,9 +2583,12 @@ struct GroupChatInfoView: View {
             }
 
             Section {
+                Toggle("Silent Group Chat", isOn: silentBinding)
                 Toggle("Only Notify if I'm Mentioned", isOn: mentionsOnlyBinding)
+                    // Silent already means "never", so the finer rule underneath it is moot.
+                    .disabled(groupChatService.silentNotifications(for: group.id))
             } footer: {
-                Text("When on, you'll only get notified about messages that @mention you. Replies to your messages and reactions on them still notify you. Everything else shows up in the chat silently.")
+                Text("Silent Group Chat never notifies you about this group at all. Only Notify if I'm Mentioned narrows it instead: you'll get banners for messages that @mention you, plus replies to your messages and reactions on them. Everything else shows up in the chat silently.")
             }
 
             if group.isAdmin {
@@ -2779,6 +2782,13 @@ struct GroupChatInfoView: View {
     }
 
     // MARK: Typed bindings + small helpers (kept out of the view expressions on purpose)
+
+    private var silentBinding: Binding<Bool> {
+        Binding(
+            get: { groupChatService.silentNotifications(for: group.id) },
+            set: { groupChatService.setSilentNotifications($0, for: group.id) }
+        )
+    }
 
     private var mentionsOnlyBinding: Binding<Bool> {
         Binding(

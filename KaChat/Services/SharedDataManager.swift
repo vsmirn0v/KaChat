@@ -40,6 +40,7 @@ final class SharedDataManager {
         /// (`storeLastPushDebug` + the payload-prefix os_log line). Absent key = off.
         static let verboseAPILogging = "shared_verbose_api_logging"
         static let groupMentionsOnlyNotifications = "shared_group_mentions_only"
+        static let groupSilentNotifications = "shared_group_silent"
         static let groupOwnTxIds = "shared_group_own_txids"
         static let ownPrimaryKNSDomain = "shared_own_kns_domain"
     }
@@ -142,6 +143,9 @@ final class SharedDataManager {
         // Groups with "Only Notify if I'm Mentioned" on - the NSE checks this after decrypting a
         // group_message push, to decide whether to suppress it when the text doesn't mention the
         // wallet's own address (already shared separately via `syncWalletAddressForExtension`).
+        if let silentData = try? JSONEncoder().encode(GroupChatService.shared.groupSilentNotifications) {
+            sharedDefaults?.set(silentData, forKey: Keys.groupSilentNotifications)
+        }
         if let mentionsData = try? JSONEncoder().encode(GroupChatService.shared.groupMentionsOnlyNotifications) {
             sharedDefaults?.set(mentionsData, forKey: Keys.groupMentionsOnlyNotifications)
         }

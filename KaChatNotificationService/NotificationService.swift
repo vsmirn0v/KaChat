@@ -281,6 +281,18 @@ class NotificationService: UNNotificationServiceExtension {
                 // fully terminated this is the only code that runs, so blanking means the user
                 // sees NOTHING at all. Show the server's generic "Group chat / New group message"
                 // fallback instead; the main app's catch-up sync loads the real content on open.
+                //
+                // EXCEPT when every group this device knows about is silenced or mentions-only.
+                // This branch used to notify unconditionally, which is how "only notify if I'm
+                // mentioned" still produced banners: an undecryptable push cannot be checked for a
+                // mention, so it sailed past the rule as a generic "New message" - exactly what
+                // the setting promises will not happen. If no group here would have allowed it,
+                // the answer is the same whichever group it turns out to be.
+                if allGroupsSuppressUnidentifiedPushes() {
+                    suppressGroupNotification(content)
+                    addPendingMessage(txId: txId, sender: "group", type: messageType)
+                    return
+                }
                 deliverGroupFallback(content: content, senderAddress: userInfo["sender"] as? String,
                                      soundEnabled: defaultSoundEnabled,
                                      shouldIncrementUnread: shouldIncrementUnread,
@@ -302,6 +314,12 @@ class NotificationService: UNNotificationServiceExtension {
             // stored/decryptable/visible once the app is opened either way (this only suppresses
             // the push banner itself), matching how muting a member (enforced earlier, at
             // push-registration time on the main app side) still lets their messages show up.
+            // Silent wins over the finer rule below it.
+            if isSilentEnabled(groupId: match.groupId) {
+                suppressGroupNotification(content)
+                addPendingMessage(txId: txId, sender: "group", type: messageType)
+                return
+            }
             if isMentionsOnlyEnabled(groupId: match.groupId),
                !reactionTargetsMine, !mentionsMe(displayBody), !isReplyToMe(match.plaintext) {
                 suppressGroupNotification(content)
@@ -550,6 +568,26 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     /// Mirrors `SharedDataManager.syncGroupsForExtension`'s `groupMentionsOnlyNotifications` sync.
+    /// Groups the user silenced outright. Read the same way as mentions-only.
+    private func isSilentEnabled(groupId: String) -> Bool {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
+              let data = defaults.data(forKey: "shared_group_silent"),
+              let groupIds = try? JSONDecoder().decode(Set<String>.self, from: data) else {
+            return false
+        }
+        return groupIds.contains(groupId)
+    }
+
+    /// True when EVERY group this device knows about is silenced, or every one is mentions-only.
+    ///
+    /// Used for a push we could not identify. We cannot tell which group it belongs to, so the
+    /// only honest question is whether the answer would be the same for all of them.
+    private func allGroupsSuppressUnidentifiedPushes() -> Bool {
+        let groups = getSharedGroups()
+        guard !groups.isEmpty else { return false }
+        return groups.allSatisfy { isSilentEnabled(groupId: $0.groupId) || isMentionsOnlyEnabled(groupId: $0.groupId) }
+    }
+
     private func isMentionsOnlyEnabled(groupId: String) -> Bool {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
               let data = defaults.data(forKey: "shared_group_mentions_only"),
