@@ -603,7 +603,9 @@ private struct KasConverterCard: View {
             )
 
             if let rate {
-                Text("1 KAS = \(PortfolioFormat.price(rate, currency: currency))")
+                // Not PortfolioFormat.price: that rounds to 5 decimals under a dollar, which
+                // for a sub-cent coin throws away most of the rate the converter is applying.
+                Text("1 KAS = \(PortfolioFormat.currencySymbol(for: currency))\(Self.format(rate))")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
@@ -658,10 +660,10 @@ private struct KasConverterCard: View {
         switch field {
         case .kas:
             let kas = Self.number(from: kasText)
-            fiatText = kas.map { Self.format($0 * rate, decimals: 2) } ?? ""
+            fiatText = kas.map { Self.format($0 * rate) } ?? ""
         case .fiat:
             let fiat = Self.number(from: fiatText)
-            kasText = fiat.map { Self.format($0 / rate, decimals: 4) } ?? ""
+            kasText = fiat.map { Self.format($0 / rate) } ?? ""
         }
     }
 
@@ -673,8 +675,21 @@ private struct KasConverterCard: View {
         return Double(normalized)
     }
 
-    private static func format(_ value: Double, decimals: Int) -> String {
-        String(format: "%.\(decimals)f", value)
+    /// Full precision, with the padding trimmed off.
+    ///
+    /// Fixed decimals do not work in either direction here: two decimals on the fiat side rounds
+    /// 1 KAS to "0.05" and throws the rate away, and four on the KAS side is coarser than the
+    /// eight sompi actually carries. So this writes eight decimals - Kaspa's own precision - and
+    /// then drops the trailing zeros, keeping two so a whole amount still reads as money.
+    ///
+    /// Deliberately locale-free: the result is written straight back into a text field the user
+    /// can keep editing, and a grouping separator would make it unparseable on the way back in.
+    private static func format(_ value: Double) -> String {
+        var text = String(format: "%.8f", value)
+        while text.hasSuffix("0"), text.split(separator: ".").last?.count ?? 0 > 2 {
+            text.removeLast()
+        }
+        return text
     }
 }
 
