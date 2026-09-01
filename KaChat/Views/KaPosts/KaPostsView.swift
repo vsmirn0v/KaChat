@@ -218,6 +218,16 @@ struct KaPostsView: View {
     @State private var feedError: String?
     /// True while the Popular tab is pulling its deep ranking window (see `deepenPopularRanking`).
     @State private var isDeepeningPopular = false
+    /// Posts that arrived since the feed was last loaded, held back rather than inserted.
+    ///
+    /// Splicing new rows in under a reader moves everything they were looking at. X's answer -
+    /// hold them and offer them - is better: nothing shifts until the reader asks for it, and the
+    /// count tells them whether it is worth asking.
+    @State private var pendingNewPosts: [DraftPost] = []
+    /// Guards the check so a slow poll and a manual one cannot run together.
+    @State private var isCheckingForNewPosts = false
+    /// Set when the pill is tapped; the feed's ScrollViewReader consumes it to jump to the top.
+    @State private var pendingScrollToFeedTop = false
     @State private var showComposer = false
     /// Poster being tipped via the quick-tip sheet (amount + direct send).
     @State private var tipTarget: TipTarget?
@@ -271,7 +281,9 @@ struct KaPostsView: View {
     @State private var threadPages: [UUID: KaPostsPageState] = [:]
 
     /// The two feed backends behind the three tabs.
-    enum FeedSource {
+    /// Equatable stated rather than relied on: `.task(id: loadedFeedSource)` drives the new-post
+    /// poll, and that constraint should be visible at the declaration.
+    enum FeedSource: Equatable {
         case global
         case following
     }
@@ -574,6 +586,7 @@ struct KaPostsView: View {
             // are decorated per requesterPubkey), so drop the lot and start over. The epoch
             // bumps make any in-flight page drop its result instead of appending.
             PostTranslationService.shared.reset()
+            pendingNewPosts = []
             feedPage.reset()
             myPostsPage.reset()
             myRepliesPage.reset()
@@ -750,8 +763,14 @@ struct KaPostsView: View {
             .refreshable { await loadFeed() }
         } else {
             let triggerId = kaPostsPrefetchTriggerId(visiblePosts)
+            ScrollViewReader { feedProxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    // Anchor for the "show new posts" jump - the pill's whole point is landing
+                    // the reader on what just arrived.
+                    Color.clear
+                        .frame(height: 0)
+                        .id(Self.feedTopAnchor)
                     ForEach(visiblePosts) { post in
                         KaPostCellView(
                             post: post,
@@ -825,7 +844,124 @@ struct KaPostsView: View {
                 }
             }
             .refreshable { await loadFeed() }
+            .overlay(alignment: .top) { newPostsPill }
+            .onChange(of: pendingScrollToFeedTop) { shouldScroll in
+                guard shouldScroll else { return }
+                pendingScrollToFeedTop = false
+                withAnimation(.easeOut(duration: 0.25)) {
+                    feedProxy.scrollTo(Self.feedTopAnchor, anchor: .top)
+                }
+            }
+            // Only while this feed is actually on screen: the task is torn down on a tab switch,
+            // so nothing polls in the background.
+            .task(id: loadedFeedSource) {
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: UInt64(Self.newPostsCheckInterval * 1_000_000_000))
+                    guard !Task.isCancelled else { return }
+                    await checkForNewPosts()
+                }
+            }
+            }
         }
+    }
+
+    private static let feedTopAnchor = "kaPostsFeedTop"
+
+    // MARK: - New posts
+
+    /// How often the visible feed asks whether anything newer exists.
+    ///
+    /// One page, and only while the feed is actually on screen and the app is in the foreground -
+    /// this is the same cadence as the app's fallback message poll, chosen so a social feed still
+    /// feels current without becoming a background data drain on cellular.
+    private static let newPostsCheckInterval: TimeInterval = 60
+
+    /// The floating "Show N new posts" pill, X-style.
+    ///
+    /// Floating rather than a row in the list: a row only exists where it was inserted, so a
+    /// reader who has scrolled past it never learns there is anything new. This stays put.
+    @ViewBuilder
+    private var newPostsPill: some View {
+        if !pendingNewPosts.isEmpty {
+            Button {
+                Haptics.impact(.light)
+                showPendingNewPosts()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.up")
+                        .font(.caption.weight(.bold))
+                    Text(pendingNewPosts.count == 1
+                         ? "Show 1 new post"
+                         : "Show \(pendingNewPosts.count) new posts")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(Capsule().fill(Color.accentColor))
+                .shadow(color: Color.black.opacity(0.25), radius: 8, x: 0, y: 3)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    /// Asks whether anything newer than the top of the loaded feed exists, without touching what
+    /// is on screen.
+    ///
+    /// Deliberately page ONE only: this answers "is there anything new", not "fetch everything I
+    /// missed". Pulling the gap in full would be a lot of requests for a question with a yes/no
+    /// answer, and tapping the pill refreshes properly anyway.
+    private func checkForNewPosts() async {
+        guard !isCheckingForNewPosts, !feedPage.isLoading, !remotePosts.isEmpty else { return }
+        isCheckingForNewPosts = true
+        defer { isCheckingForNewPosts = false }
+
+        let source = feedSource(for: selectedFeed)
+        guard source == loadedFeedSource else { return }
+        let known = Set(remotePosts.compactMap(\.remoteId))
+        guard !known.isEmpty else { return }
+
+        do {
+            let page: (posts: [KaPostsAPIClient.KPost], pagination: KaPostsAPIClient.KPagination?)
+            switch source {
+            case .following:
+                page = try await KaPostsAPIClient.shared.fetchFollowingFeed(limit: KaPostsPaginator.pageSize, before: nil)
+            case .global:
+                page = try await KaPostsAPIClient.shared.fetchGlobalFeed(limit: KaPostsPaginator.pageSize, before: nil)
+            }
+            // The feed may have been refreshed or switched while this was in flight.
+            guard source == loadedFeedSource, !feedPage.isLoading else { return }
+            let fresh = page.posts
+                .filter { !known.contains($0.id) }
+                .compactMap { Self.mapRemotePost($0) }
+                .filter { !moderationStore.isHidden($0.posterAddress) }
+            guard !fresh.isEmpty else { return }
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+                pendingNewPosts = fresh
+            }
+        } catch {
+            // A failed check is silent: it is a background question, and the feed on screen is
+            // still perfectly usable.
+            AppLog.log("%@", "[KaPosts] New-post check failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Splices the held posts in at the top, on request.
+    private func showPendingNewPosts() {
+        guard !pendingNewPosts.isEmpty else { return }
+        let known = Set(remotePosts.compactMap(\.remoteId))
+        let additions = pendingNewPosts.filter { post in
+            guard let id = post.remoteId else { return true }
+            return !known.contains(id)
+        }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.85)) {
+            remotePosts = additions + remotePosts
+            pendingNewPosts = []
+        }
+        resolveIdentities(for: additions)
+        pendingScrollToFeedTop = true
     }
 
     /// How many ranked posts Popular wants under it before its top row means anything.
@@ -1053,6 +1189,9 @@ struct KaPostsView: View {
             guard feedPage.epoch == epoch else { return }
             if reset {
                 remotePosts = batch.items
+                // A refresh just delivered whatever the pill was offering; leaving it up would
+                // promise posts that are already on screen.
+                pendingNewPosts = []
             } else {
                 remotePosts.append(contentsOf: batch.items)
             }
