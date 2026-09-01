@@ -1553,6 +1553,28 @@ extension ChatService {
         return false
     }
 
+    /// The outgoing twin of `aliasBelongsToAnotherContact`: is this SEND alias also registered
+    /// against some other contact?
+    ///
+    /// It should never be - an alias names one conversation - but nothing enforces that. Legacy
+    /// aliases are 6 random bytes generated per conversation, and they arrive from several places
+    /// (self-stash recovery, handshakes, a locally generated fallback), so two contacts sharing
+    /// one is a state this app can reach. The outgoing sync attributes purely BY ALIAS, which is
+    /// the one place where that would file a message under the wrong person's name.
+    func outgoingAliasBelongsToAnotherContact(_ alias: String, excluding contactAddress: String) -> Bool {
+        for (address, aliases) in ourAliases where address != contactAddress {
+            if aliases.contains(alias) {
+                return true
+            }
+        }
+        for (address, state) in routingStates where address != contactAddress {
+            if state.deterministicTheirAlias == alias || state.legacyOutgoingAliases.contains(alias) {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Outcome of `resolvePayloadOnly` - callers must treat `plainPayment` as TERMINAL.
     enum PayloadResolution {
         /// The transaction's payload, resolved from mempool or REST.

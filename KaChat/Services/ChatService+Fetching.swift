@@ -1813,6 +1813,22 @@ extension ChatService {
                 // Outgoing messages are encrypted for the recipient, we can't decrypt them
                 // Check if we have this message stored locally with content
                 let existingMessage = await findLocalMessage(txId: contextMsg.txId)
+                // This whole loop attributes BY ALIAS: everything the indexer returns for
+                // (sender = us, alias = X) is filed under whichever contact has X in its outgoing
+                // set. That is only sound while an alias names exactly one conversation, and
+                // nothing enforces that - which is why the UTXO fast path already refuses an
+                // alias that belongs to someone else (`shouldAttemptSelfStashDecryption`).
+                //
+                // When we hold the message locally we know its real conversation and no guess is
+                // involved. When we do not, all this can produce is a "Sent via another device"
+                // placeholder - so if the alias is ambiguous, skip it rather than write a message
+                // we sent to one person into the thread of another.
+                if existingMessage == nil,
+                   outgoingAliasBelongsToAnotherContact(ourAlias, excluding: contactAddress) {
+                    AppLog.log("[ChatService] Outgoing %@: alias %@ is registered to more than one contact - not attributing to %@",
+                          String(contextMsg.txId.prefix(12)), ourAlias, String(contactAddress.suffix(10)))
+                    continue
+                }
                 let content = existingMessage?.content ?? ChatMessage.sentViaOtherDevicePlaceholder
                 let msgType = existingMessage?.messageType ?? messageType(for: content)
 
@@ -2022,6 +2038,15 @@ extension ChatService {
 
                 for contextMsg in sortedMessages {
                     let existingMessage = await findLocalMessage(txId: contextMsg.txId)
+                    // Same by-alias attribution, same guard - see the sibling loop in
+                    // `fetchOutgoingContextualMessages` for why an ambiguous alias must not
+                    // produce a placeholder in a conversation it may not belong to.
+                    if existingMessage == nil,
+                       outgoingAliasBelongsToAnotherContact(ourAlias, excluding: contactAddress) {
+                        AppLog.log("[ChatService] Outgoing %@: alias %@ is registered to more than one contact - not attributing to %@",
+                              String(contextMsg.txId.prefix(12)), ourAlias, String(contactAddress.suffix(10)))
+                        continue
+                    }
                     let content = existingMessage?.content ?? ChatMessage.sentViaOtherDevicePlaceholder
 
                     let message = ChatMessage(
