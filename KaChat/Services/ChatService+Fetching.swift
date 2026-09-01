@@ -502,7 +502,13 @@ extension ChatService {
             if let privKey = privateKey, !isOutgoing {
                 // For incoming handshakes, decrypt to get sender's alias (runs on background thread)
                 if let decrypted = await decryptHandshakePayload(handshake.messagePayload, privateKey: privKey) {
-                    content = "[Request to communicate]"
+                    // A handshake sent back in answer to ours is an ACCEPTANCE, and saying
+                    // "Request to communicate" for it told the person who started the exchange
+                    // that the other side was asking THEM - the exact opposite of what happened,
+                    // and no sign anywhere that the handshake had completed.
+                    content = decrypted.isResponse == true
+                        ? "[Request accepted]"
+                        : "[Request to communicate]"
                     extractedAlias = decrypted.alias  // may be nil for deterministic handshakes
                     extractedConversationId = decrypted.conversationId
                     if let alias = decrypted.alias {
@@ -2397,7 +2403,9 @@ extension ChatService {
                 if !isOutgoing, let privKey = privateKey {
                     // For incoming handshakes, decrypt to extract alias
                     if let decrypted = await decryptHandshakePayload(payload, privateKey: privKey) {
-                        handshakeContent = "[Request to communicate]"
+                        handshakeContent = decrypted.isResponse == true
+                            ? "[Request accepted]"
+                            : "[Request to communicate]"
                         if let alias = decrypted.alias {
                             addConversationAlias(alias, for: contactAddress, blockTime: payment.blockTime)
                             AppLog.log("[ChatService] Extracted alias '%@' from payment-handshake by %@", alias, String(contactAddress.suffix(10)))

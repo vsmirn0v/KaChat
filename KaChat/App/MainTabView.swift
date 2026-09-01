@@ -28,6 +28,27 @@ struct MainTabView: View {
     // as a toast over whatever tab is showing - the automatic path has no modal by design.
     @ObservedObject private var nextcloudService = NextcloudService.shared
 
+    /// The Kaspa mark, pre-rendered at tab-bar size.
+    ///
+    /// UIKit's tab bar takes the tabItem's image and draws it at the image's OWN size - SwiftUI
+    /// frame modifiers on it are ignored, which is why `.resizable().frame(22)` changed nothing
+    /// and the mark still towered over the SF Symbols beside it. The only thing the bar honours
+    /// is the image it is given, so the resize happens here, once, before it ever gets there.
+    ///
+    /// Drawn as a template so the tab bar's own selected/unselected tint applies, exactly as it
+    /// does to the symbols, and aspect-fitted rather than squashed into the square.
+    private static let dockKaspaLogo: Image? = {
+        guard let source = UIImage(named: "KaspaLogo") else { return nil }
+        let side: CGFloat = 24
+        let scale = min(side / max(source.size.width, 1), side / max(source.size.height, 1))
+        let fitted = CGSize(width: source.size.width * scale, height: source.size.height * scale)
+        let origin = CGPoint(x: (side - fitted.width) / 2, y: (side - fitted.height) / 2)
+        let rendered = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            source.draw(in: CGRect(origin: origin, size: fitted))
+        }
+        return Image(uiImage: rendered.withRenderingMode(.alwaysTemplate))
+    }()
+
     var body: some View {
         TabView(selection: tabSelection) {
             ForEach(AppTab.visible(from: settingsViewModel.settings)) { tab in
@@ -40,16 +61,8 @@ struct MainTabView: View {
                         } icon: {
                             // Values vary, structure does not - the comment above is why this is
                             // one Label with a varying image rather than two Labels behind an if.
-                            if tab.usesKaspaLogo {
-                                // A resizable Image has no intrinsic tab-bar size the way an SF
-                                // Symbol does, so without a frame it filled the slot and towered
-                                // over its neighbours. 22pt matches the rendered height of the
-                                // symbols beside it.
-                                Image("KaspaLogo")
-                                    .renderingMode(.template)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 22, height: 22)
+                            if tab.usesKaspaLogo, let logo = Self.dockKaspaLogo {
+                                logo
                             } else {
                                 Image(systemName: tab.icon)
                             }

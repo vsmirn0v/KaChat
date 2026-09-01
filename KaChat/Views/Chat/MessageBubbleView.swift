@@ -1023,13 +1023,17 @@ struct MessageBubbleView: View {
     private var messageTypeIndicator: some View {
         switch message.messageType {
         case .handshake:
+            // An acceptance and a fresh request are both handshakes on the wire; only the capsule
+            // tells them apart, and calling an acceptance a "request" read as the exchange not
+            // having completed at all.
+            let isAcceptance = displayText.contains("[Request accepted]")
             HStack(spacing: 4) {
-                Image(systemName: "hand.wave.fill")
+                Image(systemName: isAcceptance ? "checkmark.seal.fill" : "hand.wave.fill")
                     .font(.caption2)
-                Text("Request to communicate")
+                Text(isAcceptance ? "Handshake completed" : "Request to communicate")
                     .font(.caption2)
             }
-            .foregroundColor(.secondary)
+            .foregroundColor(isAcceptance ? .green : .secondary)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .background(Color(.systemGray6))
