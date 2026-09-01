@@ -2760,24 +2760,99 @@ struct GroupBag: Codable, Sendable {
     /// Epoch for which this admin has published its self-addressed recovery invite (nil = none
     /// yet). Drives the backfill so pre-existing admin groups become seed-recoverable.
     var selfInviteEpoch: UInt64? = nil
-    /// Roots for epochs this group has already left, keyed by epoch.
+    /// Roots for epochs this group has already left, keyed by the epoch's decimal string.
     ///
     /// Without these a NON-ADMIN member loses the whole thread the moment membership changes.
     /// `groupRootEpoch` only ever held the current epoch, and the fallback that re-derives an
     /// older root needs `groupSeed`, which only the admin has - so on every other device an epoch
-    /// rotation made every earlier message undecryptable, and the thread silently rendered as
-    /// empty. The ciphertext was never lost; the key to read it was being thrown away.
-    ///
-    /// Keeping them costs nothing in secrecy that the stored ciphertext did not already: this
-    /// device could read those messages a moment ago, and still holds them on disk.
-    ///
-    /// OPTIONAL, and keyed by the epoch's decimal string, for two decoding reasons. A default
-    /// value does NOT make Swift's synthesized decoder tolerate a missing key - it throws
-    /// `keyNotFound` - so a non-optional field here made every bag written before this build fail
-    /// to decode, which read as every group being empty. Optional gets `decodeIfPresent`. And a
-    /// `[UInt64: String]` encodes as an alternating array rather than a JSON object, because
-    /// UInt64 is not one of the key types Swift maps directly; String keys keep it a plain object.
+    /// rotation made every earlier message undecryptable, and the thread rendered as empty. The
+    /// ciphertext was never lost; the key to read it was being thrown away.
     var previousRoots: [String: String]? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case groupId, groupSeed, groupRootEpoch, blindingKey
+        case currentEpoch, deviceId, msgCounter, selfInviteEpoch, previousRoots
+    }
+
+    init(
+        groupId: String,
+        groupSeed: String?,
+        groupRootEpoch: String,
+        blindingKey: String,
+        currentEpoch: UInt64,
+        deviceId: String,
+        msgCounter: UInt64,
+        selfInviteEpoch: UInt64? = nil,
+        previousRoots: [String: String]? = nil
+    ) {
+        self.groupId = groupId
+        self.groupSeed = groupSeed
+        self.groupRootEpoch = groupRootEpoch
+        self.blindingKey = blindingKey
+        self.currentEpoch = currentEpoch
+        self.deviceId = deviceId
+        self.msgCounter = msgCounter
+        self.selfInviteEpoch = selfInviteEpoch
+        self.previousRoots = previousRoots
+    }
+
+    /// Hand-written so `previousRoots` can NEVER fail the whole bag.
+    ///
+    /// This field has now broken group chat twice. First as a non-optional with a default, which
+    /// Swift's synthesized decoder does not honour - a missing key threw `keyNotFound` and every
+    /// bag written before it existed became unreadable. Then as `[UInt64: String]`, which
+    /// JSONEncoder writes as an alternating `[key, value, ...]` ARRAY rather than an object, so
+    /// bags written by that build failed to decode as a dictionary: "The data couldn't be read
+    /// because it isn't in the correct format", and with the bag unreadable the group showed no
+    /// history, no refresh and no sending.
+    ///
+    /// A key bag is the difference between a readable conversation and a lost one. The rest of it
+    /// is decoded strictly, because a bag missing its root or blinding key is genuinely unusable
+    /// - but this one field degrades to nil instead of taking everything else down with it, and
+    /// it reads BOTH shapes so archived roots written by the intermediate build are recovered
+    /// rather than discarded.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        groupId = try container.decode(String.self, forKey: .groupId)
+        groupSeed = try container.decodeIfPresent(String.self, forKey: .groupSeed)
+        groupRootEpoch = try container.decode(String.self, forKey: .groupRootEpoch)
+        blindingKey = try container.decode(String.self, forKey: .blindingKey)
+        currentEpoch = try container.decode(UInt64.self, forKey: .currentEpoch)
+        deviceId = try container.decode(String.self, forKey: .deviceId)
+        msgCounter = try container.decode(UInt64.self, forKey: .msgCounter)
+        selfInviteEpoch = try container.decodeIfPresent(UInt64.self, forKey: .selfInviteEpoch)
+        previousRoots = Self.decodeEpochRoots(from: container)
+    }
+
+    /// Reads the object form, then the alternating-array form, then gives up quietly.
+    private static func decodeEpochRoots(from container: KeyedDecodingContainer<CodingKeys>) -> [String: String]? {
+        if let object = try? container.decodeIfPresent([String: String].self, forKey: .previousRoots) {
+            return object
+        }
+        if let flat = ((try? container.decodeIfPresent([JSONScalar].self, forKey: .previousRoots)) ?? nil) {
+            var recovered: [String: String] = [:]
+            var index = 0
+            while index + 1 < flat.count {
+                if let epoch = flat[index].number, let root = flat[index + 1].text {
+                    recovered[String(epoch)] = root
+                }
+                index += 2
+            }
+            return recovered.isEmpty ? nil : recovered
+        }
+        return nil
+    }
+
+    /// One element of the legacy alternating array - an epoch or a root, and never both.
+    private struct JSONScalar: Decodable {
+        let number: UInt64?
+        let text: String?
+        init(from decoder: Decoder) throws {
+            let value = try decoder.singleValueContainer()
+            number = try? value.decode(UInt64.self)
+            text = try? value.decode(String.self)
+        }
+    }
 }
 
 /// Non-secret group metadata - the in-memory/view-facing model backed by GroupStore.
