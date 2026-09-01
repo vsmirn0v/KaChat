@@ -235,16 +235,37 @@ struct GroupChatDetailView: View {
 
     /// Day-separator grouping, mirroring `ChatTimelineLayout` - not shared with it directly since
     /// that's typed to `[ChatMessage]`, not `[GroupMessage]`.
+    /// Rebuilt on every body evaluation - a keystroke in the composer, a reaction landing, an
+    /// incoming message - so what it costs per message is what the whole thread costs per frame.
+    ///
+    /// It used to call `Calendar.startOfDay` AND `isDate(_:inSameDayAs:)` for EVERY message,
+    /// every time. Calendar arithmetic is not cheap (timezone and DST resolution per call), and
+    /// a few hundred messages meant a few hundred of them per frame while typing. Broadcast rooms
+    /// have no day separators at all, which is a good part of why they feel smoother with far
+    /// more messages on screen.
+    ///
+    /// Messages are in ascending order, so the day only has to be resolved when one falls outside
+    /// the current day's half-open range: O(distinct days) Calendar calls instead of O(messages),
+    /// which for a normal thread is one or two per frame rather than hundreds. Same output.
     private var timelineItems: [GroupTimelineItem] {
         var items: [GroupTimelineItem] = []
-        var previousDay: Date?
+        items.reserveCapacity(displayedMessages.count + 8)
         let calendar = Calendar.autoupdatingCurrent
+        var currentDayStart: Date?
+        var currentDayEnd: Date?
         for message in displayedMessages {
-            let messageDay = calendar.startOfDay(for: message.timestamp)
-            if previousDay.map({ calendar.isDate($0, inSameDayAs: messageDay) }) != true {
-                items.append(.daySeparator(messageDay))
-                previousDay = messageDay
+            let timestamp = message.timestamp
+            if let start = currentDayStart, let end = currentDayEnd, timestamp >= start, timestamp < end {
+                items.append(.message(message))
+                continue
             }
+            let dayStart = calendar.startOfDay(for: timestamp)
+            // `date(byAdding:)` rather than +86400: a DST day is 23 or 25 hours long, and the
+            // half-open range has to match the calendar's own idea of the boundary.
+            let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86_400)
+            currentDayStart = dayStart
+            currentDayEnd = dayEnd
+            items.append(.daySeparator(dayStart))
             items.append(.message(message))
         }
         return items
