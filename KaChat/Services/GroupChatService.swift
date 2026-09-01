@@ -1146,7 +1146,7 @@ final class GroupChatService: ObservableObject {
         // Keep the outgoing root so this epoch's messages stay readable afterwards. The admin
         // could re-derive it from the seed, but every other device cannot - and this is the same
         // archive their bag relies on, so both sides behave identically.
-        bag.previousRoots[bag.currentEpoch] = bag.groupRootEpoch
+        bag.previousRoots = (bag.previousRoots ?? [:]).merging([String(bag.currentEpoch): bag.groupRootEpoch]) { _, new in new }
         bag.currentEpoch = newEpoch
         bag.groupRootEpoch = newRoot.hexString
         try keychain.saveGroupBag(bag)
@@ -1730,7 +1730,7 @@ final class GroupChatService: ObservableObject {
         // A member who kept the old root can still read the old messages. Checked BEFORE the
         // seed fallback because only the admin has a seed - for everyone else this archive is
         // the only way history survives a membership change. See `GroupBag.previousRoots`.
-        if let archived = bag.previousRoots[epoch], let root = Data(hexString: archived) {
+        if let archived = bag.previousRoots?[String(epoch)], let root = Data(hexString: archived) {
             return root
         }
         if let seedHex = bag.groupSeed, let seed = Data(hexString: seedHex) {
@@ -2166,7 +2166,7 @@ final class GroupChatService: ObservableObject {
         // epoch undecryptable and the thread rendered empty from that moment on.
         var previousRoots = existingBag?.previousRoots ?? [:]
         if let existingBag, existingBag.currentEpoch != payload.epoch, !existingBag.groupRootEpoch.isEmpty {
-            previousRoots[existingBag.currentEpoch] = existingBag.groupRootEpoch
+            previousRoots[String(existingBag.currentEpoch)] = existingBag.groupRootEpoch
         }
         let bag = GroupBag(
             groupId: payload.groupId,
@@ -2178,7 +2178,7 @@ final class GroupChatService: ObservableObject {
             msgCounter: preservedCounter,
             // A recovered admin group already has its recovery invite on chain for this epoch.
             selfInviteEpoch: recoveredSeedHex != nil ? payload.epoch : existingBag?.selfInviteEpoch,
-            previousRoots: previousRoots
+            previousRoots: previousRoots.isEmpty ? nil : previousRoots
         )
         try? keychain.saveGroupBag(bag)
 

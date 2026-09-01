@@ -2764,7 +2764,14 @@ struct GroupBag: Codable, Sendable {
     ///
     /// Keeping them costs nothing in secrecy that the stored ciphertext did not already: this
     /// device could read those messages a moment ago, and still holds them on disk.
-    var previousRoots: [UInt64: String] = [:]
+    ///
+    /// OPTIONAL, and keyed by the epoch's decimal string, for two decoding reasons. A default
+    /// value does NOT make Swift's synthesized decoder tolerate a missing key - it throws
+    /// `keyNotFound` - so a non-optional field here made every bag written before this build fail
+    /// to decode, which read as every group being empty. Optional gets `decodeIfPresent`. And a
+    /// `[UInt64: String]` encodes as an alternating array rather than a JSON object, because
+    /// UInt64 is not one of the key types Swift maps directly; String keys keep it a plain object.
+    var previousRoots: [String: String]? = nil
 }
 
 /// Non-secret group metadata - the in-memory/view-facing model backed by GroupStore.
