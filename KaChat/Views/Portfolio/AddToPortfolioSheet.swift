@@ -126,6 +126,11 @@ struct AddToPortfolioSheet: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundColor(.secondary)
                         }
+                        // Under `.buttonStyle(.plain)` only the DRAWN content is hit-testable, so
+                        // the gap the Spacer opens up - most of the row - swallowed taps and only
+                        // the name itself worked. This makes the whole row the target.
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
