@@ -1989,6 +1989,8 @@ private struct SpendingAddressPrivateKeyView: View {
 private struct SpendingAddressTransactionHistoryView: View {
     let entry: SpendingAddressEntry
 
+    /// The tapped transaction, while its action chooser is up.
+    @State private var transactionActionTarget: KaspaFullTransactionResponse?
     /// The transaction being filed into a portfolio, if any - see `AddToPortfolioSheet`.
     @State private var portfolioCandidate: PortfolioCandidateTransaction?
     /// Name of the portfolio just added to, for the confirmation capsule.
@@ -2194,39 +2196,38 @@ private struct SpendingAddressTransactionHistoryView: View {
             } else {
                 ForEach(transactions, id: \.transactionId) { tx in
                     Button {
-                        openInExplorer(tx)
+                        Haptics.impact(.light)
+                        // Tapping a transaction asks what to do with it. It used to open the
+                        // explorer outright, which left "Add to Portfolio" on a swipe and a long
+                        // press - both invisible until you already knew they were there.
+                        transactionActionTarget = tx
                     } label: {
                         transactionRow(tx)
                     }
                     .buttonStyle(.plain)
-                    // Both affordances on purpose: the swipe is the List idiom, and the long
-                    // press is where people look when a swipe is not obvious. Each captures ITS
-                    // OWN row's transaction rather than reading a selection back out of state,
-                    // which is what made the portfolio card menu act on the wrong card.
-                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                        if let candidate = PortfolioCandidateTransaction(transaction: tx, address: entry.address) {
-                            Button {
-                                Haptics.impact(.light)
-                                portfolioCandidate = candidate
-                            } label: {
-                                Label("Add to Portfolio", systemImage: "chart.pie")
-                            }
-                            .tint(.accentColor)
-                        }
-                    }
-                    .contextMenu {
-                        if let candidate = PortfolioCandidateTransaction(transaction: tx, address: entry.address) {
-                            Button {
-                                portfolioCandidate = candidate
-                            } label: {
-                                Label("Add to Portfolio", systemImage: "chart.pie")
-                            }
-                        }
-                    }
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .confirmationDialog(
+            "Transaction",
+            isPresented: Binding(
+                get: { transactionActionTarget != nil },
+                set: { if !$0 { transactionActionTarget = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: transactionActionTarget
+        ) { tx in
+            Button("Open in Explorer") { openInExplorer(tx) }
+            if let candidate = PortfolioCandidateTransaction(transaction: tx, address: entry.address) {
+                Button("Add to Portfolio") {
+                    // Deferred by one runloop turn: presenting a sheet from inside a dialog that
+                    // is still dismissing drops it on the floor.
+                    DispatchQueue.main.async { portfolioCandidate = candidate }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         .sheet(item: $portfolioCandidate) { candidate in
             AddToPortfolioSheet(candidate: candidate) { portfolio in
                 addedPortfolioName = portfolio.name
