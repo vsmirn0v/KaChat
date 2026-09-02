@@ -520,6 +520,15 @@ struct ChatDetailView: View {
                     // Mirrors GroupChatDetailView's identical conditional anchor.
                     .defaultScrollAnchorCompat(!initialViewportPositioned || isGrowingHistoryWindow ? .bottom : .top)
                     .opacity(initialViewportPositioned ? 1 : 0)
+                    // The header rides above the list as a pinned inset, not as a toolbar item:
+                    // a 64pt avatar over a name capsule is far taller than a principal item is
+                    // given, which is what was drawing it clipped in the first place.
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        chatTitleChip
+                            .padding(.bottom, 6)
+                            .frame(maxWidth: .infinity)
+                            .background(.bar)
+                    }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         // Hosting the compose bar as a real `safeAreaInset` (rather than a
                         // floating ZStack overlay with a manually-tracked keyboard offset) is
@@ -746,9 +755,7 @@ struct ChatDetailView: View {
             ToolbarItem(placement: .navigationBarLeading) {
                 ConnectionStatusIndicator()
             }
-            ToolbarItem(placement: .principal) {
-                chatTitleChip
-            }
+
             if let activeChessGame, !isSelectingMessages {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {
@@ -1734,30 +1741,36 @@ struct ChatDetailView: View {
         Button {
             showChatInfo = true
         } label: {
-            HStack(spacing: 8) {
+            VStack(spacing: -16) {
                 KNSAvatarView(
                     avatarURLString: knsService.profileCache[contact.address]?.avatarURL,
                     fallbackText: contact.alias,
-                    size: 30,
+                    size: 64,
                     contactAddress: contact.address
                 )
-                Text(contact.alias)
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundColor(.secondary)
+                // Drawn over the capsule, which tucks under it - the negative spacing is what
+                // makes the two read as one piece rather than a stack.
+                .zIndex(1)
+
+                HStack(spacing: 5) {
+                    Text(contact.alias)
+                        .font(.headline.weight(.bold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
+                .padding(.bottom, 8)
+                .background(
+                    Capsule()
+                        .fill(.regularMaterial)
+                        .overlay(Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
+                )
             }
-            .padding(.leading, 4)
-            .padding(.trailing, 10)
-            .padding(.vertical, 3)
-            .background(
-                Capsule()
-                    .fill(.regularMaterial)
-                    .overlay(Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
-            )
-            .contentShape(Capsule())
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text("Chat info for \(contact.alias)"))
