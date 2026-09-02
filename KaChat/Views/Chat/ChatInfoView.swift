@@ -283,52 +283,39 @@ struct ChatInfoView: View {
                     // to scroll past to reach any one of them.
                     infoCard(
                         "Address",
-                        subtitle: contact.address.count > 20
-                            ? "\(contact.address.prefix(14))...\(contact.address.suffix(6))"
-                            : contact.address,
                         systemImage: "qrcode"
                     ) { activeSheet = .address }
 
                     infoCard(
                         "KNS Domains",
-                        subtitle: knsDomains.isEmpty
-                            ? (knsDomainsLoaded ? "None" : "Loading...")
-                            : "\(knsDomains.count)",
                         systemImage: "at"
                     ) { activeSheet = .domains }
                     .disabled(knsDomains.isEmpty)
 
                     infoCard(
                         "Aliases",
-                        subtitle: "How this chat is addressed on chain",
                         systemImage: "number"
                     ) { activeSheet = .aliases }
 
                     infoCard(
                         "System Contact",
-                        subtitle: hasUserVisibleLink ? (linkedSystemContactName ?? "Linked") : "Not linked",
                         systemImage: "person.crop.circle"
                     ) { activeSheet = .systemContact }
 
                     if showsNotificationSettings {
                         infoCard(
                             "Notifications",
-                            subtitle: notificationModeOverride?.displayName
-                                ?? "Default (\(settingsViewModel.settings.defaultIncomingNotificationMode.displayName))",
                             systemImage: notificationModeOverride == .off ? "bell.slash" : "bell"
                         ) { activeSheet = .notifications }
                     }
 
                     infoCard(
                         "Photos",
-                        subtitle: photoAutoDisplayOverride?.displayName
-                            ?? "Automatic (\(automaticPhotoDisplayDescription))",
                         systemImage: "photo"
                     ) { activeSheet = .photos }
 
                     infoCard(
                         "Info",
-                        subtitle: "Added, activity and message counts",
                         systemImage: "info.circle"
                     ) { activeSheet = .info }
                 }
@@ -704,12 +691,11 @@ struct ChatInfoView: View {
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
-    /// One section, as a row that opens its half sheet. The trailing value is what the sheet
-    /// would have shown at a glance - the domain count, whether a system contact is linked -
-    /// so the card still answers the common question without being opened.
+    /// One section, as a row that opens its half sheet. Title only - the contents belong in the
+    /// sheet, and a trailing value on every row turned the list back into the dense screen the
+    /// cards were meant to replace.
     private func infoCard(
         _ title: String,
-        subtitle: String,
         systemImage: String,
         action: @escaping () -> Void
     ) -> some View {
@@ -722,11 +708,6 @@ struct ChatInfoView: View {
                 Text(title)
                     .foregroundColor(.primary)
                 Spacer(minLength: 8)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundColor(.secondary)
