@@ -35,6 +35,8 @@ struct BroadcastChannelView: View {
     @State private var emojiInsertionRequest: ComposerTextView.TextInsertionRequest?
     @State private var isSending = false
     @State private var toastMessage: String?
+    /// Message whose reactor list is on screen, by txId.
+    @State private var reactionsSheetTxId: String?
     @State private var toastToken = UUID()
     @State private var openContact: Contact?
     @State private var openContactInPaymentMode = false
@@ -175,6 +177,16 @@ struct BroadcastChannelView: View {
             }
         }
         .toast(message: toastMessage, style: .success)
+        .sheet(item: Binding(
+            get: { reactionsSheetTxId.map { ReactionsSheetTarget(txId: $0) } },
+            set: { reactionsSheetTxId = $0?.txId }
+        )) { target in
+            BroadcastReactionsSheet(
+                reactions: broadcastService.reactions(forChannel: channelName)[target.txId] ?? [],
+                myAddress: myAddress ?? "",
+                displayName: { displayName(for: $0) }
+            )
+        }
         .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
             TextField("Fee (KAS)", text: $feeEditorText)
                 .keyboardType(.decimalPad)
@@ -265,6 +277,7 @@ struct BroadcastChannelView: View {
                                         onJumpToReply: messageReplyQuote != nil ? { pendingJumpToTxId = messageReplyQuote?.replyToId } : nil,
                                         reactions: broadcastService.reactions(forChannel: channelName)[message.id] ?? [],
                                         myReactorAddress: myAddress ?? "",
+                                        onShowReactions: { reactionsSheetTxId = message.id },
                                         onRetryReaction: { reaction in
                                             Task {
                                                 try? await broadcastService.retryBroadcastReaction(
@@ -1019,6 +1032,56 @@ struct BroadcastChannelView: View {
     }
 }
 
+/// Identifiable wrapper so a plain txId can drive `.sheet(item:)`.
+private struct ReactionsSheetTarget: Identifiable {
+    let txId: String
+    var id: String { txId }
+}
+
+/// Who reacted to one broadcast message, and with what.
+///
+/// The pill on a bubble shows which emoji are on it and nothing else - not how many of each, and
+/// not from whom. In a room open to anyone, that second question is the interesting one, so a
+/// long press on a message carrying reactions offers this.
+private struct BroadcastReactionsSheet: View {
+    let reactions: [GroupStore.ReactionSnapshot]
+    let myAddress: String
+    let displayName: (String) -> String
+
+    /// Grouped by emoji, most-reacted first, so "12 people" reads before the names.
+    private var grouped: [(emoji: String, reactors: [GroupStore.ReactionSnapshot])] {
+        Dictionary(grouping: reactions, by: \.emoji)
+            .map { (emoji: $0.key, reactors: $0.value) }
+            .sorted { $0.reactors.count > $1.reactors.count }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(grouped, id: \.emoji) { group in
+                    Section {
+                        ForEach(group.reactors) { reaction in
+                            Text(reaction.reactorAddress == myAddress ? "You" : displayName(reaction.reactorAddress))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    } header: {
+                        HStack(spacing: 8) {
+                            Text(group.emoji)
+                                .font(.title3)
+                            Text(group.reactors.count == 1 ? "1 person" : "\(group.reactors.count) people")
+                        }
+                    }
+                }
+            }
+            .navigationTitle(reactions.count == 1 ? "1 Reaction" : "\(reactions.count) Reactions")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
 private struct BroadcastMessageRow: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     let message: BroadcastMessage
@@ -1046,6 +1109,9 @@ private struct BroadcastMessageRow: View {
     var myReactorAddress: String = ""
     /// Retries the local user's failed reaction on this message (nil disables the reaction Retry).
     var onRetryReaction: ((GroupStore.ReactionSnapshot) -> Void)? = nil
+    /// Opens the list of who reacted to this message. Offered from the long-press menu only when
+    /// there are reactions to show.
+    var onShowReactions: (() -> Void)? = nil
     /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
     /// entirely (matches group chat's `GroupMessageBubbleRow.onReact`).
     var onReact: ((String) -> Void)?
@@ -1375,6 +1441,14 @@ private struct BroadcastMessageRow: View {
                     // own (Open Link / Copy Link / View in Explorer), and stacking a second
                     // `.contextMenu` on top of it would fight it. Matches group bubbles.
                     .contextMenu {
+                        // Reply was reachable only by double-tapping into the quick-reaction bar,
+                        // which is not where anyone looks for it. Android has had it here all
+                        // along.
+                        Button {
+                            onReply()
+                        } label: {
+                            Label("Reply", systemImage: "arrowshape.turn.up.left")
+                        }
                         if let firstLink {
                             Button {
                                 // Internal KaChat links open in-app rather than in Safari - see
@@ -1410,6 +1484,15 @@ private struct BroadcastMessageRow: View {
                                 onRetry()
                             } label: {
                                 Label("Retry Send", systemImage: "arrow.clockwise")
+                            }
+                        }
+                        // The pill on the bubble shows WHICH emoji are on the message; it has no
+                        // room to say how many or from whom. This does.
+                        if !reactions.isEmpty, let onShowReactions {
+                            Button {
+                                onShowReactions()
+                            } label: {
+                                Label("Reactions (\(reactions.count))", systemImage: "heart")
                             }
                         }
                     }
