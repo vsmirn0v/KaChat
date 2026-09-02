@@ -524,10 +524,12 @@ struct ChatDetailView: View {
                     // a 64pt avatar over a name capsule is far taller than a principal item is
                     // given, which is what was drawing it clipped in the first place.
                     .safeAreaInset(edge: .top, spacing: 0) {
+                        // No bar behind it: the point is that it floats over the conversation.
+                        // Still an inset rather than an overlay, so the newest message is never
+                        // parked underneath it.
                         chatTitleChip
-                            .padding(.bottom, 6)
+                            .padding(.bottom, 2)
                             .frame(maxWidth: .infinity)
-                            .background(.bar)
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         // Hosting the compose bar as a real `safeAreaInset` (rather than a
@@ -1741,29 +1743,29 @@ struct ChatDetailView: View {
         Button {
             showChatInfo = true
         } label: {
-            VStack(spacing: -16) {
+            VStack(spacing: -12) {
                 KNSAvatarView(
                     avatarURLString: knsService.profileCache[contact.address]?.avatarURL,
                     fallbackText: contact.alias,
-                    size: 64,
+                    size: 46,
                     contactAddress: contact.address
                 )
                 // Drawn over the capsule, which tucks under it - the negative spacing is what
                 // makes the two read as one piece rather than a stack.
                 .zIndex(1)
 
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     Text(contact.alias)
-                        .font(.headline.weight(.bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     Image(systemName: "chevron.right")
-                        .font(.caption.weight(.bold))
+                        .font(.caption2.weight(.bold))
                         .foregroundColor(.secondary)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 20)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 12)
+                .padding(.top, 15)
+                .padding(.bottom, 5)
                 .background(
                     Capsule()
                         .fill(.regularMaterial)
