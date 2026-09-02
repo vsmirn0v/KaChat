@@ -308,6 +308,12 @@ struct ColdStorageDetailView: View {
     @State private var isLoading = false
     @State private var isGenerating = false
     @State private var isDiscovering = false
+    /// The address-actions half sheet.
+    @State private var showAddressActions = false
+    /// Live scan position while discovering, so the sheet can show progress rather than a spinner.
+    @State private var discoveryProgress: ColdStorageManager.DiscoveryProgress?
+    /// Result line kept on screen after a scan finishes, until the sheet is dismissed.
+    @State private var discoverySummary: String?
     @State private var qrTarget: ColdStorageAddressEntry?
     @State private var sendTarget: ColdStorageAddressEntry?
     @State private var renameTarget: ColdStorageAddressEntry?
@@ -386,39 +392,6 @@ struct ColdStorageDetailView: View {
             }
         }
         .listStyle(.plain)
-        .safeAreaInset(edge: .bottom) {
-            Menu {
-                Button {
-                    generateMore()
-                } label: {
-                    Label("Generate More Addresses", systemImage: "plus.circle")
-                }
-                Button {
-                    discoverAddresses()
-                } label: {
-                    Label("Discover Addresses", systemImage: "magnifyingglass")
-                }
-            } label: {
-                Group {
-                    if isGenerating || isDiscovering {
-                        ProgressView()
-                            .tint(.black)
-                    } else {
-                        Text("Address Actions")
-                            .font(.subheadline)
-                            .fontWeight(.bold)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .foregroundColor(.black)
-                .background(Capsule().fill(Color.accentColor))
-            }
-            .tint(.accentColor)
-            .padding(.horizontal)
-            .padding(.bottom, 16)
-            .disabled(isGenerating || isDiscovering)
-        }
         .navigationTitle(currentAccount.label)
         .navigationBarTitleDisplayMode(.inline)
         .toast(message: toastMessage)
@@ -466,6 +439,11 @@ struct ColdStorageDetailView: View {
         // that the notification-gated event above suppresses.
         .onReceive(NotificationCenter.default.publisher(for: .ownAddressUtxoActivity)) { _ in
             Task { await loadEntries() }
+        }
+        .sheet(isPresented: $showAddressActions) {
+            addressActionsSheet
+                .presentationDetents([.height(320)])
+                .presentationDragIndicator(.visible)
         }
         .sheet(item: $qrTarget) { entry in
             ColdStorageAddressQRView(entry: entry)
@@ -567,10 +545,137 @@ struct ColdStorageDetailView: View {
                     .font(.title2)
                     .fontWeight(.bold)
             }
+
+            // Directly under the balance rather than pinned to the bottom of the screen: the
+            // actions are about this account, so they belong with the account, and a floating
+            // bar covered the last address row on a short list.
+            Button {
+                Haptics.impact(.light)
+                showAddressActions = true
+            } label: {
+                Group {
+                    if isGenerating || isDiscovering {
+                        ProgressView().tint(.black)
+                    } else {
+                        Text("Address Actions")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .foregroundColor(.black)
+                .background(Capsule().fill(Color.accentColor))
+            }
+            .buttonStyle(.plain)
+            .disabled(isGenerating || isDiscovering)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
+    }
+
+    /// The half sheet behind "Address Actions".
+    ///
+    /// Discovery reports its position as it walks, and that lands HERE rather than dismissing:
+    /// a scan is one network call per address until the gap limit is reached, easily half a
+    /// minute, and the sheet closing on an unmoving spinner said nothing about whether it was
+    /// working. The sheet stays put, counts up, and finishes with what it found.
+    private var addressActionsSheet: some View {
+        VStack(spacing: 0) {
+            Text("Address Actions")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+
+            if isDiscovering, let progress = discoveryProgress {
+                VStack(spacing: 10) {
+                    ProgressView()
+                    Text("Checking address #\(progress.checkingIndex)")
+                        .font(.subheadline.weight(.semibold))
+                    Text(progress.foundCount == 0
+                         ? "No used addresses yet"
+                         : "\(progress.foundCount) found so far")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("Scanning stops after 20 unused addresses in a row.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            } else {
+                VStack(spacing: 12) {
+                    actionRow(
+                        title: "Generate More Addresses",
+                        subtitle: "Reveals the next unused address in this account.",
+                        systemImage: "plus.circle",
+                        isBusy: isGenerating
+                    ) {
+                        generateMore()
+                        showAddressActions = false
+                    }
+                    actionRow(
+                        title: "Discover Addresses",
+                        subtitle: "Scans the account for addresses that have been used before.",
+                        systemImage: "magnifyingglass",
+                        isBusy: false
+                    ) {
+                        discoverAddresses()
+                    }
+                    if let discoverySummary {
+                        Text(discoverySummary)
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                            .padding(.top, 2)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Dismissing mid-scan would abandon the only progress readout, and the work keeps running
+        // either way - so the sheet holds until it is done.
+        .interactiveDismissDisabled(isDiscovering)
+        .onDisappear { discoverySummary = nil }
+    }
+
+    private func actionRow(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        isBusy: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                if isBusy { ProgressView().controlSize(.small) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(glassBackground(cornerRadius: 16))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy || isDiscovering)
     }
 
     private func addressRow(_ entry: ColdStorageAddressEntry) -> some View {
@@ -782,10 +887,18 @@ struct ColdStorageDetailView: View {
     private func discoverAddresses() {
         guard !isDiscovering else { return }
         isDiscovering = true
+        discoverySummary = nil
+        discoveryProgress = ColdStorageManager.DiscoveryProgress(checkingIndex: 0, foundCount: 0)
         Task {
-            _ = await manager.discoverAddresses(for: currentAccount)
+            let discovered = await manager.discoverAddresses(for: currentAccount) { progress in
+                discoveryProgress = progress
+            }
             await loadEntries()
             isDiscovering = false
+            discoveryProgress = nil
+            discoverySummary = discovered == 0
+                ? "No used addresses found."
+                : "Found \(discovered) address\(discovered == 1 ? "" : "es")."
         }
     }
 

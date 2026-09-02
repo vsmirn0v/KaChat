@@ -172,7 +172,21 @@ final class ColdStorageManager: ObservableObject {
     /// addresses, and raises maxAddressIndex to cover every used address found. Sequential
     /// by design, matching WalletManager.discoverSpendingAddresses' rate-limit reasoning.
     @discardableResult
-    func discoverAddresses(for account: ColdStorageAccount, gapLimit: Int = 20) async -> Int {
+    /// Scan progress: the index being checked, and how many used addresses have been found.
+    ///
+    /// Discovery walks addresses one at a time until it has seen `gapLimit` unused ones in a row,
+    /// and each step is a network call - it can easily take half a minute. Reported so the caller
+    /// can show what is happening rather than an unmoving spinner.
+    struct DiscoveryProgress: Equatable {
+        let checkingIndex: Int
+        let foundCount: Int
+    }
+
+    func discoverAddresses(
+        for account: ColdStorageAccount,
+        gapLimit: Int = 20,
+        onProgress: (@MainActor (DiscoveryProgress) -> Void)? = nil
+    ) async -> Int {
         guard let extendedKey = KaspaExtendedPublicKey(kpubString: account.kpubString) else {
             return account.maxAddressIndex
         }
@@ -183,6 +197,10 @@ final class ColdStorageManager: ObservableObject {
         var index: UInt32 = 0
 
         while consecutiveUnused < gapLimit {
+            if let onProgress {
+                let snapshot = DiscoveryProgress(checkingIndex: Int(index), foundCount: lastUsedIndex + 1)
+                await MainActor.run { onProgress(snapshot) }
+            }
             guard let address = try? extendedKey.receiveAddress(at: index, network: network) else { break }
             // An address counts as "used" if it currently holds UTXOs OR has transaction history.
             // Checking UTXOs first (a gRPC call, not the rate-limited REST history path) guarantees
