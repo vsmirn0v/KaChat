@@ -896,9 +896,11 @@ struct ColdStorageDetailView: View {
             await loadEntries()
             isDiscovering = false
             discoveryProgress = nil
+            // The count is addresses that hold a balance or a KNS domain - say so, rather than
+            // "used", which is what the old high-water-mark number implied and was not.
             discoverySummary = discovered == 0
-                ? "No used addresses found."
-                : "Found \(discovered) address\(discovered == 1 ? "" : "es")."
+                ? "No addresses with a balance or domain found."
+                : "Found \(discovered) address\(discovered == 1 ? "" : "es") with a balance or domain."
         }
     }
 

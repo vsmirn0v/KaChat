@@ -192,45 +192,59 @@ final class ColdStorageManager: ObservableObject {
         }
         let network = AppSettings.load().networkType
 
-        var lastUsedIndex = -1
-        var consecutiveUnused = 0
+        var lastMatchIndex = -1
+        var matchCount = 0
+        var consecutiveMisses = 0
         var index: UInt32 = 0
 
-        while consecutiveUnused < gapLimit {
+        // An address is worth surfacing when it HOLDS SOMETHING: a balance, or a KNS domain.
+        //
+        // This used to also count transaction history, which is why a scan reported 49 addresses
+        // on an account with a handful worth looking at - every address ever touched and emptied
+        // came back forever. History still matters for the "Unused" badge on a row (reusing an
+        // address is a privacy problem), but it is not what this list is for.
+        //
+        // Always from index 0, never from a stored high-water mark: the answer CHANGES over time.
+        // An address that was empty last month can hold a balance today, and a scan that starts
+        // past it would never look again - which is exactly why Android found nothing on a rescan
+        // while iOS found the same 49 every time.
+        while consecutiveMisses < gapLimit {
             if let onProgress {
-                let snapshot = DiscoveryProgress(checkingIndex: Int(index), foundCount: lastUsedIndex + 1)
+                let snapshot = DiscoveryProgress(checkingIndex: Int(index), foundCount: matchCount)
                 await MainActor.run { onProgress(snapshot) }
             }
             guard let address = try? extendedKey.receiveAddress(at: index, network: network) else { break }
-            // An address counts as "used" if it currently holds UTXOs OR has transaction history.
-            // Checking UTXOs first (a gRPC call, not the rate-limited REST history path) guarantees
-            // discovery never skips a funded address whose history the indexer doesn't return, so it
-            // surfaces ALL UTXO-bearing addresses - and short-circuits the REST call when UTXOs exist.
-            let hasUtxos = !((try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []).isEmpty
-            // Can't use `||` here: its right side is a non-async autoclosure. An explicit branch
-            // keeps the same short-circuit (only hit the rate-limited REST history check when the
-            // address holds no UTXOs).
-            let used: Bool
-            if hasUtxos {
-                used = true
+
+            // Balance first: a gRPC call, and it short-circuits the KNS lookup for the common case.
+            let hasBalance = !((try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []).isEmpty
+            let matches: Bool
+            if hasBalance {
+                matches = true
             } else {
-                used = await ChatService.shared.hasSpendingAddressBeenUsed(address)
+                matches = await KNSService.shared.ownsAnyDomain(address)
             }
-            if used {
-                lastUsedIndex = Int(index)
-                consecutiveUnused = 0
+
+            if matches {
+                lastMatchIndex = Int(index)
+                matchCount += 1
+                consecutiveMisses = 0
             } else {
-                consecutiveUnused += 1
+                consecutiveMisses += 1
             }
             index += 1
         }
 
-        let discovered = lastUsedIndex + 1
-        if discovered > account.maxAddressIndex, let idx = accounts.firstIndex(where: { $0.id == account.id }) {
-            accounts[idx].maxAddressIndex = discovered
+        // The stored bound has to cover the highest MATCH so those rows can be derived and shown.
+        // It only ever grows: an address that held funds last month and is empty now should not
+        // vanish from the list.
+        let bound = lastMatchIndex + 1
+        if bound > account.maxAddressIndex, let idx = accounts.firstIndex(where: { $0.id == account.id }) {
+            accounts[idx].maxAddressIndex = bound
             saveAccounts()
         }
-        return discovered
+        // The COUNT of addresses worth showing - not the bound. "Found 49" for six funded
+        // addresses was the old return value leaking a high-water mark into a user-facing number.
+        return matchCount
     }
 
     func generateNextAddress(for account: ColdStorageAccount) {

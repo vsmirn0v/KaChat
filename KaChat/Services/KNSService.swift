@@ -857,6 +857,16 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         }
     }
 
+    /// Does this address own at least one KNS domain?
+    ///
+    /// Used by cold-storage discovery, which surfaces an address when it holds a balance OR owns a
+    /// domain. Deliberately reports "unknown" as false rather than throwing: a discovery scan that
+    /// aborted on one flaky lookup would report far fewer addresses than exist.
+    func ownsAnyDomain(_ address: String) async -> Bool {
+        let (domains, hadError) = await fetchAllDomains(for: address, baseURL: baseURL)
+        return !hadError && !domains.isEmpty
+    }
+
     private func fetchAllDomains(for address: String, baseURL: String) async -> (domains: [KNSDomain], hadError: Bool) {
         guard var components = URLComponents(string: baseURL) else { return ([], true) }
         components.path += "/assets"
