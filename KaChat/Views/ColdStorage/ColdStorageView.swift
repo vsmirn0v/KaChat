@@ -15,12 +15,12 @@ struct ColdStorageListView: View {
     @State private var pendingKpub: String?
     @State private var nameInput = ""
     @State private var importError: String?
-    @State private var renameTarget: ColdStorageAccount?
-    @State private var renameText = ""
     /// Account whose kpub QR is on screen.
     @State private var kpubQRTarget: ColdStorageAccount?
     /// Account whose actions half sheet is open.
     @State private var accountActionsTarget: ColdStorageAccount?
+    /// Held across the actions sheet dismissing, so the QR can be presented after it.
+    @State private var pendingKpubQRAccount: ColdStorageAccount?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
 
@@ -89,10 +89,24 @@ struct ColdStorageListView: View {
             }
         }
         .toast(message: toastMessage)
-        .sheet(item: $accountActionsTarget) { account in
-            accountActionsSheet(account)
-                .presentationDetents([.height(300)])
-                .presentationDragIndicator(.visible)
+        .sheet(item: $accountActionsTarget, onDismiss: {
+            // Handing the QR over only once this sheet is fully gone; presenting one from
+            // inside a sheet that is still dismissing drops it.
+            if let pending = pendingKpubQRAccount {
+                pendingKpubQRAccount = nil
+                kpubQRTarget = pending
+            }
+        }) { account in
+            ColdStorageAccountActionsSheet(
+                account: account,
+                onCopyKpub: {
+                    UIPasteboard.general.string = account.kpubString
+                    Haptics.success()
+                    showToast("kpub copied to clipboard.")
+                },
+                onShowKpubQR: { pendingKpubQRAccount = account },
+                onRename: { manager.renameAccount(account, to: $0) }
+            )
         }
         .sheet(item: $kpubQRTarget) { account in
             ColdStorageKpubQRView(account: account)
@@ -139,24 +153,6 @@ struct ColdStorageListView: View {
         }
         .sheet(isPresented: $showManualEntry) {
             manualEntrySheet
-        }
-        .alert(
-            "Rename Cold Storage Account",
-            isPresented: Binding(
-                get: { renameTarget != nil },
-                set: { if !$0 { renameTarget = nil } }
-            )
-        ) {
-            TextField("Name", text: $renameText)
-            Button("Save") {
-                if let renameTarget {
-                    manager.renameAccount(renameTarget, to: renameText)
-                }
-                renameTarget = nil
-            }
-            Button("Cancel", role: .cancel) {
-                renameTarget = nil
-            }
         }
     }
 
@@ -208,52 +204,6 @@ struct ColdStorageListView: View {
         .padding(.horizontal, 24)
     }
 
-    /// The half sheet behind an account's ellipsis, replacing the menu that was there.
-    private func accountActionsSheet(_ account: ColdStorageAccount) -> some View {
-        VStack(spacing: 12) {
-            Text(account.label)
-                .font(.headline)
-                .lineLimit(1)
-                .padding(.top, 20)
-                .padding(.bottom, 4)
-
-            ActionSheetRow(
-                title: "Copy kpub",
-                subtitle: "Puts the extended public key on the clipboard.",
-                systemImage: "doc.on.doc"
-            ) {
-                UIPasteboard.general.string = account.kpubString
-                Haptics.success()
-                accountActionsTarget = nil
-                showToast("kpub copied to clipboard.")
-            }
-            ActionSheetRow(
-                title: "Show kpub QR",
-                subtitle: "Scan it into another device to watch this account there.",
-                systemImage: "qrcode"
-            ) {
-                accountActionsTarget = nil
-                // One runloop turn: presenting a sheet from inside one that is still dismissing
-                // drops it.
-                DispatchQueue.main.async { kpubQRTarget = account }
-            }
-            ActionSheetRow(
-                title: "Rename",
-                subtitle: "Changes the name shown for this account.",
-                systemImage: "pencil"
-            ) {
-                accountActionsTarget = nil
-                DispatchQueue.main.async {
-                    renameText = account.label
-                    renameTarget = account
-                }
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
 
     private func accountRow(_ account: ColdStorageAccount) -> some View {
         HStack(spacing: 12) {
@@ -2668,6 +2618,120 @@ private struct ColdStorageAddressVisibilityView: View {
     }
 }
 
+
+/// The half sheet behind an account's ellipsis, replacing the menu that was there.
+///
+/// Renaming happens in place rather than by dismissing into an alert: the sheet is already the
+/// context for "this account", and bouncing out to a system alert to type one word threw that
+/// away. Cancel walks back to the options rather than closing, so a mis-tap costs nothing.
+private struct ColdStorageAccountActionsSheet: View {
+    let account: ColdStorageAccount
+    let onCopyKpub: () -> Void
+    let onShowKpubQR: () -> Void
+    let onRename: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var isRenaming = false
+    @State private var nameText = ""
+    @FocusState private var nameFocused: Bool
+
+    private var trimmedName: String {
+        nameText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text(isRenaming ? "Rename Account" : account.label)
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+
+            if isRenaming { renameFields } else { options }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // One fixed height for both states: a detent that changes while the sheet is up
+        // resizes in a jump rather than animating, and the rename fields fit the options' height.
+        .presentationDetents([.height(300)])
+        .presentationDragIndicator(.visible)
+        .animation(.easeInOut(duration: 0.2), value: isRenaming)
+    }
+
+    private var options: some View {
+        VStack(spacing: 12) {
+            ActionSheetRow(
+                title: "Copy kpub",
+                subtitle: "Puts the extended public key on the clipboard.",
+                systemImage: "doc.on.doc"
+            ) {
+                onCopyKpub()
+                dismiss()
+            }
+            ActionSheetRow(
+                title: "Show kpub QR",
+                subtitle: "Scan it into another device to watch this account there.",
+                systemImage: "qrcode"
+            ) {
+                onShowKpubQR()
+                dismiss()
+            }
+            ActionSheetRow(
+                title: "Rename",
+                subtitle: "Changes the name shown for this account.",
+                systemImage: "pencil"
+            ) {
+                nameText = account.label
+                isRenaming = true
+                // A turn later: the field does not exist yet on the tap that reveals it.
+                DispatchQueue.main.async { nameFocused = true }
+            }
+        }
+    }
+
+    private var renameFields: some View {
+        VStack(spacing: 12) {
+            TextField("Name", text: $nameText)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($nameFocused)
+                .onSubmit(save)
+                .padding(14)
+                .background(glassBackground(cornerRadius: 16))
+
+            HStack(spacing: 12) {
+                Button("Cancel") { isRenaming = false }
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundColor(.primary)
+                    .background(glassBackground(cornerRadius: 16))
+
+                Button("Save", action: save)
+                    .font(.subheadline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundColor(.black)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.accentColor.opacity(trimmedName.isEmpty ? 0.4 : 1))
+                    )
+                    .disabled(trimmedName.isEmpty)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func save() {
+        guard !trimmedName.isEmpty else { return }
+        onRename(trimmedName)
+        Haptics.success()
+        dismiss()
+    }
+}
 
 /// The kpub of one cold-storage account, as a QR for moving it to another device or a watch-only
 /// wallet elsewhere.
