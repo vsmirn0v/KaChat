@@ -11,6 +11,7 @@ struct ColdStorageListView: View {
 
     @State private var showScanner = false
     @State private var showManualEntry = false
+    @FocusState private var manualKpubFocused: Bool
     @State private var manualKpubInput = ""
     @State private var pendingKpub: String?
     @State private var nameInput = ""
@@ -156,35 +157,67 @@ struct ColdStorageListView: View {
         }
     }
 
+    /// A half sheet rather than a full-screen form: it holds one field, and a whole screen for
+    /// one paste is more ceremony than the step deserves.
     private var manualEntrySheet: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("kpub...", text: $manualKpubInput)
-                        .font(.system(.body, design: .monospaced))
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-                } header: {
-                    Text("Extended Public Key")
-                } footer: {
-                    Text("Paste the kpub exported from your KasSigner device. This contains no private key material.")
-                }
+        VStack(spacing: 12) {
+            VStack(spacing: 4) {
+                Text("Enter kpub")
+                    .font(.headline)
+                Text("Paste the kpub exported from your KasSigner device. It contains no private key material.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
             }
-            .navigationTitle("Enter kpub")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") { showManualEntry = false }
+            .padding(.top, 20)
+            .padding(.bottom, 4)
+
+            TextField("kpub...", text: $manualKpubInput, axis: .vertical)
+                .font(.system(.footnote, design: .monospaced))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .lineLimit(3...5)
+                .focused($manualKpubFocused)
+                .padding(14)
+                .background(glassBackground(cornerRadius: 16))
+
+            HStack(spacing: 12) {
+                Button("Cancel") { showManualEntry = false }
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundColor(.primary)
+                    .background(glassBackground(cornerRadius: 16))
+
+                Button("Next") {
+                    showManualEntry = false
+                    beginImport(kpub: manualKpubInput)
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Next") {
-                        showManualEntry = false
-                        beginImport(kpub: manualKpubInput)
-                    }
-                    .disabled(manualKpubInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
+                .font(.subheadline.weight(.bold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .foregroundColor(.black)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.accentColor.opacity(manualKpubIsEmpty ? 0.4 : 1))
+                )
+                .disabled(manualKpubIsEmpty)
             }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(360)])
+        .presentationDragIndicator(.visible)
+        // A turn later: the field does not exist yet on the tap that presented this.
+        .onAppear { DispatchQueue.main.async { manualKpubFocused = true } }
+    }
+
+    private var manualKpubIsEmpty: Bool {
+        manualKpubInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var emptyState: some View {
