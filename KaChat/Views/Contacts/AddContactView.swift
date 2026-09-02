@@ -88,9 +88,13 @@ struct AddContactView: View {
                     contactAddress: address
                 )
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(previewProfile?.domainName ?? resolvedDomain ?? "No KNS domain")
+                    // The domain the resolver already found beats waiting on the profile fetch:
+                    // if you typed one, that IS the name, and showing it immediately means the
+                    // card is useful from the moment the address turns valid.
+                    let name = previewProfile?.domainName ?? resolvedDomain
+                    Text(name ?? (isLoadingPreview ? "Looking up..." : "No KNS domain"))
                         .font(.subheadline.weight(.semibold))
-                        .foregroundColor(previewProfile?.domainName == nil && resolvedDomain == nil ? .secondary : .primary)
+                        .foregroundColor(name == nil ? .secondary : .primary)
                         .lineLimit(1)
                     Text(address)
                         .font(.system(.caption2, design: .monospaced))
