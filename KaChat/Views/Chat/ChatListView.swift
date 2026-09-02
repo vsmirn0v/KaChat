@@ -41,6 +41,9 @@ struct ChatListView: View {
     /// bulk selection state so a context-menu delete never touches (or is blocked by) edit mode.
     /// Confirmed via their own alerts below, which reuse `deleteConversations`/`deleteGroups`.
     @State private var rowDeleteContact: Contact?
+    /// The row whose long-press action sheet is up.
+    @State private var conversationActionTarget: Conversation?
+    @State private var groupActionTarget: GroupChat?
     @State private var rowDeleteGroup: GroupChat?
     @State private var editMode: EditMode = .inactive
     @State private var selectedContactIDs: Set<UUID> = []
@@ -170,7 +173,13 @@ struct ChatListView: View {
             }
 
         let withAlerts = withPresentation
-            .alert(
+            .sheet(item: $conversationActionTarget) { conversation in
+            conversationRowSheet(for: conversation)
+        }
+        .sheet(item: $groupActionTarget) { group in
+            groupRowSheet(for: group)
+        }
+        .alert(
                 bulkDeleteAlertTitle,
                 isPresented: $showBulkDeleteConfirmation
             ) {
@@ -646,8 +655,10 @@ struct ChatListView: View {
                         GroupChatRow(group: group)
                     }
                     .buttonStyle(ChatRowPressStyle())
-                    .contextMenu {
-                        groupRowMenu(for: group)
+                    .onLongPressGesture {
+                        guard editMode != .active else { return }
+                        Haptics.impact(.medium)
+                        groupActionTarget = group
                     }
                     .tag(group.id)
                     .listRowBackground(
@@ -725,8 +736,13 @@ struct ChatListView: View {
                         ConversationRow(conversation: conversation)
                     }
                     .buttonStyle(ChatRowPressStyle())
-                    .contextMenu {
-                        conversationRowMenu(for: conversation)
+                    // A sheet, not a context menu: the options each carry a line saying what
+                    // they do, and "Silence" needs one - it is not obvious that it survives the
+                    // app-wide notification setting.
+                    .onLongPressGesture {
+                        guard editMode != .active else { return }
+                        Haptics.impact(.medium)
+                        conversationActionTarget = conversation
                     }
                     .tag(conversation.contact.id)
                     .listRowBackground(
@@ -1001,55 +1017,136 @@ struct ChatListView: View {
     /// bulk bar; Delete routes through its own confirmation alert, which then reuses
     /// `deleteConversations`. Empty while Select mode is active - the bulk bar owns actions there.
     @ViewBuilder
-    private func conversationRowMenu(for conversation: Conversation) -> some View {
-        if editMode != .active {
+    private func conversationRowSheet(for conversation: Conversation) -> some View {
+        let isSilent = conversation.contact.notificationModeOverride == .off
+        return VStack(spacing: 12) {
+            Text(conversation.contact.alias)
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+
             if conversation.unreadCount > 0 {
-                Button {
-                    Task {
-                        await chatService.markConversationAsRead(conversation)
-                    }
-                } label: {
-                    Label("Mark as Read", systemImage: "envelope.open")
+                ActionSheetRow(
+                    title: "Mark as Read",
+                    subtitle: "Clears the unread badge on this chat.",
+                    systemImage: "envelope.open"
+                ) {
+                    conversationActionTarget = nil
+                    Task { await chatService.markConversationAsRead(conversation) }
                 }
             } else {
-                Button {
+                ActionSheetRow(
+                    title: "Mark as Unread",
+                    subtitle: "Puts the unread badge back so you come across it again.",
+                    systemImage: "envelope.badge"
+                ) {
+                    conversationActionTarget = nil
                     chatService.markConversationAsUnread(conversation)
-                } label: {
-                    Label("Mark as Unread", systemImage: "envelope.badge")
                 }
             }
-            Button(role: .destructive) {
-                rowDeleteContact = conversation.contact
-            } label: {
-                Label("Delete", systemImage: "trash")
+
+            ActionSheetRow(
+                title: isSilent ? "Unsilence" : "Silence",
+                subtitle: isSilent
+                    ? "Notifications from this chat resume."
+                    : "No notification from this chat, whatever your app-wide setting says.",
+                systemImage: isSilent ? "bell" : "bell.slash"
+            ) {
+                conversationActionTarget = nil
+                setSilent(!isSilent, for: conversation.contact)
             }
+
+            ActionSheetRow(
+                title: "Delete",
+                subtitle: "Removes this chat and its messages from this device.",
+                systemImage: "trash",
+                tint: .red
+            ) {
+                conversationActionTarget = nil
+                // One turn later: the confirmation alert cannot present while the sheet is
+                // still on its way out.
+                DispatchQueue.main.async { rowDeleteContact = conversation.contact }
+            }
+
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(400)])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// Silencing a 1:1 chat is the existing per-contact notification override set to `.off` -
+    /// the one the notification path and the push registration already consult - not a second,
+    /// parallel mute flag that only some of them would honour.
+    private func setSilent(_ silent: Bool, for contact: Contact) {
+        var updated = contact
+        updated.notificationModeOverride = silent ? .off : nil
+        contactsManager.updateContact(updated)
     }
 
     /// Group-row counterpart to `conversationRowMenu` - same three actions on the group's own
     /// `groupLastReadAt` badge mechanism and delete flow.
     @ViewBuilder
-    private func groupRowMenu(for group: GroupChat) -> some View {
-        if editMode != .active {
+    private func groupRowSheet(for group: GroupChat) -> some View {
+        let isSilent = groupChatService.silentNotifications(for: group.id)
+        return VStack(spacing: 12) {
+            Text(group.name)
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+
             if groupChatService.unreadCount(for: group) > 0 {
-                Button {
+                ActionSheetRow(
+                    title: "Mark as Read",
+                    subtitle: "Clears the unread badge on this group.",
+                    systemImage: "envelope.open"
+                ) {
+                    groupActionTarget = nil
                     groupChatService.markGroupAsRead(group.id)
-                } label: {
-                    Label("Mark as Read", systemImage: "envelope.open")
                 }
             } else {
-                Button {
+                ActionSheetRow(
+                    title: "Mark as Unread",
+                    subtitle: "Puts the unread badge back so you come across it again.",
+                    systemImage: "envelope.badge"
+                ) {
+                    groupActionTarget = nil
                     groupChatService.markGroupAsUnread(group.id)
-                } label: {
-                    Label("Mark as Unread", systemImage: "envelope.badge")
                 }
             }
-            Button(role: .destructive) {
-                rowDeleteGroup = group
-            } label: {
-                Label("Delete", systemImage: "trash")
+
+            ActionSheetRow(
+                title: isSilent ? "Unsilence" : "Silence",
+                subtitle: isSilent
+                    ? "Notifications from this group resume, including mentions."
+                    : "No notification from this group, mentions included.",
+                systemImage: isSilent ? "bell" : "bell.slash"
+            ) {
+                groupActionTarget = nil
+                groupChatService.setSilentNotifications(!isSilent, for: group.id)
             }
+
+            ActionSheetRow(
+                title: "Delete",
+                subtitle: "Removes this group and its messages from this device.",
+                systemImage: "trash",
+                tint: .red
+            ) {
+                groupActionTarget = nil
+                DispatchQueue.main.async { rowDeleteGroup = group }
+            }
+
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(400)])
+        .presentationDragIndicator(.visible)
     }
 
     /// Shared delete path for both Select-mode bulk deletes and single-row context-menu deletes
@@ -1208,9 +1305,20 @@ struct ConversationRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(conversation.contact.alias)
-                            .font(.headline)
-                            .lineLimit(1)
+                        HStack(spacing: 5) {
+                            Text(conversation.contact.alias)
+                                .font(.headline)
+                                .lineLimit(1)
+                            // Silenced: no banner from this conversation, ever. Worth a mark on
+                            // the row - a chat that never pings otherwise looks like a chat
+                            // nobody is using.
+                            if conversation.contact.notificationModeOverride == .off {
+                                Image(systemName: "bell.slash.fill")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .accessibilityLabel("Silenced")
+                            }
+                        }
                     }
 
                     Spacer()
@@ -1503,6 +1611,13 @@ struct GroupChatRow: View {
                     Text(group.name)
                         .font(.headline)
                         .lineLimit(1)
+                    // Silenced: no banner from this group, mentioned or not.
+                    if groupChatService.silentNotifications(for: group.id) {
+                        Image(systemName: "bell.slash.fill")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .accessibilityLabel("Silenced")
+                    }
 
                     Spacer()
 
