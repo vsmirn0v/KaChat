@@ -3445,6 +3445,7 @@ struct ChattingAddressManageView: View {
 
     /// The tapped transaction, while its action chooser is up.
     @State private var transactionActionTarget: KaspaFullTransactionResponse?
+    @State private var pendingPortfolioCandidate: PortfolioCandidateTransaction?
     /// The transaction being filed into a portfolio, if any - see `AddToPortfolioSheet`.
     @State private var portfolioCandidate: PortfolioCandidateTransaction?
     /// Name of the portfolio just added to, for the confirmation capsule.
@@ -3652,24 +3653,22 @@ struct ChattingAddressManageView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .confirmationDialog(
-            "Transaction",
-            isPresented: Binding(
-                get: { transactionActionTarget != nil },
-                set: { if !$0 { transactionActionTarget = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: transactionActionTarget
-        ) { tx in
-            Button("Open in Explorer") { openInExplorer(tx) }
-            if let candidate = PortfolioCandidateTransaction(transaction: tx, address: address) {
-                Button("Add to Portfolio") {
-                    // Deferred by one runloop turn: presenting a sheet from inside a dialog that
-                    // is still dismissing drops it on the floor.
-                    DispatchQueue.main.async { portfolioCandidate = candidate }
-                }
+        // The menu is a sheet rather than a confirmation dialog so each option can say what it
+        // does, and so the transaction it applies to stays on screen while you choose.
+        .sheet(item: $transactionActionTarget, onDismiss: {
+            // Handing the portfolio sheet over only once this one is fully gone. Presenting a
+            // sheet from inside a sheet that is still dismissing drops it on the floor.
+            if let pending = pendingPortfolioCandidate {
+                pendingPortfolioCandidate = nil
+                portfolioCandidate = pending
             }
-            Button("Cancel", role: .cancel) {}
+        }) { tx in
+            TransactionActionsSheet(
+                transaction: tx,
+                address: address,
+                onOpenExplorer: { openInExplorer(tx) },
+                onAddToPortfolio: { pendingPortfolioCandidate = $0 }
+            )
         }
         .sheet(item: $portfolioCandidate) { candidate in
             AddToPortfolioSheet(candidate: candidate) { portfolio in

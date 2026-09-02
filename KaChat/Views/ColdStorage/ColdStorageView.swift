@@ -217,7 +217,7 @@ struct ColdStorageListView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 4)
 
-            ColdStorageActionRow(
+            ActionSheetRow(
                 title: "Copy kpub",
                 subtitle: "Puts the extended public key on the clipboard.",
                 systemImage: "doc.on.doc"
@@ -227,7 +227,7 @@ struct ColdStorageListView: View {
                 accountActionsTarget = nil
                 showToast("kpub copied to clipboard.")
             }
-            ColdStorageActionRow(
+            ActionSheetRow(
                 title: "Show kpub QR",
                 subtitle: "Scan it into another device to watch this account there.",
                 systemImage: "qrcode"
@@ -237,7 +237,7 @@ struct ColdStorageListView: View {
                 // drops it.
                 DispatchQueue.main.async { kpubQRTarget = account }
             }
-            ColdStorageActionRow(
+            ActionSheetRow(
                 title: "Rename",
                 subtitle: "Changes the name shown for this account.",
                 systemImage: "pencil"
@@ -634,7 +634,7 @@ struct ColdStorageDetailView: View {
             .padding(.top, 20)
             .padding(.bottom, 4)
 
-            ColdStorageActionRow(
+            ActionSheetRow(
                 title: "Rename Address",
                 subtitle: "Gives this address a label of your own.",
                 systemImage: "pencil"
@@ -645,7 +645,7 @@ struct ColdStorageDetailView: View {
                     renameTarget = entry
                 }
             }
-            ColdStorageActionRow(
+            ActionSheetRow(
                 title: "Copy Address",
                 subtitle: "Puts the full address on the clipboard.",
                 systemImage: "doc.on.doc"
@@ -655,7 +655,7 @@ struct ColdStorageDetailView: View {
                 addressActionsTarget = nil
                 showToast(entry.address.addressCopiedToastText)
             }
-            ColdStorageActionRow(
+            ActionSheetRow(
                 title: "Show QR Code",
                 subtitle: "Full screen, for scanning with another device.",
                 systemImage: "qrcode"
@@ -667,7 +667,7 @@ struct ColdStorageDetailView: View {
             // without opening that screen. Same guard as the checklist: never a funded address
             // (cold storage has no primary-address concept).
             if entry.balanceSompi == 0 {
-                ColdStorageActionRow(
+                ActionSheetRow(
                     title: "Hide Address",
                     subtitle: "Removes it from this list. Re-enable it in Address Visibility.",
                     systemImage: "eye.slash",
@@ -717,7 +717,7 @@ struct ColdStorageDetailView: View {
                 .padding(.vertical, 24)
             } else {
                 VStack(spacing: 12) {
-                    ColdStorageActionRow(
+                    ActionSheetRow(
                         title: "Generate More Addresses",
                         subtitle: "Reveals the next unused address in this account.",
                         systemImage: "plus.circle",
@@ -727,7 +727,7 @@ struct ColdStorageDetailView: View {
                         generateMore()
                         showAddressActions = false
                     }
-                    ColdStorageActionRow(
+                    ActionSheetRow(
                         title: "Discover Addresses",
                         subtitle: "Finds addresses holding a balance or a KNS domain.",
                         systemImage: "magnifyingglass",
@@ -2054,6 +2054,7 @@ private struct ColdStorageAddressTransactionHistoryView: View {
 
     /// The tapped transaction, while its action chooser is up.
     @State private var transactionActionTarget: KaspaFullTransactionResponse?
+    @State private var pendingPortfolioCandidate: PortfolioCandidateTransaction?
     /// The transaction being filed into a portfolio, if any - see `AddToPortfolioSheet`.
     @State private var portfolioCandidate: PortfolioCandidateTransaction?
     /// Name of the portfolio just added to, for the confirmation capsule.
@@ -2288,24 +2289,22 @@ private struct ColdStorageAddressTransactionHistoryView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .confirmationDialog(
-            "Transaction",
-            isPresented: Binding(
-                get: { transactionActionTarget != nil },
-                set: { if !$0 { transactionActionTarget = nil } }
-            ),
-            titleVisibility: .visible,
-            presenting: transactionActionTarget
-        ) { tx in
-            Button("Open in Explorer") { openInExplorer(tx) }
-            if let candidate = PortfolioCandidateTransaction(transaction: tx, address: entry.address) {
-                Button("Add to Portfolio") {
-                    // Deferred by one runloop turn: presenting a sheet from inside a dialog that
-                    // is still dismissing drops it on the floor.
-                    DispatchQueue.main.async { portfolioCandidate = candidate }
-                }
+        // The menu is a sheet rather than a confirmation dialog so each option can say what it
+        // does, and so the transaction it applies to stays on screen while you choose.
+        .sheet(item: $transactionActionTarget, onDismiss: {
+            // Handing the portfolio sheet over only once this one is fully gone. Presenting a
+            // sheet from inside a sheet that is still dismissing drops it on the floor.
+            if let pending = pendingPortfolioCandidate {
+                pendingPortfolioCandidate = nil
+                portfolioCandidate = pending
             }
-            Button("Cancel", role: .cancel) {}
+        }) { tx in
+            TransactionActionsSheet(
+                transaction: tx,
+                address: entry.address,
+                onOpenExplorer: { openInExplorer(tx) },
+                onAddToPortfolio: { pendingPortfolioCandidate = $0 }
+            )
         }
         .sheet(item: $portfolioCandidate) { candidate in
             AddToPortfolioSheet(candidate: candidate) { portfolio in
@@ -2669,47 +2668,6 @@ private struct ColdStorageAddressVisibilityView: View {
     }
 }
 
-/// One row in a cold-storage half sheet: icon, title, a line saying what it does.
-///
-/// Shared by all three of them - the account menu, the per-address menu and Address Actions - so
-/// converting those menus to sheets did not produce three subtly different lists.
-private struct ColdStorageActionRow: View {
-    let title: String
-    let subtitle: String
-    let systemImage: String
-    var tint: Color = .accentColor
-    var isBusy: Bool = false
-    var isDisabled: Bool = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(tint)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(tint == .accentColor ? .primary : tint)
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.leading)
-                }
-                Spacer(minLength: 0)
-                if isBusy { ProgressView().controlSize(.small) }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(glassBackground(cornerRadius: 16))
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .disabled(isBusy || isDisabled)
-    }
-}
 
 /// The kpub of one cold-storage account, as a QR for moving it to another device or a watch-only
 /// wallet elsewhere.
