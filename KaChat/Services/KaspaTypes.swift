@@ -43,6 +43,13 @@ struct UTXO {
     }
 }
 
+/// So a UTXO can drive `.sheet(item:)`. An outpoint IS the identity of a UTXO - the pair is
+/// unique across the whole chain - and the property is computed, so it stays out of any
+/// synthesized conformance.
+extension UTXO: Identifiable {
+    var id: String { "\(outpoint.transactionId):\(outpoint.index)" }
+}
+
 // MARK: - Mempool Entry Result
 
 struct MempoolEntryResult {

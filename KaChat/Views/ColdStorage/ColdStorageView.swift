@@ -462,12 +462,14 @@ struct ColdStorageDetailView: View {
                 renameTarget = nil
             }
         }
-        .alert("Rename Cold Storage Account", isPresented: $renamingAccount) {
-            TextField("Name", text: $renameAccountText)
-            Button("Save") {
-                manager.renameAccount(currentAccount, to: renameAccountText)
+        .sheet(isPresented: $renamingAccount) {
+            RenameSheet(
+                title: "Rename Account",
+                subtitle: currentAccount.label,
+                text: $renameAccountText
+            ) { newName in
+                manager.renameAccount(currentAccount, to: newName)
             }
-            Button("Cancel", role: .cancel) {}
         }
         .alert(
             "Remove Cold Storage Account",
@@ -2140,23 +2142,18 @@ private struct ColdStorageAddressTransactionHistoryView: View {
                 }
             }
         }
-        .alert(
-            "Rename UTXO",
-            isPresented: Binding(
-                get: { renamingUtxo != nil },
-                set: { if !$0 { renamingUtxo = nil } }
-            )
-        ) {
-            TextField("Name", text: $renameUtxoText)
-            Button("Save") {
-                if let renamingUtxo {
-                    ColdStorageManager.shared.setUtxoLabel(address: entry.address, outpointKey: outpointKey(renamingUtxo), label: renameUtxoText)
-                    utxoLabels = ColdStorageManager.shared.loadUtxoLabels(address: entry.address)
-                }
-                renamingUtxo = nil
-            }
-            Button("Cancel", role: .cancel) {
-                renamingUtxo = nil
+        .sheet(item: $renamingUtxo) { utxo in
+            RenameSheet(
+                title: "Rename UTXO",
+                subtitle: outpointKey(utxo),
+                text: $renameUtxoText
+            ) { newName in
+                ColdStorageManager.shared.setUtxoLabel(
+                    address: entry.address,
+                    outpointKey: outpointKey(utxo),
+                    label: newName
+                )
+                utxoLabels = ColdStorageManager.shared.loadUtxoLabels(address: entry.address)
             }
         }
         .task {

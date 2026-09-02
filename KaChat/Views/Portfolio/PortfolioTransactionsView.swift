@@ -35,6 +35,8 @@ struct PortfolioTransactionsView<Header: View>: View {
     @State private var editingTransaction: PortfolioTransaction?
     @State private var showAddSheet = false
     @State private var showAddAddressSheet = false
+    @State private var showAddChooser = false
+    @State private var showImportExport = false
     @State private var showCsvImporter = false
     @State private var csvExport: PortfolioCsvExport?
     @State private var toastMessage: String?
@@ -136,6 +138,8 @@ struct PortfolioTransactionsView<Header: View>: View {
         .sheet(item: $editingTransaction) { tx in
             PortfolioTransactionEditor(viewModel: viewModel, existing: tx)
         }
+        .sheet(isPresented: $showAddChooser) { addChooserSheet }
+        .sheet(isPresented: $showImportExport) { importExportSheet }
         .sheet(isPresented: $showAddAddressSheet) {
             AddPortfolioAddressSheet(viewModel: viewModel) { result in
                 switch result {
@@ -294,46 +298,93 @@ struct PortfolioTransactionsView<Header: View>: View {
     }
 
     private var addTransactionButton: some View {
-        Menu {
-            Button {
-                Haptics.impact(.light)
-                showAddSheet = true
-            } label: {
-                Label("Add Transaction", systemImage: "pencil")
-            }
-            Button {
-                Haptics.impact(.light)
-                showAddAddressSheet = true
-            } label: {
-                Label("Add Kaspa Address", systemImage: "arrow.left.arrow.right")
-            }
+        Button {
+            Haptics.impact(.light)
+            showAddChooser = true
         } label: {
             Image(systemName: "plus.circle.fill")
                 .font(.system(size: 22))
                 .foregroundColor(.accentColor)
         }
-        .tint(.accentColor)
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add to this portfolio")
+    }
+
+    /// The two ways to put something in a portfolio. A sheet rather than a popup menu so each
+    /// can say what it does - "Add Kaspa Address" reads as a contact until you learn otherwise.
+    private var addChooserSheet: some View {
+        VStack(spacing: 12) {
+            Text("Add to Portfolio")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+            ActionSheetRow(
+                title: "Add Transaction",
+                subtitle: "Record a buy or a sell by hand.",
+                systemImage: "pencil"
+            ) {
+                showAddChooser = false
+                DispatchQueue.main.async { showAddSheet = true }
+            }
+            ActionSheetRow(
+                title: "Add Kaspa Address",
+                subtitle: "Track an address's balance as part of this portfolio.",
+                systemImage: "arrow.left.arrow.right"
+            ) {
+                showAddChooser = false
+                DispatchQueue.main.async { showAddAddressSheet = true }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(280)])
+        .presentationDragIndicator(.visible)
     }
 
     private var importExportButton: some View {
-        Menu {
-            Button {
-                showCsvImporter = true
-            } label: {
-                Label("Import CSV", systemImage: "square.and.arrow.down")
-            }
-            Button {
-                Haptics.impact(.light)
-                exportCsv()
-            } label: {
-                Label("Export CSV", systemImage: "square.and.arrow.up")
-            }
+        Button {
+            Haptics.impact(.light)
+            showImportExport = true
         } label: {
             Image(systemName: "square.and.arrow.up.on.square")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundColor(.accentColor)
         }
-        .tint(.accentColor)
+        .buttonStyle(.plain)
+        .accessibilityLabel("Import or export")
+    }
+
+    private var importExportSheet: some View {
+        VStack(spacing: 12) {
+            Text("Import or Export")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+            ActionSheetRow(
+                title: "Import CSV",
+                subtitle: "Read transactions in from a file.",
+                systemImage: "square.and.arrow.down"
+            ) {
+                showImportExport = false
+                DispatchQueue.main.async { showCsvImporter = true }
+            }
+            ActionSheetRow(
+                title: "Export CSV",
+                subtitle: "Write this portfolio's transactions out to a file.",
+                systemImage: "square.and.arrow.up"
+            ) {
+                showImportExport = false
+                exportCsv()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(280)])
+        .presentationDragIndicator(.visible)
     }
 
     /// Manual build via a plain symbol prefix rather than `.formatted(.currency(code:))` - the
