@@ -531,7 +531,6 @@ struct BroadcastListView: View {
         }
     }
 
-    @discardableResult
     /// Joining and creating are the same action here - there is no ownership protocol, so a name
     /// nobody has used yet becomes a room the moment you post in it. A sheet rather than an alert
     /// because that is worth a sentence, and an alert's text field is a cramped afterthought.
@@ -606,6 +605,7 @@ struct BroadcastListView: View {
         DispatchQueue.main.async { _ = join(name) }
     }
 
+    @discardableResult
     private func join(_ rawName: String) -> Bool {
         let normalized = BroadcastChannelName.normalize(rawName)
         guard BroadcastChannelName.isValid(normalized) else {
