@@ -529,7 +529,11 @@ struct ChatDetailView: View {
                         // them. The negative top padding is what closes that gap - the bar's
                         // height is fixed, so the header has to reach up into it.
                         chatTitleChip
-                            .padding(.top, -44)
+                            // Reaches up into the navigation bar's row so the avatar sits level
+                            // with the back button. Bounded at -52: the inset is measured from
+                            // BELOW the safe area, so it can never reach the notch no matter the
+                            // device - going further would only eat into the bar's own buttons.
+                            .padding(.top, -52)
                             .padding(.bottom, 2)
                             .frame(maxWidth: .infinity)
                     }

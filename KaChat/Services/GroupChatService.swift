@@ -2324,38 +2324,65 @@ final class GroupChatService: ObservableObject {
         loadMessages(for: groupId)
     }
 
+    /// Pages until the indexer runs out, rather than taking one 50-message page per sync.
+    ///
+    /// One page per sync meant a group whose history is longer than 50 messages could only ever
+    /// catch up 50 at a time, once per sync - so a freshly imported wallet joined a busy group
+    /// and saw a fragment of it, with the rest arriving over however many syncs it took. The
+    /// cursor advances per page, so an interrupted run resumes where it stopped rather than
+    /// refetching.
     private func catchUpGroupMessages(groupId: String, blindedGroupIdHex: String) async {
         let syncKey = "gcomm|\(groupId)|\(blindedGroupIdHex)"
-        do {
-            let messages = try await KasiaAPIClient.shared.getGroupMessages(
-                blindedGroupId: blindedGroupIdHex, limit: 50, cursor: groupCatchUpCursors[syncKey]
-            )
-            advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
-            for msg in messages {
-                guard let payloadString = Self.reconstructPayloadString(prefix: Self.gcommPrefix, messagePayloadHex: msg.messagePayload),
-                      let parsed = GroupCipher.parseGroupMessagePayload(payloadString) else { continue }
-                handleIncomingGroupMessage(parsed, txId: msg.txId, blockTime: Int64(msg.blockTime))
+        // 40 x 50 = 2000 messages in one sync - far beyond any real group, and a bound so a
+        // misbehaving cursor cannot loop forever.
+        var pagesLeft = 40
+        while pagesLeft > 0 {
+            pagesLeft -= 1
+            do {
+                let messages = try await KasiaAPIClient.shared.getGroupMessages(
+                    blindedGroupId: blindedGroupIdHex, limit: 50, cursor: groupCatchUpCursors[syncKey]
+                )
+                if messages.isEmpty { return }
+                advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
+                for msg in messages {
+                    guard let payloadString = Self.reconstructPayloadString(prefix: Self.gcommPrefix, messagePayloadHex: msg.messagePayload),
+                          let parsed = GroupCipher.parseGroupMessagePayload(payloadString) else { continue }
+                    handleIncomingGroupMessage(parsed, txId: msg.txId, blockTime: Int64(msg.blockTime))
+                }
+                // A short page is the last page.
+                if messages.count < 50 { return }
+            } catch {
+                AppLog.log("[GroupChatService] Catch-up gcomm fetch failed for group %@: %@",
+                           String(groupId.prefix(12)), error.localizedDescription)
+                return
             }
-        } catch {
-            AppLog.log("[GroupChatService] Catch-up gcomm fetch failed for group %@: %@",
-                       String(groupId.prefix(12)), error.localizedDescription)
         }
     }
 
+    /// Paged for the same reason as `catchUpGroupMessages`, and it matters more here: control
+    /// carries epoch advances and roster changes, and stopping halfway through them leaves this
+    /// device holding a stale root that later messages cannot be decrypted against.
     private func catchUpGroupControl(adminAddress: String) async {
         let syncKey = "gctl|\(adminAddress.lowercased())"
-        do {
-            let messages = try await KasiaAPIClient.shared.getGroupControl(
-                sender: adminAddress, limit: 50, cursor: groupCatchUpCursors[syncKey]
-            )
-            advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
-            for msg in messages {
-                guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
-                handleIncomingControlMessage(payloadString, senderAddress: msg.sender, blockTime: msg.blockTime)
+        var pagesLeft = 40
+        while pagesLeft > 0 {
+            pagesLeft -= 1
+            do {
+                let messages = try await KasiaAPIClient.shared.getGroupControl(
+                    sender: adminAddress, limit: 50, cursor: groupCatchUpCursors[syncKey]
+                )
+                if messages.isEmpty { return }
+                advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
+                for msg in messages {
+                    guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
+                    handleIncomingControlMessage(payloadString, senderAddress: msg.sender, blockTime: msg.blockTime)
+                }
+                if messages.count < 50 { return }
+            } catch {
+                AppLog.log("[GroupChatService] Catch-up gctl-by-sender fetch failed for admin %@: %@",
+                           String(adminAddress.suffix(10)), error.localizedDescription)
+                return
             }
-        } catch {
-            AppLog.log("[GroupChatService] Catch-up gctl-by-sender fetch failed for admin %@: %@",
-                       String(adminAddress.suffix(10)), error.localizedDescription)
         }
     }
 
@@ -2363,17 +2390,26 @@ final class GroupChatService: ObservableObject {
     /// path that works before this device knows any group exists at all. See `performCatchUpSync`.
     private func catchUpGroupControlByRecipient(recipientAddress: String) async {
         let syncKey = "gctl-recipient|\(recipientAddress.lowercased())"
-        do {
-            let messages = try await KasiaAPIClient.shared.getGroupControlByRecipient(
-                recipient: recipientAddress, limit: 50, cursor: groupCatchUpCursors[syncKey]
-            )
-            advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
-            for msg in messages {
-                guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
-                handleIncomingControlMessage(payloadString, senderAddress: msg.sender, blockTime: msg.blockTime)
+        // Paged like the other two. This is the path a seedless import discovers groups through,
+        // so a wallet in more than 50 lifetime invites would otherwise find only some of them.
+        var pagesLeft = 40
+        while pagesLeft > 0 {
+            pagesLeft -= 1
+            do {
+                let messages = try await KasiaAPIClient.shared.getGroupControlByRecipient(
+                    recipient: recipientAddress, limit: 50, cursor: groupCatchUpCursors[syncKey]
+                )
+                if messages.isEmpty { return }
+                advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
+                for msg in messages {
+                    guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
+                    handleIncomingControlMessage(payloadString, senderAddress: msg.sender, blockTime: msg.blockTime)
+                }
+                if messages.count < 50 { return }
+            } catch {
+                AppLog.log("[GroupChatService] Catch-up gctl-by-recipient fetch failed: %@", error.localizedDescription)
+                return
             }
-        } catch {
-            AppLog.log("[GroupChatService] Catch-up gctl-by-recipient fetch failed: %@", error.localizedDescription)
         }
     }
 
