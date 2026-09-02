@@ -2481,7 +2481,12 @@ struct ConnectionStatusIndicator: View {
                 )
         }
         .sheet(isPresented: $showDetail) {
+            // A half sheet everywhere the dot appears: the status and the node you are on are a
+            // glance, not a destination, and the sheet comes up over whatever you were reading
+            // rather than replacing it. Drag up for the node list and the pool actions.
             ConnectionStatusDetailView()
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .onAppear { syncDisconnectedAnchor() }
         .onChange(of: chatService.connectionStatus) { _ in syncDisconnectedAnchor() }
