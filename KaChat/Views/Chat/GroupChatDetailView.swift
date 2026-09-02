@@ -1792,12 +1792,12 @@ struct GroupChatDetailView: View {
             onSelect: { enterSelectMode(with: message.txId) },
             reactions: groupChatService.reactionsByGroupId[group.id]?[message.txId] ?? [],
             myReactorAddress: myAddress ?? "",
-            onShowReactions: { reactionsSheetTarget = ReactionsSheetTarget(txId: message.txId) },
             onRetryReaction: { reaction in
                 Task {
                     try? await groupChatService.retryGroupReaction(targetTxId: reaction.targetTxId, groupId: group.id, emoji: reaction.emoji, action: reaction.failedAction ?? "add")
                 }
             },
+            onShowReactions: { reactionsSheetTarget = ReactionsSheetTarget(txId: message.txId) },
             onReact: { emoji in
                 let existing = groupChatService.reactionsByGroupId[group.id]?[message.txId]?.first { $0.reactorAddress == myAddress }
                 let action = existing?.emoji == emoji ? "remove" : "add"

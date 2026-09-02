@@ -95,6 +95,7 @@ struct MessageBubbleView: View {
         onSelect: (() -> Void)? = nil,
         reactions: [MessageStore.ReactionSnapshot] = [],
         myReactorAddress: String = "",
+        onShowReactions: (() -> Void)? = nil,
         onReact: ((String) -> Void)? = nil,
         activeQuickReactionMessageId: Binding<UUID?> = .constant(nil),
         onJumpToReply: (() -> Void)? = nil,
@@ -122,6 +123,7 @@ struct MessageBubbleView: View {
         self.onSelect = onSelect
         self.reactions = reactions
         self.myReactorAddress = myReactorAddress
+        self.onShowReactions = onShowReactions
         self.onReact = onReact
         self._activeQuickReactionMessageId = activeQuickReactionMessageId
         self.onJumpToReply = onJumpToReply
