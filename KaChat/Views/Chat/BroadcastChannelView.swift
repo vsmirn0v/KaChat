@@ -35,8 +35,8 @@ struct BroadcastChannelView: View {
     @State private var emojiInsertionRequest: ComposerTextView.TextInsertionRequest?
     @State private var isSending = false
     @State private var toastMessage: String?
-    /// Message whose reactor list is on screen, by txId.
-    @State private var reactionsSheetTxId: String?
+    /// Message whose reactor list is on screen.
+    @State private var reactionsSheetTarget: ReactionsSheetTarget?
     @State private var toastToken = UUID()
     @State private var openContact: Contact?
     @State private var openContactInPaymentMode = false
@@ -122,22 +122,12 @@ struct BroadcastChannelView: View {
             // The title itself is the way in to everything about the room - share, hidden
             // users, its indexer, what is in it. It used to be two unlabelled toolbar glyphs
             // with nowhere to put anything else.
+            //
+            // Its own view, not an inline Button: spelling it out here pushed this toolbar
+            // builder past the type checker's budget ("unable to type-check this expression in
+            // reasonable time"), which this file has hit before.
             ToolbarItem(placement: .principal) {
-                Button {
-                    showRoomInfo = true
-                } label: {
-                    HStack(spacing: 4) {
-                        Text("#\(channelName)")
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                        Image(systemName: "chevron.right")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundColor(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Room info for #\(channelName)")
+                BroadcastRoomTitleButton(channelName: channelName) { showRoomInfo = true }
             }
         }
         .navigationDestination(isPresented: $showRoomInfo) {
@@ -171,10 +161,7 @@ struct BroadcastChannelView: View {
             }
         }
         .toast(message: toastMessage, style: .success)
-        .sheet(item: Binding(
-            get: { reactionsSheetTxId.map { ReactionsSheetTarget(txId: $0) } },
-            set: { reactionsSheetTxId = $0?.txId }
-        )) { target in
+        .sheet(item: $reactionsSheetTarget) { target in
             BroadcastReactionsSheet(
                 reactions: broadcastService.reactions(forChannel: channelName)[target.txId] ?? [],
                 myAddress: myAddress ?? "",
@@ -271,7 +258,7 @@ struct BroadcastChannelView: View {
                                         onJumpToReply: messageReplyQuote != nil ? { pendingJumpToTxId = messageReplyQuote?.replyToId } : nil,
                                         reactions: broadcastService.reactions(forChannel: channelName)[message.id] ?? [],
                                         myReactorAddress: myAddress ?? "",
-                                        onShowReactions: { reactionsSheetTxId = message.id },
+                                        onShowReactions: { reactionsSheetTarget = ReactionsSheetTarget(txId: message.id) },
                                         onRetryReaction: { reaction in
                                             Task {
                                                 try? await broadcastService.retryBroadcastReaction(
@@ -1023,6 +1010,28 @@ struct BroadcastChannelView: View {
         let contact = contactsManager.getContact(byAddress: address)
             ?? contactsManager.getOrCreateContact(address: address)
         profileContact = contact
+    }
+}
+
+/// The room's `#name` in the navigation bar, as the button that opens Room Info.
+private struct BroadcastRoomTitleButton: View {
+    let channelName: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text("#" + channelName)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Room info for #" + channelName)
     }
 }
 

@@ -31,6 +31,7 @@ final class BroadcastService: ObservableObject {
         "kaspa-espanol",
         "kaspa-francais",
         "kaspa-portugues",
+        "kaspa-romania",
         "kaspa-slovak",
         "kaspa-chinese",
         "kaspa-japanese",
@@ -54,6 +55,7 @@ final class BroadcastService: ObservableObject {
         case "kaspa-espanol": return "Español"
         case "kaspa-francais": return "Français"
         case "kaspa-portugues": return "Português"
+        case "kaspa-romania": return "Română"
         case "kaspa-slovak": return "Slovenčina"
         case "kaspa-chinese": return "中文"
         case "kaspa-japanese": return "日本語"
@@ -216,7 +218,9 @@ final class BroadcastService: ObservableObject {
     /// room - which means a room can be read through whichever one you trust or host, without
     /// changing the app-wide setting that every OTHER room uses. Empty here means "use the
     /// app-wide one", which is what the curated Popular rooms do (KaChat's own indexer).
-    private static let indexerOverridesKey = "kachat_broadcast_indexer_overrides"
+    // nonisolated: `indexerBaseURL(forChannel:)` is nonisolated so callers off the main actor
+    // can resolve a room's indexer, and a main-actor-isolated constant is not reachable from it.
+    private nonisolated static let indexerOverridesKey = "kachat_broadcast_indexer_overrides"
 
     private var indexerOverrides: [String: String] {
         get { UserDefaults.standard.dictionary(forKey: Self.indexerOverridesKey) as? [String: String] ?? [:] }
