@@ -248,71 +248,7 @@ struct BroadcastChannelView: View {
                                     if shouldShowDateDivider(at: index, in: messages) {
                                         dateDivider(for: message.blockTime)
                                     }
-                                    let messageReplyQuote = replyQuote(for: message)
-                                    BroadcastMessageRow(
-                                        message: message,
-                                        isOwnMessage: message.senderAddress == myAddress,
-                                        avatarURLString: knsService.profileCache[message.senderAddress]?.avatarURL,
-                                        displayName: displayName(for: message.senderAddress),
-                                        replyQuote: messageReplyQuote,
-                                        replySenderDisplayName: messageReplyQuote.map { displayName(for: $0.replyToSender) },
-                                        onViewProfile: { viewProfile(message.senderAddress) },
-                                        onOpenChat: { openChat(with: message.senderAddress) },
-                                        onPayInKaspa: { openChat(with: message.senderAddress, paymentMode: true) },
-                                        onCopyAddress: {
-                                            UIPasteboard.general.string = message.senderAddress
-                                            showToast(message.senderAddress.addressCopiedToastText)
-                                        },
-                                        onHideSender: { broadcastService.hideSender(message.senderAddress, inChannel: channelName) },
-                                        onReply: { broadcastService.startReplyTo(message) },
-                                        onCopyMessage: {
-                                            UIPasteboard.general.string = displayContent(for: message).text
-                                            showToast("Message copied.")
-                                        },
-                                        onRetry: { broadcastService.retryBroadcast(message) },
-                                        onJumpToReply: messageReplyQuote != nil ? { pendingJumpToTxId = messageReplyQuote?.replyToId } : nil,
-                                        reactions: broadcastService.reactions(forChannel: channelName)[message.id] ?? [],
-                                        myReactorAddress: myAddress ?? "",
-                                        onShowReactions: { reactionsSheetTarget = ReactionsSheetTarget(txId: message.id) },
-                                        onRetryReaction: { reaction in
-                                            Task {
-                                                try? await broadcastService.retryBroadcastReaction(
-                                                    channel: channelName,
-                                                    targetTxId: reaction.targetTxId,
-                                                    emoji: reaction.emoji,
-                                                    action: reaction.failedAction ?? "add"
-                                                )
-                                            }
-                                        },
-                                        onReact: { emoji in
-                                            let existing = broadcastService.reactions(forChannel: channelName)[message.id]?
-                                                .first { $0.reactorAddress == myAddress }
-                                            let action = existing?.emoji == emoji ? "remove" : "add"
-                                            Task {
-                                                try? await broadcastService.sendBroadcastReaction(
-                                                    channel: channelName,
-                                                    targetTxId: message.id,
-                                                    emoji: emoji,
-                                                    action: action
-                                                )
-                                            }
-                                        },
-                                        activeQuickReactionMessageId: $activeQuickReactionMessageId,
-                                        revealOffset: revealOffset,
-                                        maxRevealOffset: maxRevealOffset
-                                    )
-                                    .id(message.id)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(highlightedMessageID == message.id ? Color.accentColor.opacity(0.18) : Color.clear)
-                                    )
-                                    .task(id: message.senderAddress) {
-                                        // Own address is always fetched by the room-level `.task`
-                                        // above; this opts *other* senders in.
-                                        guard message.senderAddress != myAddress,
-                                              knsService.profileCache[message.senderAddress] == nil else { return }
-                                        _ = await knsService.fetchProfile(for: message.senderAddress)
-                                    }
+                                    messageRow(message)
                                 }
                                 // Debounced rather than setting `isBottomAnchorVisible` directly:
                                 // this 1pt marker can appear/disappear many times per second
@@ -491,6 +427,89 @@ struct BroadcastChannelView: View {
             return knsName
         }
         return Contact.generateDefaultAlias(from: address)
+    }
+
+    /// One message row. Its own function because the initializer takes twenty arguments,
+    /// ten of them closures, and inside `messageList` it sat five containers deep - one
+    /// expression the type checker would not finish ("unable to type-check this expression
+    /// in reasonable time").
+    @ViewBuilder
+    private func messageRow(_ message: BroadcastMessage) -> some View {
+        let messageReplyQuote = replyQuote(for: message)
+        // Hoisted out of the initializer with explicit types. A ternary producing an OPTIONAL
+        // CLOSURE, and a dictionary subscript defaulted with ??, are both expensive to infer,
+        // and inside a 20-argument call they were what tipped this expression over the type
+        // checker's budget.
+        let jumpToReply: (() -> Void)? = messageReplyQuote == nil ? nil : {
+            pendingJumpToTxId = messageReplyQuote?.replyToId
+        }
+        let messageReactions: [GroupStore.ReactionSnapshot] =
+            broadcastService.reactions(forChannel: channelName)[message.id] ?? []
+        let replySender: String? = messageReplyQuote.map { displayName(for: $0.replyToSender) }
+        BroadcastMessageRow(
+            message: message,
+            isOwnMessage: message.senderAddress == myAddress,
+            avatarURLString: knsService.profileCache[message.senderAddress]?.avatarURL,
+            displayName: displayName(for: message.senderAddress),
+            replyQuote: messageReplyQuote,
+            replySenderDisplayName: replySender,
+            onViewProfile: { viewProfile(message.senderAddress) },
+            onOpenChat: { openChat(with: message.senderAddress) },
+            onPayInKaspa: { openChat(with: message.senderAddress, paymentMode: true) },
+            onCopyAddress: {
+                UIPasteboard.general.string = message.senderAddress
+                showToast(message.senderAddress.addressCopiedToastText)
+            },
+            onHideSender: { broadcastService.hideSender(message.senderAddress, inChannel: channelName) },
+            onReply: { broadcastService.startReplyTo(message) },
+            onCopyMessage: {
+                UIPasteboard.general.string = displayContent(for: message).text
+                showToast("Message copied.")
+            },
+            onRetry: { broadcastService.retryBroadcast(message) },
+            onJumpToReply: jumpToReply,
+            reactions: messageReactions,
+            myReactorAddress: myAddress ?? "",
+            onShowReactions: { reactionsSheetTarget = ReactionsSheetTarget(txId: message.id) },
+            onRetryReaction: { reaction in
+                Task {
+                    try? await broadcastService.retryBroadcastReaction(
+                        channel: channelName,
+                        targetTxId: reaction.targetTxId,
+                        emoji: reaction.emoji,
+                        action: reaction.failedAction ?? "add"
+                    )
+                }
+            },
+            onReact: { emoji in
+                let existing = broadcastService.reactions(forChannel: channelName)[message.id]?
+                    .first { $0.reactorAddress == myAddress }
+                let action = existing?.emoji == emoji ? "remove" : "add"
+                Task {
+                    try? await broadcastService.sendBroadcastReaction(
+                        channel: channelName,
+                        targetTxId: message.id,
+                        emoji: emoji,
+                        action: action
+                    )
+                }
+            },
+            activeQuickReactionMessageId: $activeQuickReactionMessageId,
+            revealOffset: revealOffset,
+            maxRevealOffset: maxRevealOffset
+        )
+        .id(message.id)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(highlightedMessageID == message.id ? Color.accentColor.opacity(0.18) : Color.clear)
+        )
+        .task(id: message.senderAddress) {
+            // Own address is always fetched by the room-level `.task`
+            // above; this opts *other* senders in.
+            guard message.senderAddress != myAddress,
+                  knsService.profileCache[message.senderAddress] == nil else { return }
+            _ = await knsService.fetchProfile(for: message.senderAddress)
+        }
     }
 
     private var emptyState: some View {
