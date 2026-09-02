@@ -52,7 +52,6 @@ struct BroadcastListView: View {
     @State private var selectedChannel: String?
     @State private var channelToLeave: String?
     @State private var retentionSettingsChannel: BroadcastChannel?
-    @State private var showBroadcastSettings = false
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var hasAppliedInitialChannel = false
@@ -138,13 +137,6 @@ struct BroadcastListView: View {
             ToolbarItem(placement: .principal) {
                 BalanceToolbarLabel()
             }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showBroadcastSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                }
-            }
         }
         .toast(message: toastMessage, style: .success)
         .alert("Join or Create a Channel", isPresented: $showJoinAlert) {
@@ -186,12 +178,6 @@ struct BroadcastListView: View {
                 RetentionSettingsView(channel: channel)
             }
             .presentationDetents([.medium])
-        }
-        .sheet(isPresented: $showBroadcastSettings) {
-            NavigationStack {
-                BroadcastSettingsView()
-            }
-            .presentationDetents([.large])
         }
     }
 
@@ -682,37 +668,6 @@ private struct RetentionSettingsView: View {
     }
 }
 
-/// Global broadcast settings, matching Android's "Broadcast Settings" dialog.
-private struct BroadcastSettingsView: View {
-    @EnvironmentObject var broadcastService: BroadcastService
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle(isOn: Binding(
-                    get: { broadcastService.showKnsAvatarsEnabled },
-                    set: { broadcastService.setShowKnsAvatarsEnabled($0) }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("KNS Profile Pictures")
-                        Text("Shows senders' KNS avatars in rooms and looks them up automatically as messages appear. Off shows plain initials for everyone and never fetches avatars.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-
-        }
-        .navigationTitle("Broadcast Settings")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Done") { dismiss() }
-            }
-        }
-    }
-}
 
 #Preview {
     NavigationStack {

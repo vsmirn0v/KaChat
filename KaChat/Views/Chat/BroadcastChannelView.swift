@@ -207,7 +207,7 @@ struct BroadcastChannelView: View {
             // toggle only gates *other* senders, for privacy) - fetched once at the room level
             // rather than per-row, since a per-row `.task` can get cancelled/restarted as its
             // bubble scrolls in and out of the lazy message list's visible viewport.
-            guard broadcastService.showKnsAvatarsEnabled, let myAddress,
+            guard let myAddress,
                   knsService.profileCache[myAddress] == nil else { return }
             _ = await knsService.fetchProfile(for: myAddress)
         }
@@ -244,9 +244,7 @@ struct BroadcastChannelView: View {
                                     BroadcastMessageRow(
                                         message: message,
                                         isOwnMessage: message.senderAddress == myAddress,
-                                        avatarURLString: broadcastService.showKnsAvatarsEnabled
-                                            ? knsService.profileCache[message.senderAddress]?.avatarURL
-                                            : nil,
+                                        avatarURLString: knsService.profileCache[message.senderAddress]?.avatarURL,
                                         displayName: displayName(for: message.senderAddress),
                                         replyQuote: messageReplyQuote,
                                         replySenderDisplayName: messageReplyQuote.map { displayName(for: $0.replyToSender) },
@@ -301,10 +299,8 @@ struct BroadcastChannelView: View {
                                     )
                                     .task(id: message.senderAddress) {
                                         // Own address is always fetched by the room-level `.task`
-                                        // above; this only opts *other* senders in when the
-                                        // KNS avatars toggle is on.
-                                        guard broadcastService.showKnsAvatarsEnabled,
-                                              message.senderAddress != myAddress,
+                                        // above; this opts *other* senders in.
+                                        guard message.senderAddress != myAddress,
                                               knsService.profileCache[message.senderAddress] == nil else { return }
                                         _ = await knsService.fetchProfile(for: message.senderAddress)
                                     }

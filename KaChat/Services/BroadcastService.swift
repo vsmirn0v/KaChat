@@ -78,12 +78,6 @@ final class BroadcastService: ObservableObject {
     @Published var pendingBroadcastNavigation: String?
 
     /// Shows a "Popular" tab of curated channels in the list screen. Default matches Android.
-    /// Shows senders' KNS avatars in rooms and automatically looks them up as soon as a message
-    /// appears; off shows plain initials for everyone and never fetches avatars. Default matches Android.
-    @Published private(set) var showKnsAvatarsEnabled: Bool
-
-    private let showKnsAvatarsEnabledKey = "kachat_broadcast_show_kns_avatars"
-
     private let store = BroadcastStore.shared
 
     /// Reference count of open channel screens ("live viewing"), keyed by normalized name.
@@ -104,8 +98,6 @@ final class BroadcastService: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
-        let defaults = UserDefaults.standard
-        showKnsAvatarsEnabled = (defaults.object(forKey: showKnsAvatarsEnabledKey) as? Bool) ?? true
         // On expensive (cellular/metered) paths, indexer-covered rooms stop block-streaming
         // (see scanWantedChannels) - re-evaluate whenever the path flips either way.
         NetworkEpochMonitor.shared.expensivePathPublisher
@@ -114,13 +106,6 @@ final class BroadcastService: ObservableObject {
                 self?.updateScanningStateIfNeeded()
             }
             .store(in: &cancellables)
-    }
-
-    // MARK: - Settings
-
-    func setShowKnsAvatarsEnabled(_ enabled: Bool) {
-        showKnsAvatarsEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: showKnsAvatarsEnabledKey)
     }
 
     // MARK: - Wallet lifecycle
