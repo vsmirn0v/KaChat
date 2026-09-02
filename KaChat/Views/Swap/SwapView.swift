@@ -896,6 +896,17 @@ private struct SwapAddressPickerView: View {
     @State private var entries: [SpendingAddressEntry] = []
     @State private var isLoading = false
     @State private var isGenerating = false
+    /// The address whose action sheet is up.
+    @State private var actionTarget: SpendingAddressEntry?
+
+    /// What the list offers. A swap payout goes to a FRESH address - reusing one publishes the
+    /// link between this swap and everything that address has already done - so used ones are
+    /// filtered out rather than merely marked. The badge stays on each row anyway: the used flag
+    /// is filled in by a network check that can fail, and an unlabelled row would be a silent
+    /// claim this code cannot always back up.
+    private var selectableEntries: [SpendingAddressEntry] {
+        entries.filter { !$0.hidden && !$0.everUsed }
+    }
 
     var body: some View {
         NavigationStack {
@@ -920,43 +931,46 @@ private struct SwapAddressPickerView: View {
                                 .foregroundColor(.accentColor)
                             }
                             .disabled(isGenerating)
+                        } footer: {
+                            Text("A swap pays out to an address you have not used before, so the payout cannot be tied to your earlier activity. Generate one if none are free.")
                         }
 
                         Section {
-                            ForEach(entries.filter { !$0.hidden }) { entry in
-                                HStack {
-                                    Button {
-                                        onPick(entry)
-                                        dismiss()
-                                    } label: {
-                                        HStack {
-                                            VStack(alignment: .leading, spacing: 2) {
+                            if selectableEntries.isEmpty {
+                                Text("Every address here has been used. Generate a new one above.")
+                                    .foregroundColor(.secondary)
+                            }
+                            ForEach(selectableEntries) { entry in
+                                Button {
+                                    // Tapping asks what to do with the address rather than
+                                    // committing outright - the explorer used to be behind an
+                                    // ellipsis menu nobody would find.
+                                    actionTarget = entry
+                                } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            HStack(spacing: 6) {
                                                 Text(entry.displayLabel)
                                                     .font(.caption)
                                                     .foregroundColor(.secondary)
-                                                Text(entry.shortAddress)
-                                                    .font(.system(.subheadline, design: .monospaced))
+                                                usedBadge(for: entry)
                                             }
-                                            Spacer()
-                                            Text("\(formatKas(entry.balanceSompi)) KAS")
-                                                .font(.subheadline.weight(.semibold))
+                                            Text(entry.shortAddress)
+                                                .font(.system(.subheadline, design: .monospaced))
+                                                .foregroundColor(.primary)
                                         }
+                                        Spacer()
+                                        Text("\(formatKas(entry.balanceSompi)) KAS")
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundColor(.primary)
                                     }
-                                    .buttonStyle(.plain)
-
-                                    if let url = settingsViewModel.settings.kaspaExplorer.addressURL(for: entry.address) {
-                                        Menu {
-                                            Link(destination: url) {
-                                                Label("View in Explorer", systemImage: "safari")
-                                            }
-                                        } label: {
-                                            Image(systemName: "ellipsis.circle")
-                                                .foregroundColor(.secondary)
-                                        }
-                                        .tint(.accentColor)
-                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
                                 }
+                                .buttonStyle(.plain)
                             }
+                        } header: {
+                            Text("Unused Addresses")
                         }
                     }
                 }
@@ -971,7 +985,60 @@ private struct SwapAddressPickerView: View {
             .task {
                 await loadEntries()
             }
+            .sheet(item: $actionTarget) { entry in
+                addressActionsSheet(entry)
+            }
         }
+    }
+
+    @ViewBuilder
+    private func usedBadge(for entry: SpendingAddressEntry) -> some View {
+        Text(entry.everUsed ? "Used" : "Unused")
+            .font(.caption2.weight(.semibold))
+            .foregroundColor(entry.everUsed ? .orange : .green)
+    }
+
+    /// Tap an address: look at it first, or take it. Replaces an ellipsis menu whose only item
+    /// was the explorer.
+    private func addressActionsSheet(_ entry: SpendingAddressEntry) -> some View {
+        VStack(spacing: 12) {
+            VStack(spacing: 4) {
+                Text(entry.displayLabel)
+                    .font(.headline)
+                Text(entry.shortAddress)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 4)
+
+            if let url = settingsViewModel.settings.kaspaExplorer.addressURL(for: entry.address) {
+                ActionSheetRow(
+                    title: "View in Explorer",
+                    subtitle: "Check its history before you send a swap to it.",
+                    systemImage: "safari"
+                ) {
+                    actionTarget = nil
+                    UIApplication.shared.open(url)
+                }
+            }
+            ActionSheetRow(
+                title: "Use for This Swap",
+                subtitle: "ChangeNOW pays the swapped KAS out to this address.",
+                systemImage: "arrow.down.circle"
+            ) {
+                actionTarget = nil
+                onPick(entry)
+                dismiss()
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(300)])
+        .presentationDragIndicator(.visible)
     }
 
     private func loadEntries() async {
