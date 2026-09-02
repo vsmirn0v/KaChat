@@ -77,7 +77,6 @@ struct ChatDetailView: View {
     @State private var chessSummaryCache: [String: ChessGameSummary] = [:]
     /// Presents the time-control picker step between tapping "Play Chess" and actually sending
     /// the invite - see `composerPlusMenu`'s confirmation dialog.
-    @State private var showChessTimeControlPicker = false
     @State private var showComposerPlusSheet = false
     @State private var previousMessagesCount = 0
     @State private var lastMessageSnapshotDigest: Int?
@@ -1798,19 +1797,13 @@ struct ChatDetailView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text("More options"))
-        .sheet(isPresented: $showComposerPlusSheet) { composerPlusSheet }
+        // Reopens on the options step, never on whichever step it was closed from.
+        .sheet(isPresented: $showComposerPlusSheet, onDismiss: { composerSheetShowsChess = false }) {
+            composerPlusSheet
+        }
         // Second step after "Play Chess": pick a time control. The blitz presets send the tc
         // fields on the invite; "Casual" omits them entirely, which is the exact legacy wire
         // shape - so casual games with old-version contacts stay byte-compatible.
-        .confirmationDialog("Play Chess", isPresented: $showChessTimeControlPicker, titleVisibility: .visible) {
-            Button("3 | 2 Blitz") { startChessGame(timeControl: ChessTimeControl(minutes: 3, incSeconds: 2)) }
-            Button("2 | 1 Bullet") { startChessGame(timeControl: ChessTimeControl(minutes: 2, incSeconds: 1)) }
-            Button("1 | 1 Bullet") { startChessGame(timeControl: ChessTimeControl(minutes: 1, incSeconds: 1)) }
-            Button("Casual (no timer)") { startChessGame(timeControl: nil) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Timed games count down only while the board is open on your turn.")
-        }
         .photosPicker(isPresented: $showPhotoPickerFromMenu, selection: $photoPickerItem, matching: .images)
         .sheet(isPresented: $showNextcloudPicker) {
             NextcloudPickerView { url, file in
@@ -1835,12 +1828,65 @@ struct ChatDetailView: View {
     }
 
     /// The composer's "+" options, as a half sheet - each with a line saying what it does.
+    /// "Play Chess" swaps this for the time-control step rather than dismissing into a dialog.
+    @ViewBuilder
     private var composerPlusSheet: some View {
+        if composerSheetShowsChess {
+            chessTimeControlSheet
+        } else {
+            composerPlusOptions
+        }
+    }
+
+    private var chessTimeControlSheet: some View {
         VStack(spacing: 12) {
-            // With "Send Media via Nextcloud" toggled on, the composer bar's own camera/mic
-            // buttons cover native capture (uploading via the server), so the menu offers only
-            // the server browser. Toggle off keeps the classic Send Photo / Send Audio entries
-            // (plus the browser row whenever a server is connected).
+            VStack(spacing: 4) {
+                Text("Play Chess")
+                    .font(.headline)
+                Text("Timed games count down only while the board is open on your turn.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 4)
+
+            ActionSheetRow(title: "3 | 2 Blitz", subtitle: "Three minutes each, plus two seconds a move.", systemImage: "timer") {
+                startChessFromSheet(ChessTimeControl(minutes: 3, incSeconds: 2))
+            }
+            ActionSheetRow(title: "2 | 1 Bullet", subtitle: "Two minutes each, plus one second a move.", systemImage: "timer") {
+                startChessFromSheet(ChessTimeControl(minutes: 2, incSeconds: 1))
+            }
+            ActionSheetRow(title: "1 | 1 Bullet", subtitle: "One minute each, plus one second a move.", systemImage: "timer") {
+                startChessFromSheet(ChessTimeControl(minutes: 1, incSeconds: 1))
+            }
+            // Omits the tc fields entirely, which is the exact legacy wire shape - casual games
+            // with older contacts stay byte-compatible.
+            ActionSheetRow(title: "Casual", subtitle: "No timer.", systemImage: "checkerboard.rectangle") {
+                startChessFromSheet(nil)
+            }
+
+            Button("Back") { composerSheetShowsChess = false }
+                .font(.subheadline.weight(.semibold))
+                .padding(.top, 4)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(470)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func startChessFromSheet(_ timeControl: ChessTimeControl?) {
+        showComposerPlusSheet = false
+        composerSheetShowsChess = false
+        startChessGame(timeControl: timeControl)
+    }
+
+    private var composerPlusOptions: some View {
+        VStack(spacing: 12) {
             Text("Send")
                 .font(.headline)
                 .padding(.top, 20)
@@ -1885,8 +1931,7 @@ struct ChatDetailView: View {
                 subtitle: "Invite this contact to a game on chain.",
                 systemImage: "checkerboard.rectangle"
             ) {
-                showComposerPlusSheet = false
-                DispatchQueue.main.async { showChessTimeControlPicker = true }
+                composerSheetShowsChess = true
             }
             if canSendRequestToCommunicate {
                 ActionSheetRow(

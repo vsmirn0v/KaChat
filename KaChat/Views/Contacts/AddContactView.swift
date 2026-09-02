@@ -19,6 +19,9 @@ struct AddContactView: View {
     @State private var resolvedAddress: String?
     @State private var resolvedDomain: String?
     @State private var knsError: String?
+    /// The resolved address's KNS profile, once fetched - the preview card's source.
+    @State private var previewProfile: KNSAddressProfileInfo?
+    @State private var isLoadingPreview = false
     @State private var showQRScanner = false
     @State private var showSystemContactPicker = false
     @State private var pendingSystemContactLinkTarget: SystemContactLinkTarget?
@@ -68,6 +71,62 @@ struct AddContactView: View {
     private let knsService = KNSService.shared
 
     /// The actual address to use (resolved or direct input)
+    /// Preview of the person behind the address: their KNS avatar and domain, once resolved.
+    ///
+    /// Only shown for an address the app is confident about - a half-typed one resolves to
+    /// nothing and a card that flickered through wrong faces while typing would be worse than no
+    /// card at all.
+    @ViewBuilder
+    private var contactPreviewCard: some View {
+        let address = effectiveAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !address.isEmpty, resolvedAddress != nil || isValidAddress {
+            HStack(spacing: 12) {
+                KNSAvatarView(
+                    avatarURLString: previewProfile?.avatarURL,
+                    fallbackText: previewProfile?.domainName ?? resolvedDomain ?? address,
+                    size: 44,
+                    contactAddress: address
+                )
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(previewProfile?.domainName ?? resolvedDomain ?? "No KNS domain")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(previewProfile?.domainName == nil && resolvedDomain == nil ? .secondary : .primary)
+                        .lineLimit(1)
+                    Text(address)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 0)
+                if isLoadingPreview { ProgressView().controlSize(.small) }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.primary.opacity(0.05))
+            )
+            .padding(.top, 4)
+            .task(id: address) { await loadPreview(for: address) }
+        }
+    }
+
+    /// Fetches the resolved address's KNS profile for the card. Cached by KNSService, so
+    /// re-typing an address already looked at costs nothing.
+    private func loadPreview(for address: String) async {
+        guard KaspaAddress.isValid(address) else {
+            previewProfile = nil
+            return
+        }
+        if let cached = KNSService.shared.profileCache[address] {
+            previewProfile = cached
+            return
+        }
+        isLoadingPreview = true
+        previewProfile = await KNSService.shared.fetchProfile(for: address)
+        isLoadingPreview = false
+    }
+
     private var effectiveAddress: String {
         resolvedAddress ?? addressInput
     }
@@ -141,6 +200,11 @@ struct AddContactView: View {
                                         .foregroundColor(isValidAddress ? .green : .red)
                                 }
                             }
+
+                            // Who you are about to add, as they will appear once added. A raw
+                            // address tells you nothing about whether you typed the right one;
+                            // a face and a domain do.
+                            contactPreviewCard
                         }
                     }
 
