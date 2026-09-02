@@ -19,6 +19,8 @@ struct ColdStorageListView: View {
     @State private var renameText = ""
     /// Account whose kpub QR is on screen.
     @State private var kpubQRTarget: ColdStorageAccount?
+    /// Account whose actions half sheet is open.
+    @State private var accountActionsTarget: ColdStorageAccount?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
 
@@ -87,6 +89,11 @@ struct ColdStorageListView: View {
             }
         }
         .toast(message: toastMessage)
+        .sheet(item: $accountActionsTarget) { account in
+            accountActionsSheet(account)
+                .presentationDetents([.height(300)])
+                .presentationDragIndicator(.visible)
+        }
         .sheet(item: $kpubQRTarget) { account in
             ColdStorageKpubQRView(account: account)
         }
@@ -201,6 +208,53 @@ struct ColdStorageListView: View {
         .padding(.horizontal, 24)
     }
 
+    /// The half sheet behind an account's ellipsis, replacing the menu that was there.
+    private func accountActionsSheet(_ account: ColdStorageAccount) -> some View {
+        VStack(spacing: 12) {
+            Text(account.label)
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+
+            ColdStorageActionRow(
+                title: "Copy kpub",
+                subtitle: "Puts the extended public key on the clipboard.",
+                systemImage: "doc.on.doc"
+            ) {
+                UIPasteboard.general.string = account.kpubString
+                Haptics.success()
+                accountActionsTarget = nil
+                showToast("kpub copied to clipboard.")
+            }
+            ColdStorageActionRow(
+                title: "Show kpub QR",
+                subtitle: "Scan it into another device to watch this account there.",
+                systemImage: "qrcode"
+            ) {
+                accountActionsTarget = nil
+                // One runloop turn: presenting a sheet from inside one that is still dismissing
+                // drops it.
+                DispatchQueue.main.async { kpubQRTarget = account }
+            }
+            ColdStorageActionRow(
+                title: "Rename",
+                subtitle: "Changes the name shown for this account.",
+                systemImage: "pencil"
+            ) {
+                accountActionsTarget = nil
+                DispatchQueue.main.async {
+                    renameText = account.label
+                    renameTarget = account
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
     private func accountRow(_ account: ColdStorageAccount) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "lock.fill")
@@ -215,32 +269,17 @@ struct ColdStorageListView: View {
                     .truncationMode(.middle)
             }
             Spacer()
-            Menu {
-                Button {
-                    UIPasteboard.general.string = account.kpubString
-                    Haptics.success()
-                    showToast("kpub copied to clipboard.")
-                } label: {
-                    Label("Copy kpub", systemImage: "doc.on.doc")
-                }
-                Button {
-                    kpubQRTarget = account
-                } label: {
-                    Label("Show kpub QR", systemImage: "qrcode")
-                }
-                Button {
-                    renameText = account.label
-                    renameTarget = account
-                } label: {
-                    Label("Rename", systemImage: "pencil")
-                }
+            Button {
+                Haptics.impact(.light)
+                accountActionsTarget = account
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.secondary)
                     .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
             }
-            .tint(.accentColor)
+            .buttonStyle(.plain)
         }
         .padding(16)
         .background(glassBackground(cornerRadius: 18))
@@ -310,6 +349,8 @@ struct ColdStorageDetailView: View {
     @State private var isDiscovering = false
     /// The address-actions half sheet.
     @State private var showAddressActions = false
+    /// Address whose own actions half sheet is open.
+    @State private var addressActionsTarget: ColdStorageAddressEntry?
     /// Live scan position while discovering, so the sheet can show progress rather than a spinner.
     @State private var discoveryProgress: ColdStorageManager.DiscoveryProgress?
     /// Result line kept on screen after a scan finishes, until the sheet is dismissed.
@@ -439,6 +480,11 @@ struct ColdStorageDetailView: View {
         // that the notification-gated event above suppresses.
         .onReceive(NotificationCenter.default.publisher(for: .ownAddressUtxoActivity)) { _ in
             Task { await loadEntries() }
+        }
+        .sheet(item: $addressActionsTarget) { entry in
+            addressRowActionsSheet(entry)
+                .presentationDetents([.height(entry.balanceSompi == 0 ? 380 : 300)])
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showAddressActions) {
             addressActionsSheet
@@ -575,6 +621,69 @@ struct ColdStorageDetailView: View {
         .padding(.vertical, 8)
     }
 
+    /// The half sheet behind one address row's ellipsis, replacing the menu that was there.
+    private func addressRowActionsSheet(_ entry: ColdStorageAddressEntry) -> some View {
+        VStack(spacing: 12) {
+            VStack(spacing: 2) {
+                Text(entry.displayLabel)
+                    .font(.headline)
+                Text(entry.shortAddress)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 4)
+
+            ColdStorageActionRow(
+                title: "Rename Address",
+                subtitle: "Gives this address a label of your own.",
+                systemImage: "pencil"
+            ) {
+                addressActionsTarget = nil
+                DispatchQueue.main.async {
+                    renameText = entry.label ?? ""
+                    renameTarget = entry
+                }
+            }
+            ColdStorageActionRow(
+                title: "Copy Address",
+                subtitle: "Puts the full address on the clipboard.",
+                systemImage: "doc.on.doc"
+            ) {
+                UIPasteboard.general.string = entry.address
+                Haptics.success()
+                addressActionsTarget = nil
+                showToast(entry.address.addressCopiedToastText)
+            }
+            ColdStorageActionRow(
+                title: "Show QR Code",
+                subtitle: "Full screen, for scanning with another device.",
+                systemImage: "qrcode"
+            ) {
+                addressActionsTarget = nil
+                DispatchQueue.main.async { qrTarget = entry }
+            }
+            // Hide straight from the row - same effect as unchecking it in Address Visibility,
+            // without opening that screen. Same guard as the checklist: never a funded address
+            // (cold storage has no primary-address concept).
+            if entry.balanceSompi == 0 {
+                ColdStorageActionRow(
+                    title: "Hide Address",
+                    subtitle: "Removes it from this list. Re-enable it in Address Visibility.",
+                    systemImage: "eye.slash",
+                    tint: .orange
+                ) {
+                    addressActionsTarget = nil
+                    hideAddress(entry)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
     /// The half sheet behind "Address Actions".
     ///
     /// Discovery reports its position as it walks, and that lands HERE rather than dismissing:
@@ -608,20 +717,21 @@ struct ColdStorageDetailView: View {
                 .padding(.vertical, 24)
             } else {
                 VStack(spacing: 12) {
-                    actionRow(
+                    ColdStorageActionRow(
                         title: "Generate More Addresses",
                         subtitle: "Reveals the next unused address in this account.",
                         systemImage: "plus.circle",
-                        isBusy: isGenerating
+                        isBusy: isGenerating,
+                        isDisabled: isDiscovering
                     ) {
                         generateMore()
                         showAddressActions = false
                     }
-                    actionRow(
+                    ColdStorageActionRow(
                         title: "Discover Addresses",
-                        subtitle: "Scans the account for addresses that have been used before.",
+                        subtitle: "Finds addresses holding a balance or a KNS domain.",
                         systemImage: "magnifyingglass",
-                        isBusy: false
+                        isDisabled: isDiscovering
                     ) {
                         discoverAddresses()
                     }
@@ -644,39 +754,6 @@ struct ColdStorageDetailView: View {
         .onDisappear { discoverySummary = nil }
     }
 
-    private func actionRow(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        isBusy: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(.accentColor)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundColor(.primary)
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.leading)
-                }
-                Spacer(minLength: 0)
-                if isBusy { ProgressView().controlSize(.small) }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(glassBackground(cornerRadius: 16))
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .disabled(isBusy || isDiscovering)
-    }
 
     private func addressRow(_ entry: ColdStorageAddressEntry) -> some View {
         let isUsed = entry.everUsed || entry.balanceSompi > 0
@@ -717,43 +794,18 @@ struct ColdStorageDetailView: View {
 
                 Spacer()
 
-                Menu {
-                    Button {
-                        renameText = entry.label ?? ""
-                        renameTarget = entry
-                    } label: {
-                        Label("Rename Address", systemImage: "pencil")
-                    }
-                    Button {
-                        UIPasteboard.general.string = entry.address
-                        Haptics.success()
-                        showToast(entry.address.addressCopiedToastText)
-                    } label: {
-                        Label("Copy Address", systemImage: "doc.on.doc")
-                    }
-                    Button {
-                        qrTarget = entry
-                    } label: {
-                        Label("Show QR Code", systemImage: "qrcode")
-                    }
-                    // Hide straight from the row - same effect as unchecking it in Address
-                    // Visibility, without opening that sheet. Same guard as the checklist:
-                    // never a funded address (cold storage has no primary-address concept).
-                    if entry.balanceSompi == 0 {
-                        Button {
-                            hideAddress(entry)
-                        } label: {
-                            Label("Hide Address", systemImage: "eye.slash")
-                        }
-                    }
+                Button {
+                    Haptics.impact(.light)
+                    addressActionsTarget = entry
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 18, weight: .bold))
                         .rotationEffect(.degrees(90))
                         .foregroundColor(.secondary)
                         .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
-                .tint(.accentColor)
+                .buttonStyle(.plain)
             }
             .padding(16)
         }
@@ -2614,6 +2666,48 @@ private struct ColdStorageAddressVisibilityView: View {
                 }
             }
         }
+    }
+}
+
+/// One row in a cold-storage half sheet: icon, title, a line saying what it does.
+///
+/// Shared by all three of them - the account menu, the per-address menu and Address Actions - so
+/// converting those menus to sheets did not produce three subtly different lists.
+private struct ColdStorageActionRow: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    var tint: Color = .accentColor
+    var isBusy: Bool = false
+    var isDisabled: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(tint)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(tint == .accentColor ? .primary : tint)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                if isBusy { ProgressView().controlSize(.small) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(glassBackground(cornerRadius: 16))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy || isDisabled)
     }
 }
 
