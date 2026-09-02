@@ -146,6 +146,7 @@ struct GroupChatDetailView: View {
     @State private var pendingPhotoOriginalData: Data?
     @State private var isSendingPhoto = false
     @State private var showNextcloudPicker = false
+    @State private var showPlusSheet = false
     /// Drives the connected-state composer layout, mirroring 1:1 chat's `ChatDetailView`: with a
     /// Nextcloud server linked, the + menu drops Send Photo / Send Audio in favor of "Send from
     /// Nextcloud", and the message bar's camera/mic captures ride the Nextcloud auto-upload path.
@@ -1135,32 +1136,61 @@ struct GroupChatDetailView: View {
     /// (see file doc).
     /// Mentioning someone is no longer here - type "@" in the composer instead, see
     /// `mentionSuggestions`.
-    private var plusMenu: some View {
-        Menu {
+    /// The composer's "+" options, as a half sheet - each with a line saying what it does.
+    /// Mirrors 1:1's composerPlusSheet.
+    private var plusSheet: some View {
+        VStack(spacing: 12) {
+            Text("Send")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+
             // With "Send Media via Nextcloud" toggled on, the composer bar's own camera/mic
-            // buttons cover native capture (uploading via the server), so the menu offers only
-            // the server browser. Toggle off keeps the classic Send Photo / Send Audio entries
-            // (plus the browser row whenever a server is connected). Mirrors 1:1's composerPlusMenu.
+            // buttons cover native capture (uploading via the server), so this offers only the
+            // server browser. Toggle off keeps the classic Send Photo / Send Audio entries.
             if nextcloudService.isConnected {
-                Button {
-                    showNextcloudPicker = true
-                } label: {
-                    Label("Send from Nextcloud", systemImage: "externaldrive.connected.to.line.below")
+                ActionSheetRow(
+                    title: "Send from Nextcloud",
+                    subtitle: "Pick a file from your connected server.",
+                    systemImage: "externaldrive.connected.to.line.below"
+                ) {
+                    showPlusSheet = false
+                    DispatchQueue.main.async { showNextcloudPicker = true }
                 }
             }
             if !(nextcloudService.isConnected && nextcloudService.mediaSendEnabled) {
-                Button {
-                    showPhotoPicker = true
-                } label: {
-                    Label("Send Photo", systemImage: "photo")
+                ActionSheetRow(
+                    title: "Send Photo",
+                    subtitle: "Pick an image from your library.",
+                    systemImage: "photo"
+                ) {
+                    showPlusSheet = false
+                    DispatchQueue.main.async { showPhotoPicker = true }
                 }
-                Button {
+                ActionSheetRow(
+                    title: "Send Audio Message",
+                    subtitle: "Record a voice message and send it to the group.",
+                    systemImage: "mic.circle.fill"
+                ) {
+                    showPlusSheet = false
                     feeEstimateSompi = nil
                     recorder.start()
-                } label: {
-                    Label("Send Audio Message", systemImage: "mic.circle.fill")
                 }
             }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(320)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var plusMenu: some View {
+        Button {
+            Haptics.impact(.light)
+            showPlusSheet = true
         } label: {
             Image(systemName: "plus")
                 .font(.title3)
@@ -1168,8 +1198,9 @@ struct GroupChatDetailView: View {
                 .frame(width: 44, height: 44)
                 .background(glassBackground(cornerRadius: 14))
         }
-        .tint(.accentColor)
+        .buttonStyle(.plain)
         .accessibilityLabel(Text("More options"))
+        .sheet(isPresented: $showPlusSheet) { plusSheet }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
         .sheet(isPresented: $showNextcloudPicker) {
             NextcloudPickerView { url, _ in

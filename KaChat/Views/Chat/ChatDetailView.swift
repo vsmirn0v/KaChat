@@ -78,6 +78,7 @@ struct ChatDetailView: View {
     /// Presents the time-control picker step between tapping "Play Chess" and actually sending
     /// the invite - see `composerPlusMenu`'s confirmation dialog.
     @State private var showChessTimeControlPicker = false
+    @State private var showComposerPlusSheet = false
     @State private var previousMessagesCount = 0
     @State private var lastMessageSnapshotDigest: Int?
     @State private var snapshotRebuildTask: Task<Void, Never>?
@@ -746,21 +747,7 @@ struct ChatDetailView: View {
                 ConnectionStatusIndicator()
             }
             ToolbarItem(placement: .principal) {
-                Button {
-                    showChatInfo = true
-                } label: {
-                    VStack(spacing: 2) {
-                        KNSAvatarView(
-                            avatarURLString: knsService.profileCache[contact.address]?.avatarURL,
-                            fallbackText: contact.alias,
-                            size: 36,
-                            contactAddress: contact.address
-                        )
-                        Text(contact.alias)
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                    }
-                }
+                chatTitleChip
             }
             if let activeChessGame, !isSelectingMessages {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -1736,46 +1723,50 @@ struct ChatDetailView: View {
     /// Android 3.0's "+" composer menu (Pay in Kaspa / Photo / Audio Message / Send Handshake),
     /// replacing the old row of always-visible quick-action pills + a separate standalone photo
     /// button that used to clutter this same spot.
+    /// The chat's title: avatar and name as one tappable chip into Chat Info.
+    ///
+    /// It was a VStack - a 36pt avatar with the name underneath - which is taller than the
+    /// navigation bar gives a principal item, so the avatar was drawn clipped at the top and
+    /// only settled once the bar re-laid out. Side by side fits the bar's height, which lets the
+    /// avatar be BIGGER rather than smaller, and the glass capsule is what says "this is a
+    /// button" - iMessage's header has the same affordance.
+    private var chatTitleChip: some View {
+        Button {
+            showChatInfo = true
+        } label: {
+            HStack(spacing: 8) {
+                KNSAvatarView(
+                    avatarURLString: knsService.profileCache[contact.address]?.avatarURL,
+                    fallbackText: contact.alias,
+                    size: 30,
+                    contactAddress: contact.address
+                )
+                Text(contact.alias)
+                    .font(.headline)
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.leading, 4)
+            .padding(.trailing, 10)
+            .padding(.vertical, 3)
+            .background(
+                Capsule()
+                    .fill(.regularMaterial)
+                    .overlay(Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
+            )
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Chat info for \(contact.alias)"))
+    }
+
     private var composerPlusMenu: some View {
-        Menu {
-            // With "Send Media via Nextcloud" toggled on, the composer bar's own camera/mic
-            // buttons cover native capture (uploading via the server), so the menu offers only
-            // the server browser. Toggle off keeps the classic Send Photo / Send Audio entries
-            // (plus the browser row whenever a server is connected).
-            if nextcloudService.isConnected {
-                Button {
-                    showNextcloudPicker = true
-                } label: {
-                    Label("Send from Nextcloud", systemImage: "externaldrive.connected.to.line.below")
-                }
-            }
-            if !(nextcloudService.isConnected && nextcloudService.mediaSendEnabled) {
-                Button {
-                    showPhotoPickerFromMenu = true
-                } label: {
-                    Label("Send Photo", systemImage: "photo")
-                }
-                Button {
-                    switchMode(.audio)
-                    startRecording()
-                } label: {
-                    Label("Send Audio Message", systemImage: "mic.circle.fill")
-                }
-            }
-            // Send Kaspa left this menu: the Kaspa logo inside the input bubble is the
-            // one entry point to payment mode now.
-            Button {
-                showChessTimeControlPicker = true
-            } label: {
-                Label("Play Chess", systemImage: "checkerboard.rectangle")
-            }
-            if canSendRequestToCommunicate {
-                Button {
-                    sendHandshake()
-                } label: {
-                    Label("Send Handshake", systemImage: "hand.wave")
-                }
-            }
+        Button {
+            Haptics.impact(.light)
+            showComposerPlusSheet = true
         } label: {
             Image(systemName: "plus")
                 .font(.body)
@@ -1783,8 +1774,9 @@ struct ChatDetailView: View {
                 .frame(width: 36, height: 36)
                 .background(glassBackground(cornerRadius: 12))
         }
-        .tint(.accentColor)
+        .buttonStyle(.plain)
         .accessibilityLabel(Text("More options"))
+        .sheet(isPresented: $showComposerPlusSheet) { composerPlusSheet }
         // Second step after "Play Chess": pick a time control. The blitz presets send the tc
         // fields on the invite; "Casual" omits them entirely, which is the exact legacy wire
         // shape - so casual games with old-version contacts stay byte-compatible.
@@ -1819,6 +1811,81 @@ struct ChatDetailView: View {
             }
         }
     }
+
+    /// The composer's "+" options, as a half sheet - each with a line saying what it does.
+    private var composerPlusSheet: some View {
+        VStack(spacing: 12) {
+            // With "Send Media via Nextcloud" toggled on, the composer bar's own camera/mic
+            // buttons cover native capture (uploading via the server), so the menu offers only
+            // the server browser. Toggle off keeps the classic Send Photo / Send Audio entries
+            // (plus the browser row whenever a server is connected).
+            Text("Send")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+
+            // With "Send Media via Nextcloud" toggled on, the composer bar's own camera/mic
+            // buttons cover native capture (uploading via the server), so this offers only the
+            // server browser. Toggle off keeps the classic Send Photo / Send Audio entries.
+            if nextcloudService.isConnected {
+                ActionSheetRow(
+                    title: "Send from Nextcloud",
+                    subtitle: "Pick a file from your connected server.",
+                    systemImage: "externaldrive.connected.to.line.below"
+                ) {
+                    showComposerPlusSheet = false
+                    DispatchQueue.main.async { showNextcloudPicker = true }
+                }
+            }
+            if !(nextcloudService.isConnected && nextcloudService.mediaSendEnabled) {
+                ActionSheetRow(
+                    title: "Send Photo",
+                    subtitle: "Pick an image from your library.",
+                    systemImage: "photo"
+                ) {
+                    showComposerPlusSheet = false
+                    DispatchQueue.main.async { showPhotoPickerFromMenu = true }
+                }
+                ActionSheetRow(
+                    title: "Send Audio Message",
+                    subtitle: "Record a voice message and send it.",
+                    systemImage: "mic.circle.fill"
+                ) {
+                    showComposerPlusSheet = false
+                    switchMode(.audio)
+                    startRecording()
+                }
+            }
+            // Send Kaspa left this menu: the Kaspa logo inside the input bubble is the
+            // one entry point to payment mode now.
+            ActionSheetRow(
+                title: "Play Chess",
+                subtitle: "Invite this contact to a game on chain.",
+                systemImage: "checkerboard.rectangle"
+            ) {
+                showComposerPlusSheet = false
+                DispatchQueue.main.async { showChessTimeControlPicker = true }
+            }
+            if canSendRequestToCommunicate {
+                ActionSheetRow(
+                    title: "Send Handshake",
+                    subtitle: "Asks to open an encrypted conversation.",
+                    systemImage: "hand.wave"
+                ) {
+                    showComposerPlusSheet = false
+                    sendHandshake()
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(420)])
+        .presentationDragIndicator(.visible)
+    }
+
 
     private var shouldShowDesktopEmojiButton: Bool {
         !isDeclined
