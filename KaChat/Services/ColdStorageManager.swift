@@ -171,7 +171,6 @@ final class ColdStorageManager: ObservableObject {
     /// Scans forward from index 0, stopping after `gapLimit` consecutive never-used
     /// addresses, and raises maxAddressIndex to cover every used address found. Sequential
     /// by design, matching WalletManager.discoverSpendingAddresses' rate-limit reasoning.
-    @discardableResult
     /// Scan progress: the index being checked, and how many used addresses have been found.
     ///
     /// Discovery walks addresses one at a time until it has seen `gapLimit` unused ones in a row,
@@ -182,6 +181,7 @@ final class ColdStorageManager: ObservableObject {
         let foundCount: Int
     }
 
+    @discardableResult
     func discoverAddresses(
         for account: ColdStorageAccount,
         gapLimit: Int = 20,
