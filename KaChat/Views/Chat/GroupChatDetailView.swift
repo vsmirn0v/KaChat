@@ -68,6 +68,8 @@ struct GroupChatDetailView: View {
     @State private var showDeleteMessagesConfirmation = false
     @State private var errorMessage: String?
     @State private var toastMessage: String?
+    /// Message whose reactor list is on screen, by txId.
+    @State private var reactionsSheetTarget: ReactionsSheetTarget?
     /// Mirrors `ChatDetailView.toastStyle` - the Nextcloud upload-failure toast renders as an
     /// error, everything else keeps the success look the modifier previously hardcoded.
     @State private var toastStyle: ToastStyle = .success
@@ -576,6 +578,14 @@ struct GroupChatDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This only deletes the message from this device - other members still have their own copy, and the encrypted transaction remains permanently on the Kaspa blockchain, visible to anyone but unreadable without your keys. This cannot be undone.")
+        }
+        .sheet(item: $reactionsSheetTarget) { target in
+            ReactionsSheet(
+                entries: (groupChatService.reactionsByGroupId[group.id]?[target.txId] ?? [])
+                    .map { ReactionsSheet.Entry(emoji: $0.emoji, reactorAddress: $0.reactorAddress) },
+                myAddress: myAddress ?? "",
+                displayName: { displayName(for: $0) }
+            )
         }
         .sheet(isPresented: $showInfo) {
             GroupChatInfoView(group: group, onDeleted: {
@@ -1751,6 +1761,7 @@ struct GroupChatDetailView: View {
             onSelect: { enterSelectMode(with: message.txId) },
             reactions: groupChatService.reactionsByGroupId[group.id]?[message.txId] ?? [],
             myReactorAddress: myAddress ?? "",
+            onShowReactions: { reactionsSheetTarget = ReactionsSheetTarget(txId: message.txId) },
             onRetryReaction: { reaction in
                 Task {
                     try? await groupChatService.retryGroupReaction(targetTxId: reaction.targetTxId, groupId: group.id, emoji: reaction.emoji, action: reaction.failedAction ?? "add")
@@ -1873,6 +1884,9 @@ private struct GroupMessageBubbleRow: View {
     var myReactorAddress: String = ""
     /// Retries the local user's failed reaction on this message (nil disables the reaction Retry).
     var onRetryReaction: ((GroupStore.ReactionSnapshot) -> Void)? = nil
+    /// Opens the list of who reacted. Offered from the long-press menu only when there are
+    /// reactions to show.
+    var onShowReactions: (() -> Void)? = nil
     /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
     /// entirely (matches 1:1 chat's `MessageBubbleView.onReact`).
     var onReact: ((String) -> Void)?
@@ -2184,6 +2198,16 @@ private struct GroupMessageBubbleRow: View {
                             if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
                                 Link(destination: url) {
                                     Label("View in Explorer", systemImage: "safari")
+                                }
+                            }
+                            // The pill shows WHICH emoji are on the bubble; it has no room to
+                            // say how many or from whom. In a group that is the interesting
+                            // question.
+                            if !reactions.isEmpty, let onShowReactions {
+                                Button {
+                                    onShowReactions()
+                                } label: {
+                                    Label("Reactions (\(reactions.count))", systemImage: "heart")
                                 }
                             }
                             if shouldShowRetry {

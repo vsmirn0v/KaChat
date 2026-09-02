@@ -16,6 +16,9 @@ struct MessageBubbleView: View {
     let onRetry: ((ChatMessage) -> Void)?
     /// Retries the local user's failed reaction on this message (nil disables the reaction Retry).
     var onRetryReaction: ((MessageStore.ReactionSnapshot) -> Void)? = nil
+    /// Opens the list of who reacted. Offered from the long-press menu only when there are
+    /// reactions to show.
+    var onShowReactions: (() -> Void)? = nil
     let onAcceptHandshake: (() -> Void)?
     let onDeclineHandshake: (() -> Void)?
     /// Parsed reply envelope, if `message.content` is a reply - matches broadcast rooms'
@@ -517,6 +520,16 @@ struct MessageBubbleView: View {
                 if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.txId) {
                     Link(destination: url) {
                         Label("View in Explorer", systemImage: "safari")
+                    }
+                }
+
+                // The pill on the bubble shows WHICH emoji are on it; it has no room to say how
+                // many or from whom. This does.
+                if !reactions.isEmpty, let onShowReactions {
+                    Button {
+                        onShowReactions()
+                    } label: {
+                        Label("Reactions (\(reactions.count))", systemImage: "heart")
                     }
                 }
 

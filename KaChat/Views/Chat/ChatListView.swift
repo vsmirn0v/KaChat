@@ -655,11 +655,14 @@ struct ChatListView: View {
                         GroupChatRow(group: group)
                     }
                     .buttonStyle(ChatRowPressStyle())
-                    .onLongPressGesture {
-                        guard editMode != .active else { return }
-                        Haptics.impact(.medium)
-                        groupActionTarget = group
-                    }
+                    // See the conversation row: a Button label needs simultaneousGesture.
+                    .simultaneousGesture(
+                        LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                            guard editMode != .active else { return }
+                            Haptics.impact(.medium)
+                            groupActionTarget = group
+                        }
+                    )
                     .tag(group.id)
                     .listRowBackground(
                         shouldUseSplitLayout && selectedGroup?.id == group.id
@@ -739,11 +742,18 @@ struct ChatListView: View {
                     // A sheet, not a context menu: the options each carry a line saying what
                     // they do, and "Silence" needs one - it is not obvious that it survives the
                     // app-wide notification setting.
-                    .onLongPressGesture {
-                        guard editMode != .active else { return }
-                        Haptics.impact(.medium)
-                        conversationActionTarget = conversation
-                    }
+                    //
+                    // `.simultaneousGesture`, not `.onLongPressGesture`: the row's label IS a
+                    // Button, and a discrete gesture attached outside it loses the race to the
+                    // Button every time - the press did nothing at all. Same reason the message
+                    // bubbles use simultaneousGesture for their double-tap.
+                    .simultaneousGesture(
+                        LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                            guard editMode != .active else { return }
+                            Haptics.impact(.medium)
+                            conversationActionTarget = conversation
+                        }
+                    )
                     .tag(conversation.contact.id)
                     .listRowBackground(
                         shouldUseSplitLayout && selectedContact?.address == conversation.contact.address

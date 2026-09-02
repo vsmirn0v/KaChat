@@ -30,6 +30,8 @@ struct ChatDetailView: View {
     @State private var showDeleteMessagesConfirmation = false
     @State private var reactiveReadMarkPending = false
     @State private var toastMessage: String?
+    /// Message whose reactor list is on screen, by txId.
+    @State private var reactionsSheetTarget: ReactionsSheetTarget?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
 
@@ -806,6 +808,16 @@ struct ChatDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This only deletes the message from this device - the recipient still has their own copy, and the encrypted transaction remains permanently on the Kaspa blockchain, visible to anyone but unreadable without your keys. This cannot be undone.")
+        }
+        .sheet(item: $reactionsSheetTarget) { target in
+            // In a 1:1 chat there are only ever two people, so the name is either yours or
+            // theirs - no roster lookup needed.
+            ReactionsSheet(
+                entries: (chatService.reactionsByTxId[target.txId] ?? [])
+                    .map { ReactionsSheet.Entry(emoji: $0.emoji, reactorAddress: $0.reactorAddress) },
+                myAddress: walletManager.currentWallet?.publicAddress ?? "",
+                displayName: { _ in contact.alias }
+            )
         }
         .sheet(isPresented: $showChatInfo) {
             ChatInfoView(contact: $contact)
@@ -2817,6 +2829,7 @@ struct ChatDetailView: View {
             onSelect: { enterSelectMode(with: message.txId) },
             reactions: chatService.reactionsByTxId[message.txId] ?? [],
             myReactorAddress: walletManager.currentWallet?.publicAddress ?? "",
+            onShowReactions: { reactionsSheetTarget = ReactionsSheetTarget(txId: message.txId) },
             onReact: { emoji in
                 let myAddress = walletManager.currentWallet?.publicAddress ?? ""
                 let existing = chatService.reactionsByTxId[message.txId]?.first { $0.reactorAddress == myAddress }

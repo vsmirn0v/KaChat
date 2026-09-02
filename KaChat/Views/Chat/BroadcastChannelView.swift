@@ -130,8 +130,9 @@ struct BroadcastChannelView: View {
         navigation
         .toast(message: toastMessage, style: .success)
         .sheet(item: $reactionsSheetTarget) { target in
-            BroadcastReactionsSheet(
-                reactions: broadcastService.reactions(forChannel: channelName)[target.txId] ?? [],
+            ReactionsSheet(
+                entries: (broadcastService.reactions(forChannel: channelName)[target.txId] ?? [])
+                    .map { ReactionsSheet.Entry(emoji: $0.emoji, reactorAddress: $0.reactorAddress) },
                 myAddress: myAddress ?? "",
                 displayName: { displayName(for: $0) }
             )
@@ -1078,65 +1079,6 @@ private struct BroadcastRoomTitleButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Room info for #" + channelName)
-    }
-}
-
-/// Identifiable wrapper so a plain txId can drive `.sheet(item:)`.
-private struct ReactionsSheetTarget: Identifiable {
-    let txId: String
-    var id: String { txId }
-}
-
-/// Who reacted to one broadcast message, and with what.
-///
-/// The pill on a bubble shows which emoji are on it and nothing else - not how many of each, and
-/// not from whom. In a room open to anyone, that second question is the interesting one, so a
-/// long press on a message carrying reactions offers this.
-private struct BroadcastReactionsSheet: View {
-    let reactions: [GroupStore.ReactionSnapshot]
-    let myAddress: String
-    let displayName: (String) -> String
-
-    /// One emoji and everyone who used it. A named type, not a tuple: an array of labelled
-    /// tuples built by a chained map/sorted is one of the more expensive things to ask the Swift
-    /// type checker to infer, and this file has a budget problem already.
-    private struct EmojiGroup: Identifiable {
-        let emoji: String
-        let reactors: [GroupStore.ReactionSnapshot]
-        var id: String { emoji }
-    }
-
-    /// Grouped by emoji, most-reacted first, so "12 people" reads before the names.
-    private var grouped: [EmojiGroup] {
-        let byEmoji: [String: [GroupStore.ReactionSnapshot]] = Dictionary(grouping: reactions, by: { $0.emoji })
-        let groups: [EmojiGroup] = byEmoji.map { EmojiGroup(emoji: $0.key, reactors: $0.value) }
-        return groups.sorted { $0.reactors.count > $1.reactors.count }
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                ForEach(grouped) { group in
-                    Section {
-                        ForEach(group.reactors) { reaction in
-                            Text(reaction.reactorAddress == myAddress ? "You" : displayName(reaction.reactorAddress))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    } header: {
-                        HStack(spacing: 8) {
-                            Text(group.emoji)
-                                .font(.title3)
-                            Text(group.reactors.count == 1 ? "1 person" : "\(group.reactors.count) people")
-                        }
-                    }
-                }
-            }
-            .navigationTitle(reactions.count == 1 ? "1 Reaction" : "\(reactions.count) Reactions")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
     }
 }
 

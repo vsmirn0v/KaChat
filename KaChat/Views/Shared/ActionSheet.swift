@@ -138,6 +138,68 @@ struct RenameSheet: View {
     }
 }
 
+/// Who reacted to one message, and with what.
+///
+/// The pill on a bubble shows which emoji are on it and nothing else - not how many of each, and
+/// not from whom. Shared by 1:1, group and broadcast messages, which each carry their own
+/// reaction snapshot type; callers map theirs into `Entry`.
+struct ReactionsSheet: View {
+    struct Entry: Identifiable {
+        let emoji: String
+        let reactorAddress: String
+        var id: String { "\(emoji)-\(reactorAddress)" }
+    }
+
+    let entries: [Entry]
+    let myAddress: String
+    let displayName: (String) -> String
+
+    /// One emoji and everyone who used it. A named type, not a tuple: an array of labelled
+    /// tuples built by a chained map/sorted is expensive for the type checker to infer.
+    private struct EmojiGroup: Identifiable {
+        let emoji: String
+        let reactors: [Entry]
+        var id: String { emoji }
+    }
+
+    private var grouped: [EmojiGroup] {
+        let byEmoji: [String: [Entry]] = Dictionary(grouping: entries, by: { $0.emoji })
+        let groups: [EmojiGroup] = byEmoji.map { EmojiGroup(emoji: $0.key, reactors: $0.value) }
+        return groups.sorted { $0.reactors.count > $1.reactors.count }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(grouped) { group in
+                    Section {
+                        ForEach(group.reactors) { entry in
+                            Text(entry.reactorAddress == myAddress ? "You" : displayName(entry.reactorAddress))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    } header: {
+                        HStack(spacing: 8) {
+                            Text(group.emoji).font(.title3)
+                            Text(group.reactors.count == 1 ? "1 person" : "\(group.reactors.count) people")
+                        }
+                    }
+                }
+            }
+            .navigationTitle(entries.count == 1 ? "1 Reaction" : "\(entries.count) Reactions")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+/// Identifiable wrapper so a plain txId can drive `.sheet(item:)`.
+struct ReactionsSheetTarget: Identifiable {
+    let txId: String
+    var id: String { txId }
+}
+
 /// So the transaction menu can be presented with `.sheet(item:)`. A txid is already the identity
 /// of a transaction, and the property is computed, so it stays out of the Codable synthesis.
 extension KaspaFullTransactionResponse: Identifiable {
