@@ -287,6 +287,17 @@ struct BroadcastChannelView: View {
                         .onAppear {
                             scrollToBottom(using: proxy, animated: false)
                         }
+                        // Tapping into the composer scrolls to the newest message rather than
+                        // letting the keyboard rise over wherever you happened to be reading.
+                        // You opened the composer to reply to the room as it stands now.
+                        .onChange(of: isMessageFocused) { focused in
+                            guard focused else { return }
+                            // A turn later: the keyboard is still animating up, and the list has
+                            // not been resized yet, so scrolling now lands short of the bottom.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                                scrollToBottom(using: proxy, animated: true)
+                            }
+                        }
                         // Same interactive drag-down keyboard dismissal as ChatDetailView - the
                         // room's keyboard had no way down other than sending a message.
                         .scrollDismissesKeyboard(.interactively)

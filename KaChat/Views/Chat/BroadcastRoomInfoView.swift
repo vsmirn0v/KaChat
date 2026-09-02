@@ -10,10 +10,19 @@ struct BroadcastRoomInfoView: View {
     let channelName: String
 
     @EnvironmentObject var broadcastService: BroadcastService
-    @Environment(\.dismiss) private var dismiss
 
     @State private var indexerText: String = ""
     @State private var toastMessage: String?
+
+    /// What the last Save attempt did. The point of testing is that a typo in an indexer URL is
+    /// otherwise silent - the room just stops filling in, with nothing to say why.
+    private enum IndexerCheck: Equatable {
+        case idle
+        case checking
+        case reachable(Int)
+        case failed(String)
+    }
+    @State private var indexerCheck: IndexerCheck = .idle
 
     private var normalized: String { BroadcastChannelName.normalize(channelName) }
 
@@ -127,7 +136,21 @@ struct BroadcastRoomInfoView: View {
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
                     .submitLabel(.done)
-                    .onSubmit(saveIndexer)
+                    .onSubmit { saveIndexer() }
+
+                indexerCheckRow
+
+                Button {
+                    saveIndexer()
+                } label: {
+                    HStack {
+                        Text("Save").fontWeight(.semibold)
+                        Spacer()
+                        if indexerCheck == .checking { ProgressView().controlSize(.small) }
+                    }
+                }
+                .disabled(indexerCheck == .checking || !indexerChanged)
+
                 if !indexerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Button("Use the app's indexer", role: .destructive) {
                         indexerText = ""
@@ -143,20 +166,49 @@ struct BroadcastRoomInfoView: View {
         }
         .navigationTitle("Room Info")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") {
-                    saveIndexer()
-                    dismiss()
-                }
-            }
-        }
         .toast(message: toastMessage, style: .success)
         .onAppear {
             indexerText = broadcastService.indexerOverride(forChannel: normalized)
         }
     }
 
+    /// Its own property: this switch inside the Form pushed the body past what the type checker
+    /// will spend on one expression.
+    @ViewBuilder
+    private var indexerCheckRow: some View {
+        switch indexerCheck {
+        case .idle:
+            EmptyView()
+        case .checking:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Checking the indexer...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        case .reachable(let count):
+            Label(
+                count == 0
+                    ? "Connected. It holds nothing for this room yet."
+                    : "Connected, and it has this room's messages.",
+                systemImage: "checkmark.circle.fill"
+            )
+            .font(.caption)
+            .foregroundColor(.green)
+        case .failed(let reason):
+            Label(reason, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundColor(.orange)
+        }
+    }
+
+    private var indexerChanged: Bool {
+        indexerText.trimmingCharacters(in: .whitespacesAndNewlines)
+            != broadcastService.indexerOverride(forChannel: normalized)
+    }
+
+    /// Saves the override, then asks the indexer for this room. A wrong URL is otherwise silent:
+    /// the room simply stops filling in, with nothing on screen to say why.
     private func saveIndexer() {
         let trimmed = indexerText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed != broadcastService.indexerOverride(forChannel: normalized) else { return }
@@ -164,5 +216,22 @@ struct BroadcastRoomInfoView: View {
         toastMessage = trimmed.isEmpty
             ? "This room follows the app's indexer again."
             : "Indexer updated for #\(normalized)."
+
+        // Whichever one the room now reads from - the override just saved, or the app-wide one
+        // a cleared field falls back to.
+        let target = trimmed.isEmpty ? appWideIndexer : trimmed
+        indexerCheck = .checking
+        Task {
+            do {
+                let page = try await BroadcastIndexerClient.fetchHistoryPage(
+                    baseURL: target,
+                    channel: normalized,
+                    limit: 1
+                )
+                indexerCheck = .reachable(page.messages.count)
+            } catch {
+                indexerCheck = .failed("Could not reach it: \(error.localizedDescription)")
+            }
+        }
     }
 }

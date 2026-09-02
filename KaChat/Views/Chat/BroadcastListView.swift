@@ -48,6 +48,7 @@ struct BroadcastListView: View {
 
     @State private var showJoinAlert = false
     @State private var joinFieldText = ""
+    @FocusState private var joinFieldFocused: Bool
     @State private var joinError: String?
     @State private var selectedChannel: String?
     @State private var channelToLeave: String?
@@ -139,15 +140,7 @@ struct BroadcastListView: View {
             }
         }
         .toast(message: toastMessage, style: .success)
-        .alert("Join or Create a Channel", isPresented: $showJoinAlert) {
-            TextField("channel-name", text: $joinFieldText)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            Button("Join") { join(joinFieldText) }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Anyone who joins the same channel name can see and post messages there - there's no owner or invite.")
-        }
+        .sheet(isPresented: $showJoinAlert) { joinChannelSheet }
         .alert("Couldn't Join Channel", isPresented: Binding(
             get: { joinError != nil },
             set: { if !$0 { joinError = nil } }
@@ -539,6 +532,80 @@ struct BroadcastListView: View {
     }
 
     @discardableResult
+    /// Joining and creating are the same action here - there is no ownership protocol, so a name
+    /// nobody has used yet becomes a room the moment you post in it. A sheet rather than an alert
+    /// because that is worth a sentence, and an alert's text field is a cramped afterthought.
+    private var joinChannelSheet: some View {
+        VStack(spacing: 12) {
+            Text("Join or Create a Channel")
+                .font(.headline)
+                .padding(.top, 20)
+
+            Text("Anyone who joins the same channel name can see and post messages there - there is no owner and no invite.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 4)
+
+            HStack(spacing: 4) {
+                Text("#")
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                TextField("channel-name", text: $joinFieldText)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.join)
+                    .focused($joinFieldFocused)
+                    .onSubmit { submitJoin() }
+            }
+            .padding(14)
+            .background(glassBackground(cornerRadius: 16))
+
+            HStack(spacing: 12) {
+                Button("Cancel") { showJoinAlert = false }
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundColor(.primary)
+                    .background(glassBackground(cornerRadius: 16))
+
+                Button("Join", action: submitJoin)
+                    .font(.subheadline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundColor(.black)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.accentColor.opacity(joinIsEmpty ? 0.4 : 1))
+                    )
+                    .disabled(joinIsEmpty)
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(300)])
+        .presentationDragIndicator(.visible)
+        // A turn later: the field does not exist yet on the tap that presented this.
+        .onAppear { DispatchQueue.main.async { joinFieldFocused = true } }
+    }
+
+    private var joinIsEmpty: Bool {
+        joinFieldText.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Closes first, then joins: `join` sets `joinError`, whose alert cannot present while this
+    /// sheet is still up.
+    private func submitJoin() {
+        guard !joinIsEmpty else { return }
+        let name = joinFieldText
+        showJoinAlert = false
+        DispatchQueue.main.async { _ = join(name) }
+    }
+
     private func join(_ rawName: String) -> Bool {
         let normalized = BroadcastChannelName.normalize(rawName)
         guard BroadcastChannelName.isValid(normalized) else {
@@ -553,6 +620,18 @@ struct BroadcastListView: View {
         Haptics.success()
         return true
     }
+}
+
+/// The app's frosted card. Every file that draws one carries its own file-private copy; this
+/// one is for the join sheet.
+private func glassBackground(cornerRadius: CGFloat) -> some View {
+    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        .fill(.regularMaterial)
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
 }
 
 /// `.navigationDestination(item:)` (iOS 17+) rather than `isPresented:` + a synthetic get/set
