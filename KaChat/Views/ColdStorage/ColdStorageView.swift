@@ -387,16 +387,9 @@ struct ColdStorageDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toast(message: toastMessage)
         .toolbar {
-            // Bulk visibility manager: compact checkmark list of EVERY address, so dozens can
-            // be toggled off the main list in one sitting (same tool as Manage Addresses).
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showVisibilityManager = true
-                } label: {
-                    Image(systemName: "checklist")
-                }
-                .accessibilityLabel(Text("Manage address visibility"))
-            }
+            // Address Visibility used to be an unlabelled checklist glyph up here. It is one of
+            // this account's address actions, so it lives with the others in the Address Actions
+            // sheet, where it has room to say what it does.
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     showDeleteConfirm = true
@@ -438,7 +431,8 @@ struct ColdStorageDetailView: View {
         }
         .sheet(isPresented: $showAddressActions) {
             addressActionsSheet
-                .presentationDetents([.height(320)])
+                // Three rows now that Address Visibility lives here.
+                .presentationDetents([.height(400)])
                 .presentationDragIndicator(.visible)
         }
         .sheet(item: $qrTarget) { entry in
@@ -684,6 +678,17 @@ struct ColdStorageDetailView: View {
                         isDisabled: isDiscovering
                     ) {
                         discoverAddresses()
+                    }
+                    ActionSheetRow(
+                        title: "Address Visibility",
+                        subtitle: "Check off every address you want on the list, in one sitting.",
+                        systemImage: "checklist",
+                        isDisabled: isDiscovering
+                    ) {
+                        showAddressActions = false
+                        // One runloop turn: presenting a sheet from inside one that is still
+                        // dismissing drops it.
+                        DispatchQueue.main.async { showVisibilityManager = true }
                     }
                     if let discoverySummary {
                         Text(discoverySummary)
