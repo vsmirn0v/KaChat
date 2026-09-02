@@ -470,7 +470,6 @@ struct BroadcastChannelView: View {
             onJumpToReply: jumpToReply,
             reactions: messageReactions,
             myReactorAddress: myAddress ?? "",
-            onShowReactions: { reactionsSheetTarget = ReactionsSheetTarget(txId: message.id) },
             onRetryReaction: { reaction in
                 Task {
                     try? await broadcastService.retryBroadcastReaction(
@@ -481,6 +480,7 @@ struct BroadcastChannelView: View {
                     )
                 }
             },
+            onShowReactions: { reactionsSheetTarget = ReactionsSheetTarget(txId: message.id) },
             onReact: { emoji in
                 let existing = broadcastService.reactions(forChannel: channelName)[message.id]?
                     .first { $0.reactorAddress == myAddress }
