@@ -525,6 +525,11 @@ private struct AddPortfolioAddressSheet: View {
                     .disabled(!canImport || isImporting)
                 }
             }
+            // A half sheet, and it STAYS one while the import runs - the progress replaces the
+            // field in place rather than handing off to another screen. Expandable because the
+            // KNS resolution line and the footer both grow.
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
             .sheet(isPresented: $showQRScanner) {
                 QRScannerView { code in
                     handleScannedQRCode(code)
