@@ -2890,6 +2890,12 @@ struct ConnectionStatusDetailView: View {
             .task {
                 await refreshNodeRecordsContinuously()
             }
+            // No pull to refresh here. This view never asked for one - it inherits the
+            // presenter's, because a sheet inherits the presenting view's environment and a
+            // List picks `\.refresh` up out of it. So the dot opened from Chats, Contacts,
+            // Cold Storage, Portfolio or KaPosts showed a refresh control that ran THAT page's
+            // reload. Reconnect, in Actions, is the button that refreshes the connection.
+            .environment(\.refresh, nil)
         }
     }
 
