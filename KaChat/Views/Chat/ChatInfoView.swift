@@ -22,6 +22,13 @@ struct ChatInfoView: View {
 
     @State private var editedAlias: String = ""
     @State private var notificationModeOverride: ContactNotificationMode? = nil
+    /// Which section's half sheet is up.
+    @State private var activeSheet: InfoSheet?
+
+    private enum InfoSheet: String, Identifiable {
+        case address, domains, aliases, systemContact, notifications, photos, info
+        var id: String { rawValue }
+    }
     @State private var photoAutoDisplayOverride: PhotoAutoDisplayMode? = nil
     @State private var showAvatarPreview = false
     @State private var moreInfoExpanded = false
@@ -270,216 +277,74 @@ struct ChatInfoView: View {
                 }
 
                 Section {
-                    Button {
-                        UIPasteboard.general.string = contact.address
-                        Haptics.success()
-                        showToast(contact.address.addressCopiedToastText)
-                    } label: {
-                        VStack(spacing: 12) {
-                            if let qrImage = makeQRCodeImage(from: contact.address) {
-                                Image(uiImage: qrImage)
-                                    .interpolation(.none)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 180, height: 180)
-                                    .padding(12)
-                                    .background(Color.white)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .stroke(Color.accentColor, lineWidth: 2)
-                                    )
-                            }
-                            Text(contact.address)
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.plain)
-                } header: {
-                    HStack {
-                        Text("Address")
-                        Spacer()
-                        if let url = settingsViewModel.settings.kaspaExplorer.addressURL(for: contact.address) {
-                            Link("View in Explorer", destination: url)
-                                .font(.caption)
-                                .foregroundColor(.accentColor)
-                        }
-                    }
-                }
+                    // Each section is a card that opens a half sheet. The form had grown to
+                    // seven stacked sections - a QR, a domain list, alias reveals, system
+                    // contact linking, two pickers and a stats block - which is a lot of screen
+                    // to scroll past to reach any one of them.
+                    infoCard(
+                        "Address",
+                        subtitle: contact.address.count > 20
+                            ? "\(contact.address.prefix(14))...\(contact.address.suffix(6))"
+                            : contact.address,
+                        systemImage: "qrcode"
+                    ) { activeSheet = .address }
 
-                // One row into a dedicated screen rather than the full list inline: an address
-                // that owns a few dozen domains pushed everything below it - the aliases, the
-                // media and privacy controls - far enough down the form to be hard to reach.
-                // Data still comes from the same KNSService address-info cache the rest of the
-                // screen reads (`knsInfo`/`knsDomains`), so opening the screen costs no fetch.
-                Section {
-                    NavigationLink {
-                        ContactDomainsView(
-                            domains: sortedKNSDomains,
-                            isPrimary: isPrimaryDomain,
-                            hasExplicitPrimary: hasExplicitPrimaryDomain,
-                            onCopy: { copyProfileFieldValue($0, fieldName: "Domain") }
-                        )
-                    } label: {
-                        HStack {
-                            Text("Domains")
-                            Spacer()
-                            if !knsDomains.isEmpty {
-                                Text("\(knsDomains.count)")
-                                    .foregroundColor(.secondary)
-                            } else if knsDomainsLoaded {
-                                Text("None")
-                                    .foregroundColor(.secondary)
-                            } else {
-                                ProgressView().controlSize(.small)
-                            }
-                        }
-                    }
-                    // Nothing to open until the lookup has produced something.
+                    infoCard(
+                        "KNS Domains",
+                        subtitle: knsDomains.isEmpty
+                            ? (knsDomainsLoaded ? "None" : "Loading...")
+                            : "\(knsDomains.count)",
+                        systemImage: "at"
+                    ) { activeSheet = .domains }
                     .disabled(knsDomains.isEmpty)
-                } footer: {
-                    Text("Kaspa Name Service domains owned by this address.")
-                }
 
-                // This conversation's deterministic pair aliases (DeterministicAlias, ECDH +
-                // HKDF, 12 hex chars). Direction semantics match ChatService's routing state:
-                // deriveMyAlias = deterministicMyAlias = incoming/watch (the alias messages
-                // FROM this contact carry, what we watch for), deriveTheirAlias =
-                // deterministicTheirAlias = outgoing/send (the alias OUR messages to them
-                // carry). Hidden behind dots until tapped; keys are only touched on demand.
-                Section {
-                    aliasRow("Receiving alias", value: $revealedReceivingAlias) {
-                        guard let key = walletManager.getPrivateKey() else { return nil }
-                        return try? DeterministicAlias.deriveMyAlias(privateKey: key, theirAddress: contact.address)
-                    }
-                    aliasRow("Sending alias", value: $revealedSendingAlias) {
-                        guard let key = walletManager.getPrivateKey() else { return nil }
-                        return try? DeterministicAlias.deriveTheirAlias(privateKey: key, theirAddress: contact.address)
-                    }
-                } header: {
-                    Text("Aliases")
-                } footer: {
-                    Text("These identify this conversation's messages on the network. Receiving is the alias on messages this contact sends you. Sending is the alias on messages you send them. Useful when building tools that message this chat.")
-                }
+                    infoCard(
+                        "Aliases",
+                        subtitle: "How this chat is addressed on chain",
+                        systemImage: "number"
+                    ) { activeSheet = .aliases }
 
-                Section("System Contact") {
-                    if hasUserVisibleLink, let linkedSystemContactName, !linkedSystemContactName.isEmpty {
-                        HStack {
-                            Text("Linked")
-                            Spacer()
-                            Text(linkedSystemContactName)
-                                .foregroundColor(.secondary)
-                        }
-                    } else {
-                        Text("Not linked")
-                            .foregroundColor(.secondary)
+                    infoCard(
+                        "System Contact",
+                        subtitle: hasUserVisibleLink ? (linkedSystemContactName ?? "Linked") : "Not linked",
+                        systemImage: "person.crop.circle"
+                    ) { activeSheet = .systemContact }
+
+                    if showsNotificationSettings {
+                        infoCard(
+                            "Notifications",
+                            subtitle: notificationModeOverride?.displayName
+                                ?? "Default (\(settingsViewModel.settings.defaultIncomingNotificationMode.displayName))",
+                            systemImage: notificationModeOverride == .off ? "bell.slash" : "bell"
+                        ) { activeSheet = .notifications }
                     }
 
-                    if contact.systemContactId == nil {
-                        // Replaces the old "autocreate" setting: one tap creates a dedicated
-                        // entry in the iOS Contacts app for this contact and links it.
-                        Button {
-                            Task {
-                                if let updated = await contactsManager.createSystemContact(for: contact) {
-                                    contact = updated
-                                    linkedSystemContactId = updated.systemContactId
-                                    linkedSystemContactName = updated.systemDisplayNameSnapshot
-                                    linkedSystemContactSource = updated.systemContactLinkSource
-                                    showToast(localized("Contact created in Contacts app."))
-                                } else {
-                                    showToast(localized("Couldn't create the contact. Check Contacts access."))
-                                }
-                            }
-                        } label: {
-                            Label("Create System Contact", systemImage: "person.badge.plus")
-                        }
-                    }
+                    infoCard(
+                        "Photos",
+                        subtitle: photoAutoDisplayOverride?.displayName
+                            ?? "Automatic (\(automaticPhotoDisplayDescription))",
+                        systemImage: "photo"
+                    ) { activeSheet = .photos }
 
-                    Button {
-                        showSystemContactLinkPicker = true
-                    } label: {
-                        Label("Link from Contacts", systemImage: "person.crop.circle.badge.plus")
-                    }
-
-                    if hasUserVisibleLink {
-                        Button(role: .destructive) {
-                            contactsManager.unlinkSystemContact(contact)
-                            linkedSystemContactId = nil
-                            linkedSystemContactName = nil
-                            linkedSystemContactSource = nil
-                            var updatedContact = contact
-                            updatedContact.systemContactId = nil
-                            updatedContact.systemDisplayNameSnapshot = nil
-                            updatedContact.systemContactLinkSource = nil
-                            contact = updatedContact
-                            showToast(localized("System contact unlinked."))
-                        } label: {
-                            Label("Unlink", systemImage: "minus.circle")
-                        }
-                    }
-                }
-
-                if showsNotificationSettings {
-                    Section {
-                        Picker("Incoming Notifications", selection: $notificationModeOverride) {
-                            Text("Default (\(settingsViewModel.settings.defaultIncomingNotificationMode.displayName))")
-                                .tag(ContactNotificationMode?.none)
-                            Text("Off").tag(ContactNotificationMode?.some(.off))
-                            Text("No Sound").tag(ContactNotificationMode?.some(.noSound))
-                            Text("Sound").tag(ContactNotificationMode?.some(.sound))
-                        }
-                        .pickerStyle(.menu)
-                    } footer: {
-                        Text("Default follows Settings > Notifications. Off disables notifications for this contact.")
-                    }
-                }
-
-                Section {
-                    Picker("Photos", selection: $photoAutoDisplayOverride) {
-                        Text("Automatic (\(automaticPhotoDisplayDescription))")
-                            .tag(PhotoAutoDisplayMode?.none)
-                        Text("Always Show").tag(PhotoAutoDisplayMode?.some(.alwaysShow))
-                        Text("Always Hide").tag(PhotoAutoDisplayMode?.some(.alwaysHide))
-                    }
-                    .pickerStyle(.menu)
-                } footer: {
-                    Text("Automatic hides photos from contacts you haven't added or messaged yet, until you tap to reveal them.")
-                }
-
-                Section("Info") {
-                    LabeledContent("Added") {
-                        Text(contact.addedAt, style: .date)
-                    }
-                    if let lastMessage = contact.lastMessageAt {
-                        LabeledContent("Last Message") {
-                            if Date().timeIntervalSince(lastMessage) < 86_400 {
-                                Text(lastMessage, style: .relative)
-                            } else {
-                                let days = max(1, Int(Date().timeIntervalSince(lastMessage) / 86_400))
-                                Text("\(days) day\(days == 1 ? "" : "s") ago")
-                            }
-                        }
-                    }
-                    if let chessRecord {
-                        LabeledContent("Chess Stats") {
-                            Text("\(chessRecord.wins)W - \(chessRecord.losses)L")
-                        }
-                    }
-                    HStack {
-                        StatItem(label: String(localized: "Sent"), value: messageSent)
-                        Divider().frame(height: 32)
-                        StatItem(label: String(localized: "Received"), value: messageReceived)
-                        Divider().frame(height: 32)
-                        StatItem(label: String(localized: "Total"), value: messageSent + messageReceived)
-                    }
-                    .padding(.vertical, 4)
+                    infoCard(
+                        "Info",
+                        subtitle: "Added, activity and message counts",
+                        systemImage: "info.circle"
+                    ) { activeSheet = .info }
                 }
             }
             .toast(message: toastMessage, style: toastStyle)
+            .sheet(item: $activeSheet) { sheet in
+                switch sheet {
+                case .address: addressSheet
+                case .domains: domainsSheet
+                case .aliases: aliasesSheet
+                case .systemContact: systemContactSheet
+                case .notifications: notificationsSheet
+                case .photos: photosSheet
+                case .info: infoSheet
+                }
+            }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .fullScreenCover(isPresented: $showAvatarPreview) {
@@ -587,6 +452,290 @@ struct ChatInfoView: View {
 
     /// One reveal-then-copy alias row: dots + eye while hidden, first tap derives and reveals
     /// the monospaced value, tapping the revealed value copies it with the standard toast.
+    private var addressSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Button {
+                        UIPasteboard.general.string = contact.address
+                        Haptics.success()
+                        showToast(contact.address.addressCopiedToastText)
+                    } label: {
+                        VStack(spacing: 12) {
+                            if let qrImage = makeQRCodeImage(from: contact.address) {
+                                Image(uiImage: qrImage)
+                                    .interpolation(.none)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 180, height: 180)
+                                    .padding(12)
+                                    .background(Color.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .stroke(Color.accentColor, lineWidth: 2)
+                                    )
+                            }
+                            Text(contact.address)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                } header: {
+                    HStack {
+                        Text("Address")
+                        Spacer()
+                        if let url = settingsViewModel.settings.kaspaExplorer.addressURL(for: contact.address) {
+                            Link("View in Explorer", destination: url)
+                                .font(.caption)
+                                .foregroundColor(.accentColor)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Address")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    /// The list itself, not a row that opens it. Data comes from the same KNSService address-info
+    /// cache the rest of the screen reads, so this costs no fetch.
+    private var domainsSheet: some View {
+        NavigationStack {
+            ContactDomainsView(
+                domains: sortedKNSDomains,
+                isPrimary: isPrimaryDomain,
+                hasExplicitPrimary: hasExplicitPrimaryDomain,
+                onCopy: { copyProfileFieldValue($0, fieldName: "Domain") }
+            )
+            .navigationTitle("KNS Domains")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var aliasesSheet: some View {
+        NavigationStack {
+            Form {
+                // This conversation's deterministic pair aliases (DeterministicAlias, ECDH +
+                // HKDF, 12 hex chars). Direction semantics match ChatService's routing state:
+                // deriveMyAlias = deterministicMyAlias = incoming/watch (the alias messages
+                // FROM this contact carry, what we watch for), deriveTheirAlias =
+                // deterministicTheirAlias = outgoing/send (the alias OUR messages to them
+                // carry). Hidden behind dots until tapped; keys are only touched on demand.
+                Section {
+                    aliasRow("Receiving alias", value: $revealedReceivingAlias) {
+                        guard let key = walletManager.getPrivateKey() else { return nil }
+                        return try? DeterministicAlias.deriveMyAlias(privateKey: key, theirAddress: contact.address)
+                    }
+                    aliasRow("Sending alias", value: $revealedSendingAlias) {
+                        guard let key = walletManager.getPrivateKey() else { return nil }
+                        return try? DeterministicAlias.deriveTheirAlias(privateKey: key, theirAddress: contact.address)
+                    }
+                } header: {
+                    Text("Aliases")
+                } footer: {
+                    Text("These identify this conversation's messages on the network. Receiving is the alias on messages this contact sends you. Sending is the alias on messages you send them. Useful when building tools that message this chat.")
+                }
+            }
+            .navigationTitle("Aliases")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var systemContactSheet: some View {
+        NavigationStack {
+            Form {
+                Section("System Contact") {
+                    if hasUserVisibleLink, let linkedSystemContactName, !linkedSystemContactName.isEmpty {
+                        HStack {
+                            Text("Linked")
+                            Spacer()
+                            Text(linkedSystemContactName)
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        Text("Not linked")
+                            .foregroundColor(.secondary)
+                    }
+
+                    if contact.systemContactId == nil {
+                        // Replaces the old "autocreate" setting: one tap creates a dedicated
+                        // entry in the iOS Contacts app for this contact and links it.
+                        Button {
+                            Task {
+                                if let updated = await contactsManager.createSystemContact(for: contact) {
+                                    contact = updated
+                                    linkedSystemContactId = updated.systemContactId
+                                    linkedSystemContactName = updated.systemDisplayNameSnapshot
+                                    linkedSystemContactSource = updated.systemContactLinkSource
+                                    showToast(localized("Contact created in Contacts app."))
+                                } else {
+                                    showToast(localized("Couldn't create the contact. Check Contacts access."))
+                                }
+                            }
+                        } label: {
+                            Label("Create System Contact", systemImage: "person.badge.plus")
+                        }
+                    }
+
+                    Button {
+                        showSystemContactLinkPicker = true
+                    } label: {
+                        Label("Link from Contacts", systemImage: "person.crop.circle.badge.plus")
+                    }
+
+                    if hasUserVisibleLink {
+                        Button(role: .destructive) {
+                            contactsManager.unlinkSystemContact(contact)
+                            linkedSystemContactId = nil
+                            linkedSystemContactName = nil
+                            linkedSystemContactSource = nil
+                            var updatedContact = contact
+                            updatedContact.systemContactId = nil
+                            updatedContact.systemDisplayNameSnapshot = nil
+                            updatedContact.systemContactLinkSource = nil
+                            contact = updatedContact
+                            showToast(localized("System contact unlinked."))
+                        } label: {
+                            Label("Unlink", systemImage: "minus.circle")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("System Contact")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var notificationsSheet: some View {
+        NavigationStack {
+            Form {
+                if showsNotificationSettings {
+                    Section {
+                        Picker("Incoming Notifications", selection: $notificationModeOverride) {
+                            Text("Default (\(settingsViewModel.settings.defaultIncomingNotificationMode.displayName))")
+                                .tag(ContactNotificationMode?.none)
+                            Text("Off").tag(ContactNotificationMode?.some(.off))
+                            Text("No Sound").tag(ContactNotificationMode?.some(.noSound))
+                            Text("Sound").tag(ContactNotificationMode?.some(.sound))
+                        }
+                        .pickerStyle(.menu)
+                    } footer: {
+                        Text("Default follows Settings > Notifications. Off disables notifications for this contact.")
+                    }
+                }
+            }
+            .navigationTitle("Notifications")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var photosSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Photos", selection: $photoAutoDisplayOverride) {
+                        Text("Automatic (\(automaticPhotoDisplayDescription))")
+                            .tag(PhotoAutoDisplayMode?.none)
+                        Text("Always Show").tag(PhotoAutoDisplayMode?.some(.alwaysShow))
+                        Text("Always Hide").tag(PhotoAutoDisplayMode?.some(.alwaysHide))
+                    }
+                    .pickerStyle(.menu)
+                } footer: {
+                    Text("Automatic hides photos from contacts you haven't added or messaged yet, until you tap to reveal them.")
+                }
+            }
+            .navigationTitle("Photos")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var infoSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Info") {
+                    LabeledContent("Added") {
+                        Text(contact.addedAt, style: .date)
+                    }
+                    if let lastMessage = contact.lastMessageAt {
+                        LabeledContent("Last Message") {
+                            if Date().timeIntervalSince(lastMessage) < 86_400 {
+                                Text(lastMessage, style: .relative)
+                            } else {
+                                let days = max(1, Int(Date().timeIntervalSince(lastMessage) / 86_400))
+                                Text("\(days) day\(days == 1 ? "" : "s") ago")
+                            }
+                        }
+                    }
+                    if let chessRecord {
+                        LabeledContent("Chess Stats") {
+                            Text("\(chessRecord.wins)W - \(chessRecord.losses)L")
+                        }
+                    }
+                    HStack {
+                        StatItem(label: String(localized: "Sent"), value: messageSent)
+                        Divider().frame(height: 32)
+                        StatItem(label: String(localized: "Received"), value: messageReceived)
+                        Divider().frame(height: 32)
+                        StatItem(label: String(localized: "Total"), value: messageSent + messageReceived)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .navigationTitle("Info")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+    /// One section, as a row that opens its half sheet. The trailing value is what the sheet
+    /// would have shown at a glance - the domain count, whether a system contact is linked -
+    /// so the card still answers the common question without being opened.
+    private func infoCard(
+        _ title: String,
+        subtitle: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.accentColor)
+                    .frame(width: 26)
+                Text(title)
+                    .foregroundColor(.primary)
+                Spacer(minLength: 8)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundColor(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private func aliasRow(
         _ title: LocalizedStringKey,
         value: Binding<String?>,
