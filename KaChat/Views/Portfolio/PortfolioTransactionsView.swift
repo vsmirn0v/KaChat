@@ -678,6 +678,7 @@ private struct PortfolioTransactionEditor: View {
                         Spacer()
                         TextField("0.00", text: $quantityText)
                             .keyboardType(.decimalPad)
+                            .numericKeyboardDoneButton()
                             .multilineTextAlignment(.trailing)
                         Text("KAS")
                             .foregroundColor(.secondary)
@@ -689,6 +690,7 @@ private struct PortfolioTransactionEditor: View {
                             .foregroundColor(.secondary)
                         TextField("0.00", text: $priceText)
                             .keyboardType(.decimalPad)
+                            .numericKeyboardDoneButton()
                             .multilineTextAlignment(.trailing)
                     }
                     HStack {
@@ -698,6 +700,7 @@ private struct PortfolioTransactionEditor: View {
                             .foregroundColor(.secondary)
                         TextField("0.00", text: $feeText)
                             .keyboardType(.decimalPad)
+                            .numericKeyboardDoneButton()
                             .multilineTextAlignment(.trailing)
                     }
                     DatePicker("Date", selection: $timestamp, displayedComponents: [.date, .hourAndMinute])

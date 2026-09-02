@@ -182,6 +182,7 @@ struct AddToPortfolioSheet: View {
                 LabeledContent("Amount") {
                     TextField("0", text: $amountText)
                         .keyboardType(.decimalPad)
+                        .numericKeyboardDoneButton()
                         .multilineTextAlignment(.trailing)
                 }
                 LabeledContent("Price per KAS") {
@@ -189,6 +190,7 @@ struct AddToPortfolioSheet: View {
                         if isLookingUpPrice { ProgressView().controlSize(.mini) }
                         TextField("0", text: $priceText)
                             .keyboardType(.decimalPad)
+                            .numericKeyboardDoneButton()
                             .multilineTextAlignment(.trailing)
                     }
                 }

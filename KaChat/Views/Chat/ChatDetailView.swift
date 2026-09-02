@@ -848,6 +848,7 @@ struct ChatDetailView: View {
         .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
             TextField("Fee (KAS)", text: $feeEditorText)
                 .keyboardType(.decimalPad)
+                .numericKeyboardDoneButton()
             Button("Save") { commitFeeOverride() }
             Button("Use Default") {
                 feeOverrideSompi = nil
@@ -2167,6 +2168,7 @@ struct ChatDetailView: View {
                 )
             )
                 .keyboardType(.decimalPad)
+                .numericKeyboardDoneButton()
                 .focused($isPaymentFocused)
             if let conversionLabel = fiatAmountState.conversionLabelText(
                 priceInCurrency: portfolioViewModel.currentPriceUsd,

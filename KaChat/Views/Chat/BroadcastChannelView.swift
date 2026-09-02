@@ -139,6 +139,7 @@ struct BroadcastChannelView: View {
         .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
             TextField("Fee (KAS)", text: $feeEditorText)
                 .keyboardType(.decimalPad)
+                .numericKeyboardDoneButton()
             Button("Save") { commitFeeOverride() }
             Button("Use Default") {
                 feeOverrideSompi = nil

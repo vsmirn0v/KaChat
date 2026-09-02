@@ -620,6 +620,7 @@ private struct RetentionSettingsView: View {
                 HStack {
                     TextField("Amount", text: $amountText)
                         .keyboardType(.numberPad)
+                        .numericKeyboardDoneButton()
                     Picker("Unit", selection: $selectedUnit) {
                         ForEach(BroadcastRetentionUnit.allCases) { unit in
                             Text(unit.label).tag(unit)

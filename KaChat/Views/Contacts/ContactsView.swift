@@ -3237,6 +3237,7 @@ struct KNSDomainSendView: View {
                         if isEditingFee {
                             TextField("0.00", text: $customFeeText)
                                 .keyboardType(.decimalPad)
+                                .numericKeyboardDoneButton()
                                 .multilineTextAlignment(.trailing)
                                 .frame(maxWidth: 100)
                                 .onSubmit { commitCustomFee() }
@@ -4343,6 +4344,7 @@ struct WithdrawKaspaView: View {
                             )
                         )
                             .keyboardType(.decimalPad)
+                            .numericKeyboardDoneButton()
                         if let conversionLabel = fiatAmountState.conversionLabelText(
                             priceInCurrency: portfolioViewModel.currentPriceUsd,
                             currency: portfolioViewModel.currentCurrency
@@ -4418,6 +4420,7 @@ struct WithdrawKaspaView: View {
                         if isEditingFee {
                             TextField("0.00", text: $customFeeText)
                                 .keyboardType(.decimalPad)
+                                .numericKeyboardDoneButton()
                                 .multilineTextAlignment(.trailing)
                                 .frame(maxWidth: 100)
                                 .onSubmit { commitCustomFee() }

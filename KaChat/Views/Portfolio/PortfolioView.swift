@@ -114,7 +114,7 @@ struct PortfolioView: View {
             showHashrateChart = true
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "bolt.horizontal")
+                Image(systemName: "hammer.fill")
                     .font(.title3)
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 30)
@@ -631,6 +631,7 @@ private struct KasConverterCard: View {
                 .frame(width: 44, alignment: .leading)
             TextField("0", text: text)
                 .keyboardType(.decimalPad)
+                .numericKeyboardDoneButton()
                 .multilineTextAlignment(.trailing)
                 .font(.system(size: 20, weight: .semibold))
                 .focused($focused, equals: field)
@@ -774,7 +775,7 @@ private struct HashrateChartScreen: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Image(systemName: "bolt.horizontal")
+                Image(systemName: "hammer.fill")
                     .font(.title3)
                     .foregroundStyle(Color.accentColor)
                 Text("Kaspa Network").font(.title3).fontWeight(.semibold)
@@ -868,7 +869,9 @@ private struct MiningEstimateCard: View {
         }
     }
 
-    @State private var amountText = "21"
+    /// Empty, not a sample figure. A prefilled 21 renders a full estimate the moment the card
+    /// appears, which reads as YOUR earnings until you notice the number is not yours.
+    @State private var amountText = ""
     @State private var unit: Unit = .th
 
     /// KAS the whole network pays out per day: reward per block times blocks per second.
@@ -880,7 +883,7 @@ private struct MiningEstimateCard: View {
     private var dailyKas: Double? {
         guard let networkHashratePHs, networkHashratePHs > 0,
               let dailyNetworkEmission,
-              let amount = Double(amountText.replacingOccurrences(of: ",", with: ".")),
+              let amount = DecimalInputFormat.value(amountText),
               amount > 0 else { return nil }
         let share = (amount * unit.toPHs) / networkHashratePHs
         return dailyNetworkEmission * share
@@ -894,6 +897,12 @@ private struct MiningEstimateCard: View {
             HStack(spacing: 10) {
                 TextField("0", text: $amountText)
                     .keyboardType(.decimalPad)
+                    .numericKeyboardDoneButton()
+                    // Grouped as you type - "1200000" is a number you have to count digits on.
+                    .onChange(of: amountText) { newValue in
+                        let grouped = DecimalInputFormat.grouped(newValue)
+                        if grouped != amountText { amountText = grouped }
+                    }
                     .font(.system(size: 20, weight: .semibold))
                     .padding(.vertical, 8)
                     .padding(.horizontal, 12)

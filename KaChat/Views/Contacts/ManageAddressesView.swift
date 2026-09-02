@@ -1073,6 +1073,7 @@ private struct ConsolidateToPrimaryConfirmView: View {
                             if isEditingFee {
                                 TextField("0.00", text: $feeEditorText)
                                     .keyboardType(.decimalPad)
+                                    .numericKeyboardDoneButton()
                                     .multilineTextAlignment(.trailing)
                                     .frame(maxWidth: 100)
                                     .focused($feeFieldFocused)
@@ -1411,6 +1412,7 @@ struct SpendingAddressWithdrawView: View {
                             )
                         )
                             .keyboardType(.decimalPad)
+                            .numericKeyboardDoneButton()
                         if let conversionLabel = fiatAmountState.conversionLabelText(
                             priceInCurrency: portfolioViewModel.currentPriceUsd,
                             currency: portfolioViewModel.currentCurrency
@@ -1484,6 +1486,7 @@ struct SpendingAddressWithdrawView: View {
                         if isEditingFee {
                             TextField("0.00", text: $customFeeText)
                                 .keyboardType(.decimalPad)
+                                .numericKeyboardDoneButton()
                                 .multilineTextAlignment(.trailing)
                                 .frame(maxWidth: 100)
                                 .onSubmit { commitCustomFee() }

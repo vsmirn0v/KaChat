@@ -4677,6 +4677,7 @@ private struct KaPostTipSheet: View {
                             )
                         )
                         .keyboardType(.decimalPad)
+                        .numericKeyboardDoneButton()
 
                         if let conversionLabel = fiatAmountState.conversionLabelText(
                             priceInCurrency: portfolioViewModel.currentPriceUsd,
@@ -4727,6 +4728,7 @@ private struct KaPostTipSheet: View {
                         if isEditingFee {
                             TextField("0.00", text: $customFeeText)
                                 .keyboardType(.decimalPad)
+                                .numericKeyboardDoneButton()
                                 .multilineTextAlignment(.trailing)
                                 .frame(maxWidth: 100)
                                 .onSubmit { commitCustomFee() }

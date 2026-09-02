@@ -450,6 +450,7 @@ struct SwapView: View {
                     TextField("0.00", text: Binding(get: { amountText }, set: onAmountChange))
                         .font(.title2.weight(.semibold))
                         .keyboardType(.decimalPad)
+                        .numericKeyboardDoneButton()
                         .focused($focusedField, equals: .amount)
                     if let onMaxTap {
                         Button("Max", action: onMaxTap)

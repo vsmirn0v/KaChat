@@ -1380,6 +1380,7 @@ private struct ColdSendFlowView: View {
                         )
                     )
                         .keyboardType(.decimalPad)
+                        .numericKeyboardDoneButton()
                         .focused($focusedField, equals: .amount)
                     if let conversionLabel = fiatAmountState.conversionLabelText(
                         priceInCurrency: portfolioViewModel.currentPriceUsd,
@@ -1453,6 +1454,7 @@ private struct ColdSendFlowView: View {
                     if isEditingFee {
                         TextField("0.00", text: $feeEditorText)
                             .keyboardType(.decimalPad)
+                            .numericKeyboardDoneButton()
                             .multilineTextAlignment(.trailing)
                             .frame(maxWidth: 100)
                             .focused($focusedField, equals: .fee)
