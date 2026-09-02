@@ -17,6 +17,8 @@ struct ColdStorageListView: View {
     @State private var importError: String?
     @State private var renameTarget: ColdStorageAccount?
     @State private var renameText = ""
+    /// Account whose kpub QR is on screen.
+    @State private var kpubQRTarget: ColdStorageAccount?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
 
@@ -85,6 +87,9 @@ struct ColdStorageListView: View {
             }
         }
         .toast(message: toastMessage)
+        .sheet(item: $kpubQRTarget) { account in
+            ColdStorageKpubQRView(account: account)
+        }
         .sheet(isPresented: $showScanner) {
             QRScannerView { code in
                 beginImport(kpub: code)
@@ -217,6 +222,11 @@ struct ColdStorageListView: View {
                     showToast("kpub copied to clipboard.")
                 } label: {
                     Label("Copy kpub", systemImage: "doc.on.doc")
+                }
+                Button {
+                    kpubQRTarget = account
+                } label: {
+                    Label("Show kpub QR", systemImage: "qrcode")
                 }
                 Button {
                     renameText = account.label
@@ -2472,5 +2482,121 @@ private struct ColdStorageAddressVisibilityView: View {
                 }
             }
         }
+    }
+}
+
+/// The kpub of one cold-storage account, as a QR for moving it to another device or a watch-only
+/// wallet elsewhere.
+///
+/// Deliberately says what a kpub is. It holds no private key and cannot spend anything, which is
+/// why it is safe to display at all - but it derives EVERY address in the account, so whoever
+/// scans it can watch the whole balance and history forever. That is a privacy decision the
+/// person holding the phone should get to make knowingly, not discover later.
+private struct ColdStorageKpubQRView: View {
+    let account: ColdStorageAccount
+    @Environment(\.dismiss) private var dismiss
+    @State private var qrImage: UIImage?
+    @State private var toastMessage: String?
+    @State private var toastToken = UUID()
+
+    var body: some View {
+        NavigationStack {
+            Color.white
+                .ignoresSafeArea()
+                .overlay(
+                    VStack(spacing: 20) {
+                        Spacer()
+                        Group {
+                            if let qrImage {
+                                Image(uiImage: qrImage)
+                                    .interpolation(.none)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 260, height: 260)
+                            } else {
+                                ProgressView()
+                                    .frame(width: 260, height: 260)
+                            }
+                        }
+                        .padding(20)
+                        .background(Color.white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .stroke(Color.accentColor, lineWidth: 3)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                        Text(account.kpubString)
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundColor(Color.black.opacity(0.7))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+
+                        Text("Watch-only. This cannot spend, but it reveals every address in this account.")
+                            .font(.footnote)
+                            .foregroundColor(Color.black.opacity(0.45))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+
+                        Text("Tap anywhere to copy")
+                            .font(.footnote)
+                            .foregroundColor(Color.black.opacity(0.4))
+
+                        Spacer()
+                        Spacer()
+                    }
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { copyKpub() }
+                .navigationTitle(account.label)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("Close") { dismiss() }
+                    }
+                }
+                .onAppear { generateQR() }
+                .toast(message: toastMessage)
+        }
+    }
+
+    private func copyKpub() {
+        UIPasteboard.general.string = account.kpubString
+        Haptics.success()
+        showToast("kpub copied to clipboard.")
+    }
+
+    private func showToast(_ message: String) {
+        let token = UUID()
+        toastToken = token
+        withAnimation(.easeOut(duration: 0.2)) {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    toastMessage = nil
+                }
+            }
+        }
+    }
+
+    private func generateQR() {
+        let kpub = account.kpubString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !kpub.isEmpty, let data = kpub.data(using: .utf8) else { return }
+
+        let filter = CIFilter.qrCodeGenerator()
+        filter.setValue(data, forKey: "inputMessage")
+        // "L" where the address QR uses "M": a kpub is several times longer, and at "M" the extra
+        // error-correction pushes the symbol into a denser version that scans worse on screen
+        // than the lower correction level does. Nothing is being transmitted over a lossy channel
+        // here - it is one screen photographed by one camera.
+        filter.setValue("L", forKey: "inputCorrectionLevel")
+
+        guard let outputImage = filter.outputImage else { return }
+        let scaled = outputImage.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+        let context = CIContext()
+        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return }
+        qrImage = UIImage(cgImage: cgImage)
     }
 }
