@@ -2434,6 +2434,7 @@ private struct ColdStorageAddressVisibilityView: View {
     /// indices on the fly (checking one reveals it without flooding the main list).
     @State private var page = 0
     private let pageSize = 50
+    private static let topAnchorID = "visibility_top"
 
     private var currentAccount: ColdStorageAccount {
         manager.accounts.first { $0.id == account.id } ?? account
@@ -2458,12 +2459,28 @@ private struct ColdStorageAddressVisibilityView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List {
-                        ForEach(pageEntries) { entry in
-                            row(entry)
+                    ScrollViewReader { proxy in
+                        List {
+                            // A zero-height anchor rather than scrolling to the first row: the
+                            // row has its own insets, and scrolling to it left the list a few
+                            // points down from the true top.
+                            Color.clear
+                                .frame(height: 0)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .id(Self.topAnchorID)
+                            ForEach(pageEntries) { entry in
+                                row(entry)
+                            }
+                        }
+                        .listStyle(.plain)
+                        // Turning the page keeps the scroll offset otherwise, so page 2 opened
+                        // wherever page 1 was left - at the bottom, if that is where the pager
+                        // was tapped from, which is the only place it can be tapped from.
+                        .onChange(of: page) { _ in
+                            proxy.scrollTo(Self.topAnchorID, anchor: .top)
                         }
                     }
-                    .listStyle(.plain)
                 }
             }
             .safeAreaInset(edge: .bottom) {
