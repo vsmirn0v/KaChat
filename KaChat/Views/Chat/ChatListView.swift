@@ -144,7 +144,13 @@ struct ChatListView: View {
             )
             .refreshable {
                 isPullRefreshing = true
-                await chatService.fetchNewMessages()
+                // Tab-aware: pulling on a list of groups should ask about groups, not run the
+                // 1:1 message sync and leave the thing you were looking at untouched.
+                if selectedListTab == .groups {
+                    await groupChatService.performCatchUpSync()
+                } else {
+                    await chatService.fetchNewMessages()
+                }
                 isPullRefreshing = false
                 // Apply everything that changed during the pull in a single rebuild, now that the
                 // refresh control is no longer animating — so the wheel spins smoothly throughout.
