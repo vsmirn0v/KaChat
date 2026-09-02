@@ -2566,336 +2566,360 @@ struct ConnectionStatusDetailView: View {
 
     var body: some View {
         NavigationStack {
+            // Each section is its own expression. As one Form the body was 330 lines the
+            // type checker solved in a single go, and it stopped finishing ("unable to
+            // type-check this expression in reasonable time").
             Form {
-                // Status Section
-                Section {
-                    HStack {
-                        Text("Status")
-                        Spacer()
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(statusColor)
-                                .frame(width: 10, height: 10)
-                            Text(chatService.connectionStatus.description)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    HStack {
-                        Text("Protocol")
-                        Spacer()
-                        Text("\(nodePool.activeProtocol) (\(nodePool.activeProtocolSecurity))")
-                            .foregroundColor(.secondary)
-                    }
-
-                    if KasiaAPIClient.shared.isDpiSuspected {
-                        HStack {
-                            Text("DPI")
-                            Spacer()
-                            Text("Suspected")
-                                .foregroundColor(.orange)
-                        }
-                        Text("Connectivity might be limited. Using HTTP/1.1 and decreased pagination for indexer requests.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    if nodePool.nodeNetworkBlockedSuspected {
-                        HStack {
-                            Text("Node Network")
-                            Spacer()
-                            Text("Blocked")
-                                .foregroundColor(.orange)
-                        }
-                        Text("Node connections appear blocked on this network. You can still receive and read messages through the indexer, but sending messages and payments needs a node connection.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    if let node = nodeInfo.currentConnectedNode {
-                        HStack {
-                            Text("Connected Node")
-                            Spacer()
-                            Text(extractHost(from: node))
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-
-                    if let latency = nodeInfo.currentNodeLatencyMs {
-                        HStack {
-                            Text("Latency")
-                            Spacer()
-                            Text("\(latency) ms")
-                                .foregroundColor(latencyColor(latency))
-                        }
-                    }
-
-                    // Connected node geo info
-                    if let record = connectedNodeRecord {
-                        if let distKm = record.profile.geoDistanceKm {
-                            HStack {
-                                Text("Distance")
-                                Spacer()
-                                Text(formatDistance(distKm))
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        if let cc = record.profile.countryCode {
-                            HStack {
-                                Text("Country")
-                                Spacer()
-                                Text(cc)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    }
-
-                    // Indexer endpoint
-                    HStack {
-                        Text("Indexer")
-                        Spacer()
-                        Text(extractHost(from: settingsViewModel.settings.indexerURL))
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-
-                    // Push register endpoint (only if different from indexer)
-                    if settingsViewModel.settings.pushIndexerURL != settingsViewModel.settings.indexerURL {
-                        HStack {
-                            Text("Push Register")
-                            Spacer()
-                            Text(extractHost(from: settingsViewModel.settings.pushIndexerURL))
-                                .font(.system(.caption, design: .monospaced))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-
-                    HStack {
-                        Text("Last Sync")
-                        Spacer()
-                        Text(lastSyncText)
-                            .foregroundColor(lastSyncColor)
-                    }
-                } header: {
-                    Text("Connection Status")
-                }
-
-                // Pool Statistics Section - only meaningful under automatic node
-                // selection, where the gRPC pool is actually picking nodes. When the
-                // user is pinned to the default or a custom node, the registry holds
-                // just that one node and pool health/counters are noise, so hide them.
-                if isAutomaticNodeSelection {
-                Section {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 4) {
-                                Circle().fill(.green).frame(width: 8, height: 8)
-                                Text("Active")
-                                    .font(.caption)
-                            }
-                            Text("\(nodePool.activeCount)")
-                                .font(.title3)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.green)
-                        }
-                        Spacer()
-                        VStack(alignment: .center, spacing: 2) {
-                            HStack(spacing: 4) {
-                                Circle().fill(.blue).frame(width: 8, height: 8)
-                                Text("Verified")
-                                    .font(.caption)
-                            }
-                            Text("\(nodePool.verifiedCount)")
-                                .font(.title3)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.blue)
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
-                            HStack(spacing: 4) {
-                                Circle().fill(.gray).frame(width: 8, height: 8)
-                                Text("Total")
-                                    .font(.caption)
-                            }
-                            Text("\(nodePool.totalNodeCount)")
-                                .font(.title3)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
-
-                    HStack {
-                        Text("Pool Health")
-                        Spacer()
-                        Text(poolHealthDescription)
-                            .foregroundColor(poolHealthColor)
-                    }
-                } header: {
-                    Text("Pool Status")
-                }
-                }
-
-                // Actions Section (pool refresh/clear only apply in automatic mode;
-                // Reconnect is useful in every mode)
-                Section {
-                    if isAutomaticNodeSelection {
-                        Button {
-                            Task {
-                                await nodePool.refreshPool()
-                            }
-                        } label: {
-                            HStack {
-                                Text("Refresh Pool")
-                                Spacer()
-                                if nodePool.isRefreshing {
-                                    ProgressView()
-                                }
-                            }
-                        }
-                        .disabled(nodePool.isRefreshing || isReconnecting)
-
-                        Button(role: .destructive) {
-                            showClearPoolConfirm = true
-                        } label: {
-                            Text("Clear Connection Pool")
-                        }
-                        .disabled(nodePool.isRefreshing || isReconnecting)
-                    }
-
-                    Button {
-                        Task {
-                            await reconnect()
-                        }
-                    } label: {
-                        HStack {
-                            Text("Reconnect")
-                            Spacer()
-                            if isReconnecting {
-                                ProgressView()
-                            }
-                        }
-                    }
-                    .disabled(nodePool.isRefreshing || isReconnecting)
-                } header: {
-                    Text("Actions")
-                } footer: {
-                    if let endpoint = nodePool.primaryEndpoint {
-                        Text("Primary: \(endpoint.host)")
-                    }
-                }
-
+                statusSection
+                poolStatisticsSection
+                actionsSection
                 KaspaNodeQuickAccessSections(onToast: showToast)
-
-                // Node lists only make sense when the pool is discovering nodes;
-                // in pinned mode there is nothing here but the pinned node itself.
-                if isAutomaticNodeSelection {
-                // Active Nodes Section
-                Section {
-                    let activeNodes = nodeRecords.filter { $0.state == .active }
-                    if activeNodes.isEmpty {
-                        Text("No active nodes")
-                            .foregroundColor(.secondary)
-                            .italic()
-                    } else {
-                        ForEach(activeNodes) { record in
-                            ConnectionNodeRow(
-                                record: record,
-                                isConnected: record.endpoint.url == nodeInfo.currentConnectedNode
-                            )
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                UIPasteboard.general.string = record.endpoint.key
-                                Haptics.success()
-                                showToast("Node endpoint copied.")
-                            }
+                nodeListSections
+            }
+            .alert("Clear connection pool?", isPresented: $showClearPoolConfirm) {
+                Button("Clear", role: .destructive) {
+                    Task {
+                        await nodePool.clearConnectionPool()
+                        await reconnect()
+                        await reloadNodeRecords()
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes discovered nodes, disconnects current sessions, and restarts discovery.")
+            }
+            .toast(message: toastMessage, style: toastStyle)
+            .navigationTitle("Connection Status")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            dismiss()
                         }
                     }
-                } header: {
+                }
+                .task {
+                    await refreshNodeRecordsContinuously()
+                }
+                // No pull to refresh here. This view never asked for one - it inherits the
+                // presenter's, because a sheet inherits the presenting view's environment and a
+                // List picks `\.refresh` up out of it. So the dot opened from Chats, Contacts,
+                // Cold Storage, Portfolio or KaPosts showed a refresh control that ran THAT page's
+                // reload. Reconnect, in Actions, is the button that refreshes the connection.
+                .environment(\.refresh, nil)
+        }
+    }
+
+    /// Status, protocol, and the warnings that qualify them.
+    @ViewBuilder
+    private var statusSection: some View {
+        // Status Section
+        Section {
+            HStack {
+                Text("Status")
+                Spacer()
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 10, height: 10)
+                    Text(chatService.connectionStatus.description)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            HStack {
+                Text("Protocol")
+                Spacer()
+                Text("\(nodePool.activeProtocol) (\(nodePool.activeProtocolSecurity))")
+                    .foregroundColor(.secondary)
+            }
+
+            if KasiaAPIClient.shared.isDpiSuspected {
+                HStack {
+                    Text("DPI")
+                    Spacer()
+                    Text("Suspected")
+                        .foregroundColor(.orange)
+                }
+                Text("Connectivity might be limited. Using HTTP/1.1 and decreased pagination for indexer requests.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            if nodePool.nodeNetworkBlockedSuspected {
+                HStack {
+                    Text("Node Network")
+                    Spacer()
+                    Text("Blocked")
+                        .foregroundColor(.orange)
+                }
+                Text("Node connections appear blocked on this network. You can still receive and read messages through the indexer, but sending messages and payments needs a node connection.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            if let node = nodeInfo.currentConnectedNode {
+                HStack {
+                    Text("Connected Node")
+                    Spacer()
+                    Text(extractHost(from: node))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            if let latency = nodeInfo.currentNodeLatencyMs {
+                HStack {
+                    Text("Latency")
+                    Spacer()
+                    Text("\(latency) ms")
+                        .foregroundColor(latencyColor(latency))
+                }
+            }
+
+            // Connected node geo info
+            if let record = connectedNodeRecord {
+                if let distKm = record.profile.geoDistanceKm {
                     HStack {
+                        Text("Distance")
+                        Spacer()
+                        Text(formatDistance(distKm))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                if let cc = record.profile.countryCode {
+                    HStack {
+                        Text("Country")
+                        Spacer()
+                        Text(cc)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            // Indexer endpoint
+            HStack {
+                Text("Indexer")
+                Spacer()
+                Text(extractHost(from: settingsViewModel.settings.indexerURL))
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            // Push register endpoint (only if different from indexer)
+            if settingsViewModel.settings.pushIndexerURL != settingsViewModel.settings.indexerURL {
+                HStack {
+                    Text("Push Register")
+                    Spacer()
+                    Text(extractHost(from: settingsViewModel.settings.pushIndexerURL))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            HStack {
+                Text("Last Sync")
+                Spacer()
+                Text(lastSyncText)
+                    .foregroundColor(lastSyncColor)
+            }
+        } header: {
+            Text("Connection Status")
+        }
+    }
+
+    /// Only meaningful under automatic node selection - see the note inside.
+    @ViewBuilder
+    private var poolStatisticsSection: some View {
+
+        // Pool Statistics Section - only meaningful under automatic node
+        // selection, where the gRPC pool is actually picking nodes. When the
+        // user is pinned to the default or a custom node, the registry holds
+        // just that one node and pool health/counters are noise, so hide them.
+        if isAutomaticNodeSelection {
+        Section {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
                         Circle().fill(.green).frame(width: 8, height: 8)
-                        Text("Active Nodes")
-                        Spacer()
-                        Text("\(nodePool.activeCount)")
+                        Text("Active")
                             .font(.caption)
-                            .foregroundColor(.secondary)
                     }
-                } footer: {
-                    Text("Tap a node to copy host:port.")
+                    Text("\(nodePool.activeCount)")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.green)
                 }
-
-                // All Nodes Section
-                Section {
-                    let sortedNodes = nodeRecords.sorted { a, b in
-                        // Sort by state priority: active > verified > profiled > candidate > suspect > quarantined
-                        if a.state.rawValue != b.state.rawValue {
-                            return a.state.rawValue > b.state.rawValue
-                        }
-                        // Then by latency (lower is better)
-                        let aLatency = a.health.latencyMs.value ?? a.health.globalLatencyMs.value ?? 9999
-                        let bLatency = b.health.latencyMs.value ?? b.health.globalLatencyMs.value ?? 9999
-                        return aLatency < bLatency
+                Spacer()
+                VStack(alignment: .center, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Circle().fill(.blue).frame(width: 8, height: 8)
+                        Text("Verified")
+                            .font(.caption)
                     }
-
-                    if sortedNodes.isEmpty {
-                        Text("No nodes discovered")
-                            .foregroundColor(.secondary)
-                            .italic()
-                    } else {
-                        ForEach(sortedNodes) { record in
-                            AllNodesRow(record: record)
-                        }
+                    Text("\(nodePool.verifiedCount)")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.blue)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Circle().fill(.gray).frame(width: 8, height: 8)
+                        Text("Total")
+                            .font(.caption)
                     }
-                } header: {
+                    Text("\(nodePool.totalNodeCount)")
+                        .font(.title3)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.vertical, 4)
+
+            HStack {
+                Text("Pool Health")
+                Spacer()
+                Text(poolHealthDescription)
+                    .foregroundColor(poolHealthColor)
+            }
+        } header: {
+            Text("Pool Status")
+        }
+        }
+    }
+
+    /// Refresh Pool, Clear Pool, Reconnect.
+    @ViewBuilder
+    private var actionsSection: some View {
+        // Actions Section (pool refresh/clear only apply in automatic mode;
+        // Reconnect is useful in every mode)
+        Section {
+            if isAutomaticNodeSelection {
+                Button {
+                    Task {
+                        await nodePool.refreshPool()
+                    }
+                } label: {
                     HStack {
-                        Image(systemName: "server.rack")
-                            .font(.caption)
-                        Text("All Nodes")
+                        Text("Refresh Pool")
                         Spacer()
-                        Text("\(nodeRecords.count)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        if nodePool.isRefreshing {
+                            ProgressView()
+                        }
                     }
-                } footer: {
-                    Text("All discovered nodes sorted by state and latency. Nodes are deduplicated by host:port.")
                 }
+                .disabled(nodePool.isRefreshing || isReconnecting)
+
+                Button(role: .destructive) {
+                    showClearPoolConfirm = true
+                } label: {
+                    Text("Clear Connection Pool")
                 }
-        }
-        .alert("Clear connection pool?", isPresented: $showClearPoolConfirm) {
-            Button("Clear", role: .destructive) {
+                .disabled(nodePool.isRefreshing || isReconnecting)
+            }
+
+            Button {
                 Task {
-                    await nodePool.clearConnectionPool()
                     await reconnect()
-                    await reloadNodeRecords()
                 }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This removes discovered nodes, disconnects current sessions, and restarts discovery.")
-        }
-        .toast(message: toastMessage, style: toastStyle)
-        .navigationTitle("Connection Status")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
+            } label: {
+                HStack {
+                    Text("Reconnect")
+                    Spacer()
+                    if isReconnecting {
+                        ProgressView()
                     }
                 }
             }
-            .task {
-                await refreshNodeRecordsContinuously()
+            .disabled(nodePool.isRefreshing || isReconnecting)
+        } header: {
+            Text("Actions")
+        } footer: {
+            if let endpoint = nodePool.primaryEndpoint {
+                Text("Primary: \(endpoint.host)")
             }
-            // No pull to refresh here. This view never asked for one - it inherits the
-            // presenter's, because a sheet inherits the presenting view's environment and a
-            // List picks `\.refresh` up out of it. So the dot opened from Chats, Contacts,
-            // Cold Storage, Portfolio or KaPosts showed a refresh control that ran THAT page's
-            // reload. Reconnect, in Actions, is the button that refreshes the connection.
-            .environment(\.refresh, nil)
+        }
+    }
+
+    /// Active Nodes and All Nodes, automatic mode only.
+    @ViewBuilder
+    private var nodeListSections: some View {
+        // Node lists only make sense when the pool is discovering nodes;
+        // in pinned mode there is nothing here but the pinned node itself.
+        if isAutomaticNodeSelection {
+        // Active Nodes Section
+        Section {
+            let activeNodes = nodeRecords.filter { $0.state == .active }
+            if activeNodes.isEmpty {
+                Text("No active nodes")
+                    .foregroundColor(.secondary)
+                    .italic()
+            } else {
+                ForEach(activeNodes) { record in
+                    ConnectionNodeRow(
+                        record: record,
+                        isConnected: record.endpoint.url == nodeInfo.currentConnectedNode
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        UIPasteboard.general.string = record.endpoint.key
+                        Haptics.success()
+                        showToast("Node endpoint copied.")
+                    }
+                }
+            }
+        } header: {
+            HStack {
+                Circle().fill(.green).frame(width: 8, height: 8)
+                Text("Active Nodes")
+                Spacer()
+                Text("\(nodePool.activeCount)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        } footer: {
+            Text("Tap a node to copy host:port.")
+        }
+
+        // All Nodes Section
+        Section {
+            let sortedNodes = nodeRecords.sorted { a, b in
+                // Sort by state priority: active > verified > profiled > candidate > suspect > quarantined
+                if a.state.rawValue != b.state.rawValue {
+                    return a.state.rawValue > b.state.rawValue
+                }
+                // Then by latency (lower is better)
+                let aLatency = a.health.latencyMs.value ?? a.health.globalLatencyMs.value ?? 9999
+                let bLatency = b.health.latencyMs.value ?? b.health.globalLatencyMs.value ?? 9999
+                return aLatency < bLatency
+            }
+
+            if sortedNodes.isEmpty {
+                Text("No nodes discovered")
+                    .foregroundColor(.secondary)
+                    .italic()
+            } else {
+                ForEach(sortedNodes) { record in
+                    AllNodesRow(record: record)
+                }
+            }
+        } header: {
+            HStack {
+                Image(systemName: "server.rack")
+                    .font(.caption)
+                Text("All Nodes")
+                Spacer()
+                Text("\(nodeRecords.count)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        } footer: {
+            Text("All discovered nodes sorted by state and latency. Nodes are deduplicated by host:port.")
+        }
         }
     }
 
