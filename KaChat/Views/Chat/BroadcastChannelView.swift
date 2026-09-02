@@ -57,7 +57,7 @@ struct BroadcastChannelView: View {
     /// identical pair. `BroadcastMessage.id` is already the wire txId, unlike 1:1/group's `UUID`
     /// row ids, so this stays a `String` throughout.
     @State private var pendingJumpToTxId: String?
-    @State private var showHiddenUsers = false
+    @State private var showRoomInfo = false
     @State private var highlightedMessageID: String?
     /// Which message (if any) currently has its double-tap quick-reaction bar open - mirrors
     /// group chat's identical `GroupChatDetailView.activeQuickReactionMessageId`, except broadcast
@@ -84,10 +84,6 @@ struct BroadcastChannelView: View {
     /// then the `kachat://` link, then its https twin for people who don't have KaChat (the
     /// domain 302s to the App Store). Both forms are accepted by `KaChatInternalLink.parse` on
     /// iOS and Android.
-    private var roomShareText: String {
-        KaChatInternalLink.broadcastRoomShareText(channel: channelName)
-    }
-
     var body: some View {
         messageList
             // Hosting the compose bar as a real `safeAreaInset` (rather than a floating ZStack
@@ -118,36 +114,34 @@ struct BroadcastChannelView: View {
                 .animation(.easeInOut(duration: 0.25), value: isChattingBalanceZero)
                 .padding(.bottom, 2)
             }
-        .navigationTitle("#\(channelName)")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 ConnectionStatusIndicator()
             }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                // Share this room: a kachat:// link that drops other KaChat users straight into
-                // it (joining it for them first if it isn't one of the curated rooms), plus the
-                // https twin for anyone without the app. Same share-text shape KaPosts uses for
-                // a post.
-                ShareLink(item: roomShareText) {
-                    Image(systemName: "square.and.arrow.up")
-                }
-                .accessibilityLabel("Share this room")
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
+            // The title itself is the way in to everything about the room - share, hidden
+            // users, its indexer, what is in it. It used to be two unlabelled toolbar glyphs
+            // with nowhere to put anything else.
+            ToolbarItem(placement: .principal) {
                 Button {
-                    showHiddenUsers = true
+                    showRoomInfo = true
                 } label: {
-                    Image(systemName: "person.crop.circle.badge.xmark")
+                    HStack(spacing: 4) {
+                        Text("#\(channelName)")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .accessibilityLabel("Hidden users in this room")
+                .buttonStyle(.plain)
+                .accessibilityLabel("Room info for #\(channelName)")
             }
         }
-        .sheet(isPresented: $showHiddenUsers) {
-            NavigationStack {
-                HiddenBroadcastSendersView(channel: channelName)
-            }
-            .presentationDetents([.medium, .large])
+        .navigationDestination(isPresented: $showRoomInfo) {
+            BroadcastRoomInfoView(channelName: channelName)
         }
         .navigationDestination(isPresented: Binding(
             get: { openContact != nil },

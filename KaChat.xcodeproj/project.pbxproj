@@ -32,6 +32,7 @@
 		BCAR00010001000100000001 /* BroadcastAudioRecording.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCAR00010001000000000001 /* BroadcastAudioRecording.swift */; };
 		BCCV00010001000100000001 /* BroadcastChannelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCCV00010001000000000001 /* BroadcastChannelView.swift */; };
 		BCHS00010001000100000001 /* HiddenBroadcastSendersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */; };
+		BCRI00010001000100000001 /* BroadcastRoomInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCRI00010001000000000001 /* BroadcastRoomInfoView.swift */; };
 		BCLV00010001000100000001 /* BroadcastListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCLV00010001000000000001 /* BroadcastListView.swift */; };
 		BCST00010001000100000001 /* BroadcastStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCST00010001000000000001 /* BroadcastStore.swift */; };
 		BGTM00012E0100000002 /* BackgroundTaskManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BGTM00012E0100000001 /* BackgroundTaskManager.swift */; };
@@ -246,6 +247,7 @@
 		BCAR00010001000000000001 /* BroadcastAudioRecording.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastAudioRecording.swift; sourceTree = "<group>"; };
 		BCCV00010001000000000001 /* BroadcastChannelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastChannelView.swift; sourceTree = "<group>"; };
 		BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenBroadcastSendersView.swift; sourceTree = "<group>"; };
+		BCRI00010001000000000001 /* BroadcastRoomInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastRoomInfoView.swift; sourceTree = "<group>"; };
 		BCLV00010001000000000001 /* BroadcastListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastListView.swift; sourceTree = "<group>"; };
 		BCST00010001000000000001 /* BroadcastStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BroadcastStore.swift; sourceTree = "<group>"; };
 		BGTM00012E0100000001 /* BackgroundTaskManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundTaskManager.swift; sourceTree = "<group>"; };
@@ -724,6 +726,7 @@
 				GRDV00010001000000000001 /* GroupChatDetailView.swift */,
 				CH0003A0000000000000001 /* ChessGameView.swift */,
 				BCHS00010001000000000001 /* HiddenBroadcastSendersView.swift */,
+				BCRI00010001000000000001 /* BroadcastRoomInfoView.swift */,
 				BCAR00010001000000000001 /* BroadcastAudioRecording.swift */,
 			);
 			path = Chat;
@@ -1216,6 +1219,7 @@
 				GRDV00010001000100000001 /* GroupChatDetailView.swift in Sources */,
 				CH0003B0000000000000001 /* ChessGameView.swift in Sources */,
 				BCHS00010001000100000001 /* HiddenBroadcastSendersView.swift in Sources */,
+				BCRI00010001000100000001 /* BroadcastRoomInfoView.swift in Sources */,
 				BCAR00010001000100000001 /* BroadcastAudioRecording.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

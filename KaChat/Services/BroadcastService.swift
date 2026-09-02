@@ -207,6 +207,48 @@ final class BroadcastService: ObservableObject {
         store.hiddenSenderAddresses(forChannel: channel)
     }
 
+    // MARK: - Per-room indexer
+
+    /// Channel -> indexer base URL, for rooms the user pointed somewhere other than the app's
+    /// configured broadcast indexer.
+    ///
+    /// A broadcast is on-chain, so any indexer that watches the same network serves the same
+    /// room - which means a room can be read through whichever one you trust or host, without
+    /// changing the app-wide setting that every OTHER room uses. Empty here means "use the
+    /// app-wide one", which is what the curated Popular rooms do (KaChat's own indexer).
+    private static let indexerOverridesKey = "kachat_broadcast_indexer_overrides"
+
+    private var indexerOverrides: [String: String] {
+        get { UserDefaults.standard.dictionary(forKey: Self.indexerOverridesKey) as? [String: String] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: Self.indexerOverridesKey) }
+    }
+
+    /// The indexer this room reads from: its own override, or the app-wide broadcast indexer.
+    nonisolated static func indexerBaseURL(forChannel channel: String) -> String {
+        let overrides = UserDefaults.standard.dictionary(forKey: indexerOverridesKey) as? [String: String] ?? [:]
+        let own = overrides[BroadcastChannelName.normalize(channel)]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let own, !own.isEmpty { return own }
+        return AppSettings.load().broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// This room's override as the user typed it, or "" when it follows the app-wide setting.
+    func indexerOverride(forChannel channel: String) -> String {
+        indexerOverrides[BroadcastChannelName.normalize(channel)] ?? ""
+    }
+
+    /// Points one room at its own indexer. An empty (or whitespace) value clears the override so
+    /// the room follows the app-wide setting again. Restarts this room's polling so the change
+    /// takes effect without leaving the room.
+    func setIndexerOverride(_ url: String, forChannel channel: String) {
+        let key = BroadcastChannelName.normalize(channel)
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        var overrides = indexerOverrides
+        if trimmed.isEmpty { overrides.removeValue(forKey: key) } else { overrides[key] = trimmed }
+        indexerOverrides = overrides
+        stopIndexerPolling(channel: key)
+        if isViewing(channel: key) { startIndexerPollingIfConfigured(channel: key) }
+    }
+
     func hiddenSendersByChannel() -> (global: Set<String>, perChannel: [String: Set<String>]) {
         store.hiddenSendersByChannel()
     }
@@ -247,7 +289,7 @@ final class BroadcastService: ObservableObject {
     /// hidden senders and retention pruning apply exactly like scanned rows.
     private func startIndexerPollingIfConfigured(channel: String) {
         guard indexerPollTasks[channel] == nil else { return }
-        let base = AppSettings.load().broadcastIndexerURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = Self.indexerBaseURL(forChannel: channel)
         guard !base.isEmpty else { return }
         indexerPollTasks[channel] = Task { [weak self] in
             while !Task.isCancelled {
@@ -912,11 +954,9 @@ final class BroadcastService: ObservableObject {
     private var scanWantedChannels: Set<String> {
         var wanted = wantedChannels
         guard NetworkEpochMonitor.shared.isExpensivePath else { return wanted }
-        let indexerConfigured = !AppSettings.load().broadcastIndexerURL
-            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if indexerConfigured {
-            wanted.subtract(Set(Self.indexedChannels))
-        }
+        // Per room, since each can point at its own indexer now: a curated room whose override
+        // is blank still counts as indexed via the app-wide setting.
+        wanted.subtract(Set(Self.indexedChannels.filter { !Self.indexerBaseURL(forChannel: $0).isEmpty }))
         return wanted
     }
 

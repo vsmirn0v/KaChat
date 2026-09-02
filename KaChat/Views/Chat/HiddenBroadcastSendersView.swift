@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Manage senders hidden in ONE broadcast room - reached from the room's top-right toolbar
-/// button. A hidden user's messages never show in this room and never notify (local banners
+/// Manage senders hidden in ONE broadcast room - reached from Room Info (tap the #name in the
+/// room). A hidden user's messages never show in this room and never notify (local banners
 /// and, for indexed channels, remote push via the registration's hidden map).
 struct HiddenBroadcastSendersView: View {
     let channel: String
@@ -9,7 +9,6 @@ struct HiddenBroadcastSendersView: View {
     @EnvironmentObject var broadcastService: BroadcastService
     @EnvironmentObject var contactsManager: ContactsManager
     @ObservedObject private var knsService = KNSService.shared
-    @Environment(\.dismiss) private var dismiss
 
     @State private var hiddenAddresses: [String] = []
 
@@ -47,11 +46,6 @@ struct HiddenBroadcastSendersView: View {
         }
         .navigationTitle("Hidden Users - #\(channel)")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Done") { dismiss() }
-            }
-        }
         .onAppear {
             reload()
         }
