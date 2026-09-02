@@ -78,6 +78,9 @@ struct ChatDetailView: View {
     /// Presents the time-control picker step between tapping "Play Chess" and actually sending
     /// the invite - see `composerPlusMenu`'s confirmation dialog.
     @State private var showComposerPlusSheet = false
+    /// The composer sheet's second step: which time control to play. Kept in the SAME sheet -
+    /// dismissing into a dialog to answer one follow-up question loses the thread of the action.
+    @State private var composerSheetShowsChess = false
     @State private var previousMessagesCount = 0
     @State private var lastMessageSnapshotDigest: Int?
     @State private var snapshotRebuildTask: Task<Void, Never>?
