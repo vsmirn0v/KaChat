@@ -1016,7 +1016,6 @@ struct ChatListView: View {
     /// relevant one only, matching Mail) and reuse the exact same service calls as the Select-mode
     /// bulk bar; Delete routes through its own confirmation alert, which then reuses
     /// `deleteConversations`. Empty while Select mode is active - the bulk bar owns actions there.
-    @ViewBuilder
     private func conversationRowSheet(for conversation: Conversation) -> some View {
         let isSilent = conversation.contact.notificationModeOverride == .off
         return VStack(spacing: 12) {
@@ -1089,7 +1088,6 @@ struct ChatListView: View {
 
     /// Group-row counterpart to `conversationRowMenu` - same three actions on the group's own
     /// `groupLastReadAt` badge mechanism and delete flow.
-    @ViewBuilder
     private func groupRowSheet(for group: GroupChat) -> some View {
         let isSilent = groupChatService.silentNotifications(for: group.id)
         return VStack(spacing: 12) {
