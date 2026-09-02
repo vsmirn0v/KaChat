@@ -80,40 +80,79 @@ struct BroadcastChannelView: View {
         BroadcastService.indexedChannels.contains(BroadcastChannelName.normalize(channelName))
     }
 
-    /// Shareable invite for this room. Mirrors KaPosts' post-share text shape: a human line,
-    /// then the `kachat://` link, then its https twin for people who don't have KaChat (the
-    /// domain 302s to the App Store). Both forms are accepted by `KaChatInternalLink.parse` on
-    /// iOS and Android.
+    // Split into four expressions rather than one 14-modifier chain. The type checker solves a
+    // view's whole modifier chain as a SINGLE expression, and this one had grown past what it
+    // will spend on that ("unable to type-check this expression in reasonable time"). Same split,
+    // for the same reason, as ChatListView's.
     var body: some View {
-        messageList
-            // Hosting the compose bar as a real `safeAreaInset` (rather than a floating ZStack
-            // overlay with a manually-tracked keyboard offset) is what guarantees it always sits
-            // flush above the keyboard on every device - this is the mechanism SwiftUI itself
-            // uses for keyboard avoidance, so there's no custom math to get wrong. See
-            // ChatDetailView's identical fix for why the old floating approach left a gap.
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                VStack(spacing: 0) {
-                    if isChattingBalanceZero {
-                        // Zero-balance gate: reading stays fully usable (the card is part of
-                        // the bottom inset, never an overlay on the message list) - only
-                        // composing is blocked. Mirrors 1:1 chat's gate exactly.
-                        ZeroBalanceFundingCardView(
-                            address: myAddress,
-                            onCopied: { showToast($0.addressCopiedToastText) }
-                        )
-                        .padding(.horizontal)
-                        .padding(.bottom, 4)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    composeBar
-                        .disabled(isChattingBalanceZero)
-                        .allowsHitTesting(!isChattingBalanceZero)
-                        .grayscale(isChattingBalanceZero ? 1 : 0)
-                        .opacity(isChattingBalanceZero ? 0.45 : 1)
-                }
-                .animation(.easeInOut(duration: 0.25), value: isChattingBalanceZero)
-                .padding(.bottom, 2)
+        chrome
+        .onAppear {
+            broadcastService.acquire(channelName)
+        }
+        .onDisappear {
+            broadcastService.release(channelName)
+        }
+        .task {
+            // Keeps retention feeling "live" while this room is open - a message actually
+            // disappears a few seconds after it expires instead of only on next open/send.
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                broadcastService.pruneNowAndRefresh(forChannel: channelName)
             }
+        }
+        .task(id: myAddress) {
+            // Your own avatar always resolves regardless of the auto-avatar-search toggle (that
+            // toggle only gates *other* senders, for privacy) - fetched once at the room level
+            // rather than per-row, since a per-row `.task` can get cancelled/restarted as its
+            // bubble scrolls in and out of the lazy message list's visible viewport.
+            guard let myAddress,
+                  knsService.profileCache[myAddress] == nil else { return }
+            _ = await knsService.fetchProfile(for: myAddress)
+        }
+        .onChange(of: recorder.state) { state in
+            switch state {
+            case .failed(let message):
+                showToast(message)
+                feeEstimateSompi = nil
+            case .recording:
+                updateRecordingFeeEstimate(elapsedSeconds: 0)
+            case .idle:
+                feeEstimateSompi = nil
+            case .encoding:
+                break
+            }
+        }
+    }
+
+    /// Toasts, sheets and the fee alert.
+    private var chrome: some View {
+        navigation
+        .toast(message: toastMessage, style: .success)
+        .sheet(item: $reactionsSheetTarget) { target in
+            BroadcastReactionsSheet(
+                reactions: broadcastService.reactions(forChannel: channelName)[target.txId] ?? [],
+                myAddress: myAddress ?? "",
+                displayName: { displayName(for: $0) }
+            )
+        }
+        .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
+            TextField("Fee (KAS)", text: $feeEditorText)
+                .keyboardType(.decimalPad)
+            Button("Save") { commitFeeOverride() }
+            Button("Use Default") {
+                feeOverrideSompi = nil
+                scheduleFeeEstimate(for: messageText)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("If the network is busy, a higher fee can help your transaction confirm faster.")
+        }
+    }
+
+    /// Title, toolbar and everything this room can push or present onto.
+    private var navigation: some View {
+        conversation
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
@@ -160,63 +199,39 @@ struct BroadcastChannelView: View {
                 }
             }
         }
-        .toast(message: toastMessage, style: .success)
-        .sheet(item: $reactionsSheetTarget) { target in
-            BroadcastReactionsSheet(
-                reactions: broadcastService.reactions(forChannel: channelName)[target.txId] ?? [],
-                myAddress: myAddress ?? "",
-                displayName: { displayName(for: $0) }
-            )
-        }
-        .alert("Adjust Network Fee", isPresented: $showFeeEditor) {
-            TextField("Fee (KAS)", text: $feeEditorText)
-                .keyboardType(.decimalPad)
-            Button("Save") { commitFeeOverride() }
-            Button("Use Default") {
-                feeOverrideSompi = nil
-                scheduleFeeEstimate(for: messageText)
+    }
+
+    /// The message list with the compose bar held above the keyboard.
+    private var conversation: some View {
+        messageList
+            // Hosting the compose bar as a real `safeAreaInset` (rather than a floating ZStack
+            // overlay with a manually-tracked keyboard offset) is what guarantees it always sits
+            // flush above the keyboard on every device - this is the mechanism SwiftUI itself
+            // uses for keyboard avoidance, so there's no custom math to get wrong. See
+            // ChatDetailView's identical fix for why the old floating approach left a gap.
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(spacing: 0) {
+                    if isChattingBalanceZero {
+                        // Zero-balance gate: reading stays fully usable (the card is part of
+                        // the bottom inset, never an overlay on the message list) - only
+                        // composing is blocked. Mirrors 1:1 chat's gate exactly.
+                        ZeroBalanceFundingCardView(
+                            address: myAddress,
+                            onCopied: { showToast($0.addressCopiedToastText) }
+                        )
+                        .padding(.horizontal)
+                        .padding(.bottom, 4)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    composeBar
+                        .disabled(isChattingBalanceZero)
+                        .allowsHitTesting(!isChattingBalanceZero)
+                        .grayscale(isChattingBalanceZero ? 1 : 0)
+                        .opacity(isChattingBalanceZero ? 0.45 : 1)
+                }
+                .animation(.easeInOut(duration: 0.25), value: isChattingBalanceZero)
+                .padding(.bottom, 2)
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("If the network is busy, a higher fee can help your transaction confirm faster.")
-        }
-        .onAppear {
-            broadcastService.acquire(channelName)
-        }
-        .onDisappear {
-            broadcastService.release(channelName)
-        }
-        .task {
-            // Keeps retention feeling "live" while this room is open - a message actually
-            // disappears a few seconds after it expires instead of only on next open/send.
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                guard !Task.isCancelled else { return }
-                broadcastService.pruneNowAndRefresh(forChannel: channelName)
-            }
-        }
-        .task(id: myAddress) {
-            // Your own avatar always resolves regardless of the auto-avatar-search toggle (that
-            // toggle only gates *other* senders, for privacy) - fetched once at the room level
-            // rather than per-row, since a per-row `.task` can get cancelled/restarted as its
-            // bubble scrolls in and out of the lazy message list's visible viewport.
-            guard let myAddress,
-                  knsService.profileCache[myAddress] == nil else { return }
-            _ = await knsService.fetchProfile(for: myAddress)
-        }
-        .onChange(of: recorder.state) { state in
-            switch state {
-            case .failed(let message):
-                showToast(message)
-                feeEstimateSompi = nil
-            case .recording:
-                updateRecordingFeeEstimate(elapsedSeconds: 0)
-            case .idle:
-                feeEstimateSompi = nil
-            case .encoding:
-                break
-            }
-        }
     }
 
     private var messageList: some View {
@@ -1051,17 +1066,26 @@ private struct BroadcastReactionsSheet: View {
     let myAddress: String
     let displayName: (String) -> String
 
+    /// One emoji and everyone who used it. A named type, not a tuple: an array of labelled
+    /// tuples built by a chained map/sorted is one of the more expensive things to ask the Swift
+    /// type checker to infer, and this file has a budget problem already.
+    private struct EmojiGroup: Identifiable {
+        let emoji: String
+        let reactors: [GroupStore.ReactionSnapshot]
+        var id: String { emoji }
+    }
+
     /// Grouped by emoji, most-reacted first, so "12 people" reads before the names.
-    private var grouped: [(emoji: String, reactors: [GroupStore.ReactionSnapshot])] {
-        Dictionary(grouping: reactions, by: \.emoji)
-            .map { (emoji: $0.key, reactors: $0.value) }
-            .sorted { $0.reactors.count > $1.reactors.count }
+    private var grouped: [EmojiGroup] {
+        let byEmoji: [String: [GroupStore.ReactionSnapshot]] = Dictionary(grouping: reactions, by: { $0.emoji })
+        let groups: [EmojiGroup] = byEmoji.map { EmojiGroup(emoji: $0.key, reactors: $0.value) }
+        return groups.sorted { $0.reactors.count > $1.reactors.count }
     }
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(grouped, id: \.emoji) { group in
+                ForEach(grouped) { group in
                     Section {
                         ForEach(group.reactors) { reaction in
                             Text(reaction.reactorAddress == myAddress ? "You" : displayName(reaction.reactorAddress))
@@ -1443,62 +1467,9 @@ private struct BroadcastMessageRow: View {
                     // Only the plain bubble gets this menu - `LinkPreviewCardView` carries its
                     // own (Open Link / Copy Link / View in Explorer), and stacking a second
                     // `.contextMenu` on top of it would fight it. Matches group bubbles.
-                    .contextMenu {
-                        // Reply was reachable only by double-tapping into the quick-reaction bar,
-                        // which is not where anyone looks for it. Android has had it here all
-                        // along.
-                        Button {
-                            onReply()
-                        } label: {
-                            Label("Reply", systemImage: "arrowshape.turn.up.left")
-                        }
-                        if let firstLink {
-                            Button {
-                                // Internal KaChat links open in-app rather than in Safari - see
-                                // `LinkifiedMessageTextView.Coordinator.handleTap`.
-                                if let internalLink = KaChatInternalLink.parse(firstLink) {
-                                    KaChatLinkRouter.open(internalLink)
-                                } else {
-                                    UIApplication.shared.open(firstLink)
-                                }
-                            } label: {
-                                Label("Open Link", systemImage: "safari")
-                            }
-                            Button {
-                                UIPasteboard.general.string = firstLink.absoluteString
-                            } label: {
-                                Label("Copy Link", systemImage: "link")
-                            }
-                        }
-                        if voicePayload == nil {
-                            Button {
-                                onCopyMessage()
-                            } label: {
-                                Label("Copy Message", systemImage: "doc.on.doc")
-                            }
-                        }
-                        if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.id) {
-                            Link(destination: url) {
-                                Label("View in Explorer", systemImage: "safari")
-                            }
-                        }
-                        if isOwnMessage && message.deliveryStatus == .failed {
-                            Button {
-                                onRetry()
-                            } label: {
-                                Label("Retry Send", systemImage: "arrow.clockwise")
-                            }
-                        }
-                        // The pill on the bubble shows WHICH emoji are on the message; it has no
-                        // room to say how many or from whom. This does.
-                        if !reactions.isEmpty, let onShowReactions {
-                            Button {
-                                onShowReactions()
-                            } label: {
-                                Label("Reactions (\(reactions.count))", systemImage: "heart")
-                            }
-                        }
-                    }
+                    // Extracted: this menu's branches inside `bubble`'s already-long
+                    // chain is what the type checker gives up on.
+                    .contextMenu { bubbleContextMenu(voicePayload: voicePayload) }
             }
         }
             // Overlays are attached HERE - to the content-hugging Group, BEFORE the
@@ -1537,6 +1508,69 @@ private struct BroadcastMessageRow: View {
                     onReply()
                 }
             })
+    }
+
+    /// The long-press menu on a plain text bubble. Its own @ViewBuilder rather than inline:
+    /// `bubble` is a long chain already, and the type checker solves a view expression whole.
+    ///
+    /// `voicePayload` is passed in, not read off `self`: `bubble` computes it once into a local
+    /// that shadows the property, because the decode is a full JSON parse + base64 of the audio.
+    @ViewBuilder
+    private func bubbleContextMenu(voicePayload: VoiceMessageSniff.Payload?) -> some View {
+        // Reply was reachable only by double-tapping into the quick-reaction bar,
+        // which is not where anyone looks for it. Android has had it here all
+        // along.
+        Button {
+            onReply()
+        } label: {
+            Label("Reply", systemImage: "arrowshape.turn.up.left")
+        }
+        if let firstLink {
+            Button {
+                // Internal KaChat links open in-app rather than in Safari - see
+                // `LinkifiedMessageTextView.Coordinator.handleTap`.
+                if let internalLink = KaChatInternalLink.parse(firstLink) {
+                    KaChatLinkRouter.open(internalLink)
+                } else {
+                    UIApplication.shared.open(firstLink)
+                }
+            } label: {
+                Label("Open Link", systemImage: "safari")
+            }
+            Button {
+                UIPasteboard.general.string = firstLink.absoluteString
+            } label: {
+                Label("Copy Link", systemImage: "link")
+            }
+        }
+        if voicePayload == nil {
+            Button {
+                onCopyMessage()
+            } label: {
+                Label("Copy Message", systemImage: "doc.on.doc")
+            }
+        }
+        if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: message.id) {
+            Link(destination: url) {
+                Label("View in Explorer", systemImage: "safari")
+            }
+        }
+        if isOwnMessage && message.deliveryStatus == .failed {
+            Button {
+                onRetry()
+            } label: {
+                Label("Retry Send", systemImage: "arrow.clockwise")
+            }
+        }
+        // The pill on the bubble shows WHICH emoji are on the message; it has no
+        // room to say how many or from whom. This does.
+        if !reactions.isEmpty, let onShowReactions {
+            Button {
+                onShowReactions()
+            } label: {
+                Label("Reactions (\(reactions.count))", systemImage: "heart")
+            }
+        }
     }
 
     private var deliveryBadge: some View {
