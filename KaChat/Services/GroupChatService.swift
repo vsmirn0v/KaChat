@@ -79,6 +79,17 @@ final class GroupChatService: ObservableObject {
     private var groupCatchUpCursors: [String: String] = [:]
     private let groupCatchUpCursorsKey = "kachat_group_catchup_cursors"
 
+    /// Sync keys whose whole history has been walked once from the beginning.
+    ///
+    /// A cursor only ever moves FORWARD, and until catch-up learned to page it advanced past a
+    /// whole 50-row page per sync - so on a device that synced while a group already had history,
+    /// everything before the cursor was skipped and could never be fetched again. Paging alone
+    /// does not repair that: it walks forward from wherever the cursor already landed. This makes
+    /// the first run per sync key start from nothing instead, which the store's txId dedupe makes
+    /// free to repeat.
+    private var groupDeepBackfilled: Set<String> = []
+    private let groupDeepBackfilledKey = "kachat_group_deep_backfilled"
+
     /// Per-group "last opened" timestamp, for the Group Chats tab unread badge - one timestamp
     /// per group rather than a per-message read flag (would need a Core Data migration; see
     /// plan doc), persisted the same way as `groupCatchUpCursors`.
@@ -243,10 +254,19 @@ final class GroupChatService: ObservableObject {
 
     private func loadGroupCatchUpCursors() {
         groupCatchUpCursors = loadScoped(groupCatchUpCursorsKey) ?? [:]
+        groupDeepBackfilled = Set((loadScoped(groupDeepBackfilledKey) ?? []) as [String])
     }
 
     private func saveGroupCatchUpCursors() {
         saveScoped(groupCatchUpCursorsKey, groupCatchUpCursors)
+    }
+
+    /// Marked only once a run reaches the true end, so an interrupted backfill retries from the
+    /// beginning rather than leaving a hole behind.
+    private func markDeepBackfilled(_ syncKey: String) {
+        guard !groupDeepBackfilled.contains(syncKey) else { return }
+        groupDeepBackfilled.insert(syncKey)
+        saveScoped(groupDeepBackfilledKey, Array(groupDeepBackfilled))
     }
 
     private func loadGroupLastReadAt() {
@@ -2333,24 +2353,36 @@ final class GroupChatService: ObservableObject {
     /// refetching.
     private func catchUpGroupMessages(groupId: String, blindedGroupIdHex: String) async {
         let syncKey = "gcomm|\(groupId)|\(blindedGroupIdHex)"
-        // 40 x 50 = 2000 messages in one sync - far beyond any real group, and a bound so a
+        // The first run per key starts from NOTHING, not from the stored cursor - see
+        // `groupDeepBackfilled`. Everything a pre-paging sync skipped lives before that cursor,
+        // and walking forward from it can never reach any of it.
+        let isDeepBackfill = !groupDeepBackfilled.contains(syncKey)
+        var cursor: String? = isDeepBackfill ? nil : groupCatchUpCursors[syncKey]
+        // 40 x 50 = 2000 messages in one run - far beyond any real group, and a bound so a
         // misbehaving cursor cannot loop forever.
         var pagesLeft = 40
         while pagesLeft > 0 {
             pagesLeft -= 1
             do {
                 let messages = try await KasiaAPIClient.shared.getGroupMessages(
-                    blindedGroupId: blindedGroupIdHex, limit: 50, cursor: groupCatchUpCursors[syncKey]
+                    blindedGroupId: blindedGroupIdHex, limit: 50, cursor: cursor
                 )
-                if messages.isEmpty { return }
-                advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
+                if messages.isEmpty {
+                    markDeepBackfilled(syncKey)
+                    return
+                }
+                cursor = messages.last?.cursor
+                advanceGroupCatchUpCursor(for: syncKey, from: cursor)
                 for msg in messages {
                     guard let payloadString = Self.reconstructPayloadString(prefix: Self.gcommPrefix, messagePayloadHex: msg.messagePayload),
                           let parsed = GroupCipher.parseGroupMessagePayload(payloadString) else { continue }
                     handleIncomingGroupMessage(parsed, txId: msg.txId, blockTime: Int64(msg.blockTime))
                 }
                 // A short page is the last page.
-                if messages.count < 50 { return }
+                if messages.count < 50 {
+                    markDeepBackfilled(syncKey)
+                    return
+                }
             } catch {
                 AppLog.log("[GroupChatService] Catch-up gcomm fetch failed for group %@: %@",
                            String(groupId.prefix(12)), error.localizedDescription)
@@ -2364,20 +2396,32 @@ final class GroupChatService: ObservableObject {
     /// device holding a stale root that later messages cannot be decrypted against.
     private func catchUpGroupControl(adminAddress: String) async {
         let syncKey = "gctl|\(adminAddress.lowercased())"
+        // Deep-backfilled once, like gcomm - and it matters more here. A skipped control message
+        // is a skipped epoch root, and a member holding no root for the epoch an old message was
+        // sent at cannot DECRYPT it, however many times it is fetched.
+        let isDeepBackfill = !groupDeepBackfilled.contains(syncKey)
+        var cursor: String? = isDeepBackfill ? nil : groupCatchUpCursors[syncKey]
         var pagesLeft = 40
         while pagesLeft > 0 {
             pagesLeft -= 1
             do {
                 let messages = try await KasiaAPIClient.shared.getGroupControl(
-                    sender: adminAddress, limit: 50, cursor: groupCatchUpCursors[syncKey]
+                    sender: adminAddress, limit: 50, cursor: cursor
                 )
-                if messages.isEmpty { return }
-                advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
+                if messages.isEmpty {
+                    markDeepBackfilled(syncKey)
+                    return
+                }
+                cursor = messages.last?.cursor
+                advanceGroupCatchUpCursor(for: syncKey, from: cursor)
                 for msg in messages {
                     guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
                     handleIncomingControlMessage(payloadString, senderAddress: msg.sender, blockTime: msg.blockTime)
                 }
-                if messages.count < 50 { return }
+                if messages.count < 50 {
+                    markDeepBackfilled(syncKey)
+                    return
+                }
             } catch {
                 AppLog.log("[GroupChatService] Catch-up gctl-by-sender fetch failed for admin %@: %@",
                            String(adminAddress.suffix(10)), error.localizedDescription)
@@ -2392,20 +2436,29 @@ final class GroupChatService: ObservableObject {
         let syncKey = "gctl-recipient|\(recipientAddress.lowercased())"
         // Paged like the other two. This is the path a seedless import discovers groups through,
         // so a wallet in more than 50 lifetime invites would otherwise find only some of them.
+        let isDeepBackfill = !groupDeepBackfilled.contains(syncKey)
+        var cursor: String? = isDeepBackfill ? nil : groupCatchUpCursors[syncKey]
         var pagesLeft = 40
         while pagesLeft > 0 {
             pagesLeft -= 1
             do {
                 let messages = try await KasiaAPIClient.shared.getGroupControlByRecipient(
-                    recipient: recipientAddress, limit: 50, cursor: groupCatchUpCursors[syncKey]
+                    recipient: recipientAddress, limit: 50, cursor: cursor
                 )
-                if messages.isEmpty { return }
-                advanceGroupCatchUpCursor(for: syncKey, from: messages.last?.cursor)
+                if messages.isEmpty {
+                    markDeepBackfilled(syncKey)
+                    return
+                }
+                cursor = messages.last?.cursor
+                advanceGroupCatchUpCursor(for: syncKey, from: cursor)
                 for msg in messages {
                     guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
                     handleIncomingControlMessage(payloadString, senderAddress: msg.sender, blockTime: msg.blockTime)
                 }
-                if messages.count < 50 { return }
+                if messages.count < 50 {
+                    markDeepBackfilled(syncKey)
+                    return
+                }
             } catch {
                 AppLog.log("[GroupChatService] Catch-up gctl-by-recipient fetch failed: %@", error.localizedDescription)
                 return
