@@ -51,6 +51,16 @@ enum DecimalInputFormat {
         return normalized.hasSuffix(decimal) ? formatted + decimal : formatted
     }
 
+    /// Groups a string that uses "." as its decimal point - `String(format: "%.8f")` output, say -
+    /// into the locale's own form.
+    ///
+    /// Not the same as calling `grouped` on it: in a locale like German, "." IS the grouping
+    /// separator, so `grouped` would strip the decimal point out of "1200000.00" and read the
+    /// whole thing as 120000000.
+    static func groupedFromCanonical(_ text: String) -> String {
+        grouped(text.replacingOccurrences(of: ".", with: decimal))
+    }
+
     /// The number behind grouped text, or nil when there isn't one yet.
     static func value(_ text: String) -> Double? {
         let bare = text
@@ -75,15 +85,20 @@ struct NumericKeyboardDoneButton: ViewModifier {
         content
             .focused($isFocused)
             .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button {
-                        isFocused = false
-                    } label: {
-                        Image(systemName: "checkmark")
-                            .fontWeight(.semibold)
+                // Gated on THIS field's focus. Keyboard toolbars from every field in the
+                // hierarchy are merged into one bar, so a screen with two numeric fields - the
+                // KAS/fiat converter has exactly that - drew two checkmarks side by side.
+                if isFocused {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button {
+                            isFocused = false
+                        } label: {
+                            Image(systemName: "checkmark")
+                                .fontWeight(.semibold)
+                        }
+                        .accessibilityLabel("Done editing")
                     }
-                    .accessibilityLabel("Done editing")
                 }
             }
     }

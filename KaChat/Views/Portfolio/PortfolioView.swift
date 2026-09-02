@@ -635,10 +635,17 @@ private struct KasConverterCard: View {
                 .multilineTextAlignment(.trailing)
                 .font(.system(size: 20, weight: .semibold))
                 .focused($focused, equals: field)
-                .onChange(of: text.wrappedValue) { _ in
+                .onChange(of: text.wrappedValue) { newValue in
                     // Only the focused field drives; without this the derived write would bounce
                     // straight back and the two would fight each other keystroke for keystroke.
                     guard focused == field else { return }
+                    // Group what was just typed. The assignment re-enters this handler, so it
+                    // only happens when the text actually changes - otherwise it never settles.
+                    let grouped = DecimalInputFormat.grouped(newValue)
+                    if grouped != newValue {
+                        text.wrappedValue = grouped
+                        return
+                    }
                     editing = field
                     recompute(from: field)
                 }
@@ -668,12 +675,11 @@ private struct KasConverterCard: View {
         }
     }
 
-    /// Accepts either separator: a decimal keypad emits the device locale's, which is a comma in
-    /// much of the world, and parsing that as an integer silently multiplied the amount.
+    /// Accepts either separator, and strips grouping. A decimal keypad emits the device locale's
+    /// decimal separator, which is a comma in much of the world, and parsing that as an integer
+    /// silently multiplied the amount.
     private static func number(from text: String) -> Double? {
-        let normalized = text.replacingOccurrences(of: ",", with: ".")
-        guard !normalized.isEmpty else { return nil }
-        return Double(normalized)
+        DecimalInputFormat.value(text)
     }
 
     /// Full precision, with the padding trimmed off.
@@ -683,14 +689,15 @@ private struct KasConverterCard: View {
     /// eight sompi actually carries. So this writes eight decimals - Kaspa's own precision - and
     /// then drops the trailing zeros, keeping two so a whole amount still reads as money.
     ///
-    /// Deliberately locale-free: the result is written straight back into a text field the user
-    /// can keep editing, and a grouping separator would make it unparseable on the way back in.
+    /// Grouped on the way out, since the derived side is read far more often than it is edited
+    /// and "1200000" is a number you have to count digits on. Safe to write back into an
+    /// editable field because `number(from:)` strips grouping again on the way in.
     private static func format(_ value: Double) -> String {
         var text = String(format: "%.8f", value)
         while text.hasSuffix("0"), text.split(separator: ".").last?.count ?? 0 > 2 {
             text.removeLast()
         }
-        return text
+        return DecimalInputFormat.groupedFromCanonical(text)
     }
 }
 
