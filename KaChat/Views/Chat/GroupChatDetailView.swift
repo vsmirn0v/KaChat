@@ -585,7 +585,8 @@ struct GroupChatDetailView: View {
                 entries: (groupChatService.reactionsByGroupId[group.id]?[target.txId] ?? [])
                     .map { ReactionsSheet.Entry(emoji: $0.emoji, reactorAddress: $0.reactorAddress) },
                 myAddress: myAddress ?? "",
-                displayName: { displayName(for: $0) }
+                displayName: { displayName(for: $0) },
+                avatarURL: { knsService.profileCache[$0]?.avatarURL }
             )
         }
         .sheet(isPresented: $showInfo) {

@@ -524,10 +524,12 @@ struct ChatDetailView: View {
                     // a 64pt avatar over a name capsule is far taller than a principal item is
                     // given, which is what was drawing it clipped in the first place.
                     .safeAreaInset(edge: .top, spacing: 0) {
-                        // No bar behind it: the point is that it floats over the conversation.
-                        // Still an inset rather than an overlay, so the newest message is never
-                        // parked underneath it.
+                        // Pulled up into the navigation bar's own row, so the avatar sits level
+                        // with the back button and the connection dot rather than starting below
+                        // them. The negative top padding is what closes that gap - the bar's
+                        // height is fixed, so the header has to reach up into it.
                         chatTitleChip
+                            .padding(.top, -44)
                             .padding(.bottom, 2)
                             .frame(maxWidth: .infinity)
                     }
@@ -812,7 +814,8 @@ struct ChatDetailView: View {
                 entries: (chatService.reactionsByTxId[target.txId] ?? [])
                     .map { ReactionsSheet.Entry(emoji: $0.emoji, reactorAddress: $0.reactorAddress) },
                 myAddress: walletManager.currentWallet?.publicAddress ?? "",
-                displayName: { _ in contact.alias }
+                displayName: { _ in contact.alias },
+                avatarURL: { knsService.profileCache[$0]?.avatarURL }
             )
         }
         .sheet(isPresented: $showChatInfo) {
@@ -1973,7 +1976,11 @@ struct ChatDetailView: View {
     /// The only thing still held is a send already in flight, which is about not submitting the
     /// same transaction twice, not about rationing attempts.
     private var canSendRequestToCommunicate: Bool {
-        !isRespondingHandshake
+        // Never for a chat with yourself: a handshake is a request to open an encrypted
+        // conversation WITH SOMEONE, and there is nobody on the other side of your own chatting
+        // address to accept it. Reachable after importing the same wallet on a second device,
+        // where your own address is among the contacts.
+        !isRespondingHandshake && contact.address != walletManager.currentWallet?.publicAddress
     }
 
     /// Only ever reached for `.payment` now — the `.message` entry point moved to

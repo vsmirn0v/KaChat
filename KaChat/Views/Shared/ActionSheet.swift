@@ -153,6 +153,9 @@ struct ReactionsSheet: View {
     let entries: [Entry]
     let myAddress: String
     let displayName: (String) -> String
+    /// KNS avatar for a reactor, when one is cached. A face is how you recognise someone in a
+    /// list of names you may not have saved.
+    var avatarURL: (String) -> String? = { _ in nil }
 
     /// One emoji and everyone who used it. A named type, not a tuple: an array of labelled
     /// tuples built by a chained map/sorted is expensive for the type checker to infer.
@@ -174,9 +177,20 @@ struct ReactionsSheet: View {
                 ForEach(grouped) { group in
                     Section {
                         ForEach(group.reactors) { entry in
-                            Text(entry.reactorAddress == myAddress ? "You" : displayName(entry.reactorAddress))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
+                            let name = entry.reactorAddress == myAddress
+                                ? "You"
+                                : displayName(entry.reactorAddress)
+                            HStack(spacing: 10) {
+                                KNSAvatarView(
+                                    avatarURLString: avatarURL(entry.reactorAddress),
+                                    fallbackText: name,
+                                    size: 28,
+                                    contactAddress: entry.reactorAddress
+                                )
+                                Text(name)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
                         }
                     } header: {
                         HStack(spacing: 8) {
