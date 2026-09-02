@@ -343,39 +343,6 @@ struct ChatInfoView: View {
                     contactAddress: contact.address
                 )
             }
-            .sheet(isPresented: $showSystemContactLinkPicker) {
-                SystemContactLinkPickerSheet(
-                    title: "Link System Contact",
-                    onSelect: { target in
-                        Task {
-                            do {
-                                try await contactsManager.linkContactToSystemContact(
-                                    contact,
-                                    target: target,
-                                    updateAlias: false
-                                )
-                                await MainActor.run {
-                                    linkedSystemContactId = target.contactIdentifier
-                                    linkedSystemContactName = target.displayName
-                                    linkedSystemContactSource = .manual
-                                    editedAlias = target.displayName
-                                    var updatedContact = contact
-                                    updatedContact.systemContactId = target.contactIdentifier
-                                    updatedContact.systemDisplayNameSnapshot = target.displayName
-                                    updatedContact.systemContactLinkSource = .manual
-                                    updatedContact.alias = target.displayName
-                                    contact = updatedContact
-                                    showToast(localizedFormat("Linked to %@.", target.displayName))
-                                }
-                            } catch {
-                                await MainActor.run {
-                                    showToast(localized("Failed to link system contact."), style: .error)
-                                }
-                            }
-                        }
-                    }
-                )
-            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -601,6 +568,39 @@ struct ChatInfoView: View {
             }
             .navigationTitle("System Contact")
             .navigationBarTitleDisplayMode(.inline)
+        }
+        .sheet(isPresented: $showSystemContactLinkPicker) {
+            SystemContactLinkPickerSheet(
+                title: "Link System Contact",
+                onSelect: { target in
+                    Task {
+                        do {
+                            try await contactsManager.linkContactToSystemContact(
+                                contact,
+                                target: target,
+                                updateAlias: false
+                            )
+                            await MainActor.run {
+                                linkedSystemContactId = target.contactIdentifier
+                                linkedSystemContactName = target.displayName
+                                linkedSystemContactSource = .manual
+                                editedAlias = target.displayName
+                                var updatedContact = contact
+                                updatedContact.systemContactId = target.contactIdentifier
+                                updatedContact.systemDisplayNameSnapshot = target.displayName
+                                updatedContact.systemContactLinkSource = .manual
+                                updatedContact.alias = target.displayName
+                                contact = updatedContact
+                                showToast(localizedFormat("Linked to %@.", target.displayName))
+                            }
+                        } catch {
+                            await MainActor.run {
+                                showToast(localized("Failed to link system contact."), style: .error)
+                            }
+                        }
+                    }
+                }
+            )
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
