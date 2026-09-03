@@ -450,6 +450,28 @@ final class NextcloudService: ObservableObject {
     /// changing the stamp can never flip the toggle back later. Disconnected wallets are NOT
     /// migrated - the default only means something once a server is connected - and simply
     /// report their stored value.
+    /// Automatic Sync for a connection the user is making right now.
+    ///
+    /// Connecting an account is not the same as asking the app to start uploading to it, so a
+    /// first-time connection settles on OFF and records that as the choice. Reconnecting an
+    /// account this wallet has an explicit choice on record for keeps that choice.
+    ///
+    /// Deliberately separate from [resolveAndMigrateAutoSyncEnabled], which runs at wallet-load
+    /// time for accounts connected before this rule existed: those users may be relying on a
+    /// sync they never had to opt into, and silently switching it off underneath them would be
+    /// its own bug.
+    private func resolveAutoSyncForConnect() -> Bool {
+        guard let key = scopedKey(Self.autoBackupKey),
+              let markerKey = scopedKey(Self.autoSyncChosenKey) else { return false }
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: markerKey), let stored = defaults.object(forKey: key) as? Bool {
+            return stored
+        }
+        defaults.set(false, forKey: key)
+        defaults.set(true, forKey: markerKey)
+        return false
+    }
+
     private func resolveAndMigrateAutoSyncEnabled() -> Bool {
         guard let key = scopedKey(Self.autoBackupKey),
               let markerKey = scopedKey(Self.autoSyncChosenKey) else { return false }
@@ -981,11 +1003,11 @@ final class NextcloudService: ObservableObject {
         try KeychainService.shared.saveNextcloudCredentials(encoded, walletAddress: walletAddress)
         account = candidate
 
-        // Automatic Sync defaults ON for a fresh connection (an earlier explicit choice for
-        // this wallet carries over instead), the archive is marked dirty so the first upload
-        // happens promptly, and the wallet gets its one-time silent restore if the shared
-        // file already exists.
-        autoBackupEnabled = resolveAndMigrateAutoSyncEnabled()
+        // Automatic Sync starts OFF for a fresh connection (an earlier explicit choice for this
+        // wallet carries over instead). `noteMessageActivity` and `scheduleAutoRestoreIfNeeded`
+        // below are both gated on it, so nothing uploads or restores until the user turns it on
+        // in Settings.
+        autoBackupEnabled = resolveAutoSyncForConnect()
         reconcileOneCloudAtATime()
         noteMessageActivity()
         scheduleAutoRestoreIfNeeded()
@@ -1006,6 +1028,19 @@ final class NextcloudService: ObservableObject {
         // Belt and braces: if a legacy global blob somehow still exists, remove it too so
         // disconnect can never appear to "come back" via migration.
         try? KeychainService.shared.deleteLegacyNextcloudCredentials()
+        // Clear this wallet's Nextcloud settings alongside its credentials, matching Android's
+        // disconnect. Without this the Automatic Sync choice outlived the account it was made
+        // for, so connecting a DIFFERENT server later inherited it - and "connecting for the
+        // first time" would silently start syncing.
+        if let walletAddress = currentWalletAddress {
+            let suffix = KeychainService.walletHashSuffix(walletAddress)
+            for base in [Self.autoBackupKey, Self.mediaSendKey, Self.lastAutoBackupKey,
+                         Self.pendingSyncKey, Self.autoRestoreDoneKey, Self.autoSyncChosenKey,
+                         Self.lastETagKey] {
+                UserDefaults.standard.removeObject(forKey: "\(base)_\(suffix)")
+            }
+        }
+        autoBackupEnabled = false
         account = nil
     }
 
