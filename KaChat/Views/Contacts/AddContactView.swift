@@ -833,35 +833,37 @@ struct AddContactView: View {
                 )
             }
 
-            if groupCandidates.isEmpty {
+            // Computed once per body, not once per use.
+            let candidates = groupCandidates
+            if candidates.isEmpty {
                 Text(memberSearchText.isEmpty
                      ? "Nobody to suggest yet. Add someone by address above."
                      : "No matches.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             } else {
-                ForEach(groupCandidates, id: \.self) { address in
+                ForEach(candidates) { candidate in
                     Button {
-                        toggleGroupMember(address)
+                        toggleGroupMember(candidate.address)
                     } label: {
                         HStack(spacing: 12) {
                             KNSAvatarView(
-                                avatarURLString: knsService.profileCache[address]?.avatarURL,
-                                fallbackText: memberDisplayName(address),
+                                avatarURLString: knsService.profileCache[candidate.address]?.avatarURL,
+                                fallbackText: candidate.name,
                                 size: 40,
-                                contactAddress: address
+                                contactAddress: candidate.address
                             )
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(memberDisplayName(address))
+                                Text(candidate.name)
                                     .foregroundColor(.primary)
                                     .lineLimit(1)
-                                Text(Contact.generateDefaultAlias(from: address))
+                                Text(Contact.generateDefaultAlias(from: candidate.address))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
                             }
                             Spacer(minLength: 0)
-                            if selectedMemberAddresses.contains(address) {
+                            if selectedMemberAddresses.contains(candidate.address) {
                                 Image(systemName: "checkmark.circle.fill")
                                     .foregroundColor(.accentColor)
                             }
@@ -877,24 +879,62 @@ struct AddContactView: View {
         // mode - without this the follow graph would be missing here. Guarded internally, so
         // whichever section renders first does the work and the other is a no-op.
         .task { await loadPickerContacts() }
+        // Rebuilt only when the inputs change, never per render.
+        .task(id: groupCandidateFingerprint) { rebuildGroupCandidates() }
+        // The 5s foreground contact sweep is a backstop for delivery, not something worth
+        // competing with a picker for the main actor - and this screen is modal, so nothing it
+        // would refresh is even on screen. It restarts on dismiss (and `startPolling` restarts
+        // it anyway on the next app-active), so pausing it here can only delay a sweep, never
+        // skip delivery: the subscription, push and the catch-up sync all still run.
+        .onAppear { chatService.stopForegroundContactSweep() }
+        .onDisappear { chatService.startForegroundContactSweep() }
     }
 
-    /// Contacts and the KaPosts follow graph, minus yourself, filtered by the search box.
-    /// `pickerContacts` is loaded by the same task the 1:1 screen uses, so this costs nothing extra.
-    private var groupCandidates: [String] {
+    /// One candidate row, with its name resolved ONCE.
+    ///
+    /// The list used to be a computed property that rebuilt a Set union and then sorted it with a
+    /// `localizedCaseInsensitiveCompare` of two freshly-resolved display names per comparison -
+    /// O(n log n) name lookups - and SwiftUI re-ran the whole thing on every body evaluation, twice
+    /// (once for `isEmpty`, once for the `ForEach`). With a few hundred people that is what made
+    /// the screen crawl.
+    struct GroupCandidate: Identifiable, Equatable {
+        let address: String
+        let name: String
+        /// Lowercased once, for the search filter.
+        let searchKey: String
+        var id: String { address }
+    }
+
+    /// Rebuilt only when the inputs actually change (see the `.task(id:)` in the picker section),
+    /// never per render.
+    @State private var groupCandidateCache: [GroupCandidate] = []
+
+    /// Cheap fingerprint of everything `rebuildGroupCandidates` reads.
+    private var groupCandidateFingerprint: String {
+        "\(contactsManager.activeContacts.count)|\(pickerContacts.count)|\(knsService.profileCache.count)"
+    }
+
+    private func rebuildGroupCandidates() {
         let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
         var addresses = Set(contactsManager.activeContacts.map(\.address))
         addresses.formUnion(pickerContacts.map(\.address))
         addresses.remove(myAddress)
 
-        let query = memberSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let filtered = query.isEmpty
-            ? addresses
-            : addresses.filter {
-                memberDisplayName($0).lowercased().contains(query) || $0.lowercased().contains(query)
+        groupCandidateCache = addresses
+            .map { address in
+                let name = memberDisplayName(address)
+                return GroupCandidate(address: address, name: name, searchKey: name.lowercased())
             }
-        return filtered.sorted {
-            memberDisplayName($0).localizedCaseInsensitiveCompare(memberDisplayName($1)) == .orderedAscending
+            .sorted { $0.searchKey < $1.searchKey }
+    }
+
+    /// The cached list, filtered by the search box. Filtering is a plain substring test over
+    /// names resolved once, so typing does not re-resolve anything.
+    private var groupCandidates: [GroupCandidate] {
+        let query = memberSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return groupCandidateCache }
+        return groupCandidateCache.filter {
+            $0.searchKey.contains(query) || $0.address.lowercased().contains(query)
         }
     }
 
