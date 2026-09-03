@@ -1123,6 +1123,11 @@ private struct BroadcastMessageRow: View {
     let maxRevealOffset: CGFloat
 
     @State private var showFullText = false
+    /// The link whose actions sheet is up. Broadcast keeps tap-to-open disabled (see
+    /// `LinkifiedMessageTextView.tapOpensLink`) - a room's senders are anonymous, so opening a
+    /// link stays a deliberate long-press. The CHOOSER is a half sheet now, matching 1:1 and
+    /// group; the gesture that summons it is unchanged.
+    @State private var linkMenuURL: URL?
 
     private var showQuickReactionBar: Bool {
         activeQuickReactionMessageId.wrappedValue == message.id
@@ -1326,7 +1331,7 @@ private struct BroadcastMessageRow: View {
                 text: displayText,
                 isOutgoing: isOwnMessage,
                 isSingleEmojiOnly: false,
-                onLinkLongPress: { _ in },
+                onLinkLongPress: { linkMenuURL = $0 },
                 tapOpensLink: false
             )
             .padding(.horizontal, 14)
@@ -1445,6 +1450,19 @@ private struct BroadcastMessageRow: View {
                     // chain is what the type checker gives up on.
                     .contextMenu { bubbleContextMenu(voicePayload: voicePayload) }
             }
+        }
+        .sheet(item: Binding(get: { linkMenuURL.map(IdentifiedURL.init) }, set: { if $0 == nil { linkMenuURL = nil } })) { wrapper in
+            LinkActionsSheet(
+                url: wrapper.url,
+                onOpen: {
+                    if let internalLink = KaChatInternalLink.parse(wrapper.url) {
+                        KaChatLinkRouter.open(internalLink)
+                    } else {
+                        UIApplication.shared.open(wrapper.url)
+                    }
+                },
+                onCopy: { UIPasteboard.general.string = wrapper.url.absoluteString }
+            )
         }
             // Overlays are attached HERE - to the content-hugging Group, BEFORE the
             // `.frame(maxWidth: 280)` below - exactly like 1:1's `MessageBubbleView` and group

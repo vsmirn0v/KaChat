@@ -483,44 +483,31 @@ struct KaPostsView: View {
         .sheet(item: $detailTarget) { target in
             postDetailSheet(postId: target.id)
         }
-        .confirmationDialog(
-            "Repost",
-            isPresented: Binding(
-                get: { repostDialogTarget != nil },
-                set: { if !$0 { repostDialogTarget = nil } }
-            ),
-            presenting: repostDialogTarget
-        ) { target in
-            if !target.repostedByMe {
-                Button("Repost") {
+        // Half sheet rather than a confirmation dialog - see RepostActionsSheet.
+        .sheet(item: $repostDialogTarget) { target in
+            RepostActionsSheet(
+                onRepost: {
                     // Held for 5s with an always-visible undo TOAST (plus the icon countdown).
                     let key = "repost:\(target.id)"
-                    showUndoToast(key: key, postId: target.id, label: "Reposting")
-                    scheduler.schedule(key: key) {
-                        clearUndoToast(key: key)
-                        performRepost(target: target, text: nil, localQuoteId: nil)
+                    if target.repostedByMe {
+                        showUndoToast(key: key, postId: target.id, label: "Removing repost")
+                        scheduler.schedule(key: key) {
+                            clearUndoToast(key: key)
+                            // The fork's `unquote` counter-action nets the repost out on the
+                            // indexer (the chain keeps both transactions).
+                            performUnrepost(target)
+                        }
+                    } else {
+                        showUndoToast(key: key, postId: target.id, label: "Reposting")
+                        scheduler.schedule(key: key) {
+                            clearUndoToast(key: key)
+                            performRepost(target: target, text: nil, localQuoteId: nil)
+                        }
                     }
-                }
-            } else {
-                Button("Remove Repost", role: .destructive) {
-                    // Same 5s undo window; the fork's `unquote` counter-action nets the
-                    // repost out on the indexer (the chain keeps both transactions).
-                    let key = "repost:\(target.id)"
-                    showUndoToast(key: key, postId: target.id, label: "Removing repost")
-                    scheduler.schedule(key: key) {
-                        clearUndoToast(key: key)
-                        performUnrepost(target)
-                    }
-                }
-            }
-            Button("Quote Post") {
-                quoteComposerTarget = target
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: { target in
-            Text(target.repostedByMe
-                 ? "You've reposted this. Remove your repost, or quote it with your own thoughts."
-                 : "Share this post as-is, or add your own thoughts.")
+                },
+                onQuote: { quoteComposerTarget = target },
+                isReposted: target.repostedByMe
+            )
         }
         .sheet(item: $engagementTarget) { target in
             KaPostEngagementView(post: target)
@@ -3912,26 +3899,19 @@ private struct KaPostCellView: View {
                     })
                     .lineLimit(truncatesLongText && isLongPost ? 8 : nil)
                     .fixedSize(horizontal: false, vertical: true)
-                    .confirmationDialog(
-                        tappedLinkURL?.absoluteString ?? "",
-                        isPresented: Binding(
-                            get: { tappedLinkURL != nil },
-                            set: { if !$0 { tappedLinkURL = nil } }
-                        ),
-                        titleVisibility: .visible
-                    ) {
-                        Button("Open Link") {
-                            if let url = tappedLinkURL {
-                                openURL(url)
-                            }
-                        }
-                        Button("Copy Link") {
-                            if let url = tappedLinkURL {
-                                UIPasteboard.general.string = url.absoluteString
+                    // Half sheet rather than a confirmation dialog - see LinkActionsSheet.
+                    .sheet(item: Binding(
+                        get: { tappedLinkURL.map(IdentifiedURL.init) },
+                        set: { if $0 == nil { tappedLinkURL = nil } }
+                    )) { wrapper in
+                        LinkActionsSheet(
+                            url: wrapper.url,
+                            onOpen: { openURL(wrapper.url) },
+                            onCopy: {
+                                UIPasteboard.general.string = wrapper.url.absoluteString
                                 Haptics.success()
                             }
-                        }
-                        Button("Cancel", role: .cancel) {}
+                        )
                     }
                 if truncatesLongText && isLongPost {
                     Button {
@@ -3996,44 +3976,17 @@ private struct KaPostCellView: View {
                                 }
                             }
                         )
-                        .popover(isPresented: $showRepostMenu, arrowEdge: .bottom) {
-                            VStack(alignment: .leading, spacing: 0) {
-                                Button {
-                                    showRepostMenu = false
+                        // A half sheet rather than an anchored popover, so the two choices get
+                        // room to say what they do - "Repost" and "Quote" as bare words are only
+                        // obvious once you already know the difference.
+                        .sheet(isPresented: $showRepostMenu) {
+                            RepostActionsSheet(
+                                onRepost: {
                                     onRepostAction?(post.repostedByMe ? .removeRepost : .repost)
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "arrow.2.squarepath")
-                                        Text(post.repostedByMe ? "Remove Repost" : "Repost")
-                                            .fontWeight(.semibold)
-                                        Spacer(minLength: 0)
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 12)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .foregroundColor(post.repostedByMe ? .red : .primary)
-                                Divider()
-                                Button {
-                                    showRepostMenu = false
-                                    onRepostAction?(.quote)
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "pencil.line")
-                                        Text("Quote")
-                                            .fontWeight(.semibold)
-                                        Spacer(minLength: 0)
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.vertical, 12)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .frame(width: 190)
-                            // A REAL anchored popover bubble on iPhone (not a bottom sheet).
-                            .modifier(CompactPopoverAdaptation())
+                                },
+                                onQuote: { onRepostAction?(.quote) },
+                                isReposted: post.repostedByMe
+                            )
                         }
                     }
                     // Bookmark sits with the other actions (no inline count - saved posts live in

@@ -560,30 +560,24 @@ struct MessageBubbleView: View {
                 }
             }
             .tint(.accentColor)
-            .confirmationDialog(
-                "Link",
-                isPresented: Binding(get: { linkMenuURL != nil }, set: { if !$0 { linkMenuURL = nil } }),
-                presenting: linkMenuURL
-            ) { url in
-                Button("Open Link") {
-                    // Internal KaChat links open the target screen in-app - see the same
-                    // branch in `LinkifiedMessageTextView.Coordinator.handleTap`.
-                    if let internalLink = KaChatInternalLink.parse(url) {
-                        KaChatLinkRouter.open(internalLink)
-                    } else {
-                        UIApplication.shared.open(url)
-                    }
-                }
-                Button("Copy Link") {
-                    handleCopy(url.absoluteString, toast: "Link copied to clipboard.")
-                }
-                if let onReply {
-                    Button("Reply") {
-                        onReply()
-                    }
-                }
-            } message: { url in
-                Text(url.absoluteString)
+            // A half sheet rather than a confirmation dialog: the dialog could only show a verb
+            // per button and squeezed the URL into small print above them, and deciding whether
+            // to open a link IS reading it.
+            .sheet(item: Binding(get: { linkMenuURL.map(IdentifiedURL.init) }, set: { if $0 == nil { linkMenuURL = nil } })) { wrapper in
+                LinkActionsSheet(
+                    url: wrapper.url,
+                    onOpen: {
+                        // Internal KaChat links open the target screen in-app - see the same
+                        // branch in `LinkifiedMessageTextView.Coordinator.handleTap`.
+                        if let internalLink = KaChatInternalLink.parse(wrapper.url) {
+                            KaChatLinkRouter.open(internalLink)
+                        } else {
+                            UIApplication.shared.open(wrapper.url)
+                        }
+                    },
+                    onCopy: { handleCopy(wrapper.url.absoluteString, toast: "Link copied to clipboard.") },
+                    onReply: onReply
+                )
             }
     }
 

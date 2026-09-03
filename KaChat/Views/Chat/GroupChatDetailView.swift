@@ -2325,23 +2325,17 @@ private struct GroupMessageBubbleRow: View {
                             }
                         }
                         .tint(.accentColor)
-                        .confirmationDialog(
-                            "Link",
-                            isPresented: Binding(get: { linkMenuURL != nil }, set: { if !$0 { linkMenuURL = nil } }),
-                            presenting: linkMenuURL
-                        ) { url in
-                            Button("Open Link") {
-                                UIApplication.shared.open(url)
-                            }
-                            Button("Copy Link") {
-                                onCopy(url.absoluteString, .success)
-                                UIPasteboard.general.string = url.absoluteString
-                            }
-                            Button("Reply") {
-                                onReply()
-                            }
-                        } message: { url in
-                            Text(url.absoluteString)
+                        // Half sheet rather than a confirmation dialog - see LinkActionsSheet.
+                        .sheet(item: Binding(get: { linkMenuURL.map(IdentifiedURL.init) }, set: { if $0 == nil { linkMenuURL = nil } })) { wrapper in
+                            LinkActionsSheet(
+                                url: wrapper.url,
+                                onOpen: { UIApplication.shared.open(wrapper.url) },
+                                onCopy: {
+                                    onCopy(wrapper.url.absoluteString, .success)
+                                    UIPasteboard.general.string = wrapper.url.absoluteString
+                                },
+                                onReply: onReply
+                            )
                         }
                     }
                 }

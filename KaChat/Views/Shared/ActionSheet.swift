@@ -293,3 +293,103 @@ struct TransactionActionsSheet: View {
             + candidate.timestamp.formatted(date: .abbreviated, time: .shortened)
     }
 }
+
+
+/// A URL made Identifiable so `.sheet(item:)` can present on it - `URL` itself is not.
+struct IdentifiedURL: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
+    init(_ url: URL) { self.url = url }
+}
+
+/// What to do with a link someone sent: the half-sheet form of the old confirmation dialog.
+///
+/// A dialog of bare labels could show the verb and nothing else, and put the URL in small print
+/// above the buttons. As a sheet the link itself gets room to be read - which matters, because
+/// deciding whether to open a link IS reading it.
+struct LinkActionsSheet: View {
+    let url: URL
+    let onOpen: () -> Void
+    let onCopy: () -> Void
+    /// Nil where replying makes no sense (a KaPost, a broadcast you cannot reply into).
+    var onReply: (() -> Void)? = nil
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text(url.absoluteString)
+                .font(.footnote.weight(.medium))
+                .foregroundColor(.secondary)
+                .lineLimit(3)
+                .truncationMode(.middle)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 20)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 4)
+
+            ActionSheetRow(
+                title: "Open Link",
+                subtitle: "Opens in your browser.",
+                systemImage: "safari"
+            ) { dismiss(); onOpen() }
+
+            ActionSheetRow(
+                title: "Copy Link",
+                subtitle: "Copies the address to your clipboard.",
+                systemImage: "doc.on.doc"
+            ) { dismiss(); onCopy() }
+
+            if let onReply {
+                ActionSheetRow(
+                    title: "Reply",
+                    subtitle: "Reply to this message instead.",
+                    systemImage: "arrowshape.turn.up.left"
+                ) { dismiss(); onReply() }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .presentationDetents([.height(onReply == nil ? 260 : 330)])
+    }
+}
+
+/// Repost as-is, or quote it with your own words - the half-sheet form of the old dialog.
+struct RepostActionsSheet: View {
+    let onRepost: () -> Void
+    let onQuote: () -> Void
+    /// Set when the post is already reposted, so the first row offers to take it back.
+    var isReposted: Bool = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text(isReposted ? "Reposted" : "Repost")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+
+            ActionSheetRow(
+                title: isReposted ? "Undo Repost" : "Repost",
+                subtitle: isReposted
+                    ? "Removes it from your profile."
+                    : "Shares it to your followers as-is.",
+                systemImage: isReposted ? "arrow.uturn.backward" : "arrow.2.squarepath",
+                tint: isReposted ? .red : .accentColor
+            ) { dismiss(); onRepost() }
+
+            ActionSheetRow(
+                title: "Quote",
+                subtitle: "Adds your own words above it.",
+                systemImage: "quote.bubble"
+            ) { dismiss(); onQuote() }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .presentationDetents([.height(280)])
+    }
+}
