@@ -836,6 +836,7 @@ final class GroupChatService: ObservableObject {
                 groupRootEpoch: bag.groupRootEpoch,
                 blindingKey: bag.blindingKey,
                 currentEpoch: bag.currentEpoch,
+                previousRoots: bag.previousRoots,
                 members: group.members.map {
                     ChatHistoryArchiveGroupMember(address: $0.address, xOnlyPubKeyHex: $0.xOnlyPubKeyHex, isAdmin: $0.isAdmin)
                 },
@@ -858,9 +859,27 @@ final class GroupChatService: ObservableObject {
             if let existingBag, existingBag.currentEpoch > g.currentEpoch { continue }
             let deviceId = existingBag?.deviceId ?? GroupCipher.generateDeviceId().hexString
             let msgCounter = existingBag?.currentEpoch == g.currentEpoch ? (existingBag?.msgCounter ?? 0) : 0
+            // MERGE the retired epoch roots; never replace them. `previousRoots` is the only way
+            // a NON-ADMIN decrypts epochs the group has already left (the re-derive fallback
+            // needs `groupSeed`, which only the admin holds). Rebuilding the bag from the archive
+            // without them silently made every pre-rotation message undecryptable: the ciphertext
+            // was still on the device, the key to read it had been thrown away. That is how
+            // connecting a cloud account could destroy group history a seed import had just
+            // rebuilt.
+            var mergedPreviousRoots = existingBag?.previousRoots ?? [:]
+            for (epoch, root) in g.previousRoots ?? [:] where mergedPreviousRoots[epoch] == nil {
+                mergedPreviousRoots[epoch] = root
+            }
+            // Moving to a newer epoch retires the root we currently hold - keep it, or this
+            // restore would lose the very history it is being asked to preserve.
+            if let existingBag, existingBag.currentEpoch < g.currentEpoch {
+                mergedPreviousRoots[String(existingBag.currentEpoch)] = existingBag.groupRootEpoch
+            }
             let bag = GroupBag(
-                groupId: g.groupId, groupSeed: g.groupSeed, groupRootEpoch: groupRootEpoch,
-                blindingKey: blindingKey, currentEpoch: g.currentEpoch, deviceId: deviceId, msgCounter: msgCounter
+                groupId: g.groupId, groupSeed: g.groupSeed ?? existingBag?.groupSeed, groupRootEpoch: groupRootEpoch,
+                blindingKey: blindingKey, currentEpoch: g.currentEpoch, deviceId: deviceId, msgCounter: msgCounter,
+                selfInviteEpoch: existingBag?.selfInviteEpoch,
+                previousRoots: mergedPreviousRoots.isEmpty ? nil : mergedPreviousRoots
             )
             try? keychain.saveGroupBag(bag)
             let members = g.members.map {

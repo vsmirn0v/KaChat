@@ -362,6 +362,11 @@ extension ChatService {
         let groupRootEpoch: String?
         let blindingKey: String?
         let currentEpoch: UInt64
+        // Roots for epochs the group has already left, keyed by decimal epoch. Optional so older
+        // archives (and other platforms that predate the field) still decode. Without these a
+        // NON-ADMIN member restoring onto a device that holds no bag can decrypt only the
+        // current epoch, and everything older reads as an empty thread.
+        let previousRoots: [String: String]?
         let members: [ChatHistoryArchiveGroupMember]
         // Decrypted plaintext message history (optional; older archives omit it). Lets history
         // survive an indexer prune - the importer stores these under a negative-epoch sentinel.
