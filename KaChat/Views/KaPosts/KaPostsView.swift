@@ -2672,8 +2672,7 @@ struct KaPostsView: View {
                         // was the one place your bio did not appear.
                         if let bio = myInfo?.profile?.bio,
                            !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text(bio)
-                                .font(.subheadline)
+                            ExpandableBioText(bio: bio)
                                 .padding(.top, 2)
                         }
                         // Everything above this - avatar, banner, name, bio - comes from your KNS
@@ -2920,8 +2919,7 @@ struct KaPostsView: View {
                         }
                         if let bio = info?.profile?.bio,
                            !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text(bio)
-                                .font(.subheadline)
+                            ExpandableBioText(bio: bio)
                                 .padding(.top, 2)
                         }
                     }
@@ -6632,4 +6630,79 @@ struct KaPostCharacterMeter: View {
         }
         .opacity(count == 0 ? 0 : 1)
     }
+}
+
+
+/// A profile bio that always shows up to three lines, with a More button when there is more.
+///
+/// Truncation is MEASURED, not guessed from character count: the same string wraps to a
+/// different number of lines depending on width and text size, so a length threshold would both
+/// hide More on a long-but-narrow bio and show it on a short one that already fits. Two hidden
+/// copies of the text - one unconstrained, one clamped to three lines - report their heights, and
+/// More appears only when the unconstrained one is taller.
+struct ExpandableBioText: View {
+    let bio: String
+    @State private var fullHeight: CGFloat = 0
+    @State private var clampedHeight: CGFloat = 0
+    @State private var showFullBio = false
+
+    private var isTruncated: Bool {
+        // A point of slack: the two measurements can differ by a hair at the same line count.
+        fullHeight > clampedHeight + 1
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(bio)
+                .font(.subheadline)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(heightReader(BioClampedHeightKey.self))
+                .background(
+                    Text(bio)
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .background(heightReader(BioFullHeightKey.self))
+                        .hidden()
+                )
+
+            if isTruncated {
+                Button("More") { showFullBio = true }
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundColor(.accentColor)
+            }
+        }
+        .onPreferenceChange(BioFullHeightKey.self) { fullHeight = $0 }
+        .onPreferenceChange(BioClampedHeightKey.self) { clampedHeight = $0 }
+        .sheet(isPresented: $showFullBio) {
+            NavigationStack {
+                ScrollView {
+                    Text(bio)
+                        .font(.body)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(20)
+                }
+                .navigationTitle("Bio")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    private func heightReader<K: PreferenceKey>(_ key: K.Type) -> some View where K.Value == CGFloat {
+        GeometryReader { proxy in
+            Color.clear.preference(key: key, value: proxy.size.height)
+        }
+    }
+}
+
+private struct BioFullHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+private struct BioClampedHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
