@@ -1,6 +1,9 @@
 import SwiftUI
 import PhotosUI
 import ImageIO
+import CoreImage
+import CoreImage.CIFilterBuiltins
+import UIKit
 
 /// Matches the same-named `private` helper duplicated per-file elsewhere in this codebase
 /// (ContactsView.swift, ChatInfoView.swift) rather than sharing across files for one line.
@@ -24,15 +27,37 @@ struct KNSCreateProfileFlowView: View {
     let onFinished: () -> Void
 
     private enum Step: Equatable {
+        /// The fork the whole wizard hangs off: bringing a domain you already own is a completely
+        /// different job from buying one, and asking up front means neither path has to be
+        /// discovered from inside the other.
+        case haveDomain
         case checkingFunds
         case needsFunding(balanceKas: Decimal)
         case domain
         case transferExistingDomain
+        /// Which of the domains now on this address to build the profile around.
+        case pickDomain
         case domainConfirmed(domain: String)
         case banner
         case avatar
         case details
         case finished
+
+        /// Where Back goes. `nil` means this step has no previous - the first screen, and the
+        /// terminal one.
+        var previous: Step? {
+            switch self {
+            case .haveDomain, .checkingFunds, .finished: return nil
+            case .needsFunding: return .haveDomain
+            case .domain: return .haveDomain
+            case .transferExistingDomain: return .haveDomain
+            case .pickDomain: return .transferExistingDomain
+            case .domainConfirmed: return .pickDomain
+            case .banner: return .domainConfirmed(domain: "")
+            case .avatar: return .banner
+            case .details: return .avatar
+            }
+        }
     }
 
     /// Fixed UX gate, not derived from live KNS fee tiers - deliberately generous relative to a
@@ -40,7 +65,11 @@ struct KNSCreateProfileFlowView: View {
     /// insufficient funds once the user's already invested time in it.
     private static let minimumFundingBalanceKas: Decimal = 50
 
-    @State private var step: Step = .checkingFunds
+    @State private var step: Step = .haveDomain
+    /// Domains found on the chatting address, refreshed by the transfer screen's Refresh button.
+    @State private var foundDomains: [KNSDomain] = []
+    @State private var isScanningDomains = false
+    private let qrContext = CIContext()
     @State private var assetId: String?
     @State private var domainName: String?
     @State private var fundingCheckError: String?
@@ -63,14 +92,23 @@ struct KNSCreateProfileFlowView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
-                        Button("Close") { onFinished() }
+                        // Back where there is somewhere to go, Close at the ends. Every step in
+                        // this wizard is reversible, so getting one wrong should cost a tap, not
+                        // a restart.
+                        if let previous = step.previous {
+                            Button {
+                                goBack(to: previous)
+                            } label: {
+                                Label("Back", systemImage: "chevron.left")
+                            }
+                        } else {
+                            Button("Close") { onFinished() }
+                        }
                     }
                 }
         }
         .toast(message: toastMessage)
-        .task {
-            await checkFunding()
-        }
+
     }
 
     private func showToast(_ message: String) {
@@ -88,9 +126,34 @@ struct KNSCreateProfileFlowView: View {
         }
     }
 
+    /// Steps whose Back target is written generically above and needs the live value filled in.
+    private func goBack(to previous: Step) {
+        if case .banner = step {
+            step = .domainConfirmed(domain: domainName ?? "")
+        } else {
+            step = previous
+        }
+    }
+
+    /// Re-reads the domains sitting on the chatting address. Bypasses the cache: the whole point
+    /// of the Refresh button is to see a transfer that just landed.
+    private func scanForDomains() async {
+        isScanningDomains = true
+        defer { isScanningDomains = false }
+        KNSService.shared.clearCache(for: walletAddress)
+        let info = await KNSService.shared.fetchInfo(for: walletAddress)
+        foundDomains = info?.allDomains ?? []
+    }
+
     @ViewBuilder
     private var content: some View {
         switch step {
+        case .haveDomain:
+            haveDomainView
+
+        case .pickDomain:
+            pickDomainView
+
         case .checkingFunds:
             VStack(spacing: 12) {
                 ProgressView()
@@ -126,7 +189,13 @@ struct KNSCreateProfileFlowView: View {
                         }
                     }
                 },
-                onTransferExisting: { step = .transferExistingDomain }
+                // "I already have a domain somewhere else" - someone can answer No and only
+                // then remember they own one, so this joins the Yes branch rather than being a
+                // dead end.
+                onTransferExisting: {
+                    step = .transferExistingDomain
+                    Task { await scanForDomains() }
+                }
             )
 
         case .transferExistingDomain:
@@ -293,69 +362,218 @@ struct KNSCreateProfileFlowView: View {
     /// just shows the address to transfer to, then continues the flow on to the banner/avatar/
     /// details steps rather than ending it - the domain being handled off-app doesn't mean the
     /// rest of the profile isn't still worth setting up.
-    private var transferExistingDomainView: some View {
+    /// The wizard's fork. Two buttons, no default: guessing wrong here sends someone down a
+    /// funding gate they do not need, or a purchase flow for a domain they already own.
+    private var haveDomainView: some View {
         VStack(spacing: 20) {
             Spacer()
-            Image(systemName: "arrow.triangle.2.circlepath")
+            Image(systemName: "at.circle")
                 .font(.system(size: 56))
                 .foregroundColor(.accentColor)
-            Text("Transfer Your Domain")
+            Text("Do you already have a domain?")
                 .font(.title2.weight(.bold))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
-            Text("Transfer your domain to this address so that your identity is connected to KaChat.")
+            Text("A KNS domain is your name on Kaspa. If you own one already, you can bring it here instead of buying another.")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
 
-            VStack(spacing: 4) {
-                Text("Chatting address")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                Button {
-                    UIPasteboard.general.string = walletAddress
-                    Haptics.success()
-                    showToast(walletAddress.addressCopiedToastText)
-                } label: {
-                    Text(walletAddress)
-                        .font(.footnote.monospaced())
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .padding(.horizontal, 24)
-                        .foregroundColor(.primary)
-                }
-                .buttonStyle(.plain)
-            }
-
-            NavigationLink {
-                ChattingAddressQRView(
-                    address: walletAddress,
-                    balanceSompi: nil,
-                    subtitle: "Transfer your domain to this address so that your identity is connected to KaChat."
-                )
-            } label: {
-                Label("Show QR Code", systemImage: "qrcode")
-                    .font(.subheadline.weight(.semibold))
-            }
-            .padding(.top, 4)
-
             Spacer()
 
-            Button {
-                step = .banner
-            } label: {
-                Text("Next")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            VStack(spacing: 12) {
+                Button {
+                    step = .transferExistingDomain
+                    Task { await scanForDomains() }
+                } label: {
+                    Text("Yes, I have one")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                Button {
+                    // Only this branch needs funds, so the balance check belongs here rather
+                    // than at the wizard's front door.
+                    step = .checkingFunds
+                    Task { await checkFunding() }
+                } label: {
+                    Text("No, I need one")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.accentColor.opacity(0.15))
+                        .foregroundColor(.accentColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
             }
+            .buttonStyle(.plain)
             .padding(.horizontal, 24)
             .padding(.bottom, 24)
         }
+    }
+
+    /// Which domain to build the profile around. Only reached with domains in hand; the Refresh
+    /// on the previous screen is what puts them there.
+    private var pickDomainView: some View {
+        VStack(spacing: 16) {
+            Text("Which domain should this profile use?")
+                .font(.title2.weight(.bold))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                .padding(.top, 24)
+
+            if foundDomains.isEmpty {
+                Spacer()
+                VStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 40))
+                        .foregroundColor(.secondary)
+                    Text("No domains on this address yet")
+                        .font(.headline)
+                    Text("Go back and use Refresh once the transfer lands.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                }
+                Spacer()
+            } else {
+                ScrollView {
+                    VStack(spacing: 10) {
+                        ForEach(foundDomains, id: \.inscriptionId) { domain in
+                            Button {
+                                assetId = domain.inscriptionId
+                                domainName = domain.fullName
+                                step = .domainConfirmed(domain: domain.fullName)
+                            } label: {
+                                HStack {
+                                    Text(domain.fullName)
+                                        .font(.headline)
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(Color.primary.opacity(0.05))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                }
+            }
+        }
+    }
+
+    private var transferExistingDomainView: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                Text("Send your domain here")
+                    .font(.title2.weight(.bold))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
+                Text("Transfer your domain to this address so your identity is connected to KaChat.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+
+                // The QR is the point of this screen, so it is here at a size you can actually
+                // scan from another device rather than behind a "Show QR Code" push.
+                if let qr = makeQRCodeImage(from: walletAddress) {
+                    Image(uiImage: qr)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 220, height: 220)
+                        .padding(12)
+                        .background(Color.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
+                VStack(spacing: 4) {
+                    Text("Chatting address")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Button {
+                        UIPasteboard.general.string = walletAddress
+                        Haptics.success()
+                        showToast(walletAddress.addressCopiedToastText)
+                    } label: {
+                        Text(walletAddress)
+                            .font(.footnote.monospaced())
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .padding(.horizontal, 24)
+                            .foregroundColor(.primary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                // A transfer lands whenever it lands - this is how you find out without leaving
+                // the wizard and coming back.
+                Button {
+                    Task { await scanForDomains() }
+                } label: {
+                    HStack(spacing: 8) {
+                        if isScanningDomains {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        Text(isScanningDomains ? "Checking..." : "Refresh")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.accentColor)
+                .disabled(isScanningDomains)
+
+                Text(foundDomains.isEmpty
+                     ? "No domains on this address yet."
+                     : "\(foundDomains.count) domain\(foundDomains.count == 1 ? "" : "s") found on this address.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                // Next is never gated on the transfer having landed: it can take a while, and
+                // being told to sit on one screen until it does is worse than letting someone
+                // come back to it.
+                Button {
+                    step = .pickDomain
+                } label: {
+                    Text("Next")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color.accentColor)
+                        .foregroundColor(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 24)
+                .padding(.top, 4)
+            }
+            .padding(.bottom, 24)
+        }
+    }
+
+    private func makeQRCodeImage(from string: String) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.setValue(Data(string.utf8), forKey: "inputMessage")
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+        guard let cgImage = qrContext.createCGImage(scaled, from: scaled.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
     }
 
     private func domainConfirmedView(domain: String) -> some View {
