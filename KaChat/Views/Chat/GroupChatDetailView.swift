@@ -2721,8 +2721,6 @@ struct GroupChatInfoView: View {
                 Toggle("Only Notify if I'm Mentioned", isOn: mentionsOnlyBinding)
                     // Silent already means "never", so the finer rule underneath it is moot.
                     .disabled(groupChatService.silentNotifications(for: group.id))
-            } footer: {
-                Text("Refresh Messages rebuilds this group from the chain exactly as a fresh import of your seed phrase would: it re-reads your invites and every epoch key before re-fetching the messages, which recovers anything an earlier sync passed over or could not decrypt at the time. Silent Group Chat never notifies you about this group at all. Only Notify if I'm Mentioned narrows it instead: you'll get banners for messages that @mention you, plus replies to your messages and reactions on them. Everything else shows up in the chat silently.")
             }
 
             if group.isAdmin {
@@ -2744,8 +2742,6 @@ struct GroupChatInfoView: View {
                     } label: {
                         Label("Add Members", systemImage: "person.badge.plus")
                     }
-                } footer: {
-                    Text("Resends the group invite to every member (or swipe a single member to resend just theirs) - use this if someone didn't receive the group. Adding members rotates the group key, so new members see messages from when they join onward.")
                 }
             }
 

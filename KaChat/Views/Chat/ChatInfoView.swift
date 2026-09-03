@@ -116,12 +116,6 @@ struct ChatInfoView: View {
         return normalizedDomainKey(domain.fullName) == primaryKey
     }
 
-    /// True when the badged primary came from an explicit reverse lookup rather than the
-    /// "first domain owned" fallback.
-    private var hasExplicitPrimaryDomain: Bool {
-        guard let explicit = knsInfo?.explicitPrimaryDomain?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
-        return !explicit.isEmpty
-    }
 
     private var knsProfileInfo: KNSAddressProfileInfo? {
         contactsManager.getKNSProfile(for: contact) ?? knsService.profileCache[contact.address]
@@ -465,7 +459,6 @@ struct ChatInfoView: View {
             ContactDomainsView(
                 domains: sortedKNSDomains,
                 isPrimary: isPrimaryDomain,
-                hasExplicitPrimary: hasExplicitPrimaryDomain,
                 onCopy: { copyProfileFieldValue($0, fieldName: "Domain") }
             )
             .navigationTitle("KNS Domains")
@@ -495,8 +488,6 @@ struct ChatInfoView: View {
                     }
                 } header: {
                     Text("Aliases")
-                } footer: {
-                    Text("These identify this conversation's messages on the network. Receiving is the alias on messages this contact sends you. Sending is the alias on messages you send them. Useful when building tools that message this chat.")
                 }
             }
             .navigationTitle("Aliases")
@@ -619,8 +610,6 @@ struct ChatInfoView: View {
                             Text("Sound").tag(ContactNotificationMode?.some(.sound))
                         }
                         .pickerStyle(.menu)
-                    } footer: {
-                        Text("Default follows Settings > Notifications. Off disables notifications for this contact.")
                     }
                 }
             }
@@ -642,8 +631,6 @@ struct ChatInfoView: View {
                         Text("Always Hide").tag(PhotoAutoDisplayMode?.some(.alwaysHide))
                     }
                     .pickerStyle(.menu)
-                } footer: {
-                    Text("Automatic hides photos from contacts you haven't added or messaged yet, until you tap to reveal them.")
                 }
             }
             .navigationTitle("Photos")
@@ -854,10 +841,6 @@ private struct StatItem: View {
 private struct ContactDomainsView: View {
     let domains: [KNSDomain]
     let isPrimary: (KNSDomain) -> Bool
-    /// True when the badged primary came from an explicit reverse lookup rather than the
-    /// "first domain owned" fallback - the footer says which, so a wrong-looking badge is
-    /// explainable rather than mysterious.
-    let hasExplicitPrimary: Bool
     let onCopy: (String) -> Void
 
     var body: some View {
@@ -865,12 +848,6 @@ private struct ContactDomainsView: View {
             Section {
                 ForEach(domains) { domain in
                     row(domain)
-                }
-            } footer: {
-                if hasExplicitPrimary {
-                    Text("Primary is the domain this contact set as their KNS primary name. Tap any domain to copy it.")
-                } else {
-                    Text("This contact hasn't set a KNS primary name, so their first domain is used as the primary. Tap any domain to copy it.")
                 }
             }
         }
