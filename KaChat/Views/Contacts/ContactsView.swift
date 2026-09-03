@@ -64,13 +64,6 @@ struct ProfileView: View {
                         profileHeroSection(wallet)
                         qrButtonsSection(wallet)
                         addressDropdownsSection(wallet)
-                        if !AppTab.visible(from: settingsViewModel.settings).contains(.apps),
-                           !AppTab.ecosystemSections(from: settingsViewModel.settings).contains(.apps) {
-                            // The websites list lives here only while it is reachable NOWHERE
-                            // else - not on the dock and not in Ecosystem. Once either of those
-                            // holds it, this row disappears rather than offering a third copy.
-                            appsSection
-                        }
                         yourDomainsSection
                         helpSection
                         claimGiftSection
@@ -456,25 +449,6 @@ struct ProfileView: View {
         .padding(.top, -8)
     }
 
-    /// Entry to the websites screen: quick bubble launchers for Kaspa ecosystem sites.
-    private var appsSection: some View {
-        NavigationLink {
-            ProfileAppsView()
-        } label: {
-            HStack {
-                Label(AppTab.apps.ecosystemTitle, systemImage: AppTab.apps.icon)
-                    .foregroundColor(.primary)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(16)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(glassBackground(cornerRadius: 18))
-    }
 
     /// Your KNS domains. A top-level row rather than a page inside Edit KNS Profile: your
     /// domains are a thing you own, not a setting of the profile that happens to use one of
