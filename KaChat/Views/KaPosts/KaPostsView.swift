@@ -622,7 +622,8 @@ struct KaPostsView: View {
     /// They sit on their own row above the feed tabs, left-aligned where the hamburger used to
     /// be. Five icons and three tabs do not fit one row on a phone - they would collide on the
     /// narrow ones - and the point of the change is that every destination is one tap, which a
-    /// cramped row would undo.
+    /// cramped row would undo. Having the row to themselves is also what lets the icons be this
+    /// size; sharing it with the tabs would have forced them small.
     private var sideMenuIconRow: some View {
         HStack(spacing: 2) {
             ForEach(SideMenuItem.allCases) { item in
@@ -631,9 +632,9 @@ struct KaPostsView: View {
                     menuSheet = item
                 } label: {
                     Image(systemName: item.icon)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: 21, weight: .semibold))
                         .foregroundColor(.primary)
-                        .frame(width: 40, height: 36)
+                        .frame(width: 46, height: 42)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
