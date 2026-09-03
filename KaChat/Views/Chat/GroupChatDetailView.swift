@@ -3056,6 +3056,50 @@ private struct AddGroupMembersView: View {
     @State private var isAdding = false
     @State private var resultMessage: String?
     @State private var showAddConfirm = false
+    /// Address a typed KNS domain resolved to, so `.kas` names work here like they do everywhere
+    /// else an address is accepted.
+    @State private var resolvedDomainAddress: String?
+    @State private var isResolvingDomain = false
+
+    /// A group invite is encrypted to the invitee's public key, which is decoded from their
+    /// address - no handshake, no prior chat, nothing but the address. Restricting this sheet to
+    /// saved contacts made it look like a handshake was required to invite someone, when the only
+    /// thing actually missing was somewhere to type the address.
+    private var typedAddress: String? {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return nil }
+        let candidate = ContactsManager.shared.isValidKaspaAddress(query) ? query : resolvedDomainAddress
+        guard let candidate, ContactsManager.shared.isValidKaspaAddress(candidate) else { return nil }
+        guard candidate != WalletManager.shared.currentWallet?.publicAddress else { return nil }
+        guard !group.members.contains(where: { $0.address == candidate }) else { return nil }
+        // Already listed below as a contact, so offering it twice would just be confusing.
+        guard !candidates.contains(where: { $0.address == candidate }) else { return nil }
+        return candidate
+    }
+
+    /// Resolves `name` / `name.kas` in the background. Anything that is already an address, or
+    /// too short to be a domain, is left alone.
+    private func resolveTypedDomain() {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        resolvedDomainAddress = nil
+        guard !query.isEmpty,
+              !ContactsManager.shared.isValidKaspaAddress(query),
+              !query.contains(":"),
+              query.count >= 2 else {
+            isResolvingDomain = false
+            return
+        }
+        isResolvingDomain = true
+        Task {
+            let resolved = await KNSService.shared.resolveDomain(query)
+            await MainActor.run {
+                // The field may have moved on while the lookup was in flight.
+                guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == query else { return }
+                resolvedDomainAddress = resolved?.ownerAddress
+                isResolvingDomain = false
+            }
+        }
+    }
 
     /// Estimated total fee for adding the selected members (each add rotates the group key).
     private func addFeeSuffix() -> String {
@@ -3106,17 +3150,43 @@ private struct AddGroupMembersView: View {
     var body: some View {
         Form {
             Section {
-                TextField("Search contacts", text: $searchText)
+                TextField("Search contacts, or paste an address", text: $searchText)
                     .autocapitalization(.none)
                     .autocorrectionDisabled()
+                    .onChange(of: searchText) { _ in resolveTypedDomain() }
+                if isResolvingDomain {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Looking up domain...").font(.caption).foregroundColor(.secondary)
+                    }
+                }
+                if let typedAddress {
+                    Button {
+                        if selectedAddresses.contains(typedAddress) { selectedAddresses.remove(typedAddress) }
+                        else { selectedAddresses.insert(typedAddress) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            KNSAvatarView(avatarURLString: nil, fallbackText: Contact.generateDefaultAlias(from: typedAddress), size: 32, contactAddress: typedAddress)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Add this address").foregroundColor(.primary).lineLimit(1)
+                                Text(Contact.generateDefaultAlias(from: typedAddress))
+                                    .font(.caption).foregroundColor(.secondary).lineLimit(1)
+                            }
+                            Spacer()
+                            Image(systemName: selectedAddresses.contains(typedAddress) ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(selectedAddresses.contains(typedAddress) ? .accentColor : .secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             Section {
                 if contactsManager.activeContacts.isEmpty {
-                    Text("You have no contacts yet. Start a 1:1 chat with someone first, then you can add them to the group.")
+                    Text("You have no contacts yet. Paste an address or a .kas domain above to invite someone.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else if candidates.isEmpty {
-                    Text(searchText.isEmpty ? "Everyone in your contacts is already in this group." : "No contacts match your search.")
+                    Text(searchText.isEmpty ? "Everyone in your contacts is already in this group." : "No contacts match your search. Paste an address or a .kas domain to invite someone new.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
