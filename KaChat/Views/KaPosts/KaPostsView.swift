@@ -348,6 +348,7 @@ struct KaPostsView: View {
     enum SideMenuItem: String, CaseIterable, Identifiable {
         case profile = "Profile"
         case notifications = "Notifications"
+        case drafts = "Drafts"
         case bookmarks = "Bookmarks"
         case muted = "Muted"
         case blocked = "Blocked"
@@ -357,6 +358,7 @@ struct KaPostsView: View {
             switch self {
             case .profile: return "person.crop.circle"
             case .notifications: return "bell"
+            case .drafts: return "square.and.pencil"
             case .bookmarks: return "bookmark"
             case .muted: return "speaker.slash"
             case .blocked: return "hand.raised"
@@ -365,6 +367,9 @@ struct KaPostsView: View {
     }
 
     @State private var menuSheet: SideMenuItem?
+    /// The draft currently open in the composer, presented from the drafts sheet.
+    @State private var editingDraft: KaPostSavedDraft?
+    @ObservedObject private var draftStore = KaPostsDraftStore.shared
     @ObservedObject private var knsService = KNSService.shared
     @ObservedObject private var followStore = KaPostsFollowStore.shared
     @ObservedObject private var moderationStore = KaPostsModerationStore.shared
@@ -406,6 +411,8 @@ struct KaPostsView: View {
         .sheet(item: $menuSheet) { item in
             Group {
                 switch item {
+                case .drafts:
+                    draftsSheet
                 case .bookmarks:
                     bookmarksSheet
                 case .muted:
@@ -3295,6 +3302,83 @@ struct KaPostsView: View {
 
     // MARK: - Bookmarks (side menu)
 
+    /// Saved drafts, newest first. Tapping one reopens it in the composer; swiping deletes it.
+    private var draftsSheet: some View {
+        NavigationStack {
+            Group {
+                if draftStore.drafts.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary)
+                        Text("No drafts")
+                            .font(.headline)
+                        Text("Close the composer with something written and you'll be offered a draft.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        ForEach(draftStore.drafts) { draft in
+                            Button {
+                                editingDraft = draft
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(draft.preview)
+                                        .font(.subheadline)
+                                        .foregroundColor(.primary)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                    HStack(spacing: 6) {
+                                        Text(draft.savedAt, style: .relative)
+                                        if draft.segmentCount > 1 {
+                                            Text("· \(draft.segmentCount) posts")
+                                        }
+                                    }
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .onDelete { offsets in
+                            for index in offsets { draftStore.delete(draftStore.drafts[index].id) }
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+            }
+            .navigationTitle("Drafts")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { menuSheet = nil }
+                }
+            }
+            // Presented from this sheet's own stack, like the profile's thread sheet - a
+            // top-level presenter cannot open while this one is on screen.
+            .sheet(item: $editingDraft) { draft in
+                KaPostComposerView(
+                    onPost: { text in
+                        draftStore.delete(draft.id)
+                        schedulePost(text: text)
+                    },
+                    onPostThread: { segments in
+                        draftStore.delete(draft.id)
+                        scheduleThread(segments)
+                    },
+                    editingDraftId: draft.id,
+                    initialText: draft.text,
+                    initialThreadSegments: draft.threadSegments
+                )
+            }
+            .onAppear { draftStore.reloadForCurrentWallet() }
+        }
+    }
+
     private var bookmarksSheet: some View {
         NavigationStack {
             Group {
@@ -5003,9 +5087,31 @@ private struct KaPostComposerView: View {
     /// Caret / highlighted range in the editor, in character offsets - what the formatting
     /// toolbar acts on.
     @State private var selection: ClosedRange<Int> = 0...0
+    /// Set when this composer was opened from a saved draft, so re-saving updates that draft
+    /// rather than piling up a new one each time.
+    var editingDraftId: UUID? = nil
+    /// Prefilled when reopening a draft.
+    var initialText: String = ""
+    var initialThreadSegments: [String] = []
+    @State private var showCloseOptions = false
+    @ObservedObject private var draftStore = KaPostsDraftStore.shared
 
     private var trimmed: String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Anything the user has written that would be lost by closing.
+    private var hasUnsavedContent: Bool {
+        !allSegments.isEmpty
+    }
+
+    private func saveDraft() {
+        draftStore.save(
+            id: editingDraftId,
+            text: text,
+            threadSegments: threadSegments,
+            quotedRemoteId: quotedPost?.remoteId
+        )
     }
 
     private var threadingEnabled: Bool {
@@ -5027,7 +5133,13 @@ private struct KaPostComposerView: View {
             // title, and a teal capsule Post button.
             HStack(spacing: 12) {
                 Button {
-                    dismiss()
+                    // Anything written is worth asking about - closing used to throw it away
+                    // silently, which is the whole reason drafts exist.
+                    if hasUnsavedContent {
+                        showCloseOptions = true
+                    } else {
+                        dismiss()
+                    }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.subheadline.weight(.bold))
@@ -5058,6 +5170,14 @@ private struct KaPostComposerView: View {
             .padding(.horizontal, 16)
             .padding(.top, 14)
             .padding(.bottom, 10)
+            .confirmationDialog("Save this post?", isPresented: $showCloseOptions, titleVisibility: .visible) {
+                Button("Save Draft") {
+                    saveDraft()
+                    dismiss()
+                }
+                Button("Discard", role: .destructive) { dismiss() }
+                Button("Keep Writing", role: .cancel) {}
+            }
 
             // @mention autocomplete stays PINNED between the header and the scroll view, so
             // scrolling the post text can never carry the suggestion list out of sight.
@@ -5108,7 +5228,15 @@ private struct KaPostComposerView: View {
                     .padding(.bottom, 2)
             }
         }
-        .onAppear { isFocused = true }
+        .onAppear {
+            // Seed once, from a draft being reopened. Guarded so a re-appear (returning from a
+            // sheet) cannot overwrite what has been typed since.
+            if text.isEmpty, threadSegments.isEmpty {
+                text = initialText
+                threadSegments = initialThreadSegments
+            }
+            isFocused = true
+        }
         // Warm the KNS domain cache for every 1:1 contact so typing @ has a populated list -
         // without this the mention list stayed empty until something else happened to fetch.
         .task {
