@@ -427,6 +427,41 @@ struct KaPostsView: View {
     }
 
     private var feedLayer: some View {
+        // The rail runs the full height down the left edge, with the feed beside it - so the
+        // destinations read as a fixed part of the screen rather than as a header row that
+        // scrolls past.
+        HStack(spacing: 0) {
+            sideMenuRail
+            Divider()
+            feedColumn
+        }
+    }
+
+    /// Profile / Notifications / Bookmarks / Muted / Blocked as a vertical rail down the left
+    /// edge, rather than behind a hamburger - every destination is one tap.
+    private var sideMenuRail: some View {
+        VStack(spacing: 4) {
+            ForEach(SideMenuItem.allCases) { item in
+                Button {
+                    Haptics.impact(.light)
+                    menuSheet = item
+                } label: {
+                    Image(systemName: item.icon)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(item.rawValue))
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(width: 44)
+        .padding(.top, 6)
+    }
+
+    private var feedColumn: some View {
         VStack(spacing: 0) {
             feedTabBar
             // Horizontal paging between the three feeds, synced both ways with the top tab bar
@@ -606,7 +641,6 @@ struct KaPostsView: View {
 
     private var feedTabBar: some View {
         VStack(spacing: 0) {
-            sideMenuIconRow
             HStack(spacing: 0) {
                 ForEach(FeedTab.allCases, id: \.title) { tab in
                     feedTabButton(tab)
@@ -616,33 +650,6 @@ struct KaPostsView: View {
         }
     }
 
-    /// Profile / Notifications / Bookmarks / Muted / Blocked, as the icons themselves rather than
-    /// behind a hamburger.
-    ///
-    /// They sit on their own row above the feed tabs, left-aligned where the hamburger used to
-    /// be. Five icons and three tabs do not fit one row on a phone - they would collide on the
-    /// narrow ones - and the point of the change is that every destination is one tap, which a
-    /// cramped row would undo.
-    private var sideMenuIconRow: some View {
-        HStack(spacing: 2) {
-            ForEach(SideMenuItem.allCases) { item in
-                Button {
-                    Haptics.impact(.light)
-                    menuSheet = item
-                } label: {
-                    Image(systemName: item.icon)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.primary)
-                        .frame(width: 40, height: 36)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text(item.rawValue))
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 6)
-    }
 
     private func feedTabButton(_ tab: FeedTab) -> some View {
         let isSelected = selectedFeed == tab
