@@ -1023,6 +1023,12 @@ enum KaChatLinkRouter {
 
 extension Notification.Name {
     static let openChat = Notification.Name("openChat")
+    /// Lands on the Profile tab with the KNS profile editor open. Posted from the KaPosts
+    /// profile, whose Edit KNS Profile button routes here rather than rebuilding the editor:
+    /// `KNSProfileEditorSheet` is driven by a spread of ProfileView's own state (domains,
+    /// primary, in-flight set-primary), and a second copy of that would be a second thing to
+    /// keep correct.
+    static let openKNSProfileEditor = Notification.Name("openKNSProfileEditor")
     static let openKaPost = Notification.Name("openKaPost")
     static let openPortfolio = Notification.Name("openPortfolio")
     static let openColdStorage = Notification.Name("openColdStorage")

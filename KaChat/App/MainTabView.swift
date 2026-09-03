@@ -154,6 +154,9 @@ struct MainTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openBroadcast)) { _ in
             routeToBroadcasts()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openKNSProfileEditor)) { _ in
+            routeToFeature(.profile)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openKaPost)) { _ in
             routeToKaPosts()
         }

@@ -216,6 +216,11 @@ struct ProfileView: View {
             .sheet(isPresented: $showSettings) {
                 SettingsView()
             }
+            // Posted by the KaPosts profile's Edit KNS Profile button, which routes here rather
+            // than rebuilding an editor this screen's state already drives.
+            .onReceive(NotificationCenter.default.publisher(for: .openKNSProfileEditor)) { _ in
+                showKNSEditor = true
+            }
             .sheet(isPresented: $showKNSEditor) {
                 if let profileInfo = knsProfileInfo, profileInfo.assetId != nil {
                     KNSProfileEditorSheet(

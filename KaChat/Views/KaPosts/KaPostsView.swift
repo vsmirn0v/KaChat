@@ -2676,6 +2676,27 @@ struct KaPostsView: View {
                                 .font(.subheadline)
                                 .padding(.top, 2)
                         }
+                        // Everything above this - avatar, banner, name, bio - comes from your KNS
+                        // profile, so the way to change any of it belongs here rather than only
+                        // on the Profile tab. Routes to that same editor instead of rebuilding
+                        // it: `KNSProfileEditorSheet` is driven by a spread of ProfileView's own
+                        // state, and a second copy would be a second thing to keep correct.
+                        Button {
+                            menuSheet = nil
+                            NotificationCenter.default.post(name: .openKNSProfileEditor, object: nil)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "person.text.rectangle")
+                                Text("Edit KNS Profile")
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundColor(.accentColor)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 8)
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
