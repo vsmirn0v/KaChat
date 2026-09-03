@@ -455,6 +455,19 @@ struct GroupChatDetailView: View {
                 .onChange(of: initialLayoutReady) { _ in
                     positionInitialViewport(using: proxy)
                 }
+                // The header rides above the list as a pinned inset, not as a toolbar item: a
+                // 46pt photo over a name capsule is far taller than a principal item is given,
+                // which is what kept the group header cramped to a 28pt thumbnail while 1:1
+                // showed a proper one. Same mechanism, same measurements as ChatDetailView.
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    groupTitleChip
+                        // Reaches up into the navigation bar's row so the photo sits level with
+                        // the back button. Bounded at -52 for the same reason as 1:1: the inset
+                        // is measured from BELOW the safe area, so it can never reach the notch.
+                        .padding(.top, -52)
+                        .padding(.bottom, 2)
+                        .frame(maxWidth: .infinity)
+                }
                 // Host the compose bar as a real safeAreaInset ON the ScrollView (the mechanism
                 // SwiftUI itself uses for keyboard avoidance), rather than as a sibling below the
                 // ScrollView in the outer VStack. On iOS 18 the sibling layout let SwiftUI animate
@@ -513,29 +526,13 @@ struct GroupChatDetailView: View {
                 }
             }
         }
-        .navigationTitle(group.name)
+        // Empty: the pinned header carries the name, and a duplicate inline title underneath it
+        // would be the same text twice.
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 ConnectionStatusIndicator()
-            }
-            // Group photo above the name, like the 1:1 chat header shows the contact's avatar.
-            ToolbarItem(placement: .principal) {
-                VStack(spacing: 1) {
-                    Group {
-                        if let hex = groupChatService.groupPhotos[group.id], let data = Data(hexString: hex), let img = UIImage(data: data) {
-                            Image(uiImage: img).resizable().scaledToFill()
-                        } else {
-                            ZStack {
-                                Circle().fill(Color.accentColor.opacity(0.2))
-                                Image(systemName: "person.3.fill").font(.system(size: 11)).foregroundColor(.accentColor)
-                            }
-                        }
-                    }
-                    .frame(width: 28, height: 28)
-                    .clipShape(Circle())
-                    Text(group.name).font(.subheadline).fontWeight(.semibold).lineLimit(1)
-                }
             }
             if !isSelectingMessages {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -1754,6 +1751,62 @@ struct GroupChatDetailView: View {
                 }
             }
         }
+    }
+
+    /// Group mirror of `ChatDetailView.chatTitleChip`: the group photo drawn over a glass name
+    /// capsule that tucks under it, tapping through to Group Info. The negative spacing is what
+    /// makes the two read as one piece rather than a stack.
+    private var groupTitleChip: some View {
+        Button {
+            showInfo = true
+        } label: {
+            VStack(spacing: -12) {
+                Group {
+                    if let hex = groupChatService.groupPhotos[group.id],
+                       let data = Data(hexString: hex),
+                       let img = UIImage(data: data) {
+                        Image(uiImage: img).resizable().scaledToFill()
+                    } else {
+                        ZStack {
+                            Circle().fill(Color.accentColor.opacity(0.2))
+                            Image(systemName: "person.3.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(.accentColor)
+                        }
+                    }
+                }
+                .frame(width: 46, height: 46)
+                .clipShape(Circle())
+                .zIndex(1)
+
+                HStack(spacing: 4) {
+                    Text(group.name)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.bold))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 15)
+                .padding(.bottom, 5)
+                // iMessage's floating pill: a thin material so the messages scrolling underneath
+                // actually show through it (the scroll view extends under this inset, so there IS
+                // live content to blur), a hairline edge to keep it legible against a light
+                // bubble, and a soft shadow so it reads as sitting above the thread rather than
+                // painted onto the bar.
+                .background(
+                    Capsule()
+                        .fill(.ultraThinMaterial)
+                        .overlay(Capsule().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
+                        .shadow(color: Color.black.opacity(0.10), radius: 6, x: 0, y: 2)
+                )
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Group info for \(group.name)"))
     }
 
     private func glassBackground(cornerRadius: CGFloat) -> some View {

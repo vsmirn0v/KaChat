@@ -1775,10 +1775,16 @@ struct ChatDetailView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 15)
                 .padding(.bottom, 5)
+                // iMessage's floating pill: a thin material so the messages scrolling underneath
+                // actually show through it (the scroll view extends under this inset, so there IS
+                // live content to blur), a hairline edge to keep it legible against a light
+                // bubble, and a soft shadow so it reads as sitting above the thread rather than
+                // painted onto the bar.
                 .background(
                     Capsule()
-                        .fill(.regularMaterial)
-                        .overlay(Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
+                        .fill(.ultraThinMaterial)
+                        .overlay(Capsule().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
+                        .shadow(color: Color.black.opacity(0.10), radius: 6, x: 0, y: 2)
                 )
             }
             .contentShape(Rectangle())
