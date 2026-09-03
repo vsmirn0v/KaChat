@@ -762,8 +762,12 @@ struct ChatDetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                ConnectionStatusIndicator()
+            // Trailing, not leading: the left of the bar belongs to Back, and the dot reads as
+            // status rather than navigation. Hidden while selecting, where the bar is Cancel/Delete.
+            if !isSelectingMessages {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    ConnectionStatusIndicator()
+                }
             }
 
             if let activeChessGame, !isSelectingMessages {

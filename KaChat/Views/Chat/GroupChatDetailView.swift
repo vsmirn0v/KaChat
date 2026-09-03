@@ -531,16 +531,12 @@ struct GroupChatDetailView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                ConnectionStatusIndicator()
-            }
+            // The info button is gone: tapping the header opens Group Info, exactly as it does
+            // in a 1:1 chat, so the trailing slot is free for the connection dot to sit where
+            // 1:1 puts it. Hidden while selecting, where the bar is Cancel/Delete.
             if !isSelectingMessages {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        showInfo = true
-                    } label: {
-                        Image(systemName: "info.circle")
-                    }
+                    ConnectionStatusIndicator()
                 }
             }
             // Entry point into select mode is a message's long-press "Select" menu item (see
