@@ -913,7 +913,43 @@ enum MessageReplyCodec {
         if InlineMediaSniff.isFileEnvelope(unwrapped) {
             return "📎 File"
         }
+        // A Nextcloud share is a link to the sender's own server, so the raw URL in a chat-list
+        // row or a notification body leaks their server address to anyone glancing at the phone -
+        // and keeps leaking it after the share is revoked, when the link does not even work. The
+        // bubble already renders these as media rather than as a URL; the preview now agrees.
+        if let label = NextcloudShareSniff.previewLabel(for: unwrapped) {
+            return label
+        }
         return unwrapped
+    }
+}
+
+/// Recognises a Nextcloud public-share URL in message text, so previews can describe it instead
+/// of printing the sender's server address. Deliberately shape-based (any host, `/s/<token>`) -
+/// there is no list of known servers to check against, and self-hosting is the whole point.
+enum NextcloudShareSniff {
+    private static let pattern = try? NSRegularExpression(
+        pattern: "https://[^\\s]+/(?:index\\.php/)?s/[A-Za-z0-9_-]{10,}/?",
+        options: []
+    )
+
+    /// The share URL in `text`, if it holds exactly one and nothing else that matters.
+    static func shareURL(in text: String) -> String? {
+        guard let pattern else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = pattern.firstMatch(in: text, options: [], range: range),
+              let matchRange = Range(match.range, in: text) else { return nil }
+        return String(text[matchRange])
+    }
+
+    /// Preview label for text carrying a share link, or nil when there is none. Text with a
+    /// caption keeps the caption and just drops the URL, so the sender's own words survive.
+    static func previewLabel(for text: String) -> String? {
+        guard let url = shareURL(in: text) else { return nil }
+        let caption = text.replacingOccurrences(of: url, with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !caption.isEmpty { return caption }
+        return "📎 Shared a file"
     }
 }
 
