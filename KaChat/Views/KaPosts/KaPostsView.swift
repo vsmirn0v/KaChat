@@ -2674,6 +2674,14 @@ struct KaPostsView: View {
                             }
                             .buttonStyle(.plain)
                         }
+                        // Same as another user's profile, which has always shown this - your own
+                        // was the one place your bio did not appear.
+                        if let bio = myInfo?.profile?.bio,
+                           !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(bio)
+                                .font(.subheadline)
+                                .padding(.top, 2)
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
@@ -2736,6 +2744,15 @@ struct KaPostsView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { menuSheet = nil }
                 }
+            }
+            // Comment thread for a post tapped here - presented from this profile's OWN
+            // NavigationStack so it stacks above the profile sheet, exactly as the poster
+            // profile does it (the top-level $detailTarget cannot present from inside a sheet).
+            .sheet(item: $profileDetailTarget) { target in
+                postDetailSheet(postId: target.id)
+            }
+            .sheet(item: $profileQuoteComposerTarget) { target in
+                quoteComposerSheet(for: target)
             }
             .task(id: myAddress) {
                 guard knsService.profileCache[myAddress] == nil, !myAddress.isEmpty else { return }
@@ -3141,7 +3158,10 @@ struct KaPostsView: View {
             commentCount: commentCount(of: post),
             quotedDisplayName: post.quoted.map { posterDisplayName($0.posterAddress) },
             quotedAvatarURLString: quotedAvatarURL(post),
-            onComment: nil,
+            // Was nil, which made every post and reply on your OWN profile the one place you
+            // could not open its thread - tapping did nothing while the same card is fully
+            // interactive on the feed and on other people's profiles.
+            onComment: { openProfileDetail(post) },
             onMute: { moderationStore.mute(post.posterAddress) },
             onBlock: { moderationStore.block(post.posterAddress) },
             onBookmark: { toggleBookmark(post) },
