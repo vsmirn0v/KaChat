@@ -5144,13 +5144,17 @@ private struct KaPostComposerView: View {
             .padding(.horizontal, 16)
             .padding(.top, 14)
             .padding(.bottom, 10)
-            .confirmationDialog("Save this post?", isPresented: $showCloseOptions, titleVisibility: .visible) {
-                Button("Save Draft") {
-                    saveDraft()
-                    dismiss()
-                }
-                Button("Discard", role: .destructive) { dismiss() }
-                Button("Keep Writing", role: .cancel) {}
+            // Half sheet rather than a confirmation dialog, matching Android and every other
+            // chooser in the app - and it gives each option room to say what happens to what you
+            // just wrote, which a dialog of bare verbs cannot.
+            .sheet(isPresented: $showCloseOptions) {
+                ComposerCloseOptionsSheet(
+                    onSaveDraft: {
+                        saveDraft()
+                        dismiss()
+                    },
+                    onDiscard: { dismiss() }
+                )
             }
 
             // @mention autocomplete stays PINNED between the header and the scroll view, so

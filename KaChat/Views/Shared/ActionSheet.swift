@@ -393,3 +393,41 @@ struct RepostActionsSheet: View {
         .presentationDetents([.height(280)])
     }
 }
+
+
+/// Closing the composer with something written: keep it, or throw it away.
+///
+/// A sheet rather than a confirmation dialog so each choice can say what happens to the post -
+/// "Save Draft" and "Discard" as bare verbs leave you to work out where a saved one goes.
+struct ComposerCloseOptionsSheet: View {
+    let onSaveDraft: () -> Void
+    let onDiscard: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Save this post?")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+
+            ActionSheetRow(
+                title: "Save Draft",
+                subtitle: "Keep it in Drafts to finish later.",
+                systemImage: "square.and.arrow.down"
+            ) { dismiss(); onSaveDraft() }
+
+            ActionSheetRow(
+                title: "Discard",
+                subtitle: "Throw this away.",
+                systemImage: "trash",
+                tint: .red
+            ) { dismiss(); onDiscard() }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .presentationDetents([.height(280)])
+    }
+}
