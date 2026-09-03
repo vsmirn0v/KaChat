@@ -93,6 +93,7 @@
 		E81000332D4C00010000001A /* AddContactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000322D4C00010000001A /* AddContactView.swift */; };
 		E81000352D4C00010000001B /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000342D4C00010000001B /* MessageBubbleView.swift */; };
 		E81000372D4C00010000001C /* Bech32.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000362D4C00010000001C /* Bech32.swift */; };
+		E8100A912D4C00010000001C /* CoreDataIndexBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8100A902D4C00010000001C /* CoreDataIndexBuilder.swift */; };
 		E81000392D4C00010000001D /* BIP39.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81000382D4C00010000001D /* BIP39.swift */; };
 		E810003B2D4C00010000001F /* KaChatCipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810003A2D4C00010000001E /* KaChatCipher.swift */; };
 		E810FA122D4C00010000000B /* PassphraseOptionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E810FA112D4C00010000000B /* PassphraseOptionView.swift */; };
@@ -310,6 +311,7 @@
 		E81000322D4C00010000001A /* AddContactView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddContactView.swift; sourceTree = "<group>"; };
 		E81000342D4C00010000001B /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
 		E81000362D4C00010000001C /* Bech32.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Bech32.swift; sourceTree = "<group>"; };
+		E8100A902D4C00010000001C /* CoreDataIndexBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreDataIndexBuilder.swift; sourceTree = "<group>"; };
 		E81000382D4C00010000001D /* BIP39.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BIP39.swift; sourceTree = "<group>"; };
 		E810003A2D4C00010000001E /* KaChatCipher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KaChatCipher.swift; sourceTree = "<group>"; };
 		E810FA112D4C00010000000B /* PassphraseOptionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassphraseOptionView.swift; sourceTree = "<group>"; };
@@ -659,6 +661,7 @@
 				E1C74B28306D4A9FB8E25D13 /* KaPostsMarkdown.swift */,
 				E8F1A0042F4B000100000004 /* Haptics.swift */,
 				E81000362D4C00010000001C /* Bech32.swift */,
+				E8100A902D4C00010000001C /* CoreDataIndexBuilder.swift */,
 				CS0001A0000000000000001 /* Base58.swift */,
 				CS0002A0000000000000001 /* KaspaExtendedPublicKey.swift */,
 				CS0006A0000000000000001 /* KsptCodec.swift */,
@@ -1174,6 +1177,7 @@
 				E81000352D4C00010000001B /* MessageBubbleView.swift in Sources */,
 				QRBV00010001000100000001 /* QuickReactionBarView.swift in Sources */,
 				E81000372D4C00010000001C /* Bech32.swift in Sources */,
+				E8100A912D4C00010000001C /* CoreDataIndexBuilder.swift in Sources */,
 				E81000392D4C00010000001D /* BIP39.swift in Sources */,
 				E810003B2D4C00010000001F /* KaChatCipher.swift in Sources */,
 				GRCP00010001000100000001 /* GroupCipher.swift in Sources */,

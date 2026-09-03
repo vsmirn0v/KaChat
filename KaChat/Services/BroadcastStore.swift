@@ -87,6 +87,17 @@ final class BroadcastStore {
         description.shouldMigrateStoreAutomatically = true
         description.shouldInferMappingModelAutomatically = true
         container.persistentStoreDescriptions = [description]
+        // Before the store is added, while nothing else has the file open. See
+        // `CoreDataIndexBuilder` for why these are created in SQLite rather than in the model.
+        CoreDataIndexBuilder.buildIndexesIfNeeded(
+            storeURL: storeURL(forWallet: walletAddress),
+            specs: [
+                .init(entityName: CDBroadcastMessage.entityName, attributes: ["channelName", "blockTime"]),
+                .init(entityName: CDBroadcastMessage.entityName, attributes: ["id"]),
+                .init(entityName: CDBroadcastReaction.entityName, attributes: ["channelName"]),
+                .init(entityName: CDBroadcastReaction.entityName, attributes: ["targetTxId"]),
+            ]
+        )
         container.loadPersistentStores { [weak self] _, error in
             guard let self else { return }
             if let error {

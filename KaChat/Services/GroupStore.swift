@@ -44,6 +44,17 @@ final class GroupStore {
         description.shouldMigrateStoreAutomatically = true
         description.shouldInferMappingModelAutomatically = true
         container.persistentStoreDescriptions = [description]
+        // Before the store is added, while nothing else has the file open. See
+        // `CoreDataIndexBuilder` for why these are created in SQLite rather than in the model.
+        CoreDataIndexBuilder.buildIndexesIfNeeded(
+            storeURL: storeURL(forWallet: walletAddress),
+            specs: [
+                .init(entityName: CDGroupMessage.entityName, attributes: ["groupId", "blockTime"]),
+                .init(entityName: CDGroupMessage.entityName, attributes: ["txId"]),
+                .init(entityName: CDGroupReaction.entityName, attributes: ["groupId"]),
+                .init(entityName: CDGroupReaction.entityName, attributes: ["targetTxId"]),
+            ]
+        )
         container.loadPersistentStores { [weak self] _, error in
             guard let self else { return }
             if let error {

@@ -2133,7 +2133,22 @@ final class MessageStore {
         }
     }
 
+    /// Indexes for the columns every read filters and sorts on. See `CoreDataIndexBuilder` for
+    /// why these are created in SQLite rather than declared in the model.
+    private static let sqliteIndexSpecs: [CoreDataIndexBuilder.Spec] = [
+        .init(entityName: CDMessage.entityName, attributes: ["walletAddress", "contactAddress", "blockTime"]),
+        .init(entityName: CDMessage.entityName, attributes: ["txId"]),
+        .init(entityName: CDConversation.entityName, attributes: ["walletAddress", "contactAddress"]),
+        .init(entityName: CDReadMarker.entityName, attributes: ["walletAddress", "conversationId"]),
+        .init(entityName: CDReaction.entityName, attributes: ["walletAddress", "targetTxId"]),
+        .init(entityName: CDReaction.entityName, attributes: ["walletAddress", "contactAddress"]),
+    ]
+
     private func loadPersistentStores(primaryDescription: NSPersistentStoreDescription, completion: (() -> Void)? = nil) {
+        // Before the store is added, while nothing else has the file open.
+        if let url = primaryDescription.url {
+            CoreDataIndexBuilder.buildIndexesIfNeeded(storeURL: url, specs: Self.sqliteIndexSpecs)
+        }
         container.loadPersistentStores { [weak self] _, error in
             // `completion` backs `setCurrentWallet(_:) async`'s `withCheckedContinuation` - every
             // exit path below MUST call it, even on failure, or that continuation hangs forever
