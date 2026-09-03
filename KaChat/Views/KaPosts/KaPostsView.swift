@@ -5079,6 +5079,7 @@ private struct KaPostComposerView: View {
                         threadSegmentsList
                         composerEditor
                             .id(Self.composerEditorAnchor)
+                        threadAppendButton
                         if let quotedPost {
                             quotedPostCard(quotedPost)
                                 .padding(.horizontal, 16)
@@ -5274,26 +5275,41 @@ private struct KaPostComposerView: View {
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.primary.opacity(0.35), lineWidth: 1)
         )
-        // X-style +: appears once you start typing; stacks this text as a segment and
-        // clears the editor for the next post in the thread.
-        .overlay(alignment: .bottomTrailing) {
-            if threadingEnabled, !trimmed.isEmpty {
+        .padding(.horizontal, 16)
+    }
+
+    /// X-style +: appears once you start typing; stacks this text as a segment and clears the
+    /// editor for the next post in the thread.
+    ///
+    /// Sits BELOW the field rather than floating inside it. As an overlay it covered the
+    /// bottom-right of the text area, so a post long enough to reach that corner ran underneath
+    /// it - the one place in the composer where your own words could be hidden.
+    @ViewBuilder
+    private var threadAppendButton: some View {
+        if threadingEnabled, !trimmed.isEmpty {
+            HStack {
+                Spacer()
                 Button {
                     threadSegments.append(trimmed)
                     text = ""
                     isFocused = true
                 } label: {
-                    Image(systemName: "plus")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundColor(.accentColor)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(Color.accentColor.opacity(0.15)))
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                            .font(.subheadline.weight(.bold))
+                        Text("Add to thread")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.15)))
                 }
                 .buttonStyle(.plain)
-                .padding(10)
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
         }
-        .padding(.horizontal, 16)
     }
 
     /// Live network-fee estimate while typing (Settings > Show Fee Estimate), matching the chat
