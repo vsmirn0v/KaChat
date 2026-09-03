@@ -18,10 +18,13 @@ final class ContactsManager: ObservableObject {
     private let legacyContactsKey = "kachat_contacts"
     private let contactsKeyPrefix = "kachat_contacts_wallet_"
     private let deletedAddressesKeyPrefix = "kachat_deleted_contacts_wallet_"
+    private let deletedAtKeyPrefix = "kachat_deleted_contacts_at_wallet_"
     /// Addresses of permanently-deleted contacts for the active wallet, kept even after the
     /// `Contact` itself is gone - matches Android's `DeletedContactEntity` tombstone, so an
     /// incoming message or handshake from a deleted address never silently recreates the contact.
     private var deletedAddresses: Set<String> = []
+    /// Address -> when it was tombstoned (ms). See `isDeletedAsOf(_:blockTime:)`.
+    private var deletedAtByAddress: [String: Int64] = [:]
     private var activeWalletAddress: String?
     private var lastMessageSaveWorkItem: DispatchWorkItem?
     private let lastMessageSaveDelay: TimeInterval = 0.6
@@ -78,8 +81,43 @@ final class ContactsManager: ObservableObject {
         contacts
     }
 
+    /// True when `address` is tombstoned at all - use this only for "should this address appear
+    /// in a list", never to decide whether incoming on-chain activity may land. For that, use
+    /// `isDeletedAsOf(_:blockTime:)`, which lets genuinely NEW activity through.
     func isAddressDeleted(_ address: String) -> Bool {
         deletedAddresses.contains(address)
+    }
+
+    /// Drops the tombstone entirely - the conversation is live again.
+    ///
+    /// Called when a handshake that post-dates the deletion is accepted: the other side has
+    /// re-initiated contact and we let it through, so every later message from them must land
+    /// normally rather than hitting the tombstone again.
+    func clearDeletionTombstone(_ address: String) {
+        guard deletedAddresses.remove(address) != nil else { return }
+        deletedAtByAddress.removeValue(forKey: address)
+        saveDeletedAddresses()
+    }
+
+    /// When `address` was deleted, in the indexer's block-time clock (ms), or nil if never.
+    func deletedAt(_ address: String) -> Int64? {
+        deletedAtByAddress[address]
+    }
+
+    /// Whether activity mined at `blockTime` should be suppressed for `address`.
+    ///
+    /// A tombstone exists to stop a DELETED conversation silently coming back when the indexer
+    /// re-serves its history - not to blacklist the person. A handshake or message sent AFTER the
+    /// deletion is a new request, and blocking it meant deleting a chat quietly made you
+    /// unreachable to that person forever, with nothing on either end to show why. Matches
+    /// Android's `isTombstoned`, which has always compared against `deletedAt`.
+    ///
+    /// `blockTime` of 0/nil means "no time in hand" and is treated as pre-deletion, i.e. still
+    /// suppressed - the conservative choice, since that is the re-serve case.
+    func isDeletedAsOf(_ address: String, blockTime: Int64?) -> Bool {
+        guard deletedAddresses.contains(address) else { return false }
+        guard let blockTime, blockTime > 0, let deletedAt = deletedAtByAddress[address] else { return true }
+        return blockTime <= deletedAt
     }
 
     /// Snapshot of every deletion tombstone, carried in chat-history backups so a restore on
@@ -326,6 +364,7 @@ final class ContactsManager: ObservableObject {
         // the block on auto-recreation is only meant to stop silent resurrection from incoming
         // activity, not to stop the user from choosing to message this address again.
         if !isAutoAdded, deletedAddresses.remove(address) != nil {
+            deletedAtByAddress.removeValue(forKey: address)
             saveDeletedAddresses()
         }
 
@@ -391,6 +430,16 @@ final class ContactsManager: ObservableObject {
     /// Matches Android's `ChatRepository.deleteChat` - not reversible, unlike the old archive.
     func deleteContact(_ contact: Contact) {
         deletedAddresses.insert(contact.address)
+        // Stamped against the newest block time actually seen in this conversation as well as the
+        // wall clock, and the later of the two wins. Android learned this the hard way: a
+        // wall-clock-only stamp on a device whose clock runs behind the chain can sit BEFORE
+        // history that is already on chain, so deleting would fail to suppress the very messages
+        // it was meant to. Taking the max can only ever over-suppress by the clock skew, and only
+        // for traffic from before the deletion.
+        let newestSeen = ChatService.shared.conversations
+            .first(where: { $0.contact.address == contact.address })?
+            .messages.map { Int64($0.blockTime) }.max() ?? 0
+        deletedAtByAddress[contact.address] = max(Int64(Date().timeIntervalSince1970 * 1000), newestSeen)
         saveDeletedAddresses()
         MessageStore.shared.deleteConversation(contactAddress: contact.address)
         contacts.removeAll { $0.id == contact.id }
@@ -1007,20 +1056,38 @@ final class ContactsManager: ObservableObject {
     private func loadDeletedAddresses() {
         guard let activeWalletAddress else {
             deletedAddresses = []
+            deletedAtByAddress = [:]
             return
         }
         let key = deletedAddressesKey(forNormalizedWalletAddress: activeWalletAddress)
-        if let stored = userDefaults.stringArray(forKey: key) {
-            deletedAddresses = Set(stored)
-        } else {
-            deletedAddresses = []
+        deletedAddresses = Set(userDefaults.stringArray(forKey: key) ?? [])
+
+        let atKey = deletedAtKey(forNormalizedWalletAddress: activeWalletAddress)
+        var stamps = (userDefaults.dictionary(forKey: atKey) as? [String: NSNumber])?
+            .mapValues { $0.int64Value } ?? [:]
+        // Tombstones written before deletion times existed carry no timestamp. Stamping them
+        // "now" preserves exactly today's behaviour for everything already on chain, while
+        // letting anything sent from here on through - which is the whole point.
+        var didBackfill = false
+        for address in deletedAddresses where stamps[address] == nil {
+            stamps[address] = Int64(Date().timeIntervalSince1970 * 1000)
+            didBackfill = true
         }
+        deletedAtByAddress = stamps
+        if didBackfill { saveDeletedAddresses() }
     }
 
     private func saveDeletedAddresses() {
         guard let activeWalletAddress else { return }
         let key = deletedAddressesKey(forNormalizedWalletAddress: activeWalletAddress)
         userDefaults.set(Array(deletedAddresses), forKey: key)
+        let atKey = deletedAtKey(forNormalizedWalletAddress: activeWalletAddress)
+        userDefaults.set(deletedAtByAddress.mapValues { NSNumber(value: $0) }, forKey: atKey)
+    }
+
+    private func deletedAtKey(forNormalizedWalletAddress walletAddress: String) -> String {
+        let sanitized = walletAddress.replacingOccurrences(of: ":", with: "_")
+        return "\(deletedAtKeyPrefix)\(sanitized)"
     }
 
     private func sortContacts(_ list: [Contact]) -> [Contact] {

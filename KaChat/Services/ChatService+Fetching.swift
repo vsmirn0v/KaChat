@@ -477,10 +477,20 @@ extension ChatService {
                 AppLog.log("%@", "[ChatService] Skipping handshake \(handshake.txId) - missing sender")
                 continue
             }
-            // A deleted contact's address is tombstoned - an incoming handshake from them (e.g.
-            // a re-sync of their full history) must not silently recreate the conversation.
-            if !isOutgoing, contactsManager.isAddressDeleted(contactAddress) {
+            // A deleted contact's address is tombstoned - a re-serve of their OLD history must
+            // not silently recreate the conversation. A handshake they sent AFTER the deletion
+            // is a new request, though, and dropping those meant deleting a chat quietly made
+            // you unreachable to that person forever. See `isDeletedAsOf(_:blockTime:)`.
+            if !isOutgoing, contactsManager.isDeletedAsOf(contactAddress, blockTime: handshake.blockTime.map(Int64.init)) {
                 continue
+            }
+            // Past the gate on a post-deletion handshake: the other side has re-initiated and we
+            // are accepting it, so drop the tombstone outright. Leaving it would let the
+            // handshake through and then keep dropping every message that followed - a chat that
+            // exists but never receives anything.
+            if !isOutgoing, contactsManager.isAddressDeleted(contactAddress) {
+                AppLog.log("%@", "[ChatService] New handshake from a deleted contact - reopening \(contactAddress.suffix(10))")
+                contactsManager.clearDeletionTombstone(contactAddress)
             }
 
             if !isOutgoing {
@@ -2775,8 +2785,10 @@ extension ChatService {
 
     func addMessageToConversation(_ message: ChatMessage, contactAddress: String) {
         // A deleted contact's address is tombstoned - this check must run before
-        // `getOrCreateContact`, which would otherwise silently resurrect it.
-        if contactsManager.isAddressDeleted(contactAddress) {
+        // `getOrCreateContact`, which would otherwise silently resurrect it. Time-aware for the
+        // same reason the handshake gate is: a message mined AFTER the deletion is new traffic,
+        // not the indexer re-serving history.
+        if contactsManager.isDeletedAsOf(contactAddress, blockTime: Int64(message.blockTime)) {
             return
         }
 
