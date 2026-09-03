@@ -92,18 +92,9 @@ struct KNSCreateProfileFlowView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
-                        // Back where there is somewhere to go, Close at the ends. Every step in
-                        // this wizard is reversible, so getting one wrong should cost a tap, not
-                        // a restart.
-                        if let previous = step.previous {
-                            Button {
-                                goBack(to: previous)
-                            } label: {
-                                Label("Back", systemImage: "chevron.left")
-                            }
-                        } else {
-                            Button("Close") { onFinished() }
-                        }
+                        // Close only. Step navigation is the Previous/Next bar at the bottom of
+                        // every step, where a wizard's navigation belongs.
+                        Button("Close") { onFinished() }
                     }
                 }
         }
@@ -124,6 +115,25 @@ struct KNSCreateProfileFlowView: View {
                 }
             }
         }
+    }
+
+    /// The fixed two-button bar every step ends with: Previous on the left, Next on the right,
+    /// always in the same position so the wizard can be tapped through without chasing buttons -
+    /// the same bar, in the same place, as the KaChat setup guide's. On the first step Previous
+    /// renders disabled and dimmed rather than vanishing, so Next never moves.
+    ///
+    /// `nextTitle` and `nextEnabled` let a step relabel or gate its own Next; `onNext == nil`
+    /// means the step has no forward action of its own (it advances by choosing something), and
+    /// Next renders disabled.
+    private func wizardBottomBar(
+        nextTitle: String = "Next",
+        onNext: (() -> Void)? = nil
+    ) -> some View {
+        KNSWizardBottomBar(
+            nextTitle: nextTitle,
+            onBack: step.previous.map { previous in { goBack(to: previous) } },
+            onNext: onNext
+        )
     }
 
     /// Steps whose Back target is written generically above and needs the live value filled in.
@@ -212,6 +222,7 @@ struct KNSCreateProfileFlowView: View {
                 domainName: domainName,
                 uploadType: .banner,
                 fieldKey: .bannerUrl,
+                onBack: { step = .domainConfirmed(domain: domainName ?? "") },
                 existingImageURL: existingProfile?.profile?.bannerUrl,
                 onDone: { step = .avatar }
             )
@@ -224,6 +235,7 @@ struct KNSCreateProfileFlowView: View {
                 domainName: domainName,
                 uploadType: .avatar,
                 fieldKey: .avatarUrl,
+                onBack: { step = .banner },
                 existingImageURL: existingProfile?.profile?.avatarUrl,
                 onDone: { step = .details }
             )
@@ -233,7 +245,8 @@ struct KNSCreateProfileFlowView: View {
                 assetId: assetId ?? "",
                 domainName: domainName,
                 existingProfile: existingProfile?.profile,
-                onDone: { step = .finished }
+                onDone: { step = .finished },
+                onBack: { step = .avatar }
             )
 
         case .finished:
@@ -412,7 +425,10 @@ struct KNSCreateProfileFlowView: View {
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+
+            // Next is inert here on purpose: the two choices above ARE the forward action, and
+            // a wizard whose bar appears halfway through reads as two different screens.
+            wizardBottomBar()
         }
     }
 
@@ -471,6 +487,7 @@ struct KNSCreateProfileFlowView: View {
                     .padding(.horizontal, 24)
                 }
             }
+            wizardBottomBar()
         }
     }
 
@@ -548,22 +565,9 @@ struct KNSCreateProfileFlowView: View {
                 // Next is never gated on the transfer having landed: it can take a while, and
                 // being told to sit on one screen until it does is worse than letting someone
                 // come back to it.
-                Button {
-                    step = .pickDomain
-                } label: {
-                    Text("Next")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 24)
-                .padding(.top, 4)
+                wizardBottomBar { step = .pickDomain }
+                    .padding(.top, 4)
             }
-            .padding(.bottom, 24)
         }
     }
 
@@ -587,19 +591,7 @@ struct KNSCreateProfileFlowView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
             Spacer()
-            Button {
-                step = .banner
-            } label: {
-                Text("Continue")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+            wizardBottomBar { step = .banner }
         }
     }
 
@@ -888,6 +880,8 @@ private struct KNSImageInscribeStepView: View {
     let domainName: String?
     let uploadType: KNSProfileImageUploadType
     let fieldKey: KNSProfileFieldKey
+    /// Back one wizard step. Nil on a step with nowhere to go back to.
+    var onBack: (() -> Void)?
     /// The currently-inscribed image, if re-entering on a profile that already has one - shown
     /// as the starting preview so the user is reviewing/replacing rather than starting blank.
     /// Only ever a display fallback: picking a new photo always takes over the preview, and the
@@ -988,17 +982,16 @@ private struct KNSImageInscribeStepView: View {
                 }
                 .disabled(uploadData == nil || isSubmitting)
 
-                Button {
-                    onDone()
-                } label: {
-                    Text("Skip")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                .disabled(isSubmitting)
             }
             .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+
+            // Inscribe above writes the image; this bar moves through the wizard. Next carries
+            // what the old standalone "Skip" did - continuing without inscribing - so there is
+            // one place to go forward rather than two competing ones.
+            KNSWizardBottomBar(
+                onBack: isSubmitting ? nil : onBack,
+                onNext: isSubmitting ? nil : onDone
+            )
         }
     }
 
@@ -1077,6 +1070,8 @@ private struct KNSDetailsStepView: View {
     let assetId: String
     let domainName: String?
     let onDone: () -> Void
+    /// Back one wizard step.
+    var onBack: (() -> Void)?
 
     @State private var bio: String
     @State private var website: String
@@ -1111,10 +1106,17 @@ private struct KNSDetailsStepView: View {
     /// commit amount (`KNSService.swift`), which every field/image write uses regardless of key.
     private static let costPerFieldKas: Decimal = 2
 
-    init(assetId: String, domainName: String?, existingProfile: KNSDomainProfile?, onDone: @escaping () -> Void) {
+    init(
+        assetId: String,
+        domainName: String?,
+        existingProfile: KNSDomainProfile?,
+        onDone: @escaping () -> Void,
+        onBack: (() -> Void)? = nil
+    ) {
         self.assetId = assetId
         self.domainName = domainName
         self.onDone = onDone
+        self.onBack = onBack
         existingBio = existingProfile?.bio ?? ""
         existingWebsite = existingProfile?.website ?? ""
         existingX = existingProfile?.x ?? ""
@@ -1200,17 +1202,16 @@ private struct KNSDetailsStepView: View {
                     }
                     .disabled(isSubmitting)
 
-                    Button {
-                        onDone()
-                    } label: {
-                        Text("Skip")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    .disabled(isSubmitting)
+                    // Done above writes the fields; this bar moves through the wizard. Next
+                    // carries what the old standalone "Skip" did.
+                    KNSWizardBottomBar(
+                        onBack: isSubmitting ? nil : onBack,
+                        onNext: isSubmitting ? nil : onDone
+                    )
                 }
             }
-            .padding(24)
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
         }
         .scrollDismissesKeyboard(.interactively)
         .onTapGesture {
@@ -1368,5 +1369,48 @@ private enum KNSImageUploadHelper {
         }
         if let lastError { throw lastError }
         throw KasiaError.apiError("KNS image upload failed")
+    }
+}
+
+
+/// The wizard's fixed two-button footer: Previous left, Next right, same place on every step so
+/// it can be tapped through without chasing buttons. Matches the KaChat setup guide's bar.
+///
+/// A disabled Previous renders dimmed rather than vanishing, so Next never moves between steps.
+struct KNSWizardBottomBar: View {
+    var nextTitle: String = "Next"
+    var onBack: (() -> Void)?
+    var onNext: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button { onBack?() } label: {
+                Text("Previous")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color(.systemGray5))
+                    .foregroundColor(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .disabled(onBack == nil)
+            .opacity(onBack == nil ? 0.35 : 1)
+
+            Button { onNext?() } label: {
+                Text(nextTitle)
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+            .disabled(onNext == nil)
+            .opacity(onNext == nil ? 0.5 : 1)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
     }
 }
