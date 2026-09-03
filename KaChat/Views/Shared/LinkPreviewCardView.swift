@@ -129,14 +129,21 @@ struct LinkPreviewCardView: View {
         // menu while a single tap opens the link. `onTapGesture(count: 2)` is listed first so a
         // double-tap is claimed by that handler instead of also firing the single-tap open. Matches
         // a normal message bubble's double-tap.
-        if let kind = data.nextcloudMedia, kind == .image || kind == .video {
+        if data.nextcloudShareRevoked {
+            // The server says this share is gone. Showing the dead URL would leave the sender's
+            // server address in the transcript for a link nobody can open, which is the opposite
+            // of why they shared through their own cloud - so the row says only that it is gone.
+            revokedShareTile
+                .onTapGesture(count: 2) { onDoubleTap?() }
+                .contextMenu { contextMenuItems(hideLink: true) }
+        } else if let kind = data.nextcloudMedia, kind == .image || kind == .video {
             // Nextcloud media renders as a bare photo/video bubble (like a sent photo), not a
-            // titled link card — the media IS the message. Tap opens the viewer; its top-right
-            // Safari button is the way to the underlying share link.
+            // titled link card — the media IS the message. Tap opens the in-app viewer, which is
+            // the only way this app renders the share: it never hands the link to a browser.
             nextcloudMediaBubble(data, kind: kind)
                 .onTapGesture(count: 2) { onDoubleTap?() }
                 .onTapGesture { handleTap(data) }
-                .contextMenu { contextMenuItems }
+                .contextMenu { contextMenuItems() }
         } else if let kind = data.nextcloudMedia {
             // Audio/PDF/other files: an attachment card (icon, filename, type · size). Audio
             // and PDF open the in-app viewer; everything else opens Nextcloud's own web viewer,
@@ -144,7 +151,7 @@ struct LinkPreviewCardView: View {
             nextcloudAttachmentCard(data, kind: kind)
                 .onTapGesture(count: 2) { onDoubleTap?() }
                 .onTapGesture { handleTap(data) }
-                .contextMenu { contextMenuItems }
+                .contextMenu { contextMenuItems() }
         } else {
             cardContent(data)
                 .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -152,8 +159,26 @@ struct LinkPreviewCardView: View {
                 .onTapGesture { handleTap(data) }
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .frame(maxWidth: 260)
-                .contextMenu { contextMenuItems }
+                .contextMenu { contextMenuItems() }
         }
+    }
+
+    /// Stand-in for a Nextcloud share the server no longer serves. Deliberately carries no URL,
+    /// no host and no tap target.
+    private var revokedShareTile: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "eye.slash")
+                .foregroundColor(.secondary)
+            Text("This file is no longer shared")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.primary.opacity(0.05))
+        )
     }
 
     @ViewBuilder
@@ -294,7 +319,7 @@ struct LinkPreviewCardView: View {
             .contentShape(RoundedRectangle(cornerRadius: 16))
             .onTapGesture(count: 2) { onDoubleTap?() }
             .onTapGesture { openURL(url) }
-            .contextMenu { contextMenuItems }
+            .contextMenu { contextMenuItems() }
     }
 
     /// Shown instead of an automatic fetch when `autoFetch` is false (non-accepted 1:1 senders
@@ -333,15 +358,19 @@ struct LinkPreviewCardView: View {
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onTapGesture(count: 2) { onDoubleTap?() }
         .onTapGesture { loadRequested = true }
-        .contextMenu { contextMenuItems }
+        .contextMenu { contextMenuItems() }
     }
 
+    /// `hideLink` drops Copy Link, for a share the server says is revoked - the whole point of
+    /// that tile is that the URL stops travelling any further.
     @ViewBuilder
-    private var contextMenuItems: some View {
-        Button {
-            UIPasteboard.general.string = url.absoluteString
-        } label: {
-            Label("Copy Link", systemImage: "doc.on.doc")
+    private func contextMenuItems(hideLink: Bool = false) -> some View {
+        if !hideLink {
+            Button {
+                UIPasteboard.general.string = url.absoluteString
+            } label: {
+                Label("Copy Link", systemImage: "doc.on.doc")
+            }
         }
         if let explorerURL = settingsViewModel.settings.kaspaExplorer.txURL(for: txId) {
             Link(destination: explorerURL) {
@@ -518,11 +547,6 @@ private struct NextcloudMediaViewerView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button("Close") { dismiss() }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Link(destination: target.shareURL) {
-                        Image(systemName: "safari")
-                    }
                 }
             }
             .task {

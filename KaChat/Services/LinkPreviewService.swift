@@ -350,6 +350,12 @@ struct LinkPreviewData: Equatable {
     var mediaDownloadURLString: String? = nil
     /// Content-Length from the type-detection HEAD — shown on attachment cards.
     var mediaByteSize: Int64? = nil
+    /// The Nextcloud server answered that this public share no longer exists (404/410), so the
+    /// sender revoked it or it expired. The card renders a neutral "no longer shared" tile and,
+    /// crucially, stops showing the share URL - a link nobody can open is just the sender's
+    /// server address sitting in the transcript. Only ever set on a definite answer FROM the
+    /// server; a network failure leaves this false and the card simply renders nothing.
+    var nextcloudShareRevoked: Bool = false
 }
 
 enum NextcloudMediaKind: String, Equatable {
@@ -551,6 +557,11 @@ actor LinkPreviewService {
         )
     }
 
+    /// What a Nextcloud server answers for a public share that was deleted, expired, or had its
+    /// link removed. Anything else (403 password prompt, 5xx, a proxy error) is NOT treated as
+    /// revoked - the link stays intact and the card just does not render.
+    private static let shareGoneStatuses: Set<Int> = [404, 410]
+
     /// The share link itself carries no file type, so `HEAD` the `/download` URL (native HTTP,
     /// no CORS constraints) and branch on `Content-Type`. Non-media shares return nil, which
     /// renders as a plain link. The card's poster is the share's `/preview` thumbnail; the
@@ -564,18 +575,41 @@ actor LinkPreviewService {
             // round trip (HEAD-then-GET doubled the wait on servers that dislike HEAD). HEAD
             // remains as the rare fallback for servers that mishandle Range.
             var http: HTTPURLResponse?
+            // A status the SERVER returned saying the share is gone, as opposed to a request
+            // that never got an answer. Only the former justifies hiding the link.
+            var revokedStatus: Int?
             var rangeRequest = URLRequest(url: endpoints.downloadURL)
             rangeRequest.setValue("bytes=0-1", forHTTPHeaderField: "Range")
             if let (_, rangeResponse) = try? await session.data(for: rangeRequest),
-               let rangeHTTP = rangeResponse as? HTTPURLResponse, (200..<300).contains(rangeHTTP.statusCode) {
-                http = rangeHTTP
-            } else {
+               let rangeHTTP = rangeResponse as? HTTPURLResponse {
+                if (200..<300).contains(rangeHTTP.statusCode) {
+                    http = rangeHTTP
+                } else if Self.shareGoneStatuses.contains(rangeHTTP.statusCode) {
+                    revokedStatus = rangeHTTP.statusCode
+                }
+            }
+            if http == nil, revokedStatus == nil {
                 var headRequest = URLRequest(url: endpoints.downloadURL)
                 headRequest.httpMethod = "HEAD"
                 let (_, headResponse) = try await session.data(for: headRequest)
-                if let headHTTP = headResponse as? HTTPURLResponse, (200..<300).contains(headHTTP.statusCode) {
-                    http = headHTTP
+                if let headHTTP = headResponse as? HTTPURLResponse {
+                    if (200..<300).contains(headHTTP.statusCode) {
+                        http = headHTTP
+                    } else if Self.shareGoneStatuses.contains(headHTTP.statusCode) {
+                        revokedStatus = headHTTP.statusCode
+                    }
                 }
+            }
+            if let revokedStatus {
+                AppLog.log("[LinkPreview] Nextcloud share gone (HTTP %d) for %@", revokedStatus, url.absoluteString)
+                return LinkPreviewData(
+                    url: url,
+                    title: nil,
+                    description: nil,
+                    imageURLString: nil,
+                    siteName: nil,
+                    nextcloudShareRevoked: true
+                )
             }
             guard let http else {
                 AppLog.log("[LinkPreview] Nextcloud HEAD+ranged-GET both failed for %@", url.absoluteString)
