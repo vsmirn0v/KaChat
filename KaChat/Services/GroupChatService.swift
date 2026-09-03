@@ -89,6 +89,7 @@ final class GroupChatService: ObservableObject {
     /// free to repeat.
     private var groupDeepBackfilled: Set<String> = []
     private let groupDeepBackfilledKey = "kachat_group_deep_backfilled"
+    private let groupImportReadSeededKey = "kachat_group_import_read_seeded"
 
     /// Per-group "last opened" timestamp, for the Group Chats tab unread badge - one timestamp
     /// per group rather than a per-message read flag (would need a Core Data migration; see
@@ -385,6 +386,43 @@ final class GroupChatService: ObservableObject {
             groupMentionsOnlyNotifications.remove(groupId)
         }
         saveGroupMentionsOnlyNotifications()
+    }
+
+    /// One-shot per imported wallet: after the first full catch-up that actually finds groups,
+    /// everything this device rediscovered on chain is history, not new mail.
+    ///
+    /// 1:1 chats get this for free - `ChatService.addMessageToConversation` floors their read
+    /// cursor at `walletImportBaselineMs`, so backfilled messages never bump a badge. A group's
+    /// badge is driven by `groupLastReadAt` instead, which a seed re-import has no value for, so
+    /// every rediscovered group counted its whole history as unread and non-admin groups also
+    /// picked up the never-opened minimum. Same fix the archive restore already applies in
+    /// `importGroups`, at the only other moment a device acquires groups it never opened.
+    private func seedImportReadMarkersIfNeeded() {
+        guard let address = WalletManager.shared.currentWallet?.publicAddress, !address.isEmpty else { return }
+        // 0 means this wallet predates the import baseline (it was never imported onto this
+        // device), so there is no backfill to gate and its unread state is genuine.
+        let baselineMs = ChatService.shared.walletImportBaselineMs(for: address)
+        guard baselineMs > 0 else { return }
+        guard let key = scopedDefaultsKey(groupImportReadSeededKey) else { return }
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        // Nothing discovered yet (first catch-up failed, or it is still early): leave the flag
+        // unburned and try again on the next one rather than seeding an empty list.
+        guard !groups.isEmpty else { return }
+        UserDefaults.standard.set(true, forKey: key)
+
+        // The marker goes at the import moment, not "now". Seeding "now" would also swallow
+        // anything that genuinely arrived after the import - including, on the release that
+        // introduces this, real unread mail on a device that imported long ago.
+        let importedAt = Date(timeIntervalSince1970: TimeInterval(baselineMs) / 1000)
+        var seeded = false
+        for group in groups where groupLastReadAt[group.id] == nil {
+            groupLastReadAt[group.id] = importedAt
+            seeded = true
+        }
+        if seeded {
+            saveGroupLastReadAt()
+            ChatService.shared.scheduleBadgeUpdate()
+        }
     }
 
     /// Marks a group as opened, clearing its unread badge contribution.
@@ -2296,6 +2334,10 @@ final class GroupChatService: ObservableObject {
                 await catchUpGroupMessages(groupId: group.id, blindedGroupIdHex: blindedGroupId.hexString)
             }
         }
+
+        // Groups and their history are both in hand now, so a seed re-import's rediscovered
+        // groups can be marked read in one pass.
+        seedImportReadMarkersIfNeeded()
     }
 
     /// Groups currently being force-refreshed, so the button can show progress and refuse a
