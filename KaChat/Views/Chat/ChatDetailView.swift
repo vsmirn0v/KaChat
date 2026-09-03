@@ -1947,8 +1947,11 @@ struct ChatDetailView: View {
                 composerSheetShowsChess = true
             }
             if canSendRequestToCommunicate {
+                // Says what already happened once a request is out, matching the dedicated
+                // button above the composer - so a second tap reads as a deliberate re-send
+                // rather than as the first one having done nothing.
                 ActionSheetRow(
-                    title: "Send Handshake",
+                    title: hasUnansweredOutgoingHandshake ? "Handshake sent - send again" : "Send Handshake",
                     subtitle: "Asks to open an encrypted conversation.",
                     systemImage: "hand.wave"
                 ) {
