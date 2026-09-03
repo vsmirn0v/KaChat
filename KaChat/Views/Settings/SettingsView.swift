@@ -94,7 +94,7 @@ struct SettingsView: View {
                 } label: {
                     Label {
                         Text("View Seed Phrase")
-                            .foregroundColor(.primary)
+                            .foregroundColor(.red)
                     } icon: {
                         Image(systemName: "key")
                             .foregroundColor(.accentColor)
