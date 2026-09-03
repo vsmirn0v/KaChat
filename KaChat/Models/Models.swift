@@ -294,6 +294,18 @@ struct Contact: Codable, Identifiable, Equatable, Hashable {
         try container.encodeIfPresent(backupPhoto, forKey: .backupPhoto)
     }
 
+    /// The name the user actually typed for this contact, or nil when there is none.
+    ///
+    /// `alias` is never empty - the initializer seeds it with `generateDefaultAlias` so every
+    /// legacy call site has something to show - so "no name assigned" reads as an alias that is
+    /// still exactly that generated default. Display everywhere falls through in this order:
+    /// assigned name -> KNS domain -> short address.
+    var assignedName: String? {
+        let trimmed = alias.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != Contact.generateDefaultAlias(from: address) else { return nil }
+        return trimmed
+    }
+
     /// Matches Android's `KaspaAddress.shortDisplay`: "prefix:xxxx....xxxx" — shown wherever a
     /// contact has no alias/KNS domain set yet, instead of the old (and much less legible)
     /// last-8-raw-characters fallback.

@@ -27,7 +27,7 @@ extension ChatService {
             maybeRequestMorePoolAddresses(from: contact)
         }
         // Keep the Share Extension's "Recent" list fresh: opening a chat counts as touching it.
-        let alias = ContactsManager.shared.getContact(byAddress: address)?.alias ?? ""
+        let alias = ContactsManager.shared.displayName(for: address)
         SharedDataManager.recordRecentConversation(address: address, alias: alias)
     }
 

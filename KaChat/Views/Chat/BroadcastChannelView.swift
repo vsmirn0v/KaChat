@@ -434,8 +434,8 @@ struct BroadcastChannelView: View {
     }
 
     private func displayName(for address: String) -> String {
-        if let contact = contactsManager.getContact(byAddress: address), !contact.alias.isEmpty {
-            return contact.alias
+        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
+            return assigned
         }
         if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
             return knsName

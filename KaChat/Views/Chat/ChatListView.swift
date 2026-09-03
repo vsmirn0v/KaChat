@@ -994,7 +994,7 @@ struct ChatListView: View {
 
         filteredConversationsCache = sourceConversations.filter { conv in
             guard chatService.isConversationVisibleInChatList(conv, settings: settings) else { return false }
-            if conv.contact.alias.range(of: query, options: .caseInsensitive) != nil {
+            if contactsManager.displayName(for: conv.contact).range(of: query, options: .caseInsensitive) != nil {
                 return true
             }
             if conv.contact.address.range(of: query, options: .caseInsensitive) != nil {
@@ -1035,7 +1035,7 @@ struct ChatListView: View {
     private func conversationRowSheet(for conversation: Conversation) -> some View {
         let isSilent = conversation.contact.notificationModeOverride == .off
         return VStack(spacing: 12) {
-            Text(conversation.contact.alias)
+            Text(contactsManager.displayName(for: conversation.contact))
                 .font(.headline)
                 .lineLimit(1)
                 .padding(.top, 20)
@@ -1303,6 +1303,16 @@ struct ConversationRow: View {
         knsService.profileCache[conversation.contact.address]?.avatarURL
     }
 
+    /// `ContactsManager.displayName` - assigned name, else KNS domain, else short address - read
+    /// through the observed KNS service so the row redraws when a profile lands.
+    private var rowDisplayName: String {
+        if let assigned = conversation.contact.assignedName { return assigned }
+        if let domain = knsService.profileCache[conversation.contact.address]?.domainName, !domain.isEmpty {
+            return domain
+        }
+        return Contact.generateDefaultAlias(from: conversation.contact.address)
+    }
+
     var body: some View {
         let lastMessage = conversation.lastMessage
 
@@ -1310,7 +1320,7 @@ struct ConversationRow: View {
             // Avatar
             KNSAvatarView(
                 avatarURLString: avatarURLString,
-                fallbackText: conversation.contact.alias,
+                fallbackText: rowDisplayName,
                 size: 50,
                 contactAddress: conversation.contact.address
             )
@@ -1320,7 +1330,7 @@ struct ConversationRow: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 5) {
-                            Text(conversation.contact.alias)
+                            Text(rowDisplayName)
                                 .font(.headline)
                                 .lineLimit(1)
                             // Silenced: no banner from this conversation, ever. Worth a mark on
@@ -1587,8 +1597,8 @@ struct GroupChatRow: View {
 
     /// Same resolution as `GroupChatDetailView.displayName(for:)`.
     private func resolveDisplayName(for address: String) -> String {
-        if let contact = contactsManager.getContact(byAddress: address), !contact.alias.isEmpty {
-            return contact.alias
+        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
+            return assigned
         }
         if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
             return knsName

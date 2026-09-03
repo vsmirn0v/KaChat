@@ -101,8 +101,9 @@ final class ContactsManager: ObservableObject {
         await knsService.refreshIfNeeded(for: addresses, network: network)
         await knsService.refreshProfilesIfNeeded(for: addresses, network: network)
 
-        // Update aliases for contacts that have auto-generated names or stale .kas names,
-        // but never overwrite a linked iCloud contact name (system contact takes priority).
+        // Keeps an existing domain-based name fresh. Nothing here NAMES a contact - an
+        // unnamed one stays unnamed and resolves through `displayName(for:)` instead - and a
+        // linked iCloud contact name is never overwritten (system contact takes priority).
         for contact in contacts {
             if let knsInfo = knsService.domainCache[contact.address],
                let primaryDomain = knsInfo.primaryDomain {
@@ -113,14 +114,13 @@ final class ContactsManager: ObservableObject {
                    contact.alias == snapshot {
                     continue
                 }
-                // Check if alias is auto-generated (matches last 8 chars of address)
-                let autoAlias = Contact.generateDefaultAlias(from: contact.address)
-                if contact.alias == autoAlias || contact.alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    // Update to KNS domain name
-                    var updatedContact = contact
-                    updatedContact.alias = primaryDomain
-                    updateContact(updatedContact)
-                } else if contact.alias.lowercased().hasSuffix(".kas") && contact.alias != primaryDomain {
+                // An unnamed contact is deliberately left unnamed: `displayName(for:)` shows
+                // their KNS domain, so baking it into the alias would only freeze a name the
+                // user never chose - and leave it stale once the domain moves.
+                if contact.assignedName == nil {
+                    continue
+                }
+                if contact.alias.lowercased().hasSuffix(".kas") && contact.alias != primaryDomain {
                     // Keep KNS domain fresh when alias is domain-based
                     var updatedContact = contact
                     updatedContact.alias = primaryDomain
@@ -409,6 +409,23 @@ final class ContactsManager: ObservableObject {
 
     func getContact(byAddress address: String) -> Contact? {
         return contacts.first { $0.address == address }
+    }
+
+    /// The one display-name rule for any Kaspa address, used everywhere a person is named:
+    /// the name the user assigned this contact, else their KNS domain, else the short address.
+    /// Nothing auto-populates a contact's name, so an address with a domain shows the domain
+    /// until the user deliberately renames it.
+    func displayName(for address: String) -> String {
+        if let assigned = getContact(byAddress: address)?.assignedName { return assigned }
+        if let domain = KNSService.shared.profileCache[address]?.domainName, !domain.isEmpty { return domain }
+        return Contact.generateDefaultAlias(from: address)
+    }
+
+    /// Same rule, when the caller already has the `Contact` in hand.
+    func displayName(for contact: Contact) -> String {
+        if let assigned = contact.assignedName { return assigned }
+        if let domain = KNSService.shared.profileCache[contact.address]?.domainName, !domain.isEmpty { return domain }
+        return Contact.generateDefaultAlias(from: contact.address)
     }
 
     /// The accepted/established-contact predicate shared by the stranger-gating features:

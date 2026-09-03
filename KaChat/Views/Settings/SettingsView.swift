@@ -4134,7 +4134,7 @@ struct ResyncChatPickerView: View {
                     case (.none, .some):
                         return false
                     default:
-                        return a.contact.alias < b.contact.alias
+                        return ContactsManager.shared.displayName(for: a.contact) < ContactsManager.shared.displayName(for: b.contact)
                     }
                 }
             }
@@ -4154,13 +4154,13 @@ struct ResyncChatPickerView: View {
             HStack(spacing: 12) {
                 KNSAvatarView(
                     avatarURLString: KNSService.shared.profileCache[address]?.avatarURL,
-                    fallbackText: conversation.contact.alias,
+                    fallbackText: ContactsManager.shared.displayName(for: conversation.contact),
                     size: 44,
                     contactAddress: address
                 )
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(conversation.contact.alias)
+                    Text(ContactsManager.shared.displayName(for: conversation.contact))
                         .font(.headline)
                         .lineLimit(1)
                         .foregroundColor(.primary)

@@ -1499,9 +1499,8 @@ struct KaPostsView: View {
         // .kas is stripped from EVERY source, not just raw KNS lookups - contact aliases are
         // frequently auto-set to the KNS primary ("name.kas") and leaked the suffix through the
         // alias-wins branch.
-        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
-           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return Self.strippingKasSuffix(alias)
+        if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
+            return Self.strippingKasSuffix(assigned)
         }
         if let domain = knsService.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -4331,9 +4330,8 @@ private struct KaPostCellView: View {
     private func resolvedQuotedName(_ address: String) -> String {
         if let quotedDisplayName { return quotedDisplayName }
         guard !address.isEmpty else { return "Unknown" }
-        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
-           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(alias)
+        if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
+            return KaPostsView.strippingKasSuffix(assigned)
         }
         if let domain = KNSService.shared.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -5799,9 +5797,8 @@ struct KaPostEngagementView: View {
 
     private func displayName(for address: String) -> String {
         guard !address.isEmpty else { return "Unknown" }
-        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
-           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(alias)
+        if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
+            return KaPostsView.strippingKasSuffix(assigned)
         }
         if let domain = knsService.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -6084,9 +6081,8 @@ struct KaPostsFollowListView: View {
 
     private func displayName(for address: String) -> String {
         guard !address.isEmpty else { return "Unknown" }
-        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
-           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(alias)
+        if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
+            return KaPostsView.strippingKasSuffix(assigned)
         }
         if let domain = knsService.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -6378,9 +6374,8 @@ struct KaPostsNotificationsView: View {
 
     private func displayName(for address: String) -> String {
         guard !address.isEmpty else { return "Unknown" }
-        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
-           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(alias)
+        if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
+            return KaPostsView.strippingKasSuffix(assigned)
         }
         if let domain = knsService.profileCache[address]?.domainName,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

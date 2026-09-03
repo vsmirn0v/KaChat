@@ -1603,8 +1603,8 @@ struct GroupChatDetailView: View {
     /// happened to already be named contacts at that moment ever showed a real name - everyone
     /// else was stuck on their truncated address forever, even after adding/renaming them.
     private func displayName(for address: String) -> String {
-        if let contact = contactsManager.getContact(byAddress: address), !contact.alias.isEmpty {
-            return contact.alias
+        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
+            return assigned
         }
         if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
             return knsName
@@ -1950,8 +1950,8 @@ private struct GroupMessageBubbleRow: View {
     /// threaded down as a closure, matching this file's existing pattern of each row/screen
     /// owning a small local copy (see `GroupChatInfoView`/`HiddenGroupMembersView`).
     private func resolveDisplayName(for address: String) -> String {
-        if let contact = contactsManager.getContact(byAddress: address), !contact.alias.isEmpty {
-            return contact.alias
+        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
+            return assigned
         }
         if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
             return knsName
@@ -2551,8 +2551,8 @@ struct GroupChatInfoView: View {
     /// the current user's own row, rather than special-casing "You" here the way message bubbles
     /// do - this screen is about who someone *is*, not who sent a given message.
     private func displayName(for address: String) -> String {
-        if let contact = contactsManager.getContact(byAddress: address), !contact.alias.isEmpty {
-            return contact.alias
+        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
+            return assigned
         }
         if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
             return knsName
@@ -2939,8 +2939,8 @@ private struct HiddenGroupMembersView: View {
     @Environment(\.dismiss) private var dismiss
 
     private func displayName(for address: String) -> String {
-        if let contact = contactsManager.getContact(byAddress: address), !contact.alias.isEmpty {
-            return contact.alias
+        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
+            return assigned
         }
         if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
             return knsName
@@ -3021,9 +3021,9 @@ private struct AddGroupMembersView: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let all = contactsManager.activeContacts
             .filter { !existing.contains($0.address) }
-            .sorted { $0.alias.localizedCaseInsensitiveCompare($1.alias) == .orderedAscending }
+            .sorted { contactsManager.displayName(for: $0).localizedCaseInsensitiveCompare(contactsManager.displayName(for: $1)) == .orderedAscending }
         guard !query.isEmpty else { return all }
-        return all.filter { $0.alias.lowercased().contains(query) || $0.address.lowercased().contains(query) }
+        return all.filter { contactsManager.displayName(for: $0).lowercased().contains(query) || $0.address.lowercased().contains(query) }
     }
 
     private func addSelected() {
@@ -3069,9 +3069,9 @@ private struct AddGroupMembersView: View {
                             else { selectedAddresses.insert(contact.address) }
                         } label: {
                             HStack(spacing: 12) {
-                                KNSAvatarView(avatarURLString: nil, fallbackText: contact.alias, size: 32, contactAddress: contact.address)
+                                KNSAvatarView(avatarURLString: nil, fallbackText: contactsManager.displayName(for: contact), size: 32, contactAddress: contact.address)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(contact.alias).foregroundColor(.primary).lineLimit(1)
+                                    Text(contactsManager.displayName(for: contact)).foregroundColor(.primary).lineLimit(1)
                                     Text(Contact.generateDefaultAlias(from: contact.address))
                                         .font(.caption).foregroundColor(.secondary).lineLimit(1)
                                 }

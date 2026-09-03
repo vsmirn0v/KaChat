@@ -54,8 +54,8 @@ struct HiddenBroadcastSendersView: View {
     /// Same alias -> KNS name -> short address fallback used inside a broadcast room, so a
     /// hidden sender's name here reads identically to how it did before being hidden.
     private func displayName(for address: String) -> String {
-        if let contact = contactsManager.getContact(byAddress: address), !contact.alias.isEmpty {
-            return contact.alias
+        if let assigned = contactsManager.getContact(byAddress: address)?.assignedName {
+            return assigned
         }
         if let knsName = knsService.profileCache[address]?.domainName, !knsName.isEmpty {
             return knsName

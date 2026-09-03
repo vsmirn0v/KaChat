@@ -161,7 +161,7 @@ struct ChatInfoView: View {
                         } label: {
                             KNSAvatarView(
                                 avatarURLString: knsProfileInfo?.avatarURL,
-                                fallbackText: contact.alias,
+                                fallbackText: contactsManager.displayName(for: contact),
                                 size: 60,
                                 contactAddress: contact.address
                             )
@@ -337,8 +337,8 @@ struct ChatInfoView: View {
             .fullScreenCover(isPresented: $showAvatarPreview) {
                 KNSAvatarFullscreenView(
                     avatarURLString: knsProfileInfo?.avatarURL,
-                    fallbackText: contact.alias,
-                    title: contact.alias,
+                    fallbackText: contactsManager.displayName(for: contact),
+                    title: contactsManager.displayName(for: contact),
                     systemContactId: contact.systemContactId,
                     contactAddress: contact.address
                 )
@@ -357,7 +357,7 @@ struct ChatInfoView: View {
                 }
             }
             .onAppear {
-                editedAlias = contact.alias
+                editedAlias = contact.assignedName ?? ""
                 notificationModeOverride = contact.notificationModeOverride
                 photoAutoDisplayOverride = contact.photoAutoDisplayOverride
                 linkedSystemContactId = contact.systemContactId

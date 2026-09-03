@@ -206,9 +206,8 @@ final class GlobalNotificationCenter: ObservableObject {
     // MARK: - Helpers
 
     private func displayName(for address: String) -> String {
-        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias,
-           !alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return KaPostsView.strippingKasSuffix(alias)
+        if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
+            return KaPostsView.strippingKasSuffix(assigned)
         }
         if let domain = KNSService.shared.domainCache[address]?.primaryDomain,
            !domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

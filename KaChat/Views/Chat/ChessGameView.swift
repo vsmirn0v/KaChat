@@ -554,7 +554,7 @@ struct ChessGameView: View {
 
     private var header: some View {
         VStack(spacing: 4) {
-            Text(contact.alias.isEmpty ? contact.address : contact.alias)
+            Text(ContactsManager.shared.displayName(for: contact))
                 .font(.headline)
             if let summary {
                 Text(summary.statusText)

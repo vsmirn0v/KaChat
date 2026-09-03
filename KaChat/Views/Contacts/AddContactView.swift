@@ -10,7 +10,6 @@ struct AddContactView: View {
     var onCreateGroup: ((GroupChat) -> Void)?
 
     @State private var addressInput = ""
-    @State private var alias = ""
     @State private var error: String?
     @State private var isValidAddress = false
 
@@ -22,6 +21,12 @@ struct AddContactView: View {
     /// The resolved address's KNS profile, once fetched - the preview card's source.
     @State private var previewProfile: KNSAddressProfileInfo?
     @State private var isLoadingPreview = false
+    // KaPosts follow graph, offered as one-tap chat targets under the Address field.
+    @State private var kaPostsConnections: [KaPostsConnection] = []
+    /// Starts true so the section renders on first layout and its `.task` actually fires; the
+    /// loader clears it, which hides the section entirely when the graph is empty.
+    @State private var isLoadingKaPostsConnections = true
+    @State private var didLoadKaPostsConnections = false
     @State private var showQRScanner = false
     @State private var showSystemContactPicker = false
     @State private var pendingSystemContactLinkTarget: SystemContactLinkTarget?
@@ -245,9 +250,7 @@ struct AddContactView: View {
                     Text("Enter a Kaspa address (kaspa:...) or KNS domain name (e.g., alice.kas)")
                 }
 
-                Section("Name (Optional)") {
-                    TextField("Contact name", text: $alias)
-                }
+                kaPostsConnectionsSection
 
                 if let pendingSystemContactLinkTarget = pendingSystemContactLinkTarget {
                     Section {
@@ -344,12 +347,10 @@ struct AddContactView: View {
                             isResolvingKNS = false
                             isValidAddress = contactsManager.isValidKaspaAddress(candidate.address)
                             pendingSystemContactLinkTarget = nil
-                            if alias.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                alias = candidate.displayName
-                            }
                         case .nameOnly(let target):
+                            // The link itself carries the address-book name (see
+                            // `linkContactToSystemContact`); nothing is prefilled here.
                             pendingSystemContactLinkTarget = target
-                            alias = target.displayName
                         }
                     }
                 )
@@ -397,6 +398,146 @@ struct AddContactView: View {
             return true
         }
         return isValidAddress && !isResolvingKNS
+    }
+
+    // MARK: - KaPosts connections
+
+    /// One person from the KaPosts follow graph, offered as a shortcut for starting a chat.
+    private struct KaPostsConnection: Identifiable, Equatable {
+        let address: String
+        let youFollow: Bool
+        let followsYou: Bool
+        var id: String { address }
+
+        var relationship: String {
+            if youFollow && followsYou { return "You follow each other" }
+            return youFollow ? "You follow them" : "Follows you"
+        }
+    }
+
+    /// Everyone in your KaPosts follow graph, both directions. Hidden while empty so the screen
+    /// stays a plain address form for anyone who does not use KaPosts.
+    @ViewBuilder
+    private var kaPostsConnectionsSection: some View {
+        if isLoadingKaPostsConnections || !kaPostsConnections.isEmpty {
+            Section {
+                if kaPostsConnections.isEmpty {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading connections...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    ForEach(kaPostsConnections) { connection in
+                        Button {
+                            addressInput = connection.address
+                            handleInputChange(connection.address)
+                        } label: {
+                            kaPostsConnectionRow(connection)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            } header: {
+                Text("From KaPosts")
+            } footer: {
+                Text("People you follow, or who follow you, on KaPosts. Tap one to fill in their address.")
+            }
+            .task { await loadKaPostsConnections() }
+        }
+    }
+
+    private func kaPostsConnectionRow(_ connection: KaPostsConnection) -> some View {
+        HStack(spacing: 12) {
+            KNSAvatarView(
+                avatarURLString: knsService.profileCache[connection.address]?.avatarURL,
+                fallbackText: contactsManager.displayName(for: connection.address),
+                size: 36,
+                contactAddress: connection.address
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(contactsManager.displayName(for: connection.address))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                Text(connection.relationship)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            Spacer(minLength: 0)
+            if effectiveAddress.trimmingCharacters(in: .whitespacesAndNewlines) == connection.address {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// Both follow lists for our own K identity, merged with the locally-stored follows the
+    /// indexer may not have caught up on. People already in the address book are dropped: they
+    /// already have a row on the chat list, so offering them here would only be noise.
+    private func loadKaPostsConnections() async {
+        guard !didLoadKaPostsConnections else { return }
+        didLoadKaPostsConnections = true
+
+        var youFollow = KaPostsFollowStore.shared.following
+        var followsYou: Set<String> = []
+
+        if let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() {
+            for wantFollowers in [false, true] {
+                var cursor: String?
+                var pagesLeft = 5 // 500 accounts per direction, far beyond any real follow list
+                while pagesLeft > 0 {
+                    pagesLeft -= 1
+                    guard let result = try? await KaPostsAPIClient.shared.fetchFollowList(
+                        ofPubkey: pubkey, followers: wantFollowers, limit: 100, before: cursor
+                    ) else { break }
+                    for user in result.users {
+                        guard let address = KaPostsAPIClient.kaspaAddress(fromPubkey: user.userPublicKey) else { continue }
+                        if wantFollowers {
+                            followsYou.insert(address)
+                        } else {
+                            youFollow.insert(address)
+                        }
+                    }
+                    guard result.pagination?.hasMore == true,
+                          let next = result.pagination?.nextCursor else { break }
+                    cursor = next
+                }
+            }
+        }
+
+        let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
+        let known = Set(contactsManager.activeContacts.map(\.address))
+        let addresses = youFollow.union(followsYou).subtracting([myAddress]).subtracting(known)
+
+        kaPostsConnections = sortedConnections(addresses, youFollow: youFollow, followsYou: followsYou)
+        isLoadingKaPostsConnections = false
+
+        guard !addresses.isEmpty else { return }
+        await knsService.refreshProfilesIfNeeded(for: Array(addresses))
+        // Re-publish now that domains have landed: the rows name and sort by them.
+        kaPostsConnections = sortedConnections(addresses, youFollow: youFollow, followsYou: followsYou)
+    }
+
+    private func sortedConnections(
+        _ addresses: Set<String>,
+        youFollow: Set<String>,
+        followsYou: Set<String>
+    ) -> [KaPostsConnection] {
+        addresses
+            .map {
+                KaPostsConnection(
+                    address: $0,
+                    youFollow: youFollow.contains($0),
+                    followsYou: followsYou.contains($0)
+                )
+            }
+            .sorted {
+                contactsManager.displayName(for: $0.address)
+                    .localizedCaseInsensitiveCompare(contactsManager.displayName(for: $1.address)) == .orderedAscending
+            }
     }
 
     private func handleInputChange(_ input: String) {
@@ -448,10 +589,8 @@ struct AddContactView: View {
                     knsError = nil
                     isResolvingKNS = false
 
-                    // Auto-fill alias with domain name if alias is empty
-                    if alias.isEmpty {
-                        alias = resolution.domain
-                    }
+                    // Deliberately does NOT set a name. A contact is only ever named when the
+                    // user types one; display falls through to the KNS domain on its own.
                 }
             } else {
                 await MainActor.run {
@@ -466,14 +605,12 @@ struct AddContactView: View {
 
     private func addContact() {
         let addressToUse = effectiveAddress
-        let aliasToUse = alias.isEmpty ? (resolvedDomain ?? "") : alias
 
         do {
             let existedBeforeAdd = contactsManager.getContact(byAddress: addressToUse) != nil
-            let contact = try contactsManager.addContact(
-                address: addressToUse,
-                alias: aliasToUse
-            )
+            // No name is stored: `ContactsManager.displayName` shows the KNS domain (then the
+            // short address) until the user deliberately renames the contact in Chat Info.
+            let contact = try contactsManager.addContact(address: addressToUse, alias: "")
 
             if !existedBeforeAdd {
                 Task {
@@ -569,9 +706,9 @@ struct AddContactView: View {
                             toggleGroupMember(contact.address)
                         } label: {
                             HStack(spacing: 12) {
-                                KNSAvatarView(avatarURLString: nil, fallbackText: contact.alias, size: 32, contactAddress: contact.address)
+                                KNSAvatarView(avatarURLString: nil, fallbackText: contactsManager.displayName(for: contact), size: 32, contactAddress: contact.address)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(contact.alias)
+                                    Text(contactsManager.displayName(for: contact))
                                         .foregroundColor(.primary)
                                         .lineLimit(1)
                                     Text(Contact.generateDefaultAlias(from: contact.address))
@@ -670,11 +807,11 @@ struct AddContactView: View {
         membersExpanded = true
     }
 
-    /// Display name for a selected member: the contact alias if we have one, else the default
-    /// short-address alias (covers members added by raw address / KNS domain).
+    /// Display name for a selected member: assigned name -> KNS domain -> short address
+    /// (covers members added by raw address / KNS domain).
     private func memberDisplayName(_ address: String) -> String {
         if let contact = contactsManager.activeContacts.first(where: { $0.address == address }) {
-            return contact.alias
+            return contactsManager.displayName(for: contact)
         }
         return Contact.generateDefaultAlias(from: address)
     }
@@ -683,10 +820,12 @@ struct AddContactView: View {
     private var filteredGroupContacts: [Contact] {
         let query = memberSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let all = contactsManager.activeContacts.sorted {
-            $0.alias.localizedCaseInsensitiveCompare($1.alias) == .orderedAscending
+            memberDisplayName($0.address).localizedCaseInsensitiveCompare(memberDisplayName($1.address)) == .orderedAscending
         }
         guard !query.isEmpty else { return all }
-        return all.filter { $0.alias.lowercased().contains(query) || $0.address.lowercased().contains(query) }
+        return all.filter {
+            memberDisplayName($0.address).lowercased().contains(query) || $0.address.lowercased().contains(query)
+        }
     }
 
     private func toggleGroupMember(_ address: String) {

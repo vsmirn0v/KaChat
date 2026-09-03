@@ -820,7 +820,7 @@ struct ChatDetailView: View {
                 entries: (chatService.reactionsByTxId[target.txId] ?? [])
                     .map { ReactionsSheet.Entry(emoji: $0.emoji, reactorAddress: $0.reactorAddress) },
                 myAddress: walletManager.currentWallet?.publicAddress ?? "",
-                displayName: { _ in contact.alias },
+                displayName: { _ in contactsManager.displayName(for: contact) },
                 avatarURL: { knsService.profileCache[$0]?.avatarURL }
             )
         }
@@ -1755,7 +1755,7 @@ struct ChatDetailView: View {
             VStack(spacing: -12) {
                 KNSAvatarView(
                     avatarURLString: knsService.profileCache[contact.address]?.avatarURL,
-                    fallbackText: contact.alias,
+                    fallbackText: contactsManager.displayName(for: contact),
                     size: 46,
                     contactAddress: contact.address
                 )
@@ -1764,7 +1764,7 @@ struct ChatDetailView: View {
                 .zIndex(1)
 
                 HStack(spacing: 4) {
-                    Text(contact.alias)
+                    Text(contactsManager.displayName(for: contact))
                         .font(.subheadline.weight(.bold))
                         .foregroundColor(.primary)
                         .lineLimit(1)
@@ -1784,7 +1784,7 @@ struct ChatDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text("Chat info for \(contact.alias)"))
+        .accessibilityLabel(Text("Chat info for \(contactsManager.displayName(for: contact))"))
     }
 
     private var composerPlusMenu: some View {
@@ -3070,7 +3070,7 @@ struct ChatDetailView: View {
         if address == walletManager.currentWallet?.publicAddress {
             return "You"
         }
-        return contact.alias.isEmpty ? Contact.generateDefaultAlias(from: address) : contact.alias
+        return contactsManager.displayName(for: address)
     }
 
     private func replyBanner(for reply: ChatMessage) -> some View {

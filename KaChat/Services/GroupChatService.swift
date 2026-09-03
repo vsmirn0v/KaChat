@@ -662,8 +662,8 @@ final class GroupChatService: ObservableObject {
     /// Prefers a 1:1 contact alias, then the roster display-name snapshot, then a shortened
     /// address - matches the notification-service extension's sender-name resolution.
     private func groupMemberDisplayName(_ address: String, in group: GroupChat) -> String {
-        if let alias = ContactsManager.shared.getContact(byAddress: address)?.alias, !alias.isEmpty {
-            return alias
+        if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName {
+            return assigned
         }
         if let member = group.members.first(where: { $0.address == address }),
            let displayName = member.displayName, !displayName.isEmpty {
@@ -1111,7 +1111,7 @@ final class GroupChatService: ObservableObject {
 
     /// Best display name for a membership line: contact alias → roster snapshot → KNS → fallback.
     private func groupMemberLabel(_ address: String, fallback: String?) -> String {
-        if let contact = ContactsManager.shared.getContact(byAddress: address), !contact.alias.isEmpty { return contact.alias }
+        if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName { return assigned }
         if let f = fallback, !f.isEmpty { return f }
         if let kns = KNSService.shared.profileCache[address]?.domainName, !kns.isEmpty { return kns }
         return Contact.generateDefaultAlias(from: address)
