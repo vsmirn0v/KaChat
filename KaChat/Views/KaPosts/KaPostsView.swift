@@ -364,7 +364,6 @@ struct KaPostsView: View {
         }
     }
 
-    @State private var showSideMenu = false
     @State private var menuSheet: SideMenuItem?
     @ObservedObject private var knsService = KNSService.shared
     @ObservedObject private var followStore = KaPostsFollowStore.shared
@@ -403,7 +402,6 @@ struct KaPostsView: View {
     var body: some View {
         ZStack(alignment: .leading) {
             feedLayer
-            sideMenuOverlay
         }
         .sheet(item: $menuSheet) { item in
             Group {
@@ -608,20 +606,8 @@ struct KaPostsView: View {
 
     private var feedTabBar: some View {
         VStack(spacing: 0) {
+            sideMenuIconRow
             HStack(spacing: 0) {
-                Button {
-                    Haptics.impact(.light)
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        showSideMenu = true
-                    }
-                } label: {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.primary)
-                        .frame(width: 44, height: 40)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
                 ForEach(FeedTab.allCases, id: \.title) { tab in
                     feedTabButton(tab)
                 }
@@ -630,79 +616,32 @@ struct KaPostsView: View {
         }
     }
 
-    // MARK: - Side menu (left slide-out card)
-
-    @ViewBuilder
-    private var sideMenuOverlay: some View {
-        if showSideMenu {
-            Color.black.opacity(0.35)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        showSideMenu = false
-                    }
-                }
-                .transition(.opacity)
-            sideMenuCard
-                .transition(.move(edge: .leading))
-                .zIndex(1)
-        }
-    }
-
-    private var sideMenuCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // No card title - the page's bold KaPosts header is still visible behind the
-            // drawer, so repeating it here just doubled up.
+    /// Profile / Notifications / Bookmarks / Muted / Blocked, as the icons themselves rather than
+    /// behind a hamburger.
+    ///
+    /// They sit on their own row above the feed tabs, left-aligned where the hamburger used to
+    /// be. Five icons and three tabs do not fit one row on a phone - they would collide on the
+    /// narrow ones - and the point of the change is that every destination is one tap, which a
+    /// cramped row would undo.
+    private var sideMenuIconRow: some View {
+        HStack(spacing: 2) {
             ForEach(SideMenuItem.allCases) { item in
                 Button {
                     Haptics.impact(.light)
-                    // The drawer deliberately stays open behind the sheet - coming back from
-                    // Profile/Bookmarks/etc. lands you back on the open menu. Only an explicit
-                    // dismissal (tapping the dimmed scrim) closes it.
                     menuSheet = item
                 } label: {
-                    HStack(spacing: 14) {
-                        Image(systemName: item.icon)
-                            .font(.system(size: 18))
-                            .frame(width: 26)
-                        Text(item.rawValue)
-                            .font(.body.weight(.semibold))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .foregroundColor(.primary)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-                    .contentShape(Rectangle())
+                    Image(systemName: item.icon)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .frame(width: 40, height: 36)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(Text(item.rawValue))
             }
+            Spacer(minLength: 0)
         }
-        .padding(.vertical, 8)
-        .fixedSize(horizontal: true, vertical: false)
-        // Liquid Glass on iOS 26+ (the system's real glass material), falling back to the app's
-        // established glass-card look (material + hairline + shadow) on older iOS. The glass
-        // wraps ONLY the options (background applied before the positioning frame), so the card
-        // hugs its content instead of stretching to the bottom.
-        .background(drawerGlassBackground)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .padding(.leading, 10)
-        .padding(.vertical, 12)
-    }
-
-    @ViewBuilder
-    private var drawerGlassBackground: some View {
-        if #available(iOS 26.0, *) {
-            Color.clear
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        } else {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.regularMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-                )
-                .shadow(color: Color.black.opacity(0.22), radius: 16, x: 4, y: 0)
-        }
+        .padding(.horizontal, 6)
     }
 
     private func feedTabButton(_ tab: FeedTab) -> some View {
