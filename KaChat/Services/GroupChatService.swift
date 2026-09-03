@@ -448,12 +448,41 @@ final class GroupChatService: ObservableObject {
     /// ourselves counts as at least 1, covering "new group added, zero messages yet."
     func unreadCount(for group: GroupChat) -> Int {
         let messages = groupMessages[group.id] ?? []
-        guard let lastReadAt = groupLastReadAt[group.id] else {
+        let fingerprint = UnreadFingerprint(
+            messageCount: messages.count,
+            lastBlockTime: messages.last?.blockTime ?? 0,
+            lastReadAt: groupLastReadAt[group.id]
+        )
+        if let cached = unreadCache[group.id], cached.fingerprint == fingerprint {
+            return cached.value
+        }
+        let value = computeUnreadCount(for: group, messages: messages, lastReadAt: fingerprint.lastReadAt)
+        unreadCache[group.id] = (fingerprint, value)
+        return value
+    }
+
+    private func computeUnreadCount(for group: GroupChat, messages: [GroupMessage], lastReadAt: Date?) -> Int {
+        guard let lastReadAt else {
             let count = messages.filter { !$0.isOutgoing }.count
             return group.isAdmin ? count : max(count, 1)
         }
         return messages.filter { !$0.isOutgoing && $0.timestamp > lastReadAt }.count
     }
+
+    /// Everything `computeUnreadCount` actually reads, cheap to derive. A delivery-status change
+    /// (pending -> sent -> failed) is the one common in-place mutation, and it moves none of
+    /// these, so keeping the cached count there is correct rather than merely convenient.
+    private struct UnreadFingerprint: Equatable {
+        let messageCount: Int
+        let lastBlockTime: Int64
+        let lastReadAt: Date?
+    }
+
+    /// Memoises `unreadCount(for:)`, which SwiftUI calls from view bodies - the Group Chats tab
+    /// badge alone sums it across every group on every render of the chat list. Filtering each
+    /// group's whole message array there made the list O(groups x messages) per frame, which is
+    /// exactly the work that made scrolling with real group history stutter.
+    private var unreadCache: [String: (fingerprint: UnreadFingerprint, value: Int)] = [:]
 
     /// Total unread across all groups, for the Group Chats tab badge.
     var totalGroupUnreadCount: Int {

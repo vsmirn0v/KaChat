@@ -398,6 +398,20 @@ final class GroupStore {
         }
     }
 
+    /// Builds a fetch index over `attributes` in order, which Core Data turns into a real
+    /// SQLite index on the backing store.
+    private static func makeIndex(
+        name: String,
+        on entity: NSEntityDescription,
+        attributes: [String]
+    ) -> NSFetchIndexDescription {
+        let elements = attributes.compactMap { attributeName -> NSFetchIndexElementDescription? in
+            guard let property = entity.properties.first(where: { $0.name == attributeName }) else { return nil }
+            return NSFetchIndexElementDescription(property: property, collationType: .binary)
+        }
+        return NSFetchIndexDescription(name: name, elements: elements)
+    }
+
     private static func makeModel() -> NSManagedObjectModel {
         let model = NSManagedObjectModel()
 
@@ -430,6 +444,13 @@ final class GroupStore {
             makeAttribute(name: "isOutgoing", type: .booleanAttributeType, optional: false, defaultValue: false),
             makeAttribute(name: "deliveryStatus", type: .stringAttributeType, optional: true)
         ]
+        // Every read of this entity is "one group's messages, oldest first". Without an index
+        // that is a full table scan plus an in-memory sort - per group, on every launch and
+        // wallet load. Lightweight migration adds the index to existing stores.
+        messageEntity.indexes = [
+            makeIndex(name: "byGroupAndTime", on: messageEntity, attributes: ["groupId", "blockTime"]),
+            makeIndex(name: "byTxId", on: messageEntity, attributes: ["txId"])
+        ]
 
         let reactionEntity = NSEntityDescription()
         reactionEntity.name = CDGroupReaction.entityName
@@ -447,6 +468,18 @@ final class GroupStore {
             makeAttribute(name: "deliveryStatus", type: .stringAttributeType, optional: true),
             makeAttribute(name: "failedAction", type: .stringAttributeType, optional: true)
         ]
+
+        // Reactions are always fetched for one group, and looked up by the message they target.
+        reactionEntity.indexes = [
+            makeIndex(name: "byGroup", on: reactionEntity, attributes: ["groupId"]),
+            makeIndex(name: "byTarget", on: reactionEntity, attributes: ["targetTxId"])
+        ]
+
+        // See MessageStore.makeModel: index changes do not move Core Data's version hash, so
+        // an existing store needs this to migrate and actually build them.
+        for entity in [messageEntity, reactionEntity] {
+            entity.versionHashModifier = "indexes-v1"
+        }
 
         model.entities = [groupEntity, messageEntity, reactionEntity]
         return model

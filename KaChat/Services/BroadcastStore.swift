@@ -601,6 +601,20 @@ final class BroadcastStore {
         }
     }
 
+    /// Builds a fetch index over `attributes` in order, which Core Data turns into a real SQLite
+    /// index on the backing store.
+    private static func makeIndex(
+        name: String,
+        on entity: NSEntityDescription,
+        attributes: [String]
+    ) -> NSFetchIndexDescription {
+        let elements = attributes.compactMap { attributeName -> NSFetchIndexElementDescription? in
+            guard let property = entity.properties.first(where: { $0.name == attributeName }) else { return nil }
+            return NSFetchIndexElementDescription(property: property, collationType: .binary)
+        }
+        return NSFetchIndexDescription(name: name, elements: elements)
+    }
+
     private static func makeModel() -> NSManagedObjectModel {
         let model = NSManagedObjectModel()
 
@@ -655,6 +669,26 @@ final class BroadcastStore {
             makeAttribute(name: "deliveryStatus", type: .stringAttributeType, optional: true),
             makeAttribute(name: "failedAction", type: .stringAttributeType, optional: true)
         ]
+
+        // Rooms are always read one at a time, oldest-first, and reactions by their target -
+        // none of which the store could serve without a scan.
+        messageEntity.indexes = [
+            makeIndex(name: "byChannelAndTime", on: messageEntity, attributes: ["channelName", "blockTime"]),
+            makeIndex(name: "byId", on: messageEntity, attributes: ["id"])
+        ]
+        reactionEntity.indexes = [
+            makeIndex(name: "byChannel", on: reactionEntity, attributes: ["channelName"]),
+            makeIndex(name: "byTarget", on: reactionEntity, attributes: ["targetTxId"])
+        ]
+        hiddenSenderEntity.indexes = [
+            makeIndex(name: "byChannel", on: hiddenSenderEntity, attributes: ["channelName"])
+        ]
+
+        // See MessageStore.makeModel: index changes do not move Core Data's version hash, so
+        // an existing store needs this to migrate and actually build them.
+        for entity in [messageEntity, hiddenSenderEntity, reactionEntity] {
+            entity.versionHashModifier = "indexes-v1"
+        }
 
         model.entities = [channelEntity, messageEntity, hiddenSenderEntity, reactionEntity]
         return model

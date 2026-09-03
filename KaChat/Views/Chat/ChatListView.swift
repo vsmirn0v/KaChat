@@ -1565,8 +1565,11 @@ struct GroupChatRow: View {
     @EnvironmentObject var walletManager: WalletManager
     @ObservedObject private var knsService = KNSService.shared
 
+    /// Messages are stored oldest-first (loaded sorted, then appended), so the newest is the
+    /// last element. This used to be a `max` scan of the whole array - evaluated several times
+    /// per row body, on every one of the service's frequent publishes during a sync.
     private var lastMessage: GroupMessage? {
-        groupChatService.groupMessages[group.id]?.max { $0.timestamp < $1.timestamp }
+        groupChatService.groupMessages[group.id]?.last
     }
 
     /// Group mirror of ConversationRow.reactionPreviewText: a reaction newer than the last
@@ -1576,16 +1579,22 @@ struct GroupChatRow: View {
     /// regular message.
     private var reactionPreviewText: String? {
         guard let byTarget = groupChatService.reactionsByGroupId[group.id], !byTarget.isEmpty else { return nil }
-        var newest: (snapshot: GroupStore.ReactionSnapshot, targetIsMine: Bool)?
+        // Pick the newest reaction purely from the reaction snapshots, then resolve its target
+        // once. Resolving inside the loop meant a linear search of the group's whole message
+        // array for every reaction target that briefly held the lead.
+        var newestSnapshot: (snapshot: GroupStore.ReactionSnapshot, targetTxId: String)?
         for (targetTxId, snapshots) in byTarget {
             guard let candidate = snapshots.max(by: { $0.blockTime < $1.blockTime }) else { continue }
-            if newest == nil || candidate.blockTime > newest!.snapshot.blockTime {
-                let targetIsMine = groupChatService.groupMessages[group.id]?
-                    .first(where: { $0.txId == targetTxId })?.isOutgoing == true
-                newest = (candidate, targetIsMine)
+            if newestSnapshot == nil || candidate.blockTime > newestSnapshot!.snapshot.blockTime {
+                newestSnapshot = (candidate, targetTxId)
             }
         }
-        guard let newest else { return nil }
+        guard let newestSnapshot else { return nil }
+        let newest = (
+            snapshot: newestSnapshot.snapshot,
+            targetIsMine: groupChatService.groupMessages[group.id]?
+                .first(where: { $0.txId == newestSnapshot.targetTxId })?.isOutgoing == true
+        )
         let reactionDate = Date(timeIntervalSince1970: TimeInterval(newest.snapshot.blockTime) / 1000.0)
         if let lastMessage, lastMessage.timestamp >= reactionDate { return nil }
         if newest.snapshot.reactorAddress == walletManager.currentWallet?.publicAddress {

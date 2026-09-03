@@ -3138,8 +3138,51 @@ final class MessageStore {
             makeAttribute(name: "failedAction", type: .stringAttributeType, optional: true)
         ]
 
+        // Fetch indexes for the columns every read actually filters and sorts on. Without them
+        // each of these was a full table scan of the whole message history, and the app does one
+        // per chat-list row, one per chat open, and one per incoming message (the txId dedup
+        // check) - which is most of the general sluggishness. CloudKit forbids uniqueness
+        // constraints, not indexes, and lightweight migration adds them to existing stores.
+        messageEntity.indexes = [
+            makeIndex(name: "byWalletContactTime", on: messageEntity, attributes: ["walletAddress", "contactAddress", "blockTime"]),
+            makeIndex(name: "byTxId", on: messageEntity, attributes: ["txId"])
+        ]
+        conversationEntity.indexes = [
+            makeIndex(name: "byWalletContact", on: conversationEntity, attributes: ["walletAddress", "contactAddress"])
+        ]
+        readMarkerEntity.indexes = [
+            makeIndex(name: "byWalletConversation", on: readMarkerEntity, attributes: ["walletAddress", "conversationId"])
+        ]
+        reactionEntity.indexes = [
+            makeIndex(name: "byWalletTarget", on: reactionEntity, attributes: ["walletAddress", "targetTxId"]),
+            makeIndex(name: "byWalletContact", on: reactionEntity, attributes: ["walletAddress", "contactAddress"])
+        ]
+
+        // Core Data's version hash covers entities and properties but NOT indexes, so without
+        // this an existing store would be judged "compatible" and never build them - the users
+        // with the most history, who need them most, would get nothing. Bumping the modifier
+        // forces one lightweight migration, after which the indexes exist. Only bump it again if
+        // the indexes above change.
+        for entity in [messageEntity, conversationEntity, readMarkerEntity, reactionEntity] {
+            entity.versionHashModifier = "indexes-v1"
+        }
+
         model.entities = [messageEntity, conversationEntity, readMarkerEntity, syncMarkerEntity, reactionEntity]
         return model
+    }
+
+    /// Builds a fetch index over `attributes` in order, which Core Data turns into a real SQLite
+    /// index on the backing store.
+    private static func makeIndex(
+        name: String,
+        on entity: NSEntityDescription,
+        attributes: [String]
+    ) -> NSFetchIndexDescription {
+        let elements = attributes.compactMap { attributeName -> NSFetchIndexElementDescription? in
+            guard let property = entity.properties.first(where: { $0.name == attributeName }) else { return nil }
+            return NSFetchIndexElementDescription(property: property, collationType: .binary)
+        }
+        return NSFetchIndexDescription(name: name, elements: elements)
     }
 
     private static func defaultStoreURL() -> URL {
