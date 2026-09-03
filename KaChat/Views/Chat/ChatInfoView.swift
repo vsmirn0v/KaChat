@@ -275,6 +275,15 @@ struct ChatInfoView: View {
                     // seven stacked sections - a QR, a domain list, alias reveals, system
                     // contact linking, two pickers and a stats block - which is a lot of screen
                     // to scroll past to reach any one of them.
+                    // Straight into the 1:1 thread. This screen is reached as "User Info" from a
+                    // group roster or a broadcast room, where the person may be someone you have
+                    // never messaged - and the only route to them was backing out and finding
+                    // them on the chat list.
+                    infoCard(
+                        "Open Chat",
+                        systemImage: "bubble.left.and.bubble.right"
+                    ) { openChatWithContact() }
+
                     infoCard(
                         "Address",
                         systemImage: "qrcode"
@@ -765,6 +774,25 @@ struct ChatInfoView: View {
 
     private func localizedFormat(_ key: String, _ args: CVarArg...) -> String {
         String(format: AppLocalization.string(key), locale: AppLocalization.locale, arguments: args)
+    }
+
+    /// Ensures a contact row exists for this address (a broadcast sender or a group member may
+    /// not be one yet), dismisses this sheet, and asks the router to open their thread.
+    private func openChatWithContact() {
+        let address = contact.address
+        if contactsManager.getContact(byAddress: address) == nil {
+            _ = try? contactsManager.addContact(address: address)
+        }
+        dismiss()
+        // After the sheet's dismissal settles, so the router is not pushing underneath a
+        // disappearing presentation.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            NotificationCenter.default.post(
+                name: .openChat,
+                object: nil,
+                userInfo: ["contactAddress": address]
+            )
+        }
     }
 
     private func saveChanges() {
