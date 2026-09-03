@@ -2032,6 +2032,7 @@ final class GroupChatService: ObservableObject {
             guard !senderAddress.isEmpty, group.members.contains(where: { $0.address == senderAddress }) else {
                 AppLog.log("[GroupChatService] Rejected gcomm for group %@: sender %@ not in roster %@",
                            String(group.id.prefix(12)), senderAddress, group.members.map { $0.address }.joined(separator: ","))
+                refreshRejections?.senderNotInRoster += 1
                 return
             }
             guard GroupCipher.deriveSenderId(senderAddress: senderAddress) == parsed.senderId else {
@@ -2046,6 +2047,7 @@ final class GroupChatService: ObservableObject {
             }
 
             guard let root = groupRootEpoch(for: parsed.epoch, bag: bag, groupId: gid) else {
+                refreshRejections?.noRootForEpoch += 1
                 AppLog.log("[GroupChatService] Rejected gcomm for group %@: no root for epoch %llu (local currentEpoch=%llu)",
                            String(group.id.prefix(12)), parsed.epoch, bag.currentEpoch)
                 return
@@ -2053,6 +2055,7 @@ final class GroupChatService: ObservableObject {
             guard let plaintext = try? GroupCipher.decryptMessage(
                 ciphertextWithTag: parsed.ciphertext, groupRootEpoch: root, groupId: gid, epoch: parsed.epoch, senderId: parsed.senderId, msgId: parsed.msgId
             ) else {
+                refreshRejections?.decryptFailed += 1
                 AppLog.log("[GroupChatService] Rejected gcomm for group %@: decrypt failed from %@", String(group.id.prefix(12)), senderAddress)
                 return
             }
@@ -2257,6 +2260,8 @@ final class GroupChatService: ObservableObject {
         roots[key] = root
         updated.previousRoots = roots
         try? keychain.saveGroupBag(updated)
+        refreshRejections?.epochRootsArchived += 1
+        AppLog.log("[GroupChatService] Archived epoch %llu root for a group whose bag is newer", epoch)
     }
 
     private func applyRootPayload(_ payload: GroupCipher.GroupRootPayload) {
@@ -2410,6 +2415,19 @@ final class GroupChatService: ObservableObject {
         seedImportReadMarkersIfNeeded()
     }
 
+    /// Why the last repair could not keep a message. Populated only while `forceRefresh` runs,
+    /// so a refresh that recovers nothing can say WHICH wall it hit instead of just "0".
+    struct GroupRefreshRejections: Equatable {
+        var noRootForEpoch = 0
+        var senderNotInRoster = 0
+        var decryptFailed = 0
+        var epochRootsArchived = 0
+        var isEmpty: Bool { noRootForEpoch == 0 && senderNotInRoster == 0 && decryptFailed == 0 }
+    }
+
+    /// Non-nil only for the duration of a `forceRefresh`.
+    private(set) var refreshRejections: GroupRefreshRejections?
+
     /// Live state for `forceRefresh`, so a repair that walks the whole chain reads as real work
     /// rather than a spinner that might mean nothing. nil while idle.
     @Published private(set) var refreshProgress: GroupRefreshProgress?
@@ -2420,7 +2438,7 @@ final class GroupChatService: ObservableObject {
             case control
             case messages(done: Int, total: Int)
             case rebuilding
-            case finished(recovered: Int)
+            case finished(recovered: Int, rejections: GroupRefreshRejections)
 
             var label: String {
                 switch self {
@@ -2463,6 +2481,8 @@ final class GroupChatService: ObservableObject {
         refreshingGroupIds.insert(groupId)
         defer { refreshingGroupIds.remove(groupId) }
         let messagesBefore = groupMessages[groupId]?.count ?? 0
+        refreshRejections = GroupRefreshRejections()
+        defer { refreshRejections = nil }
         refreshProgress = GroupRefreshProgress(groupId: groupId, phase: .invites)
 
         // Drop every cursor this group's repair depends on, so each stream is walked from the
@@ -2500,7 +2520,7 @@ final class GroupChatService: ObservableObject {
         guard let refreshed = groups.first(where: { $0.id == groupId }),
               let bag = try? keychain.loadGroupBag(groupId: groupId),
               let blindingKey = Data(hexString: bag.blindingKey) else {
-            refreshProgress = GroupRefreshProgress(groupId: groupId, phase: .finished(recovered: 0))
+            refreshProgress = GroupRefreshProgress(groupId: groupId, phase: .finished(recovered: 0, rejections: refreshRejections ?? GroupRefreshRejections()))
             return
         }
         let total = refreshed.members.count
@@ -2517,7 +2537,11 @@ final class GroupChatService: ObservableObject {
         // reporting zero recovered for a refresh that actually worked.
         try? await Task.sleep(nanoseconds: 700_000_000)
         let recovered = max(0, (groupMessages[groupId]?.count ?? 0) - messagesBefore)
-        refreshProgress = GroupRefreshProgress(groupId: groupId, phase: .finished(recovered: recovered))
+        let rejections = refreshRejections ?? GroupRefreshRejections()
+        AppLog.log("[GroupChatService] Refresh of %@ finished: recovered %d, archived %d epoch roots, rejected %d (no root) / %d (sender not in roster) / %d (decrypt failed)",
+                   String(groupId.prefix(12)), recovered, rejections.epochRootsArchived,
+                   rejections.noRootForEpoch, rejections.senderNotInRoster, rejections.decryptFailed)
+        refreshProgress = GroupRefreshProgress(groupId: groupId, phase: .finished(recovered: recovered, rejections: rejections))
     }
 
     /// Pages until the indexer runs out, rather than taking one 50-message page per sync.

@@ -3161,7 +3161,7 @@ private struct GroupRefreshProgressModal: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 18) {
-                if case .finished(let recovered) = groupChatService.refreshProgress?.phase {
+                if case .finished(let recovered, let rejections) = groupChatService.refreshProgress?.phase {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 38, weight: .medium))
                         .foregroundColor(.green)
@@ -3169,10 +3169,32 @@ private struct GroupRefreshProgressModal: View {
                         .font(.headline)
                     Text(recovered > 0
                          ? "Recovered \(recovered) message\(recovered == 1 ? "" : "s") this device had not been able to read."
-                         : "This group was already fully up to date.")
+                         : "No new messages were recovered.")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
+                    // Says WHICH wall the repair hit, so "nothing recovered" is diagnosable
+                    // rather than just disappointing.
+                    if !rejections.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            if rejections.noRootForEpoch > 0 {
+                                Text("\(rejections.noRootForEpoch) message\(rejections.noRootForEpoch == 1 ? "" : "s") from an epoch this device holds no key for")
+                            }
+                            if rejections.senderNotInRoster > 0 {
+                                Text("\(rejections.senderNotInRoster) from someone no longer in the group")
+                            }
+                            if rejections.decryptFailed > 0 {
+                                Text("\(rejections.decryptFailed) that failed to decrypt")
+                            }
+                            if rejections.epochRootsArchived > 0 {
+                                Text("Recovered \(rejections.epochRootsArchived) older epoch key\(rejections.epochRootsArchived == 1 ? "" : "s")")
+                            }
+                        }
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 2)
+                    }
                     Button("Done") { groupChatService.clearRefreshProgress() }
                         .buttonStyle(.borderedProminent)
                         .padding(.top, 4)
