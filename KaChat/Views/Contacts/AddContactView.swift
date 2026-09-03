@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 
 struct AddContactView: View {
     @EnvironmentObject var contactsManager: ContactsManager
@@ -40,9 +42,11 @@ struct AddContactView: View {
     // New group flow: members are picked from existing contacts (searchable), not typed.
     @State private var selectedMemberAddresses: Set<String> = []
     @State private var memberSearchText = ""
-    // Collapsible New Group sections: "Members (N)" (added-so-far) and "Contacts" (search + list).
-    @State private var membersExpanded = false
-    @State private var contactsExpanded = false
+    // Group photo picked at creation time. The group does not exist yet, so the compressed JPEG
+    // is held here and pushed with `setGroupPhoto` once `createGroup` returns an id.
+    @State private var groupPhotoPickerItem: PhotosPickerItem?
+    @State private var groupPhotoPreview: UIImage?
+    @State private var groupPhotoHex: String?
     @State private var isCreatingGroup = false
     @State private var showCreateGroupConfirm = false
     @State private var scanningGroupRowID: UUID?
@@ -314,6 +318,9 @@ struct AddContactView: View {
                     .map { "\n\nEstimated network fee ≈ \($0) KAS across \(txCount) transactions." }
                     ?? "\n\n(\(txCount) network transactions.)"
                 Text("Create \"\(groupName.trimmingCharacters(in: .whitespacesAndNewlines))\" and invite \(k) member\(k == 1 ? "" : "s")?\(feeText)")
+            }
+            .onChange(of: groupPhotoPickerItem) { newItem in
+                handleGroupPhotoSelection(newItem)
             }
             .sheet(isPresented: $showQRScanner) {
                 QRScannerView { scannedCode in
@@ -704,94 +711,37 @@ struct AddContactView: View {
 
     @ViewBuilder
     private var groupChatSections: some View {
+        // Photo beside the name, on one row - the two things that identify the group, together.
         Section {
-            TextField("Group name", text: $groupName)
-        } header: {
-            Text("Group Name")
-        }
-
-        // Members (N): collapsible list of who has been added so far.
-        Section {
-            DisclosureGroup(isExpanded: $membersExpanded) {
-                if selectedMemberAddresses.isEmpty {
-                    Text("No members added yet. Open Contacts below to add people.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(Array(selectedMemberAddresses), id: \.self) { address in
-                        HStack(spacing: 12) {
-                            KNSAvatarView(avatarURLString: nil, fallbackText: memberDisplayName(address), size: 32, contactAddress: address)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(memberDisplayName(address))
-                                    .foregroundColor(.primary)
-                                    .lineLimit(1)
-                                Text(Contact.generateDefaultAlias(from: address))
-                                    .font(.caption)
+            HStack(spacing: 14) {
+                PhotosPicker(selection: $groupPhotoPickerItem, matching: .images) {
+                    ZStack {
+                        Circle().fill(Color.primary.opacity(0.06))
+                        if let image = groupPhotoPreview {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .clipShape(Circle())
+                        } else {
+                            VStack(spacing: 2) {
+                                Image(systemName: "camera")
+                                    .font(.system(size: 16))
                                     .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-                            Spacer()
-                            Button {
-                                selectedMemberAddresses.remove(address)
-                            } label: {
-                                Image(systemName: "minus.circle.fill")
-                                    .foregroundColor(.red)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            } label: {
-                Text(selectedMemberAddresses.isEmpty ? "Members" : "Members (\(selectedMemberAddresses.count))")
-                    .font(.headline)
-            }
-        }
-
-        // Contacts: collapsible search + list of people you have chatted with.
-        Section {
-            DisclosureGroup(isExpanded: $contactsExpanded) {
-                TextField("Search contacts", text: $memberSearchText)
-                    .autocapitalization(.none)
-                    .autocorrectionDisabled()
-
-                if contactsManager.activeContacts.isEmpty {
-                    Text("You have no contacts yet. Start a 1:1 chat with someone first, then you can add them to a group.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else if filteredGroupContacts.isEmpty {
-                    Text("No contacts match your search.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(filteredGroupContacts, id: \.address) { contact in
-                        Button {
-                            toggleGroupMember(contact.address)
-                        } label: {
-                            HStack(spacing: 12) {
-                                KNSAvatarView(avatarURLString: nil, fallbackText: contactsManager.displayName(for: contact), size: 32, contactAddress: contact.address)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(contactsManager.displayName(for: contact))
-                                        .foregroundColor(.primary)
-                                        .lineLimit(1)
-                                    Text(Contact.generateDefaultAlias(from: contact.address))
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(1)
-                                }
-                                Spacer()
-                                Image(systemName: selectedMemberAddresses.contains(contact.address) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundColor(selectedMemberAddresses.contains(contact.address) ? .accentColor : .secondary)
+                                Text("Add\nPhoto")
+                                    .font(.system(size: 9))
+                                    .multilineTextAlignment(.center)
+                                    .foregroundColor(.secondary)
                             }
                         }
-                        .buttonStyle(.plain)
                     }
+                    .frame(width: 64, height: 64)
                 }
-            } label: {
-                Text("Contacts")
+                .buttonStyle(.plain)
+
+                TextField("Group name", text: $groupName)
                     .font(.headline)
             }
-        } footer: {
-            Text("Search and tap contacts to add them to the group. You can add up to \(Self.maxGroupMembers).")
+            .padding(.vertical, 6)
         }
 
         // Add someone who is not in your contacts, by raw address or KNS domain. Reuses the
@@ -853,8 +803,93 @@ struct AddContactView: View {
             }
         } header: {
             Text("Add by Address")
-        } footer: {
-            Text("Add anyone by Kaspa address or KNS domain, even if they are not in your contacts.")
+        }
+
+        groupMemberPickerSection
+    }
+
+    /// Everyone you could add in one tap: your existing chats plus both directions of your
+    /// KaPosts follow graph, the same set the create-chat screen offers. Selected people ride
+    /// above the list as removable chips so a long list never hides who is already in.
+    @ViewBuilder
+    private var groupMemberPickerSection: some View {
+        Section {
+            TextField("Search name or address", text: $memberSearchText)
+                .autocapitalization(.none)
+                .autocorrectionDisabled()
+
+            if !selectedMemberAddresses.isEmpty {
+                GroupMemberChipsRow(
+                    addresses: Array(selectedMemberAddresses).sorted {
+                        memberDisplayName($0).localizedCaseInsensitiveCompare(memberDisplayName($1)) == .orderedAscending
+                    },
+                    displayName: memberDisplayName,
+                    onRemove: { selectedMemberAddresses.remove($0) }
+                )
+            }
+
+            if groupCandidates.isEmpty {
+                Text(memberSearchText.isEmpty
+                     ? "Nobody to suggest yet. Add someone by address above."
+                     : "No matches.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(groupCandidates, id: \.self) { address in
+                    Button {
+                        toggleGroupMember(address)
+                    } label: {
+                        HStack(spacing: 12) {
+                            KNSAvatarView(
+                                avatarURLString: knsService.profileCache[address]?.avatarURL,
+                                fallbackText: memberDisplayName(address),
+                                size: 40,
+                                contactAddress: address
+                            )
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(memberDisplayName(address))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                                Text(Contact.generateDefaultAlias(from: address))
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                            if selectedMemberAddresses.contains(address) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.accentColor)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } header: {
+            Text(selectedMemberAddresses.isEmpty ? "Add People" : "Add People (\(selectedMemberAddresses.count))")
+        }
+        // The 1:1 screen's loader only runs in its own section, which never renders in group
+        // mode - without this the follow graph would be missing here. Guarded internally, so
+        // whichever section renders first does the work and the other is a no-op.
+        .task { await loadPickerContacts() }
+    }
+
+    /// Contacts and the KaPosts follow graph, minus yourself, filtered by the search box.
+    /// `pickerContacts` is loaded by the same task the 1:1 screen uses, so this costs nothing extra.
+    private var groupCandidates: [String] {
+        let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
+        var addresses = Set(contactsManager.activeContacts.map(\.address))
+        addresses.formUnion(pickerContacts.map(\.address))
+        addresses.remove(myAddress)
+
+        let query = memberSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let filtered = query.isEmpty
+            ? addresses
+            : addresses.filter {
+                memberDisplayName($0).lowercased().contains(query) || $0.lowercased().contains(query)
+            }
+        return filtered.sorted {
+            memberDisplayName($0).localizedCaseInsensitiveCompare(memberDisplayName($1)) == .orderedAscending
         }
     }
 
@@ -865,8 +900,22 @@ struct AddContactView: View {
             selectedMemberAddresses.insert(address)
         }
         groupAddressEntries = [GroupAddressEntry()]
-        // Reveal the Members list so the just-added person is visible.
-        membersExpanded = true
+    }
+
+    /// Compresses the picked image to the same ~10KB JPEG budget the admin photo flow uses, and
+    /// keeps a preview. Nothing is sent here - the group does not exist yet.
+    private func handleGroupPhotoSelection(_ newItem: PhotosPickerItem?) {
+        guard let newItem else { return }
+        Task {
+            defer { Task { @MainActor in groupPhotoPickerItem = nil } }
+            guard let data = try? await newItem.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data),
+                  let jpeg = try? ImagePrep.prepareJPEGForChatMessage(image, targetBytes: 10_000) else { return }
+            await MainActor.run {
+                groupPhotoHex = jpeg.hexString
+                groupPhotoPreview = UIImage(data: jpeg) ?? image
+            }
+        }
     }
 
     /// Display name for a selected member: assigned name -> KNS domain -> short address
@@ -878,17 +927,6 @@ struct AddContactView: View {
         return Contact.generateDefaultAlias(from: address)
     }
 
-    /// Contacts shown in the group member picker, filtered by the search box (name or address).
-    private var filteredGroupContacts: [Contact] {
-        let query = memberSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let all = contactsManager.activeContacts.sorted {
-            memberDisplayName($0.address).localizedCaseInsensitiveCompare(memberDisplayName($1.address)) == .orderedAscending
-        }
-        guard !query.isEmpty else { return all }
-        return all.filter {
-            memberDisplayName($0.address).lowercased().contains(query) || $0.address.lowercased().contains(query)
-        }
-    }
 
     private func toggleGroupMember(_ address: String) {
         if selectedMemberAddresses.contains(address) {
@@ -1107,6 +1145,12 @@ struct AddContactView: View {
                     }
                 }
                 let group = try await groupChatService.createGroup(name: trimmedName, members: members)
+                // The photo can only be pushed once the group has an id. Best effort: a failed
+                // photo send must not undo a group that was created successfully - the admin can
+                // set it again from Group Info.
+                if let hex = groupPhotoHex, !hex.isEmpty {
+                    try? await groupChatService.setGroupPhoto(group.id, photoHex: hex)
+                }
                 await MainActor.run {
                     isCreatingGroup = false
                     onCreateGroup?(group)
@@ -1127,4 +1171,46 @@ struct AddContactView: View {
         .environmentObject(ContactsManager.shared)
         .environmentObject(ChatService.shared)
         .environmentObject(GroupChatService.shared)
+}
+
+
+/// Selected group members as removable chips above the picker list, so a long candidate list
+/// never hides who is already in the group.
+private struct GroupMemberChipsRow: View {
+    let addresses: [String]
+    let displayName: (String) -> String
+    let onRemove: (String) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(addresses, id: \.self) { address in
+                    HStack(spacing: 6) {
+                        KNSAvatarView(
+                            avatarURLString: nil,
+                            fallbackText: displayName(address),
+                            size: 22,
+                            contactAddress: address
+                        )
+                        Text(displayName(address))
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Button {
+                            onRemove(address)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption2.weight(.bold))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.leading, 6)
+                    .padding(.trailing, 10)
+                    .padding(.vertical, 5)
+                    .background(Capsule().fill(Color.primary.opacity(0.06)))
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
 }
