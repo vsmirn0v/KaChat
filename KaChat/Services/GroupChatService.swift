@@ -1196,6 +1196,28 @@ final class GroupChatService: ObservableObject {
     /// negative-epoch plaintext row; the group thread renders these centered, not as bubbles.
     static let systemSender = "system"
 
+    /// How long a membership/rename/photo line stays in the thread.
+    ///
+    /// These lines report a change, and a change is only news while it is recent. Left forever
+    /// they pile up between the actual conversation - a group that adds and removes a few people
+    /// ends up with more bookkeeping than messages. They are dropped from the thread after this,
+    /// and pruned from the store so they do not accumulate there either.
+    static let systemMessageLifetime: TimeInterval = 600
+
+    /// True when this line has outlived `systemMessageLifetime` and should no longer be shown.
+    static func isExpiredSystemMessage(_ message: GroupMessage, now: Date = Date()) -> Bool {
+        guard message.senderAddress == systemSender else { return false }
+        return now.timeIntervalSince(message.timestamp) > systemMessageLifetime
+    }
+
+    /// Drops expired system lines from memory and from the store, for one group. Called when a
+    /// thread is opened and as its messages reload, so they never build up.
+    func pruneExpiredSystemMessages(for groupId: String) {
+        let expired = (groupMessages[groupId] ?? []).filter { Self.isExpiredSystemMessage($0) }
+        guard !expired.isEmpty else { return }
+        deleteMessages(Set(expired.map(\.txId)), groupId: groupId)
+    }
+
     /// Best display name for a membership line: contact alias → roster snapshot → KNS → fallback.
     private func groupMemberLabel(_ address: String, fallback: String?) -> String {
         if let assigned = ContactsManager.shared.getContact(byAddress: address)?.assignedName { return assigned }

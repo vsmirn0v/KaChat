@@ -127,6 +127,9 @@ struct GroupChatDetailView: View {
     /// Swipe-left-to-reveal-timestamps, matching 1:1 chat's `ChatDetailView`/broadcast rooms'
     /// identical gesture.
     @State private var revealOffset: CGFloat = 0
+    /// Ticks once a minute while the thread is open, purely so expiring system lines disappear
+    /// on their own rather than on the next unrelated redraw.
+    @State private var systemLineClock = Date()
     private let maxRevealOffset: CGFloat = 64
 
     // Avatar menu destinations - "View Profile"/"Open Chat"/"Pay in Kaspa" for a tapped member,
@@ -199,8 +202,14 @@ struct GroupChatDetailView: View {
 
     private var messages: [GroupMessage] {
         let hidden = groupChatService.hiddenMemberAddresses(for: group.id)
+        // `systemLineClock` is only read so this recomputes on the minute tick below - without
+        // it a membership line inserted while you are looking at the thread would sit there
+        // until something else happened to invalidate the view.
+        let now = systemLineClock
         return (groupChatService.groupMessages[group.id] ?? [])
             .filter { message in
+                // Membership/rename/photo lines are news only while they are recent.
+                if GroupChatService.isExpiredSystemMessage(message, now: now) { return false }
                 guard let sender = message.senderAddress else { return true }
                 return !hidden.contains(sender)
             }
@@ -613,6 +622,15 @@ struct GroupChatDetailView: View {
                         showsNotificationSettings: false
                     )
                 }
+            }
+        }
+        // Expired membership lines disappear on their own while the thread is open, and are
+        // pruned from the store so they never accumulate.
+        .task(id: group.id) {
+            while !Task.isCancelled {
+                groupChatService.pruneExpiredSystemMessages(for: group.id)
+                systemLineClock = Date()
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
             }
         }
         .task {
