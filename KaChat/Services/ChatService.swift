@@ -334,6 +334,61 @@ final class ChatService: ObservableObject {
     var syncObjectCursors: [String: SyncObjectCursor] = [:]
     var syncObjectCursorsDirty = false
     @Published var isSyncInProgress = false
+
+    // MARK: - Onboarding sync hold
+
+    /// While true, `startPolling` refuses to start anything.
+    ///
+    /// Importing a seed kicks off a full from-genesis sync of every contact the account has ever
+    /// talked to, and all of its ingest lands on the main actor. That was running underneath the
+    /// setup wizard, which is why typing through it crawled. The hold is taken the moment an
+    /// import/create decides a wizard is coming, and released when the wizard finishes (or
+    /// immediately, if it turns out no wizard is shown).
+    @Published private(set) var onboardingSyncHeld = false
+
+    /// Which phase the post-wizard initial sync is in, for its progress sheet. Nil when idle.
+    @Published private(set) var initialSyncPhase: InitialSyncPhase?
+
+    enum InitialSyncPhase: Equatable {
+        case handshakes
+        case subscribing
+        case cloud
+        case localStore
+        case indexer
+        case finished
+
+        var label: String {
+            switch self {
+            case .handshakes: return "Finding your conversations"
+            case .subscribing: return "Connecting for live updates"
+            case .cloud: return "Waiting for iCloud"
+            case .localStore: return "Loading saved messages"
+            case .indexer: return "Downloading message history"
+            case .finished: return "Finished"
+            }
+        }
+    }
+
+    func holdSyncForOnboarding() {
+        guard !onboardingSyncHeld else { return }
+        onboardingSyncHeld = true
+        AppLog.log("%@", "[ChatService] Sync held until onboarding finishes")
+    }
+
+    /// Releases the hold and, if a wallet is loaded, starts the sync that was being deferred.
+    /// Safe to call when no hold is in place.
+    func releaseSyncForOnboarding(startSync: Bool = true) {
+        guard onboardingSyncHeld else { return }
+        onboardingSyncHeld = false
+        AppLog.log("%@", "[ChatService] Onboarding finished, starting deferred sync")
+        guard startSync else { return }
+        startPolling()
+        Task { await GroupChatService.shared.performCatchUpSync() }
+    }
+
+    func setInitialSyncPhase(_ phase: InitialSyncPhase?) {
+        initialSyncPhase = phase
+    }
     var syncMaxBlockTime: UInt64?
     var isConfigured = false
     /// True after startPolling() completes its full initial sync (Phases 1-4).

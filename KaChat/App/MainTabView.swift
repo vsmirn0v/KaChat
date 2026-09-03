@@ -15,6 +15,8 @@ struct MainTabView: View {
     /// 4.0 "what's new" wizard: shown on every entry into the app until the user taps
     /// Don't Show Again (persisted per device).
     @State private var showDockWizard = false
+    /// Blocking progress while the post-onboarding sync runs.
+    @State private var showInitialSyncProgress = false
     /// What the Chats slot currently shows: .chats, or a masked-out tab (.kaposts/.broadcasts)
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject var chatService: ChatService
@@ -77,6 +79,11 @@ struct MainTabView: View {
         .tint(.accentColor)
         .toast(message: nextcloudService.syncStatusToast)
         .onAppear {
+            // A hold with no guide to release it would strand the account: the branches below
+            // that DON'T present a guide lift it explicitly, and this covers every other path in.
+            if chatService.onboardingSyncHeld && !showWelcomeGuide && !walletManager.justCreatedNewWallet {
+                chatService.releaseSyncForOnboarding()
+            }
             chatService.startPolling()
             preloadProfileResources()
             // A notification tapped from a cold start routed before this view existed - replay
@@ -109,6 +116,9 @@ struct MainTabView: View {
                 showWelcomeGuide = true
             } else if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey),
                       !settingsViewModel.settings.childModeEnabled {
+                // No setup guide is coming, so nothing is waiting on it - lift any hold rather
+                // than leaving the account permanently unsynced.
+                chatService.releaseSyncForOnboarding()
                 // What's-new wizard, shown ONCE (any dismissal persists). Child Mode skips it
                 // entirely - it describes the Chats cycle, which Child Mode doesn't have.
                 // Slightly deferred so the first render settles before a sheet animates in.
@@ -123,6 +133,9 @@ struct MainTabView: View {
         .sheet(isPresented: $showGiftSheet) {
             GiftClaimView()
         }
+        .fullScreenCover(isPresented: $showInitialSyncProgress) {
+            InitialSyncProgressModal(onDismiss: { showInitialSyncProgress = false })
+        }
         .sheet(isPresented: $showDockWizard) {
             DockWizardView()
                 .presentationDetents([.large])
@@ -132,6 +145,12 @@ struct MainTabView: View {
                 onFinished: {
                     showWelcomeGuide = false
                     resumeGuideAtUserType = false
+                    // Everything the account owns starts syncing now, behind a sheet - a
+                    // half-synced chat list invites taps on chats whose history has not landed.
+                    if chatService.onboardingSyncHeld {
+                        chatService.releaseSyncForOnboarding()
+                        showInitialSyncProgress = true
+                    }
                     // Fresh installs chain straight into the 4.0 what's-new wizard once the full
                     // setup guide is done (returning users get it from onAppear instead). Child
                     // Mode skips it - the guide's Child choice removes the Chats cycle it teaches.
@@ -575,4 +594,73 @@ struct DockWizardView: View {
     /// Animated hold-and-slide demo: the finger presses the Chats slot, the menu pops above
     /// the dock, the finger slides across the three options with the highlight following, and
     /// Broadcasts gets "picked" - then it loops.
+}
+
+
+// MARK: - Initial sync progress
+
+/// Blocking progress shown once the setup wizard finishes, while the account's first full sync
+/// runs. Nothing syncs during the wizard (see `ChatService.holdSyncForOnboarding`), so this is
+/// where all of that work actually happens - and a half-populated chat list invites taps on
+/// chats whose history has not arrived yet.
+///
+/// It is deliberately escapable. A sync can stall on a slow indexer or a bad network, and a
+/// modal with no way out would be worse than an incomplete chat list, so "Continue anyway"
+/// appears once it has been running a while.
+private struct InitialSyncProgressModal: View {
+    let onDismiss: () -> Void
+    @EnvironmentObject var chatService: ChatService
+    @State private var canSkip = false
+
+    var body: some View {
+        ZStack {
+            Color(.systemGroupedBackground).ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                if chatService.initialSyncPhase == .finished {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 38, weight: .medium))
+                        .foregroundColor(.green)
+                    Text("You're all set")
+                        .font(.headline)
+                    Text("Your chats and history are up to date.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("Done", action: onDismiss)
+                        .buttonStyle(.borderedProminent)
+                        .padding(.top, 4)
+                } else {
+                    ProgressView().controlSize(.large)
+                    Text("Setting up your account")
+                        .font(.headline)
+                    Text(chatService.initialSyncPhase?.label ?? "Starting")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    Text("Downloading everything this account has on chain. It only takes this long once.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    if canSkip {
+                        Button("Continue anyway", action: onDismiss)
+                            .font(.subheadline)
+                            .padding(.top, 6)
+                    }
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: 340)
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(.regularMaterial)
+            )
+            .padding(.horizontal, 24)
+        }
+        .interactiveDismissDisabled(true)
+        .task {
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
+            canSkip = true
+        }
+    }
 }

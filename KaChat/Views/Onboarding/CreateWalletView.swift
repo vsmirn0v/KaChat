@@ -225,10 +225,14 @@ struct CreateWalletView: View {
         // consumes this one-shot flag - before control returns here. Setting it first guarantees
         // the guide appears. Mirrors ImportWalletView.
         walletManager.justCreatedNewWallet = true
+        // Nothing syncs while the wizard is on screen - see ImportWalletView. A brand-new account
+        // has nothing to sync, but the hold keeps both paths identical and the release honest.
+        ChatService.shared.holdSyncForOnboarding()
         do {
             _ = try await walletManager.commitCreatedWallet(seedPhrase: seedPhrase, passphrase: passphrase, alias: alias)
         } catch {
             walletManager.justCreatedNewWallet = false
+            ChatService.shared.releaseSyncForOnboarding()
             throw error
         }
     }

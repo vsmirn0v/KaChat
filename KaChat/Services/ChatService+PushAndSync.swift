@@ -415,6 +415,12 @@ extension ChatService {
             startPollingWhenStoreReadyTask = nil
             return
         }
+        // The setup wizard owns the screen: nothing syncs underneath it. `releaseSyncForOnboarding`
+        // calls back in here once the user is through.
+        guard !onboardingSyncHeld else {
+            AppLog.log("%@", "[ChatService] startPolling deferred: onboarding in progress")
+            return
+        }
         guard isMessageStoreReadyForCurrentWallet() else {
             scheduleStartPollingWhenStoreReady(interval: interval)
             return
@@ -476,12 +482,14 @@ extension ChatService {
             // Phase 1: Fetch handshakes first (needed to decrypt messages)
             // This is lightweight and establishes encryption keys
             AppLog.log("[ChatService] Phase 1: Fetching handshakes...")
+            setInitialSyncPhase(.handshakes)
             await fetchHandshakesOnly()
             AppLog.log("[ChatService] Phase 1 complete")
 
             // Phase 2: Setup UTXO subscription for real-time updates
             // This can run while CloudKit syncs
             AppLog.log("[ChatService] Phase 2: Setting up UTXO subscription...")
+            setInitialSyncPhase(.subscribing)
             await setupUtxoSubscription()
             AppLog.log("[ChatService] Phase 2 complete, isUtxoSubscribed=%d", isUtxoSubscribed ? 1 : 0)
 
@@ -489,6 +497,7 @@ extension ChatService {
             // CloudKit may have all our messages already
             if cloudKitEnabled {
                 AppLog.log("[ChatService] Phase 3: Waiting for CloudKit sync to complete...")
+                setInitialSyncPhase(.cloud)
                 await messageStore.waitForCloudKitSync(timeout: 0) // 0 = no timeout
                 AppLog.log("[ChatService] Phase 3 complete - CloudKit sync done")
             } else {
@@ -503,6 +512,7 @@ extension ChatService {
             // message as unread from an empty list. Skipping this when iCloud message storage was
             // OFF is exactly why previously-read chats reappeared unread after logout->login.
             AppLog.log("[ChatService] Phase 3.5: Loading messages from local store...")
+            setInitialSyncPhase(.localStore)
             await loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
             if cloudKitEnabled {
                 // Brief pause to allow any in-flight CloudKit syncs to complete.
@@ -514,12 +524,14 @@ extension ChatService {
             // NOTE: syncFromConversations() will preserve CloudKit content and not
             // overwrite with placeholders thanks to the !isPlaceholder check
             AppLog.log("[ChatService] Phase 4: Full indexer sync...")
+            setInitialSyncPhase(.indexer)
             await fetchNewMessages()
             AppLog.log("[ChatService] Phase 4 complete")
 
             // After initial sync, enable notifications (they were suppressed during wallet import)
             suppressNotificationsUntilSynced = false
             hasCompletedInitialSync = true
+            setInitialSyncPhase(.finished)
 
             // No remote-push early-out here: fallback polling depends only on whether the
             // subscription came up. While the app runs, its own sync paths must detect
