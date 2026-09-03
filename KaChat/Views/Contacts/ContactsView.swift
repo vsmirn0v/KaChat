@@ -967,7 +967,7 @@ struct ProfileView: View {
                     ChattingAddressQRView(
                         address: spendingAddress,
                         balanceSompi: spendingAddressBalanceSompi,
-                        subtitle: "Only accept Kaspa you intend to use as money to this address."
+                        subtitle: "This address should be used for everything not related to chatting or KNS profile creation."
                     )
                 } else {
                     Text("Spending address is unlocking — go back and try again.")
@@ -3970,7 +3970,7 @@ private struct ChattingAddressPrivateKeyView: View {
 struct ChattingAddressQRView: View {
     let address: String
     let balanceSompi: UInt64?
-    var subtitle: String = "Just send 5-10 KAS at a time, that's plenty to cover chat fees for a while (about 500 messages per KAS)"
+    var subtitle: String = "This address is for chatting and KNS profile creation. Funding it with around 50 Kaspa is enough to create a KNS profile and send messages for a long time."
 
     @State private var qrImage: UIImage?
     @State private var toastMessage: String?

@@ -261,7 +261,8 @@
 "It's ok, I already have a domain" = "It's ok, I already have a domain";
 "Join" = "Join";
 "Join or Create a Channel" = "Join or Create a Channel";
-"Just send 5-10 KAS at a time, that's plenty to cover chat fees for a while (about 500 messages per KAS)" = "Just send 5-10 KAS at a time, that's plenty to cover chat fees for a while (about 500 messages per KAS)";
+"This address is for chatting and KNS profile creation. Funding it with around 50 Kaspa is enough to create a KNS profile and send messages for a long time." = "This address is for chatting and KNS profile creation. Funding it with around 50 Kaspa is enough to create a KNS profile and send messages for a long time.";
+"This address should be used for everything not related to chatting or KNS profile creation." = "This address should be used for everything not related to chatting or KNS profile creation.";
 "KAS" = "KAS";
 "KAS Price" = "KAS Price";
 "KNS API URL" = "KNS API URL";
