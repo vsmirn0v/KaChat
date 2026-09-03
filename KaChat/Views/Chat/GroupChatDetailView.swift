@@ -2664,13 +2664,7 @@ struct GroupChatInfoView: View {
                 Button {
                     Task { await groupChatService.forceRefresh(groupId: group.id) }
                 } label: {
-                    HStack {
-                        Label("Refresh Messages", systemImage: "arrow.clockwise")
-                        Spacer()
-                        if groupChatService.refreshingGroupIds.contains(group.id) {
-                            ProgressView().controlSize(.small)
-                        }
-                    }
+                    Label("Refresh Messages", systemImage: "arrow.clockwise")
                 }
                 .disabled(groupChatService.refreshingGroupIds.contains(group.id))
 
@@ -2679,7 +2673,7 @@ struct GroupChatInfoView: View {
                     // Silent already means "never", so the finer rule underneath it is moot.
                     .disabled(groupChatService.silentNotifications(for: group.id))
             } footer: {
-                Text("Refresh Messages re-fetches this group from the start, which recovers anything an earlier sync passed over. Silent Group Chat never notifies you about this group at all. Only Notify if I'm Mentioned narrows it instead: you'll get banners for messages that @mention you, plus replies to your messages and reactions on them. Everything else shows up in the chat silently.")
+                Text("Refresh Messages rebuilds this group from the chain exactly as a fresh import of your seed phrase would: it re-reads your invites and every epoch key before re-fetching the messages, which recovers anything an earlier sync passed over or could not decrypt at the time. Silent Group Chat never notifies you about this group at all. Only Notify if I'm Mentioned narrows it instead: you'll get banners for messages that @mention you, plus replies to your messages and reactions on them. Everything else shows up in the chat silently.")
             }
 
             if group.isAdmin {
@@ -2774,6 +2768,12 @@ struct GroupChatInfoView: View {
                         )
                     }
                 }
+            }
+            .fullScreenCover(isPresented: Binding(
+                get: { groupChatService.refreshProgress?.groupId == group.id },
+                set: { if !$0 { groupChatService.clearRefreshProgress() } }
+            )) {
+                GroupRefreshProgressModal(groupId: group.id)
             }
             .sheet(isPresented: $showHiddenMembers) {
                 NavigationStack {
@@ -3140,4 +3140,73 @@ private struct MentionRowWidthKey: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
     }
+}
+
+
+// MARK: - Group refresh progress
+
+/// Blocking progress for "Refresh Messages", mirroring the chat-history restore modal.
+///
+/// The repair walks the invite stream, then every epoch key, then each member's message stream
+/// from the very beginning - which takes real time on a long-lived group. A bare spinner in a
+/// settings row gave no sign any of that was happening, which is why the button read as doing
+/// nothing even when it worked.
+private struct GroupRefreshProgressModal: View {
+    let groupId: String
+    @EnvironmentObject var groupChatService: GroupChatService
+
+    var body: some View {
+        ZStack {
+            Color(.systemGroupedBackground)
+                .ignoresSafeArea()
+
+            VStack(spacing: 18) {
+                if case .finished(let recovered) = groupChatService.refreshProgress?.phase {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 38, weight: .medium))
+                        .foregroundColor(.green)
+                    Text("Refresh complete")
+                        .font(.headline)
+                    Text(recovered > 0
+                         ? "Recovered \(recovered) message\(recovered == 1 ? "" : "s") this device had not been able to read."
+                         : "This group was already fully up to date.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("Done") { groupChatService.clearRefreshProgress() }
+                        .buttonStyle(.borderedProminent)
+                        .padding(.top, 4)
+                } else {
+                    ProgressView()
+                        .controlSize(.large)
+                    Text("Rebuilding this group")
+                        .font(.headline)
+                    Text(groupChatService.refreshProgress?.phase.label ?? "Starting")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    Text("Re-reading the whole group from the chain, the same way importing your seed phrase does. Leaving now would stop it partway.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 2)
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: 340)
+            .background(groupRefreshGlassBackground(cornerRadius: 24))
+            .padding(.horizontal, 24)
+        }
+        .interactiveDismissDisabled(true)
+    }
+}
+
+private func groupRefreshGlassBackground(cornerRadius: CGFloat) -> some View {
+    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        .fill(.regularMaterial)
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
 }

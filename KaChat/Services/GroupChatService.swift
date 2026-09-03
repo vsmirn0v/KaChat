@@ -2233,9 +2233,30 @@ final class GroupChatService: ObservableObject {
         // protection); otherwise apply (covers both "brand new group" and "legitimate advance").
         if let existingBag = try? keychain.loadGroupBag(groupId: payload.groupId),
            existingBag.currentEpoch > payload.epoch {
+            // A root for an OLDER epoch is not an attack to drop on the floor - it is history
+            // this device may no longer hold. Archiving it is strictly additive (currentEpoch
+            // and the current root are untouched, so there is no downgrade), and it is what
+            // makes re-walking the control stream actually repair a thread: without it a
+            // refresh re-downloads pre-rotation ciphertext it still has no key for, which is
+            // why refreshing appeared to do nothing.
+            archivePreviousRoot(epoch: payload.epoch, root: payload.groupRootEpoch, into: existingBag)
             return
         }
         applyRootPayload(payload)
+    }
+
+    /// Records a retired epoch's root without touching the current epoch. Non-admins have no
+    /// other way back to pre-rotation messages: the re-derive fallback needs `groupSeed`, which
+    /// only the admin holds.
+    private func archivePreviousRoot(epoch: UInt64, root: String, into bag: GroupBag) {
+        guard !root.isEmpty else { return }
+        var updated = bag
+        var roots = updated.previousRoots ?? [:]
+        let key = String(epoch)
+        guard roots[key] != root else { return }
+        roots[key] = root
+        updated.previousRoots = roots
+        try? keychain.saveGroupBag(updated)
     }
 
     private func applyRootPayload(_ payload: GroupCipher.GroupRootPayload) {
@@ -2389,6 +2410,38 @@ final class GroupChatService: ObservableObject {
         seedImportReadMarkersIfNeeded()
     }
 
+    /// Live state for `forceRefresh`, so a repair that walks the whole chain reads as real work
+    /// rather than a spinner that might mean nothing. nil while idle.
+    @Published private(set) var refreshProgress: GroupRefreshProgress?
+
+    struct GroupRefreshProgress: Equatable {
+        enum Phase: Equatable {
+            case invites
+            case control
+            case messages(done: Int, total: Int)
+            case rebuilding
+            case finished(recovered: Int)
+
+            var label: String {
+                switch self {
+                case .invites: return "Re-reading your group invites"
+                case .control: return "Re-reading roster and epoch keys"
+                case .messages(let done, let total): return "Re-fetching messages (\(done) of \(total) members)"
+                case .rebuilding: return "Decrypting history"
+                case .finished: return "Done"
+                }
+            }
+        }
+
+        var groupId: String
+        var phase: Phase
+    }
+
+    /// Clears the finished state once the user dismisses the progress sheet.
+    func clearRefreshProgress() {
+        refreshProgress = nil
+    }
+
     /// Groups currently being force-refreshed, so the button can show progress and refuse a
     /// second tap.
     @Published private(set) var refreshingGroupIds: Set<String> = []
@@ -2409,16 +2462,36 @@ final class GroupChatService: ObservableObject {
         guard let group = groups.first(where: { $0.id == groupId }) else { return }
         refreshingGroupIds.insert(groupId)
         defer { refreshingGroupIds.remove(groupId) }
+        let messagesBefore = groupMessages[groupId]?.count ?? 0
+        refreshProgress = GroupRefreshProgress(groupId: groupId, phase: .invites)
 
-        // Drop this group's cursors so every stream is walked from the start.
+        // Drop every cursor this group's repair depends on, so each stream is walked from the
+        // start - and the CONTROL streams matter more than the message ones. Dropping only
+        // `gcomm` re-downloaded pre-rotation ciphertext while the control cursors stayed put, so
+        // the epoch roots needed to read it were never re-acquired: the refresh did real work and
+        // changed nothing you could see. `gctl-recipient` carries this device's own invites and
+        // `gctl` the admin's rotations; both are shared with other groups, which is fine - a
+        // re-walk is idempotent everywhere.
+        var keysToReset: Set<String> = ["gctl-recipient|\(WalletManager.shared.currentWallet?.publicAddress.lowercased() ?? "")"]
+        if !group.adminAddress.isEmpty {
+            keysToReset.insert("gctl|\(group.adminAddress.lowercased())")
+        }
         for key in groupCatchUpCursors.keys where key.hasPrefix("gcomm|\(groupId)|") {
+            keysToReset.insert(key)
+        }
+        for key in keysToReset {
             groupCatchUpCursors.removeValue(forKey: key)
+            // Also clear the one-shot deep-backfill mark, or the walk stops at the first page
+            // instead of going back through the whole stream.
+            groupDeepBackfilled.remove(key)
         }
         saveGroupCatchUpCursors()
+        saveScoped(groupDeepBackfilledKey, Array(groupDeepBackfilled))
 
         if let wallet = WalletManager.shared.currentWallet {
             await catchUpGroupControlByRecipient(recipientAddress: wallet.publicAddress)
         }
+        refreshProgress = GroupRefreshProgress(groupId: groupId, phase: .control)
         if !group.adminAddress.isEmpty {
             await catchUpGroupControl(adminAddress: group.adminAddress)
         }
@@ -2426,13 +2499,25 @@ final class GroupChatService: ObservableObject {
         // Re-read the group: control catch-up may have changed the roster or the epoch.
         guard let refreshed = groups.first(where: { $0.id == groupId }),
               let bag = try? keychain.loadGroupBag(groupId: groupId),
-              let blindingKey = Data(hexString: bag.blindingKey) else { return }
-        for member in refreshed.members {
+              let blindingKey = Data(hexString: bag.blindingKey) else {
+            refreshProgress = GroupRefreshProgress(groupId: groupId, phase: .finished(recovered: 0))
+            return
+        }
+        let total = refreshed.members.count
+        for (index, member) in refreshed.members.enumerated() {
+            refreshProgress = GroupRefreshProgress(groupId: groupId, phase: .messages(done: index, total: total))
             guard let memberPubKey = Data(hexString: member.xOnlyPubKeyHex) else { continue }
             let blindedGroupId = GroupCipher.deriveBlindedGroupId(blindingKey: blindingKey, memberXOnlyPubKey: memberPubKey)
             await catchUpGroupMessages(groupId: groupId, blindedGroupIdHex: blindedGroupId.hexString)
         }
+        refreshProgress = GroupRefreshProgress(groupId: groupId, phase: .rebuilding)
         loadMessages(for: groupId)
+        // `loadMessages` decrypts off the main actor and publishes back, so the count is not
+        // final the instant it returns - wait briefly for the store read to land rather than
+        // reporting zero recovered for a refresh that actually worked.
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        let recovered = max(0, (groupMessages[groupId]?.count ?? 0) - messagesBefore)
+        refreshProgress = GroupRefreshProgress(groupId: groupId, phase: .finished(recovered: recovered))
     }
 
     /// Pages until the indexer runs out, rather than taking one 50-message page per sync.
