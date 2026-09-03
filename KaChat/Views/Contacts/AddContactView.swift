@@ -921,10 +921,10 @@ struct AddContactView: View {
     /// Display name for a selected member: assigned name -> KNS domain -> short address
     /// (covers members added by raw address / KNS domain).
     private func memberDisplayName(_ address: String) -> String {
-        if let contact = contactsManager.activeContacts.first(where: { $0.address == address }) {
-            return contactsManager.displayName(for: contact)
-        }
-        return Contact.generateDefaultAlias(from: address)
+        // Straight to the one display-name rule (assigned name -> KNS domain -> short address).
+        // This used to fall back to the short address for anyone who is not a contact, which
+        // dropped the KNS domain for people offered from the follow graph.
+        contactsManager.displayName(for: address)
     }
 
 
