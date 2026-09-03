@@ -3141,8 +3141,14 @@ final class MessageStore {
         // Fetch indexes for the columns every read actually filters and sorts on. Without them
         // each of these was a full table scan of the whole message history, and the app does one
         // per chat-list row, one per chat open, and one per incoming message (the txId dedup
-        // check) - which is most of the general sluggishness. CloudKit forbids uniqueness
-        // constraints, not indexes, and lightweight migration adds them to existing stores.
+        // check) - which is most of the general sluggishness.
+        //
+        // NOTE: Core Data's version hash does NOT cover indexes, so an EXISTING store is judged
+        // compatible and keeps running without them; only a store created from scratch gets
+        // them. Forcing the migration with a versionHashModifier was tried and reverted - it
+        // wedged the app on a store this size, and on a CloudKit-backed store it also means
+        // re-exporting every record. Building these on an existing store needs to happen off
+        // the main thread with the UI told to wait, which is its own piece of work.
         messageEntity.indexes = [
             makeIndex(name: "byWalletContactTime", on: messageEntity, attributes: ["walletAddress", "contactAddress", "blockTime"]),
             makeIndex(name: "byTxId", on: messageEntity, attributes: ["txId"])
@@ -3157,15 +3163,6 @@ final class MessageStore {
             makeIndex(name: "byWalletTarget", on: reactionEntity, attributes: ["walletAddress", "targetTxId"]),
             makeIndex(name: "byWalletContact", on: reactionEntity, attributes: ["walletAddress", "contactAddress"])
         ]
-
-        // Core Data's version hash covers entities and properties but NOT indexes, so without
-        // this an existing store would be judged "compatible" and never build them - the users
-        // with the most history, who need them most, would get nothing. Bumping the modifier
-        // forces one lightweight migration, after which the indexes exist. Only bump it again if
-        // the indexes above change.
-        for entity in [messageEntity, conversationEntity, readMarkerEntity, reactionEntity] {
-            entity.versionHashModifier = "indexes-v1"
-        }
 
         model.entities = [messageEntity, conversationEntity, readMarkerEntity, syncMarkerEntity, reactionEntity]
         return model

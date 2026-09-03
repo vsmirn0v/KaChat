@@ -475,12 +475,6 @@ final class GroupStore {
             makeIndex(name: "byTarget", on: reactionEntity, attributes: ["targetTxId"])
         ]
 
-        // See MessageStore.makeModel: index changes do not move Core Data's version hash, so
-        // an existing store needs this to migrate and actually build them.
-        for entity in [messageEntity, reactionEntity] {
-            entity.versionHashModifier = "indexes-v1"
-        }
-
         model.entities = [groupEntity, messageEntity, reactionEntity]
         return model
     }

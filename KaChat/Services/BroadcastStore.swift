@@ -684,12 +684,6 @@ final class BroadcastStore {
             makeIndex(name: "byChannel", on: hiddenSenderEntity, attributes: ["channelName"])
         ]
 
-        // See MessageStore.makeModel: index changes do not move Core Data's version hash, so
-        // an existing store needs this to migrate and actually build them.
-        for entity in [messageEntity, hiddenSenderEntity, reactionEntity] {
-            entity.versionHashModifier = "indexes-v1"
-        }
-
         model.entities = [channelEntity, messageEntity, hiddenSenderEntity, reactionEntity]
         return model
     }
