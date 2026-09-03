@@ -754,6 +754,7 @@ final class GroupChatService: ObservableObject {
         store.setCurrentWallet(walletAddress)
         groups = walletAddress == nil ? [] : store.allGroups()
         groupMessages.removeAll()
+        unreadCache.removeAll()
         replyingTo = nil
         // Load every group's history off the main actor (see loadMessages), one group per run-loop
         // tick, so a wallet with group history doesn't freeze the UI on login/launch. This used to

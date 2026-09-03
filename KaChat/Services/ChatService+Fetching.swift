@@ -3158,11 +3158,20 @@ extension ChatService {
         // COW) - and this runs once per ingested message on the main actor, so during a catch-up
         // sync it was a dominant source of intermittent main-thread stalls.
         var conversation = conversations[index]
+        let previousMessageCount = conversation.messages.count
         update(&conversation)
         if normalizeMessages {
             conversation.messages = Self.dedupeMessages(conversation.messages)
         }
-        guard conversation != conversations[index] else { return }
+        // The "did anything actually change" guard exists to avoid republishing (and re-rendering
+        // the chat list) for a no-op. But `!=` on a Conversation walks every field of every
+        // message, and this runs once per ingested message on the main actor - so a catch-up sync
+        // was comparing the whole thread against itself for each message it added. A different
+        // message count is already proof of a change, which is the ingest path's normal case;
+        // only when the count is unchanged is the full comparison worth paying for.
+        if conversation.messages.count == previousMessageCount {
+            guard conversation != conversations[index] else { return }
+        }
         conversations[index] = conversation
         guard persist else { return }
         markConversationDirty(conversation.contact.address)
