@@ -22,13 +22,13 @@ struct AddContactView: View {
     @State private var previewProfile: KNSAddressProfileInfo?
     @State private var isLoadingPreview = false
     // KaPosts follow graph, offered as one-tap chat targets under the Address field.
-    @State private var kaPostsConnections: [KaPostsConnection] = []
+    @State private var pickerContacts: [PickerContact] = []
     /// Starts true so the section renders on first layout and its `.task` actually fires; the
     /// loader clears it, which hides the section entirely when the graph is empty.
-    @State private var isLoadingKaPostsConnections = true
-    @State private var didLoadKaPostsConnections = false
-    @State private var isSearchingKaPostsConnections = false
-    @State private var kaPostsSearchText = ""
+    @State private var isLoadingPickerContacts = true
+    @State private var didLoadPickerContacts = false
+    @State private var isSearchingPickerContacts = false
+    @State private var pickerSearchText = ""
     @State private var showQRScanner = false
     @State private var showSystemContactPicker = false
     @State private var pendingSystemContactLinkTarget: SystemContactLinkTarget?
@@ -252,7 +252,7 @@ struct AddContactView: View {
                     Text("Enter a Kaspa address (kaspa:...) or KNS domain name (e.g., alice.kas)")
                 }
 
-                kaPostsConnectionsSection
+                pickerContactsSection
 
                 if let pendingSystemContactLinkTarget = pendingSystemContactLinkTarget {
                     Section {
@@ -402,45 +402,53 @@ struct AddContactView: View {
         return isValidAddress && !isResolvingKNS
     }
 
-    // MARK: - KaPosts connections
+    // MARK: - Contacts picker
 
-    /// One person from the KaPosts follow graph, offered as a shortcut for starting a chat.
-    private struct KaPostsConnection: Identifiable, Equatable {
+    /// One person you can start a chat with: someone already in your address book, or someone
+    /// from your KaPosts follow graph, or both.
+    private struct PickerContact: Identifiable, Equatable {
         let address: String
+        let isContact: Bool
         let youFollow: Bool
         let followsYou: Bool
         var id: String { address }
 
-        var relationship: String {
+        /// Second line of the row. The follow relationship when there is one, since that is the
+        /// thing you would not otherwise know; the address for someone you simply have a chat
+        /// with, where the name above it is already the useful part.
+        var subtitle: String {
             if youFollow && followsYou { return "You follow each other" }
-            return youFollow ? "You follow them" : "Follows you"
+            if youFollow { return "You follow them" }
+            if followsYou { return "Follows you" }
+            return Contact.generateDefaultAlias(from: address)
         }
     }
 
-    /// Everyone in your KaPosts follow graph, both directions. Hidden while empty so the screen
-    /// stays a plain address form for anyone who does not use KaPosts.
+    /// Everyone you could plausibly want to message: your existing chats plus both directions of
+    /// your KaPosts follow graph. A chat you had months ago is buried far down the chat list, so
+    /// it belongs here next to the people you follow.
     @ViewBuilder
-    private var kaPostsConnectionsSection: some View {
-        if isLoadingKaPostsConnections || !kaPostsConnections.isEmpty {
+    private var pickerContactsSection: some View {
+        if isLoadingPickerContacts || !pickerContacts.isEmpty {
             Section {
-                if kaPostsConnections.isEmpty {
+                if pickerContacts.isEmpty {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
-                        Text("Loading connections...")
+                        Text("Loading contacts...")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
                 } else {
-                    if isSearchingKaPostsConnections {
+                    if isSearchingPickerContacts {
                         HStack(spacing: 8) {
                             Image(systemName: "magnifyingglass")
                                 .foregroundColor(.secondary)
-                            TextField("Search connections", text: $kaPostsSearchText)
+                            TextField("Search contacts", text: $pickerSearchText)
                                 .autocapitalization(.none)
                                 .autocorrectionDisabled()
-                            if !kaPostsSearchText.isEmpty {
+                            if !pickerSearchText.isEmpty {
                                 Button {
-                                    kaPostsSearchText = ""
+                                    pickerSearchText = ""
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .foregroundColor(.secondary)
@@ -449,17 +457,17 @@ struct AddContactView: View {
                             }
                         }
                     }
-                    if filteredKaPostsConnections.isEmpty {
+                    if filteredPickerContacts.isEmpty {
                         Text("No matches")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     } else {
-                        ForEach(filteredKaPostsConnections) { connection in
+                        ForEach(filteredPickerContacts) { connection in
                             Button {
                                 addressInput = connection.address
                                 handleInputChange(connection.address)
                             } label: {
-                                kaPostsConnectionRow(connection)
+                                pickerContactRow(connection)
                             }
                             .buttonStyle(.plain)
                         }
@@ -467,38 +475,38 @@ struct AddContactView: View {
                 }
             } header: {
                 HStack {
-                    Text("From KaPosts")
+                    Text("Contacts")
                     Spacer()
-                    if !kaPostsConnections.isEmpty {
+                    if !pickerContacts.isEmpty {
                         Button {
-                            isSearchingKaPostsConnections.toggle()
-                            if !isSearchingKaPostsConnections { kaPostsSearchText = "" }
+                            isSearchingPickerContacts.toggle()
+                            if !isSearchingPickerContacts { pickerSearchText = "" }
                         } label: {
-                            Image(systemName: isSearchingKaPostsConnections ? "xmark" : "magnifyingglass")
+                            Image(systemName: isSearchingPickerContacts ? "xmark" : "magnifyingglass")
                                 .foregroundColor(.secondary)
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel(isSearchingKaPostsConnections ? "Close search" : "Search connections")
+                        .accessibilityLabel(isSearchingPickerContacts ? "Close search" : "Search contacts")
                     }
                 }
             } footer: {
-                Text("People you follow, or who follow you, on KaPosts. Tap one to fill in their address.")
+                Text("Your chats and the people you follow on KaPosts. Tap one to fill in their address.")
             }
-            .task { await loadKaPostsConnections() }
+            .task { await loadPickerContacts() }
         }
     }
 
     /// The rows actually shown: everything, or what the search box matches by name or address.
-    private var filteredKaPostsConnections: [KaPostsConnection] {
-        let query = kaPostsSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard isSearchingKaPostsConnections, !query.isEmpty else { return kaPostsConnections }
-        return kaPostsConnections.filter {
+    private var filteredPickerContacts: [PickerContact] {
+        let query = pickerSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard isSearchingPickerContacts, !query.isEmpty else { return pickerContacts }
+        return pickerContacts.filter {
             contactsManager.displayName(for: $0.address).lowercased().contains(query)
                 || $0.address.lowercased().contains(query)
         }
     }
 
-    private func kaPostsConnectionRow(_ connection: KaPostsConnection) -> some View {
+    private func pickerContactRow(_ connection: PickerContact) -> some View {
         HStack(spacing: 12) {
             KNSAvatarView(
                 avatarURLString: knsService.profileCache[connection.address]?.avatarURL,
@@ -511,7 +519,7 @@ struct AddContactView: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
-                Text(connection.relationship)
+                Text(connection.subtitle)
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
@@ -524,12 +532,17 @@ struct AddContactView: View {
         .contentShape(Rectangle())
     }
 
-    /// Both follow lists for our own K identity, merged with the locally-stored follows the
-    /// indexer may not have caught up on. People already in the address book are dropped: they
-    /// already have a row on the chat list, so offering them here would only be noise.
-    private func loadKaPostsConnections() async {
-        guard !didLoadKaPostsConnections else { return }
-        didLoadKaPostsConnections = true
+    /// The address book first, so the list is useful on the first frame, then both follow lists
+    /// for our own K identity merged in (along with the locally-stored follows the indexer may
+    /// not have caught up on). Only our own address is dropped.
+    private func loadPickerContacts() async {
+        guard !didLoadPickerContacts else { return }
+        didLoadPickerContacts = true
+
+        let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
+        let known = Set(contactsManager.activeContacts.map(\.address)).subtracting([myAddress])
+        pickerContacts = sortedPickerContacts(known, known: known, youFollow: [], followsYou: [])
+        isLoadingPickerContacts = false
 
         var youFollow = KaPostsFollowStore.shared.following
         var followsYou: Set<String> = []
@@ -558,28 +571,27 @@ struct AddContactView: View {
             }
         }
 
-        let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
-        let known = Set(contactsManager.activeContacts.map(\.address))
-        let addresses = youFollow.union(followsYou).subtracting([myAddress]).subtracting(known)
+        let addresses = known.union(youFollow).union(followsYou).subtracting([myAddress])
 
-        kaPostsConnections = sortedConnections(addresses, youFollow: youFollow, followsYou: followsYou)
-        isLoadingKaPostsConnections = false
+        pickerContacts = sortedPickerContacts(addresses, known: known, youFollow: youFollow, followsYou: followsYou)
 
         guard !addresses.isEmpty else { return }
         await knsService.refreshProfilesIfNeeded(for: Array(addresses))
         // Re-publish now that domains have landed: the rows name and sort by them.
-        kaPostsConnections = sortedConnections(addresses, youFollow: youFollow, followsYou: followsYou)
+        pickerContacts = sortedPickerContacts(addresses, known: known, youFollow: youFollow, followsYou: followsYou)
     }
 
-    private func sortedConnections(
+    private func sortedPickerContacts(
         _ addresses: Set<String>,
+        known: Set<String>,
         youFollow: Set<String>,
         followsYou: Set<String>
-    ) -> [KaPostsConnection] {
+    ) -> [PickerContact] {
         addresses
             .map {
-                KaPostsConnection(
+                PickerContact(
                     address: $0,
+                    isContact: known.contains($0),
                     youFollow: youFollow.contains($0),
                     followsYou: followsYou.contains($0)
                 )
