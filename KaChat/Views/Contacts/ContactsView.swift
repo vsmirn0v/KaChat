@@ -71,6 +71,7 @@ struct ProfileView: View {
                             // holds it, this row disappears rather than offering a third copy.
                             appsSection
                         }
+                        yourDomainsSection
                         helpSection
                         claimGiftSection
                         logOutSection
@@ -473,6 +474,57 @@ struct ProfileView: View {
         }
         .buttonStyle(.plain)
         .background(glassBackground(cornerRadius: 18))
+    }
+
+    /// Your KNS domains. A top-level row rather than a page inside Edit KNS Profile: your
+    /// domains are a thing you own, not a setting of the profile that happens to use one of
+    /// them, and burying them two levels down meant nothing about the profile screen suggested
+    /// they were there at all.
+    @ViewBuilder
+    private var yourDomainsSection: some View {
+        if let profileInfo = knsProfileInfo, profileInfo.assetId != nil {
+            NavigationLink {
+                KNSDomainsListView(
+                    walletAddress: profileInfo.address,
+                    domains: knsDomains,
+                    primaryDomain: knsPrimaryDomain,
+                    settingPrimaryDomainId: settingPrimaryDomainId,
+                    setPrimaryError: $setPrimaryMessage,
+                    onSetPrimary: { domain in
+                        Task { await setPrimaryDomain(domain) }
+                    },
+                    onInscribeComplete: { result in
+                        Haptics.success()
+                        showToast(localizedFormat("Inscribe submitted for %@.", result.domain))
+                        Task { await refreshKNSData(for: profileInfo.address) }
+                    },
+                    onTransferComplete: { result in
+                        Haptics.success()
+                        let message = result.verified
+                            ? localizedFormat("%@ transferred to %@.", result.domain, result.recipientAddress)
+                            : localizedFormat("Transfer submitted for %@.", result.domain)
+                        showToast(message)
+                        Task { await refreshKNSData(for: profileInfo.address) }
+                    },
+                    onRefresh: { await refreshKNSDomainsOnly(for: profileInfo.address) }
+                )
+            } label: {
+                HStack {
+                    Label("Your Domains", systemImage: "at")
+                        .foregroundColor(.primary)
+                    Spacer()
+                    Text("\(knsDomains.count)")
+                        .foregroundColor(.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(16)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(glassBackground(cornerRadius: 18))
+        }
     }
 
     /// Entry to the Help screen: every guide in one place.
@@ -2172,29 +2224,6 @@ private struct KNSProfileEditorSheet: View {
                     }
                 }
 
-                Section {
-                    NavigationLink {
-                        KNSDomainsListView(
-                            walletAddress: profileInfo.address,
-                            domains: domains,
-                            primaryDomain: primaryDomain,
-                            settingPrimaryDomainId: settingPrimaryDomainId,
-                            setPrimaryError: $setPrimaryMessage,
-                            onSetPrimary: onSetPrimary,
-                            onInscribeComplete: onInscribeComplete,
-                            onTransferComplete: onTransferComplete,
-                            onRefresh: onRefreshDomains
-                        )
-                    } label: {
-                        HStack {
-                            Text("Domains")
-                            Spacer()
-                            Text("\(domains.count)")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
                 Section("Avatar") {
                     HStack(spacing: 12) {
                         if let avatarPreviewImage {
@@ -2631,7 +2660,7 @@ private struct KNSDomainsListView: View {
             .padding(.horizontal)
             .padding(.bottom, 16)
         }
-        .navigationTitle("Domains")
+        .navigationTitle("Your Domains")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showInscribeSheet) {
             KNSDomainInscribeSheet(walletAddress: walletAddress) { result in
