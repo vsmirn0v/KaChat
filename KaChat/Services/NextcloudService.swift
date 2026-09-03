@@ -1003,6 +1003,14 @@ final class NextcloudService: ObservableObject {
         try KeychainService.shared.saveNextcloudCredentials(encoded, walletAddress: walletAddress)
         account = candidate
 
+        // Point at the backup this account already has, before anything reads or writes one.
+        // Only when the user has not chosen a folder themselves - an explicit choice outranks
+        // whatever a search turns up.
+        if candidate.backupFolder == nil, let found = await discoverExistingBackupFolder() {
+            AppLog.log("%@", "[Nextcloud] Linked existing backup folder: \(found)")
+            setBackupFolder(found)
+        }
+
         // Automatic Sync starts OFF for a fresh connection (an earlier explicit choice for this
         // wallet carries over instead). `noteMessageActivity` and `scheduleAutoRestoreIfNeeded`
         // below are both gated on it, so nothing uploads or restores until the user turns it on
@@ -1052,6 +1060,50 @@ final class NextcloudService: ObservableObject {
         persistAccountBlob(updated)
         account = updated
     }
+
+    /// Finds the KaChat folder this account already has, instead of assuming there isn't one.
+    ///
+    /// The backup destination defaults to "KaChat" at the files root, so an account whose folder
+    /// lives anywhere else - moved, nested under a Documents/Apps folder, made on another device
+    /// that was pointed elsewhere - looked to a fresh connection like an account with no backup
+    /// at all, and the app would happily start a second one beside it.
+    ///
+    /// Prefers a folder that actually holds `kachat-backup.json`; a folder merely NAMED KaChat is
+    /// the fallback. Breadth-first and bounded, since a WebDAV walk of someone's whole drive is
+    /// not a thing to do on connect.
+    func discoverExistingBackupFolder() async -> String? {
+        guard account != nil else { return nil }
+
+        var queue: [String] = [""]
+        var visited = 0
+        var namedCandidate: String?
+
+        while !queue.isEmpty, visited < Self.folderDiscoveryMaxFolders {
+            let path = queue.removeFirst()
+            visited += 1
+            guard let entries = try? await listFolder(path) else { continue }
+
+            // A folder holding the backup file IS the answer - stop looking.
+            if entries.contains(where: { !$0.isDirectory && $0.name == Self.backupFileName }) {
+                return path.isEmpty ? nil : path
+            }
+            for entry in entries where entry.isDirectory {
+                if entry.name.caseInsensitiveCompare(Self.backupFolderName) == .orderedSame, namedCandidate == nil {
+                    namedCandidate = entry.path
+                }
+                // Depth cap: a backup folder buried deeper than this is not something the app
+                // put there, and each extra level multiplies the requests.
+                if entry.path.split(separator: "/").count < Self.folderDiscoveryMaxDepth {
+                    queue.append(entry.path)
+                }
+            }
+        }
+        return namedCandidate
+    }
+
+    /// Bounds for `discoverExistingBackupFolder` - a connect must not turn into a full crawl.
+    private static let folderDiscoveryMaxFolders = 40
+    private static let folderDiscoveryMaxDepth = 3
 
     /// Persists the backup destination folder (nil/"" = the default "KaChat" folder).
     func setBackupFolder(_ path: String?) {
