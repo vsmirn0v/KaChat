@@ -759,6 +759,11 @@ struct AddContactView: View {
 
                     groupAddressStatus(for: entry)
 
+                    // Who you are about to add, as they will appear once added - the same card
+                    // the 1:1 create-chat screen shows. A raw address tells you nothing about
+                    // whether you typed the right one; a face and a domain do.
+                    groupAddressPreviewCard(for: entry)
+
                     Divider()
 
                     HStack {
@@ -1051,6 +1056,44 @@ struct AddContactView: View {
                     .font(.caption)
                     .foregroundColor(isValid ? .green : .red)
             }
+        }
+    }
+
+    /// Group mirror of `contactPreviewCard`: avatar + name for the address this entry resolves
+    /// to, once it resolves to anything.
+    @ViewBuilder
+    private func groupAddressPreviewCard(for entry: GroupAddressEntry) -> some View {
+        if let address = entry.effectiveAddress,
+           !address.isEmpty,
+           entry.resolvedAddress != nil || contactsManager.isValidKaspaAddress(address) {
+            HStack(spacing: 12) {
+                KNSAvatarView(
+                    avatarURLString: knsService.profileCache[address]?.avatarURL,
+                    fallbackText: memberDisplayName(address),
+                    size: 40,
+                    contactAddress: address
+                )
+                VStack(alignment: .leading, spacing: 2) {
+                    // The domain the resolver already found beats waiting on the profile fetch:
+                    // if you typed one, that IS the name.
+                    let name = knsService.profileCache[address]?.domainName ?? entry.resolvedDomain
+                    Text(name ?? memberDisplayName(address))
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(address)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.primary.opacity(0.05))
+            )
+            .task(id: address) { _ = await KNSService.shared.fetchProfile(for: address) }
         }
     }
 
