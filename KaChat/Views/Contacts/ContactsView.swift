@@ -303,8 +303,9 @@ struct ProfileView: View {
             }
             .fullScreenCover(isPresented: $showCreateKNSProfileFlow) {
                 if let wallet = walletManager.currentWallet {
-                    KNSCreateProfileFlowView(walletAddress: wallet.publicAddress, existingProfile: knsProfileInfo) {
+                    KNSCreateProfileFlowView(walletAddress: wallet.publicAddress, existingProfile: knsProfileInfo) { wroteSomething in
                         showCreateKNSProfileFlow = false
+                        guard wroteSomething else { return }
                         Task {
                             // Wait out the fullScreenCover's dismiss transition before mutating
                             // knsProfileInfo - refreshing immediately can grow knsProfileCard
@@ -2441,14 +2442,16 @@ private struct KNSProfileEditorSheet: View {
                 }
             }
             .fullScreenCover(isPresented: $showSetupGuide) {
-                KNSCreateProfileFlowView(walletAddress: profileInfo.address, existingProfile: profileInfo) {
-                    // Dismisses the whole editor (not just the wizard) rather than returning to
-                    // it - this sheet's own @State (bio/avatarUrl/etc.) was seeded once when it
-                    // opened, so if it stayed open it could show stale values for whatever the
-                    // wizard just changed, and tapping this sheet's own Save afterward could
-                    // silently overwrite what the wizard just wrote. Refreshing via
-                    // onSetupGuideCompleted and closing avoids that entirely.
+                KNSCreateProfileFlowView(walletAddress: profileInfo.address, existingProfile: profileInfo) { wroteSomething in
                     showSetupGuide = false
+                    // Closing the guide without having inscribed anything just returns to the
+                    // editor, which is where it was opened from and where its own unsaved edits
+                    // still are.
+                    guard wroteSomething else { return }
+                    // Once the wizard HAS written, the editor has to go: its @State
+                    // (bio/avatarUrl/etc.) was seeded when it opened, so staying would show
+                    // stale values, and its own Save could then silently overwrite what the
+                    // wizard just wrote. Refresh through onSetupGuideCompleted and close.
                     onSetupGuideCompleted()
                     dismiss()
                 }

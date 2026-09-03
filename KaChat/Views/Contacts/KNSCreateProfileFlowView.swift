@@ -24,7 +24,9 @@ struct KNSCreateProfileFlowView: View {
     /// domain step offer skipping past registration, and lets the banner/avatar/details steps
     /// show what's already inscribed so the user is reviewing/updating rather than starting blank.
     let existingProfile: KNSAddressProfileInfo?
-    let onFinished: () -> Void
+    /// `wroteSomething` is false when the wizard is closed without having inscribed anything,
+    /// which lets the presenter return to whatever it was showing instead of tearing it down.
+    let onFinished: (_ wroteSomething: Bool) -> Void
 
     private enum Step: Equatable {
         /// The fork the whole wizard hangs off: bringing a domain you already own is a completely
@@ -71,13 +73,16 @@ struct KNSCreateProfileFlowView: View {
     @State private var isScanningDomains = false
     private let qrContext = CIContext()
     @State private var assetId: String?
+    /// Set the moment anything is actually inscribed. Reaching the end always counts, since the
+    /// presenter treats that as "go refresh"; closing early without a single write does not.
+    @State private var wroteSomething = false
     @State private var domainName: String?
     @State private var fundingCheckError: String?
     @State private var currentBalanceSompi: UInt64?
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
 
-    init(walletAddress: String, existingProfile: KNSAddressProfileInfo? = nil, onFinished: @escaping () -> Void) {
+    init(walletAddress: String, existingProfile: KNSAddressProfileInfo? = nil, onFinished: @escaping (_ wroteSomething: Bool) -> Void) {
         self.walletAddress = walletAddress
         self.existingProfile = existingProfile
         self.onFinished = onFinished
@@ -94,7 +99,7 @@ struct KNSCreateProfileFlowView: View {
                     ToolbarItem(placement: .navigationBarLeading) {
                         // Close only. Step navigation is the Previous/Next bar at the bottom of
                         // every step, where a wizard's navigation belongs.
-                        Button("Close") { onFinished() }
+                        Button("Close") { onFinished(wroteSomething) }
                     }
                 }
         }
@@ -188,6 +193,7 @@ struct KNSCreateProfileFlowView: View {
                 },
                 onInscribed: { result in
                     domainName = result.domain
+                    wroteSomething = true
                     Task {
                         // `inscribeDomain` already refreshes KNSService's caches internally, so
                         // this resolves the asset id it just created without a redundant network
@@ -224,6 +230,7 @@ struct KNSCreateProfileFlowView: View {
                 fieldKey: .bannerUrl,
                 onBack: { step = .domainConfirmed(domain: domainName ?? "") },
                 existingImageURL: existingProfile?.profile?.bannerUrl,
+                onWrote: { wroteSomething = true },
                 onDone: { step = .avatar }
             )
 
@@ -237,6 +244,7 @@ struct KNSCreateProfileFlowView: View {
                 fieldKey: .avatarUrl,
                 onBack: { step = .banner },
                 existingImageURL: existingProfile?.profile?.avatarUrl,
+                onWrote: { wroteSomething = true },
                 onDone: { step = .details }
             )
 
@@ -246,7 +254,8 @@ struct KNSCreateProfileFlowView: View {
                 domainName: domainName,
                 existingProfile: existingProfile?.profile,
                 onDone: { step = .finished },
-                onBack: { step = .avatar }
+                onBack: { step = .avatar },
+                onWrote: { wroteSomething = true }
             )
 
         case .finished:
@@ -348,24 +357,21 @@ struct KNSCreateProfileFlowView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14))
             }
             .padding(.horizontal, 24)
-            .padding(.bottom, existingProfile?.domainName?.isEmpty == false ? 0 : 24)
+            .padding(.bottom, 0)
 
-            // Escape hatch for someone re-entering via "Setup Guide" whose domain is already
-            // registered - the funding gate exists to protect a *new* domain inscription, which
-            // they don't need, so this skips straight past it to the domain step (which itself
-            // offers "Skip - Continue with <existing domain>" once there). Only shown when a
-            // domain is already known: the fresh "Create KNS Profile" entry point never has one,
-            // since that button itself only appears when there's no domain yet.
-            if existingProfile?.domainName?.isEmpty == false {
-                Button {
-                    step = .domain
-                } label: {
-                    Text("It's ok, I already have a domain")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
-                .padding(.bottom, 24)
+            // Escape hatch for anyone who lands here and does own a domain already - the
+            // funding gate exists to protect a *new* inscription they do not need. Joins the Yes
+            // branch (transfer screen, then pick which domain) rather than the creation step,
+            // which is the same place answering "Yes, I have one" leads.
+            Button {
+                step = .transferExistingDomain
+                Task { await scanForDomains() }
+            } label: {
+                Text("It's ok, I already have a domain")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
             }
+            .padding(.bottom, 24)
         }
     }
 
@@ -425,10 +431,7 @@ struct KNSCreateProfileFlowView: View {
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 24)
-
-            // Next is inert here on purpose: the two choices above ARE the forward action, and
-            // a wizard whose bar appears halfway through reads as two different screens.
-            wizardBottomBar()
+            .padding(.bottom, 24)
         }
     }
 
@@ -607,7 +610,7 @@ struct KNSCreateProfileFlowView: View {
                 .padding(.horizontal, 24)
             Spacer()
             Button {
-                onFinished()
+                onFinished(true)
             } label: {
                 Text("Done")
                     .font(.headline)
@@ -888,6 +891,8 @@ private struct KNSImageInscribeStepView: View {
     /// "Inscribe" button stays gated on a *new* pick (`uploadData`), so just viewing this without
     /// changing it never triggers a pointless resubmission.
     let existingImageURL: String?
+    /// Called only on a real inscription, never on the bar's Next-as-skip.
+    var onWrote: (() -> Void)?
     let onDone: () -> Void
 
     @State private var pickerItem: PhotosPickerItem?
@@ -1051,6 +1056,7 @@ private struct KNSImageInscribeStepView: View {
                 await MainActor.run {
                     isSubmitting = false
                     Haptics.success()
+                    onWrote?()
                     onDone()
                 }
             } catch {
@@ -1072,6 +1078,8 @@ private struct KNSDetailsStepView: View {
     let onDone: () -> Void
     /// Back one wizard step.
     var onBack: (() -> Void)?
+    /// Called only when fields are actually inscribed, never when Next passes straight through.
+    var onWrote: (() -> Void)?
 
     @State private var bio: String
     @State private var website: String
@@ -1111,12 +1119,14 @@ private struct KNSDetailsStepView: View {
         domainName: String?,
         existingProfile: KNSDomainProfile?,
         onDone: @escaping () -> Void,
-        onBack: (() -> Void)? = nil
+        onBack: (() -> Void)? = nil,
+        onWrote: (() -> Void)? = nil
     ) {
         self.assetId = assetId
         self.domainName = domainName
         self.onDone = onDone
         self.onBack = onBack
+        self.onWrote = onWrote
         existingBio = existingProfile?.bio ?? ""
         existingWebsite = existingProfile?.website ?? ""
         existingX = existingProfile?.x ?? ""
@@ -1188,27 +1198,13 @@ private struct KNSDetailsStepView: View {
 
                 Spacer(minLength: 20)
 
-                VStack(spacing: 12) {
-                    Button {
-                        submitAll()
-                    } label: {
-                        Text("Done")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Color.accentColor)
-                            .foregroundColor(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                    }
-                    .disabled(isSubmitting)
-
-                    // Done above writes the fields; this bar moves through the wizard. Next
-                    // carries what the old standalone "Skip" did.
-                    KNSWizardBottomBar(
-                        onBack: isSubmitting ? nil : onBack,
-                        onNext: isSubmitting ? nil : onDone
-                    )
-                }
+                // Next writes whatever was filled in and then moves on - `submitAll` falls
+                // straight through to `onDone` when there is nothing to write, so it doubles as
+                // the old Skip.
+                KNSWizardBottomBar(
+                    onBack: isSubmitting ? nil : onBack,
+                    onNext: isSubmitting ? nil : { submitAll() }
+                )
             }
             .padding(.horizontal, 24)
             .padding(.top, 24)
@@ -1298,6 +1294,7 @@ private struct KNSDetailsStepView: View {
             await MainActor.run {
                 isSubmitting = false
                 Haptics.success()
+                onWrote?()
                 onDone()
             }
         }
