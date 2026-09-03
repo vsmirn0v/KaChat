@@ -5000,7 +5000,6 @@ struct ProfileHelpView: View {
     let onWelcomeGuide: () -> Void
     let onKNSSetupGuide: () -> Void
 
-    @State private var showDockGuide = false
 
     var body: some View {
         List {
@@ -5019,21 +5018,10 @@ struct ProfileHelpView: View {
                 ) {
                     onKNSSetupGuide()
                 }
-                helpRow(
-                    icon: "hand.tap",
-                    title: "Dock Guide",
-                    subtitle: "How KaPosts and Broadcasts ride the Chats tab - tap to cycle, hold to jump."
-                ) {
-                    showDockGuide = true
-                }
             }
         }
         .navigationTitle("Help")
         .navigationBarTitleDisplayMode(.large)
-        .sheet(isPresented: $showDockGuide) {
-            DockWizardView()
-                .presentationDetents([.large])
-        }
     }
 
     private func helpRow(

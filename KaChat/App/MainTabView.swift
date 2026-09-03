@@ -14,7 +14,6 @@ struct MainTabView: View {
     @State private var resumeGuideAtUserType = false
     /// 4.0 "what's new" wizard: shown on every entry into the app until the user taps
     /// Don't Show Again (persisted per device).
-    @State private var showDockWizard = false
     /// Blocking progress while the post-onboarding sync runs.
     @State private var showInitialSyncProgress = false
     /// What the Chats slot currently shows: .chats, or a masked-out tab (.kaposts/.broadcasts)
@@ -114,20 +113,10 @@ struct MainTabView: View {
                 // (e.g. an import on a device that answered it for a prior account): re-present
                 // the full guide from the top, still as an unskippable onboarding run.
                 showWelcomeGuide = true
-            } else if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey),
-                      !settingsViewModel.settings.childModeEnabled {
+            } else {
                 // No setup guide is coming, so nothing is waiting on it - lift any hold rather
                 // than leaving the account permanently unsynced.
                 chatService.releaseSyncForOnboarding()
-                // What's-new wizard, shown ONCE (any dismissal persists). Child Mode skips it
-                // entirely - it describes the Chats cycle, which Child Mode doesn't have.
-                // Slightly deferred so the first render settles before a sheet animates in.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey),
-                       !settingsViewModel.settings.childModeEnabled {
-                        showDockWizard = true
-                    }
-                }
             }
         }
         .sheet(isPresented: $showGiftSheet) {
@@ -135,10 +124,6 @@ struct MainTabView: View {
         }
         .fullScreenCover(isPresented: $showInitialSyncProgress) {
             InitialSyncProgressModal(onDismiss: { showInitialSyncProgress = false })
-        }
-        .sheet(isPresented: $showDockWizard) {
-            DockWizardView()
-                .presentationDetents([.large])
         }
         .fullScreenCover(isPresented: $showWelcomeGuide) {
             WelcomeGuideView(
@@ -150,15 +135,6 @@ struct MainTabView: View {
                     if chatService.onboardingSyncHeld {
                         chatService.releaseSyncForOnboarding()
                         showInitialSyncProgress = true
-                    }
-                    // Fresh installs chain straight into the 4.0 what's-new wizard once the full
-                    // setup guide is done (returning users get it from onAppear instead). Child
-                    // Mode skips it - the guide's Child choice removes the Chats cycle it teaches.
-                    if !UserDefaults.standard.bool(forKey: DockWizardView.dismissedKey),
-                       !settingsViewModel.settings.childModeEnabled {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-                            showDockWizard = true
-                        }
                     }
                 },
                 startAtUserType: resumeGuideAtUserType,
@@ -420,181 +396,6 @@ struct MainTabView: View {
 
 // MARK: - 4.0 dock wizard (what's new popup)
 
-/// Multi-page walkthrough of the 4.0 dock: KaPosts and Broadcasts riding the Chats tab
-/// (tap to cycle, hold to slide-select) and where to customize it. Presented from
-/// MainTabView on every app entry until "Don't Show Again".
-struct DockWizardView: View {
-    // Bumped for 4.1: the dock changed shape, so everyone sees this again rather than only the
-    // users who never dismissed the 4.0 one.
-    static let dismissedKey = "kachat_dock_wizard_dismissed_41"
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var page = 0
-    /// Drives the page-2 icon-morph demo through the sections Ecosystem holds.
-    @State private var demoIndex = 0
-
-    private let demoIcons = [AppTab.kaposts.icon, AppTab.broadcasts.icon, AppTab.swap.icon, AppTab.apps.icon]
-    private let demoLabels = [AppTab.kaposts.label, AppTab.broadcasts.label, AppTab.swap.label, AppTab.apps.label]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            TabView(selection: $page) {
-                wizardPage(
-                    icon: "sparkles",
-                    title: "Meet Kaspa Hub",
-                    text: "KaPosts, Broadcasts, ChangeNOW Swap and Kaspa Websites now live together in one place - Kaspa Hub, right in your dock.",
-                    demo: { dockMock(highlightIcon: AppTab.ecosystem.icon, label: AppTab.ecosystem.label) }
-                )
-                .tag(0)
-
-                wizardPage(
-                    icon: "square.grid.2x2",
-                    title: "Everything Inside",
-                    text: "Open Kaspa Hub and pick what you want. Tap the Kaspa Hub tab again to come straight back out.",
-                    demo: {
-                        dockMock(highlightIcon: demoIcons[demoIndex], label: demoLabels[demoIndex])
-                            .onAppear { demoIndex = 0 }
-                            .task {
-                                while !Task.isCancelled {
-                                    try? await Task.sleep(nanoseconds: 1_200_000_000)
-                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                        demoIndex = (demoIndex + 1) % demoIcons.count
-                                    }
-                                }
-                            }
-                    }
-                )
-                .tag(1)
-
-                wizardPage(
-                    icon: "slider.horizontal.3",
-                    title: "Make It Yours",
-                    text: "Every tab lives either in your dock or in Kaspa Hub - move any of them, Chats and Profile included. Five fit in the dock, and Kaspa Hub always keeps one of the slots. Customize Dock is in the Hub's top corner.",
-                    demo: { dockMock(highlightIcon: "slider.horizontal.3", label: "Customize") }
-                )
-                .tag(2)
-            }
-            .tabViewStyle(.page(indexDisplayMode: .always))
-            .indexViewStyle(.page(backgroundDisplayMode: .always))
-
-            VStack(spacing: 10) {
-                Button {
-                    Haptics.impact(.light)
-                    if page < 2 {
-                        withAnimation(.easeInOut(duration: 0.25)) { page += 1 }
-                    } else {
-                        dismiss()
-                    }
-                } label: {
-                    Text(page < 2 ? "Next" : "Got It")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.accentColor)
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 18)
-            .padding(.top, 6)
-        }
-        .background(Color(uiColor: .systemBackground))
-        // Shows exactly ONCE: any way out (Got It, swipe-down) persists the dismissal.
-        // Replayable on demand from Profile > Help.
-        .onDisappear {
-            UserDefaults.standard.set(true, forKey: Self.dismissedKey)
-        }
-    }
-
-    private func wizardPage<Demo: View>(
-        icon: String,
-        title: String,
-        text: String,
-        @ViewBuilder demo: () -> Demo
-    ) -> some View {
-        VStack(spacing: 22) {
-            Spacer(minLength: 12)
-            Image(systemName: icon)
-                .font(.system(size: 44, weight: .medium))
-                .foregroundStyle(Color.accentColor)
-                .padding(26)
-                .background(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .fill(.regularMaterial)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                                .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-                        )
-                        .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
-                )
-            Text(title)
-                .font(.title2.weight(.bold))
-                .multilineTextAlignment(.center)
-            Text(text)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 30)
-            demo()
-                .padding(.top, 4)
-            Spacer()
-        }
-        .padding(.top, 8)
-    }
-
-    /// A miniature dock with the Chats slot centered - `highlightIcon` morphs to show the
-    /// cycling behavior. Real Liquid Glass on iOS 26+, the app's glass-card fallback earlier.
-    private func dockMock(highlightIcon: String, label: String) -> some View {
-        HStack(spacing: 0) {
-            ForEach(0..<5, id: \.self) { index in
-                VStack(spacing: 4) {
-                    Image(systemName: index == 2 ? highlightIcon : mockIcon(index))
-                        .font(.system(size: 20, weight: .semibold))
-                        .frame(height: 24)
-                    Text(index == 2 ? label : mockLabel(index))
-                        .font(.system(size: 9, weight: .semibold))
-                }
-                .foregroundColor(index == 2 ? .accentColor : .secondary.opacity(0.55))
-                .frame(width: 62)
-                .id(index == 2 ? label : mockLabel(index))
-                .transition(.scale(scale: 0.6).combined(with: .opacity))
-            }
-        }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 6)
-        .background(wizardGlass(cornerRadius: 22))
-    }
-
-    private func mockIcon(_ index: Int) -> String {
-        [AppTab.portfolio.icon, AppTab.coldStorage.icon, "", AppTab.profile.icon, AppTab.swap.icon][index]
-    }
-
-    private func mockLabel(_ index: Int) -> String {
-        [AppTab.portfolio.label, AppTab.coldStorage.label, "", AppTab.profile.label, AppTab.swap.label][index]
-    }
-
-    /// Liquid Glass on iOS 26+ (the system's real glass material), falling back to the app's
-    /// established glass-card look - same pattern as KaPostsView's side-menu drawer.
-    @ViewBuilder
-    private func wizardGlass(cornerRadius: CGFloat) -> some View {
-        if #available(iOS 26.0, *) {
-            Color.clear
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        } else {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(.regularMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-                )
-                .shadow(color: Color.black.opacity(0.12), radius: 10, x: 0, y: 5)
-        }
-    }
-
-    /// Animated hold-and-slide demo: the finger presses the Chats slot, the menu pops above
-    /// the dock, the finger slides across the three options with the highlight following, and
-    /// Broadcasts gets "picked" - then it loops.
-}
 
 
 // MARK: - Initial sync progress
