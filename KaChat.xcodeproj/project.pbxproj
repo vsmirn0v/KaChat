@@ -159,6 +159,7 @@
 		PUSH00010001000100000001 /* PushNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PUSH00010001000000000001 /* PushNotificationManager.swift */; };
 		PUSH00010001000100000002 /* SharedDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = PUSH00010001000000000002 /* SharedDataManager.swift */; };
 		QRBV00010001000100000001 /* QuickReactionBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = QRBV00010001000000000001 /* QuickReactionBarView.swift */; };
+		ERPK00010001000100000001 /* EmojiReactionPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = ERPK00010001000000000001 /* EmojiReactionPicker.swift */; };
 		RDSS00010001000100000001 /* ReadStatusSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = RDSS00010001000000000001 /* ReadStatusSyncManager.swift */; };
 		RSTM00012F4C000100000002 /* Resolvers.toml in Resources */ = {isa = PBXBuildFile; fileRef = RSTM00012F4C000100000001 /* Resolvers.toml */; };
 		SA0001B0000000000000001 /* ManageAddressesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SA0001A0000000000000001 /* ManageAddressesView.swift */; };
@@ -398,6 +399,7 @@
 		PUSH00010001000000000001 /* PushNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotificationManager.swift; sourceTree = "<group>"; };
 		PUSH00010001000000000002 /* SharedDataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedDataManager.swift; sourceTree = "<group>"; };
 		QRBV00010001000000000001 /* QuickReactionBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickReactionBarView.swift; sourceTree = "<group>"; };
+		ERPK00010001000000000001 /* EmojiReactionPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmojiReactionPicker.swift; sourceTree = "<group>"; };
 		RDSS00010001000000000001 /* ReadStatusSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadStatusSyncManager.swift; sourceTree = "<group>"; };
 		RSTM00012F4C000100000001 /* Resolvers.toml */ = {isa = PBXFileReference; lastKnownFileType = text; path = Resolvers.toml; sourceTree = "<group>"; };
 		SA0001A0000000000000001 /* ManageAddressesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManageAddressesView.swift; sourceTree = "<group>"; };
@@ -724,6 +726,7 @@
 				4D3D20072F72000700000001 /* DesktopEmojiPickerView.swift */,
 				E81000342D4C00010000001B /* MessageBubbleView.swift */,
 				QRBV00010001000000000001 /* QuickReactionBarView.swift */,
+				ERPK00010001000000000001 /* EmojiReactionPicker.swift */,
 				4D3D20012F72000200000001 /* MessageTextRenderPlan.swift */,
 				PQSS00010001000000000001 /* PhotoQualitySettingsSheet.swift */,
 				4D3D20032F72000300000001 /* MessageImageSharePayload.swift */,
@@ -1179,6 +1182,7 @@
 				E81000332D4C00010000001A /* AddContactView.swift in Sources */,
 				E81000352D4C00010000001B /* MessageBubbleView.swift in Sources */,
 				QRBV00010001000100000001 /* QuickReactionBarView.swift in Sources */,
+				ERPK00010001000100000001 /* EmojiReactionPicker.swift in Sources */,
 				E81000372D4C00010000001C /* Bech32.swift in Sources */,
 				E8100A912D4C00010000001C /* CoreDataIndexBuilder.swift in Sources */,
 				E81000392D4C00010000001D /* BIP39.swift in Sources */,

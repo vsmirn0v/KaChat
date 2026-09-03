@@ -11,11 +11,29 @@ struct QuickReactionBarView: View {
     let onReact: (String) -> Void
     let onReply: () -> Void
 
+    @State private var showFullPicker = false
+    @ObservedObject private var recents = EmojiRecentsStore.shared
+
     var body: some View {
         VStack(alignment: .trailing, spacing: 8) {
             HStack(spacing: 10) {
+                // Leads the row: the six quick emoji cover the common cases, and this is the way
+                // to any of the others without going to Settings to change which six they are.
+                Button {
+                    showFullPicker = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.secondary)
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(Color.primary.opacity(0.08)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("More reactions"))
+
                 ForEach(emojis, id: \.self) { emoji in
                     Button {
+                        recents.record(emoji)
                         onReact(emoji)
                     } label: {
                         Text(emoji)
@@ -37,6 +55,11 @@ struct QuickReactionBarView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .sheet(isPresented: $showFullPicker) {
+            EmojiReactionPicker { emoji in
+                onReact(emoji)
+            }
+        }
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(.regularMaterial)
