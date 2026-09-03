@@ -27,6 +27,8 @@ struct AddContactView: View {
     /// loader clears it, which hides the section entirely when the graph is empty.
     @State private var isLoadingKaPostsConnections = true
     @State private var didLoadKaPostsConnections = false
+    @State private var isSearchingKaPostsConnections = false
+    @State private var kaPostsSearchText = ""
     @State private var showQRScanner = false
     @State private var showSystemContactPicker = false
     @State private var pendingSystemContactLinkTarget: SystemContactLinkTarget?
@@ -429,22 +431,70 @@ struct AddContactView: View {
                             .foregroundColor(.secondary)
                     }
                 } else {
-                    ForEach(kaPostsConnections) { connection in
-                        Button {
-                            addressInput = connection.address
-                            handleInputChange(connection.address)
-                        } label: {
-                            kaPostsConnectionRow(connection)
+                    if isSearchingKaPostsConnections {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundColor(.secondary)
+                            TextField("Search connections", text: $kaPostsSearchText)
+                                .autocapitalization(.none)
+                                .autocorrectionDisabled()
+                            if !kaPostsSearchText.isEmpty {
+                                Button {
+                                    kaPostsSearchText = ""
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                        .buttonStyle(.plain)
+                    }
+                    if filteredKaPostsConnections.isEmpty {
+                        Text("No matches")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else {
+                        ForEach(filteredKaPostsConnections) { connection in
+                            Button {
+                                addressInput = connection.address
+                                handleInputChange(connection.address)
+                            } label: {
+                                kaPostsConnectionRow(connection)
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
             } header: {
-                Text("From KaPosts")
+                HStack {
+                    Text("From KaPosts")
+                    Spacer()
+                    if !kaPostsConnections.isEmpty {
+                        Button {
+                            isSearchingKaPostsConnections.toggle()
+                            if !isSearchingKaPostsConnections { kaPostsSearchText = "" }
+                        } label: {
+                            Image(systemName: isSearchingKaPostsConnections ? "xmark" : "magnifyingglass")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(isSearchingKaPostsConnections ? "Close search" : "Search connections")
+                    }
+                }
             } footer: {
                 Text("People you follow, or who follow you, on KaPosts. Tap one to fill in their address.")
             }
             .task { await loadKaPostsConnections() }
+        }
+    }
+
+    /// The rows actually shown: everything, or what the search box matches by name or address.
+    private var filteredKaPostsConnections: [KaPostsConnection] {
+        let query = kaPostsSearchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard isSearchingKaPostsConnections, !query.isEmpty else { return kaPostsConnections }
+        return kaPostsConnections.filter {
+            contactsManager.displayName(for: $0.address).lowercased().contains(query)
+                || $0.address.lowercased().contains(query)
         }
     }
 
