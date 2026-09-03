@@ -220,6 +220,54 @@ enum ChessEngine {
         !isKingInCheck(color: board.sideToMove, board: board) && legalMoves(for: board).isEmpty
     }
 
+    /// A dead position: no sequence of legal moves by either side can produce checkmate, so the
+    /// game is drawn immediately (FIDE 5.2.2). The four material combinations that qualify:
+    /// K vs K, K+B vs K, K+N vs K, and K+B vs K+B with both bishops on the same colour squares.
+    ///
+    /// This is NOT stalemate - a lone king almost always HAS legal moves, so the stalemate test
+    /// never fires and, without this, two bare kings shuffled forever with no way to end the
+    /// game short of resigning or the clock running out.
+    static func isInsufficientMaterial(_ board: ChessBoard) -> Bool {
+        var whiteMinors: [ChessSquare] = []
+        var blackMinors: [ChessSquare] = []
+
+        for rank in 0..<8 {
+            for file in 0..<8 {
+                let square = ChessSquare(file: file, rank: rank)
+                guard let piece = board.piece(at: square) else { continue }
+                switch piece.type {
+                case .king:
+                    continue
+                case .bishop, .knight:
+                    if piece.color == .white { whiteMinors.append(square) } else { blackMinors.append(square) }
+                case .pawn, .rook, .queen:
+                    // Any of these can force (or promote into) a mate.
+                    return false
+                }
+            }
+        }
+
+        switch (whiteMinors.count, blackMinors.count) {
+        case (0, 0):
+            return true // K vs K
+        case (1, 0), (0, 1):
+            return true // K+B vs K, or K+N vs K
+        case (1, 1):
+            // K+B vs K+B is dead only when both bishops are on the same colour squares - two
+            // knights, or bishops on opposite colours, can still mate with help.
+            guard let white = whiteMinors.first, let black = blackMinors.first,
+                  board.piece(at: white)?.type == .bishop,
+                  board.piece(at: black)?.type == .bishop else { return false }
+            return isLightSquare(white) == isLightSquare(black)
+        default:
+            return false
+        }
+    }
+
+    private static func isLightSquare(_ square: ChessSquare) -> Bool {
+        (square.file + square.rank) % 2 == 1
+    }
+
     private static func findKing(color: ChessColor, board: ChessBoard) -> ChessSquare? {
         for rank in 0..<8 {
             for file in 0..<8 {

@@ -32,6 +32,9 @@ enum ChessGameStatus: Equatable {
     case inProgress
     case checkmate(winner: ChessColor)
     case stalemate
+    /// A dead position - K vs K and friends. A draw, but not a stalemate: see
+    /// `ChessEngine.isInsufficientMaterial`.
+    case insufficientMaterial
     /// `timeout` true when the loser flagged (their clock ran out and the app auto-sent a
     /// `chess_resign` with reason "timeout") rather than resigning by hand.
     case resigned(loser: ChessColor, timeout: Bool)
@@ -39,7 +42,7 @@ enum ChessGameStatus: Equatable {
     var isGameOver: Bool {
         switch self {
         case .pendingResponse, .inProgress: return false
-        case .declined, .checkmate, .stalemate, .resigned: return true
+        case .declined, .checkmate, .stalemate, .insufficientMaterial, .resigned: return true
         }
     }
 }
@@ -114,6 +117,8 @@ struct ChessGameSummary {
             return winner == viewerColor ? "Checkmate - You win!" : "Checkmate - You lost"
         case .stalemate:
             return "Stalemate - draw"
+        case .insufficientMaterial:
+            return "Draw - not enough pieces to checkmate"
         case .resigned(let loser, let timeout):
             if timeout {
                 guard let viewerColor else { return "\(loser == .white ? "White" : "Black") lost on time" }
@@ -201,6 +206,10 @@ enum ChessGameService {
             status = .checkmate(winner: board.sideToMove.opposite)
         } else if ChessEngine.isStalemate(board) {
             status = .stalemate
+        } else if ChessEngine.isInsufficientMaterial(board) {
+            // Checked after checkmate/stalemate: a position can be both mate and materially
+            // dead only in the sense that mate already ended it, and mate wins over a draw.
+            status = .insufficientMaterial
         } else {
             status = .inProgress
         }
@@ -275,7 +284,7 @@ enum ChessGameService {
                 if winner == myColor { wins += 1 } else { losses += 1 }
             case .resigned(let loser, _):
                 if loser == myColor { losses += 1 } else { wins += 1 }
-            case .pendingResponse, .declined, .inProgress, .stalemate:
+            case .pendingResponse, .declined, .inProgress, .stalemate, .insufficientMaterial:
                 break
             }
         }
