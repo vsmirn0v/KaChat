@@ -102,7 +102,7 @@ struct SettingsView: View {
                             .foregroundColor(.red)
                     } icon: {
                         Image(systemName: "key")
-                            .foregroundColor(.accentColor)
+                            .foregroundColor(.red)
                     }
                 }
                 settingsCategoryRow("Danger Zone", icon: "exclamationmark.triangle", tint: .red) {

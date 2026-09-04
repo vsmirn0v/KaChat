@@ -163,9 +163,26 @@ struct ChatInfoView: View {
                         .buttonStyle(.plain)
 
                         VStack(alignment: .leading, spacing: 4) {
-                            TextField("Name", text: $editedAlias)
-                                .font(.headline)
-                                .focused($isEditing)
+                            // A bare TextField styled like a heading reads as a label, not
+                            // something you can change - the pencil is what says otherwise. It
+                            // focuses the field too, so it works as the affordance it looks like
+                            // rather than being decoration next to the real target.
+                            HStack(spacing: 6) {
+                                TextField("Name", text: $editedAlias)
+                                    .font(.headline)
+                                    .focused($isEditing)
+                                Button {
+                                    isEditing = true
+                                } label: {
+                                    Image(systemName: "pencil")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundColor(.accentColor)
+                                        .frame(width: 26, height: 26)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(Text("Edit name"))
+                            }
 
                             // Matches Android: the plain contact-name card shows the address as a
                             // fallback caption; once the contact owns any KNS domain, the fancier
