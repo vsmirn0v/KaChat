@@ -504,8 +504,18 @@ private struct KNSProfileImageDescriptor {
     }
 }
 
-private actor KNSProfileImageCache {
+actor KNSProfileImageCache {
     static let shared = KNSProfileImageCache()
+
+    /// Called after something outside this actor deletes the image directory (Settings > Storage >
+    /// Cache). Without it the in-memory image cache and the manifest keep describing files that
+    /// are gone, so the screen shows avatars that no longer exist on disk until the next launch
+    /// and no re-download is ever attempted.
+    func resetAfterExternalPurge() {
+        memoryCache.removeAllObjects()
+        manifest = [:]
+        manifestLoaded = false
+    }
 
     private struct ManifestEntry: Codable {
         let fileName: String

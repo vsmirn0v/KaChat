@@ -309,6 +309,14 @@ struct SettingsView: View {
                 Text("How long messages are kept on this device, and how much space they use. Applies before any cloud storage.")
             }
 
+            Section {
+                settingsCategoryRow("Cache", icon: "trash", tint: .accentColor) {
+                    CacheSettingsPage()
+                }
+            } footer: {
+                Text("Images and files the app can always download again. Clearing them frees space and loses nothing.")
+            }
+
             Section("Cloud Storage") {
                 settingsCategoryRow("iCloud", icon: "icloud", tint: .accentColor) {
                     iCloudStoragePage
@@ -4253,5 +4261,106 @@ struct GiftSettingsPage: View {
             alreadyClaimedTapCount = 0
         }
         .toast(message: toastMessage, style: .success)
+    }
+}
+
+// MARK: - Cache
+
+/// What the app is holding that it could fetch again, with a way to drop any of it.
+///
+/// Kept apart from the rest of Storage on purpose: message retention and cloud sync decide what
+/// happens to things you would miss, and this page decides what happens to things you would not.
+/// Nothing here is user data - see `CacheManager` for why each category qualifies.
+struct CacheSettingsPage: View {
+    @StateObject private var cache = CacheManager.shared
+    @State private var pendingClear: CacheManager.Category?
+    @State private var showClearAllConfirm = false
+
+    var body: some View {
+        Form {
+            Section {
+                HStack {
+                    Text("Total")
+                        .font(.headline)
+                    Spacer()
+                    if cache.isMeasuring && cache.totalBytes == 0 {
+                        ProgressView()
+                    } else {
+                        Text(CacheManager.formatted(cache.totalBytes))
+                            .font(.headline)
+                            .monospacedDigit()
+                    }
+                }
+            } footer: {
+                Text("Everything here is downloaded or generated again when it is needed, so clearing it costs a little data and nothing else.")
+            }
+
+            Section("What's Cached") {
+                ForEach(CacheManager.Category.allCases) { category in
+                    Button {
+                        pendingClear = category
+                    } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: category.systemImage)
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.accentColor)
+                                .frame(width: 26)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(category.title)
+                                    .foregroundColor(.primary)
+                                Text(category.detail)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 8)
+                            Text(CacheManager.formatted(cache.sizes[category] ?? 0))
+                                .font(.subheadline)
+                                .monospacedDigit()
+                                .foregroundColor(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    // Nothing to clear reads better as a disabled row than as a button that
+                    // opens a sheet to delete zero bytes.
+                    .disabled((cache.sizes[category] ?? 0) <= 0)
+                }
+            }
+
+            Section {
+                Button(role: .destructive) {
+                    showClearAllConfirm = true
+                } label: {
+                    Text("Clear All Cache")
+                        .foregroundColor(.red)
+                }
+                .disabled(cache.totalBytes <= 0)
+            }
+        }
+        .navigationTitle("Cache")
+        .navigationBarTitleDisplayMode(.inline)
+        .refreshable { await cache.refreshSizes() }
+        .task { await cache.refreshSizes() }
+        .sheet(item: $pendingClear) { category in
+            ConfirmActionSheet(
+                title: "Clear \(category.title)?",
+                confirmTitle: "Clear",
+                confirmSubtitle: "\(CacheManager.formatted(cache.sizes[category] ?? 0)) freed. \(category.detail)",
+                confirmSystemImage: "trash"
+            ) {
+                Task { await cache.clear(category) }
+            }
+        }
+        .sheet(isPresented: $showClearAllConfirm) {
+            ConfirmActionSheet(
+                title: "Clear All Cache?",
+                confirmTitle: "Clear All",
+                confirmSubtitle: "Frees \(CacheManager.formatted(cache.totalBytes)). Your messages, contacts and keys are not touched.",
+                confirmSystemImage: "trash"
+            ) {
+                Task { await cache.clearAll() }
+            }
+        }
     }
 }

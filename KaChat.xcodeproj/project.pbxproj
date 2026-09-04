@@ -112,6 +112,7 @@
 		FEESHIM0001000100000002 /* FeeShimmerOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */; };
 		GEOIP00012F90000100000002 /* geoip-lite.json in Resources */ = {isa = PBXBuildFile; fileRef = GEOIP00012F90000100000001 /* geoip-lite.json */; };
 		GIFT00010001000100000001 /* GiftService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GIFT00010001000000000001 /* GiftService.swift */; };
+		CACHEMGR00010001000100000001 /* CacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CACHEMGR00010001000000000001 /* CacheManager.swift */; };
 		GIFT00010001000100000002 /* GiftClaimView.swift in Sources */ = {isa = PBXBuildFile; fileRef = GIFT00010001000000000002 /* GiftClaimView.swift */; };
 		GRCP00010001000100000001 /* GroupCipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRCP00010001000000000001 /* GroupCipher.swift */; };
 		GRCS00010001000100000001 /* GroupChatService.swift in Sources */ = {isa = PBXBuildFile; fileRef = GRCS00010001000000000001 /* GroupChatService.swift */; };
@@ -334,6 +335,7 @@
 		FEESHIM0001000000000001 /* FeeShimmerOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeeShimmerOverlay.swift; sourceTree = "<group>"; };
 		GEOIP00012F90000100000001 /* geoip-lite.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "geoip-lite.json"; sourceTree = "<group>"; };
 		GIFT00010001000000000001 /* GiftService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftService.swift; sourceTree = "<group>"; };
+		CACHEMGR00010001000000000001 /* CacheManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CacheManager.swift; sourceTree = "<group>"; };
 		GIFT00010001000000000002 /* GiftClaimView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GiftClaimView.swift; sourceTree = "<group>"; };
 		GRCP00010001000000000001 /* GroupCipher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupCipher.swift; sourceTree = "<group>"; };
 		GRCS00010001000000000001 /* GroupChatService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupChatService.swift; sourceTree = "<group>"; };
@@ -606,6 +608,7 @@
 				SHSH00010001000000000001 /* SharedOutboundShare.swift */,
 				RDSS00010001000000000001 /* ReadStatusSyncManager.swift */,
 				GIFT00010001000000000001 /* GiftService.swift */,
+				CACHEMGR00010001000000000001 /* CacheManager.swift */,
 				BCST00010001000000000001 /* BroadcastStore.swift */,
 				GRST00010001000000000001 /* GroupStore.swift */,
 				GRCS00010001000000000001 /* GroupChatService.swift */,
@@ -1224,6 +1227,7 @@
 				SHRT00010001000100000001 /* KaChatContactEntity.swift in Sources */,
 				SHRT00010001000100000002 /* KaChatShortcuts.swift in Sources */,
 				GIFT00010001000100000001 /* GiftService.swift in Sources */,
+				CACHEMGR00010001000100000001 /* CacheManager.swift in Sources */,
 				GIFT00010001000100000002 /* GiftClaimView.swift in Sources */,
 				BCST00010001000100000001 /* BroadcastStore.swift in Sources */,
 				GRST00010001000100000001 /* GroupStore.swift in Sources */,
