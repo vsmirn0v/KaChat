@@ -1329,19 +1329,18 @@ struct ProfileView: View {
         }
         .buttonStyle(.plain)
         .background(glassBackground(cornerRadius: 18))
-        .confirmationDialog(
-            "Log Out",
-            isPresented: $showLogoutConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Log Out", role: .destructive) {
-                Task {
-                    await walletManager.logout()
-                }
+        // Half sheet rather than a confirmation dialog, matching every other chooser in the app -
+        // and it gives the consequence a row of its own beside the action, which a dialog of bare
+        // verbs under a grey line cannot.
+        .sheet(isPresented: $showLogoutConfirmation) {
+            ConfirmActionSheet(
+                title: "Log Out",
+                confirmTitle: "Log Out",
+                confirmSubtitle: "Signs out of this account. Wallet and message data stay on this device.",
+                confirmSystemImage: "rectangle.portrait.and.arrow.right"
+            ) {
+                Task { await walletManager.logout() }
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This signs out of your account, but keeps local wallet and message data on this device.")
         }
     }
 

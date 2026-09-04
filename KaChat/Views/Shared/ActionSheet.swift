@@ -431,3 +431,50 @@ struct ComposerCloseOptionsSheet: View {
         .presentationDetents([.height(280)])
     }
 }
+
+/// A yes/no confirmation, in a half sheet.
+///
+/// The app's confirmations were `.confirmationDialog`s - a stack of bare verbs with the reason
+/// squeezed into a small grey line above them. As a sheet the consequence gets a full row of its
+/// own next to the action it belongs to, which is what someone about to log out or delete
+/// something is actually reading for.
+struct ConfirmActionSheet: View {
+    let title: String
+    let confirmTitle: String
+    /// What actually happens if they go ahead - the row's second line.
+    let confirmSubtitle: String
+    var confirmSystemImage: String = "checkmark.circle"
+    var isDestructive: Bool = true
+    let onConfirm: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text(title)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+
+            ActionSheetRow(
+                title: confirmTitle,
+                subtitle: confirmSubtitle,
+                systemImage: confirmSystemImage,
+                tint: isDestructive ? .red : .accentColor
+            ) { dismiss(); onConfirm() }
+
+            ActionSheetRow(
+                title: "Cancel",
+                subtitle: "Leave everything as it is.",
+                systemImage: "xmark"
+            ) { dismiss() }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .presentationDetents([.height(280)])
+        .presentationDragIndicator(.visible)
+    }
+}
