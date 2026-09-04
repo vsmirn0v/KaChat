@@ -29,7 +29,6 @@ struct SettingsView: View {
     /// Selection handed back by the chat picker sheet; the resync starts from the sheet's
     /// onDismiss so the fullScreenCover is never presented while the sheet is still animating out.
     @State private var pendingResyncSelection: [String]?
-    @State private var showWipeAccountConfirmation = false
     @State private var showWipeICloudConfirmation = false
     @State private var isWipingICloud = false
     @State private var toastMessage: String?
@@ -446,26 +445,11 @@ struct SettingsView: View {
                         }
                     }
 
-                    Button(role: .destructive) {
-                        showWipeAccountConfirmation = true
-                    } label: {
-                        Label("Wipe account & messages", systemImage: "person.crop.circle.badge.xmark")
-                            .foregroundColor(.red)
-                    }
-                    .confirmationDialog(
-                        "Wipe account & messages",
-                        isPresented: $showWipeAccountConfirmation,
-                        titleVisibility: .visible
-                    ) {
-                        Button("Wipe Account & Messages", role: .destructive) {
-                            Task {
-                                await wipeAccountAndMessages(deleteCloudData: false)
-                            }
-                        }
-                        Button("Cancel", role: .cancel) {}
-                    } message: {
-                        Text("This removes local account data and messages. CloudKit sync is disabled during the wipe and re-enabled afterward.")
-                    }
+                    // "Wipe account & messages" used to live here. Removing an account is the
+                    // accounts screen's job now - it is where accounts are listed, so it is
+                    // where you can see which one you are removing. Two doors to the same
+                    // destructive act, one of them on a screen that never names the account,
+                    // is one door too many.
 
                     Button(role: .destructive) {
                         showWipeICloudConfirmation = true
@@ -531,9 +515,8 @@ struct SettingsView: View {
     }
 
     /// iCloud-only wipe: deletes the CURRENT wallet's CloudKit zone and nothing else. Local
-    /// messages, contacts, and the account are untouched (the combined local+iCloud wipe this
-    /// button used to trigger lives on in `wipeAccountAndMessages`, which the
-    /// "Wipe account & messages" entry still uses for the local-only path).
+    /// messages, contacts, and the account are untouched - removing the account itself is the
+    /// accounts screen's job.
     private func wipeICloudData() async {
         isWipingICloud = true
         defer { isWipingICloud = false }
@@ -542,67 +525,6 @@ struct SettingsView: View {
         } else {
             showToast("iCloud message data wiped.")
         }
-    }
-
-    private func wipeAccountAndMessages(deleteCloudData: Bool) async {
-        let previousCloudSetting = settingsViewModel.settings.storeMessagesInICloud
-        if !deleteCloudData {
-            settingsViewModel.settings.storeMessagesInICloud = false
-            settingsViewModel.saveSettings()
-            await MessageStore.shared.reloadPersistentStores(enableCloud: false)
-        } else if !previousCloudSetting {
-            settingsViewModel.settings.storeMessagesInICloud = true
-            settingsViewModel.saveSettings()
-            await MessageStore.shared.reloadPersistentStores(enableCloud: true)
-        }
-
-        // Clear CloudKit data first (before store is removed)
-        if deleteCloudData {
-            if let error = await MessageStore.shared.purgeCloudKitData() {
-                AppLog.log("[Settings] CloudKit purge failed: %@", error.localizedDescription)
-            }
-        }
-
-        if !deleteCloudData {
-            await MessageStore.shared.destroyLocalStoreFiles()
-            await MessageStore.shared.reloadPersistentStores(enableCloud: false)
-        }
-
-        // deleteWallet() handles clearing the message store before removing it
-        try? await walletManager.deleteWallet(preserveOutgoingMessages: false)
-
-        // Clear chat state (skipStoreClear=true since deleteWallet already cleared messages)
-        ChatService.shared.clearAllData(skipStoreClear: true)
-        ContactsManager.shared.deleteAllContacts()
-
-        if let bundleID = Bundle.main.bundleIdentifier {
-            UserDefaults.standard.removePersistentDomain(forName: bundleID)
-        }
-
-        let keysToRemove = [
-            "kachat_wallet",
-            "kachat_seed_phrase",
-            "kachat_contacts",
-            "kachat_messages",
-            "kachat_settings",
-            "kachat_conversations",
-            "kachat_conversation_aliases",
-            "kachat_our_aliases",
-            "kachat_last_poll_time"
-        ]
-        for key in keysToRemove {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-
-        UserDefaults.standard.synchronize()
-        settingsViewModel.resetToDefaults()
-
-        if !deleteCloudData {
-            settingsViewModel.settings.storeMessagesInICloud = previousCloudSetting
-            settingsViewModel.saveSettings()
-            await MessageStore.shared.reloadPersistentStores(enableCloud: previousCloudSetting)
-        }
-        refreshMessageStoreSize()
     }
 
     private func exportChatHistoryArchive() async {
