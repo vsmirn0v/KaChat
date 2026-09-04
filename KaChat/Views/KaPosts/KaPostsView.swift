@@ -408,7 +408,11 @@ struct KaPostsView: View {
         ZStack(alignment: .leading) {
             feedLayer
         }
-        .sheet(item: $menuSheet) { item in
+        // Full screen, not a sheet: these are places you navigate to inside KaPosts, and each
+        // carries the feed's own dot/balance header. A card sheet leaves that header parked an
+        // inch lower than the one it replaces, which reads as the chrome moving every time you
+        // open something. Android runs these as full-screen windows for the same reason.
+        .fullScreenCover(item: $menuSheet) { item in
             Group {
                 switch item {
                 case .drafts:
@@ -476,11 +480,10 @@ struct KaPostsView: View {
             // `createPostButton`) - auto-dismisses once the chatting balance turns positive.
             ZeroBalanceFundingSheetView()
         }
-        .sheet(item: $profileTarget) { target in
+        .fullScreenCover(item: $profileTarget) { target in
             posterProfileSheet(for: target)
-                .presentationDetents([.large])
         }
-        .sheet(item: $detailTarget) { target in
+        .fullScreenCover(item: $detailTarget) { target in
             postDetailSheet(postId: target.id)
         }
         // Half sheet rather than a confirmation dialog - see RepostActionsSheet.
@@ -509,7 +512,7 @@ struct KaPostsView: View {
                 isReposted: target.repostedByMe
             )
         }
-        .sheet(item: $engagementTarget) { target in
+        .fullScreenCover(item: $engagementTarget) { target in
             KaPostEngagementView(post: target)
         }
         .sheet(item: $quoteComposerTarget) { target in
@@ -2763,7 +2766,7 @@ struct KaPostsView: View {
             // Comment thread for a post tapped here - presented from this profile's OWN
             // NavigationStack so it stacks above the profile sheet, exactly as the poster
             // profile does it (the top-level $detailTarget cannot present from inside a sheet).
-            .sheet(item: $profileDetailTarget) { target in
+            .fullScreenCover(item: $profileDetailTarget) { target in
                 postDetailSheet(postId: target.id)
             }
             .sheet(item: $profileQuoteComposerTarget) { target in
@@ -3002,7 +3005,7 @@ struct KaPostsView: View {
             }
             // Comment thread for a post tapped on this profile — presented from the profile's OWN
             // NavigationStack so it stacks above the profile sheet (top-level $detailTarget can't).
-            .sheet(item: $profileDetailTarget) { target in
+            .fullScreenCover(item: $profileDetailTarget) { target in
                 postDetailSheet(postId: target.id)
             }
             // Quote tapped on a post in this profile - presented from the profile's OWN
