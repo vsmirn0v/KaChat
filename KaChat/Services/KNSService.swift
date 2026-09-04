@@ -1751,14 +1751,53 @@ final class KNSDomainTransferService: ObservableObject {
     /// spending-chain addresses: that address then acts as owner, funder, signer, and change
     /// target for the whole commit/reveal pair - mirroring how spending-address sends derive
     /// their own key (WalletManager.spendingPrivateKey(at:)) rather than the identity key.
+    /// Where a transfer has got to. A domain transfer is a commit transaction, a wait for it to
+    /// settle, then a reveal - the better part of a minute during which the old UI showed a
+    /// toolbar spinner and nothing else, which is indistinguishable from being stuck.
+    enum TransferStage: Equatable {
+        case preparing
+        case submittingCommit
+        case waitingForCommit
+        case submittingReveal
+        case verifying
+
+        public var title: String {
+            switch self {
+            case .preparing: return "Preparing transfer"
+            case .submittingCommit: return "Submitting commit transaction"
+            case .waitingForCommit: return "Waiting for the commit to settle"
+            case .submittingReveal: return "Submitting reveal transaction"
+            case .verifying: return "Confirming the new owner"
+            }
+        }
+
+        /// 0...1, for a determinate bar. Approximate by design: the waits are network-dependent,
+        /// and a bar that moves in known steps beats a spinner that says nothing.
+        public var fraction: Double {
+            switch self {
+            case .preparing: return 0.1
+            case .submittingCommit: return 0.3
+            case .waitingForCommit: return 0.55
+            case .submittingReveal: return 0.8
+            case .verifying: return 0.95
+            }
+        }
+    }
+
     @discardableResult
     func transferDomain(
         domain fullDomain: String,
         assetId rawAssetId: String,
         to rawRecipient: String,
         priorityFeeSompi: UInt64 = 2_000_000,
-        fromSpendingAddressIndex: Int? = nil
+        fromSpendingAddressIndex: Int? = nil,
+        onProgress: (@MainActor (TransferStage) -> Void)? = nil
     ) async throws -> KNSDomainTransferResult {
+        func report(_ stage: TransferStage) async {
+            guard let onProgress else { return }
+            await MainActor.run { onProgress(stage) }
+        }
+        await report(.preparing)
         guard !isSubmitting else {
             throw KasiaError.apiError("Another KNS domain transfer is already running")
         }
@@ -1852,8 +1891,10 @@ final class KNSDomainTransferService: ObservableObject {
             commitAmountSompi: commitSompi,
             revealAmountSompi: revealSompi
         )
+        await report(.submittingCommit)
         let (commitTxId, _) = try await nodePool.submitTransaction(commitTx, allowOrphan: false)
         log("COMMIT_SUBMITTED domain=\(domain) txId=\(commitTxId)")
+        await report(.waitingForCommit)
         ChatService.shared.registerSuppressedPaymentTxIds(
             [commitTxId],
             reason: "kns-transfer-commit"
@@ -1868,8 +1909,10 @@ final class KNSDomainTransferService: ObservableObject {
             revealTargetAddress: sourceAddress,
             revealPriorityFeeSompi: priorityFeeSompi
         )
+        await report(.submittingReveal)
         let (revealTxId, _) = try await submitRevealWithFallback(revealTx)
         log("REVEAL_SUBMITTED domain=\(domain) txId=\(revealTxId)")
+        await report(.verifying)
         ChatService.shared.registerSuppressedPaymentTxIds(
             [commitTxId, revealTxId],
             reason: "kns-transfer-reveal"

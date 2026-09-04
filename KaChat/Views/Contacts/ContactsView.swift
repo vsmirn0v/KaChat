@@ -3330,6 +3330,15 @@ struct KNSDomainSendView: View {
                     handleScannedQRCode(code)
                 }
             }
+            // Progress lives in its own sheet rather than a toolbar spinner: the transfer takes
+            // long enough that the user needs to be told it is still working, and dismissal is
+            // disabled because leaving mid-transfer would hide a running on-chain operation.
+            .sheet(isPresented: Binding(
+                get: { transferStage != nil },
+                set: { if !$0 { transferStage = nil } }
+            )) {
+                domainTransferProgressSheet
+            }
             .overlay {
                 if let result {
                     ZStack {
@@ -3453,6 +3462,37 @@ struct KNSDomainSendView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var domainTransferProgressSheet: some View {
+        let stage = transferStage ?? .preparing
+        VStack(spacing: 16) {
+            Text("Sending \(domain.fullName)")
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .padding(.top, 24)
+
+            ProgressView(value: stage.fraction)
+                .progressViewStyle(.linear)
+                .tint(.accentColor)
+
+            Text(LocalizedStringKey(stage.title))
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+
+            Text("A domain transfer is two transactions, so this takes a moment. Keep the app open until it finishes.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
+        .presentationDetents([.height(260)])
+        .interactiveDismissDisabled(true)
     }
 
     private func trimmedKas(_ sompi: UInt64) -> String {
