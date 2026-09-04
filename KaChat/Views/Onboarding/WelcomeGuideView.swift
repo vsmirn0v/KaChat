@@ -521,13 +521,13 @@ struct WelcomeGuideView: View {
                             enabled: true,
                             title: "On",
                             badge: "Recommended",
-                            subtitle: "Payments in your chats travel between fresh private addresses. When you pay a contact who also has privacy on, the money goes to a fresh address only the two of you know about, and payments you receive arrive on fresh addresses of your own the same way. Nobody watching the network can tie chat payments to you or your contacts."
+                            subtitle: SecuritySettingsPage.chatsPrivacyOnDescription
                         )
                         paymentPrivacyRow(
                             enabled: false,
                             title: "Off",
                             badge: nil,
-                            subtitle: "Payments you send and receive are tied to your chatting address only, where anyone can see the full payment history."
+                            subtitle: SecuritySettingsPage.chatsPrivacyOffDescription
                         )
                     }
                     .padding(.horizontal, 24)

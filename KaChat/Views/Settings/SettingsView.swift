@@ -686,6 +686,11 @@ fileprivate func settingsCategoryRow<Destination: View>(
 /// blob / device Keychain - nothing here needs an active account, which is exactly why Child
 /// Mode is reachable from the accounts list (a parent can manage it without unlocking anything).
 struct SecuritySettingsPage: View {
+    /// Shared with the setup wizard's Chat Payment Privacy step (`WelcomeGuideView`) so the
+    /// toggle and the wizard describe the same setting the same way.
+    static let chatsPrivacyOnDescription = "Anytime you receive Kaspa KaChat will do its best make sure the Kaspa goes to a fresh address not tied to your chatting identity. Sending Kaspa KaChat will always make sure it comes out of your primary spend address which is never associated with your chatting identity."
+    static let chatsPrivacyOffDescription = "All Kaspa will flow in and out of your chatting address"
+
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @ObservedObject private var walletManager = WalletManager.shared
     /// Per-ACCOUNT Chats Payment Privacy. Seeded on appear from the active account - and hidden
@@ -769,7 +774,7 @@ struct SecuritySettingsPage: View {
                         ChatService.shared.handleChatsPrivacyToggleChanged(enabled: newValue)
                     }
             } footer: {
-                Text("On: you receive payments on fresh private addresses shared with each contact, and payments you send are funded from your private spending addresses. Off: you receive on your public chatting address and send from it. Either way, payments you send arrive on a fresh address whenever the recipient shares one. This setting belongs to this account alone - your other accounts keep their own.")
+                Text("On: \(Self.chatsPrivacyOnDescription)\n\nOff: \(Self.chatsPrivacyOffDescription)\n\nThis setting belongs to this account alone - your other accounts keep their own.")
             }
             }
         }
