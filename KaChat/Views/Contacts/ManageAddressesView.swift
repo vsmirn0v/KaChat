@@ -51,8 +51,6 @@ struct ManageAddressesView: View {
     /// The "Address Actions" half sheet, and the per-row one behind each ellipsis.
     @State private var showAddressActions = false
     @State private var addressActionsTarget: SpendingAddressEntry?
-    /// The Chat Privacy tab's read-only rows get their own, shorter sheet.
-    @State private var poolActionsTarget: SpendingAddressEntry?
     /// The chat-privacy address whose "move out of the pool" sheet is open.
     @State private var moveOutTarget: SpendingAddressEntry?
     /// Live scan position while discovering, so the actions sheet can count up rather than sit
@@ -173,11 +171,6 @@ struct ManageAddressesView: View {
         .sheet(item: $addressActionsTarget) { entry in
             addressRowActionsSheet(entry)
                 .presentationDetents([.height(rowActionsSheetHeight(entry))])
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(item: $poolActionsTarget) { entry in
-            poolRowActionsSheet(entry)
-                .presentationDetents([.height(244)])
                 .presentationDragIndicator(.visible)
         }
         .sheet(item: $moveOutTarget) { entry in
@@ -428,19 +421,12 @@ struct ManageAddressesView: View {
 
             Spacer()
 
-            // Half sheet, same as the Addresses tab's rows - a pool row is read-only, so it
-            // gets only the two actions that apply.
-            Button {
-                poolActionsTarget = entry
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 18, weight: .bold))
-                    .rotationEffect(.degrees(90))
-                    .foregroundColor(.secondary)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            // No ellipsis: the whole row opens one sheet holding everything this address can do.
+            // A second, smaller target for a subset of the same actions was a way to miss half
+            // of them.
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
         .padding(16)
         .background(glassBackground(cornerRadius: 18))
@@ -795,6 +781,24 @@ struct ManageAddressesView: View {
                 releaseFromPool(entry)
             }
             ActionSheetRow(
+                title: "Copy Address",
+                subtitle: "Puts the full address on the clipboard.",
+                systemImage: "doc.on.doc"
+            ) {
+                UIPasteboard.general.string = entry.address
+                Haptics.success()
+                moveOutTarget = nil
+                showToast(entry.address.addressCopiedToastText)
+            }
+            ActionSheetRow(
+                title: "Show QR Code",
+                subtitle: "Full screen, for scanning with another device.",
+                systemImage: "qrcode"
+            ) {
+                moveOutTarget = nil
+                DispatchQueue.main.async { qrTarget = entry }
+            }
+            ActionSheetRow(
                 title: "Cancel",
                 subtitle: "Leave it in the pool.",
                 systemImage: "xmark"
@@ -806,7 +810,7 @@ struct ManageAddressesView: View {
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 20)
-        .presentationDetents([.height(funded ? 320 : 300)])
+        .presentationDetents([.height(funded ? 470 : 450)])
         .presentationDragIndicator(.visible)
     }
 
@@ -819,45 +823,6 @@ struct ManageAddressesView: View {
             await loadEntries()
             showToast("Moved out of Chat Payment Privacy.")
         }
-    }
-
-    /// Copy/QR for a Chat Privacy pool row. No rename, primary or hide: the address is actively
-    /// offered to a contact, so none of those apply while it is in the pool.
-    private func poolRowActionsSheet(_ entry: SpendingAddressEntry) -> some View {
-        VStack(spacing: 12) {
-            VStack(spacing: 2) {
-                Text(entry.label?.isEmpty == false ? entry.label! : "Address \(entry.index)")
-                    .font(.headline)
-                Text(entry.shortAddress)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundColor(.secondary)
-            }
-            .padding(.top, 20)
-            .padding(.bottom, 4)
-
-            ActionSheetRow(
-                title: "Copy Address",
-                subtitle: "Puts the full address on the clipboard.",
-                systemImage: "doc.on.doc"
-            ) {
-                UIPasteboard.general.string = entry.address
-                Haptics.success()
-                poolActionsTarget = nil
-                showToast(entry.address.addressCopiedToastText)
-            }
-            ActionSheetRow(
-                title: "Show QR Code",
-                subtitle: "Full screen, for scanning with another device.",
-                systemImage: "qrcode"
-            ) {
-                poolActionsTarget = nil
-                DispatchQueue.main.async { qrTarget = entry }
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     /// Row-menu "Hide Address": flips the same per-wallet hidden flag the Address Visibility
