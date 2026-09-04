@@ -727,23 +727,48 @@ struct SecuritySettingsPage: View {
     /// from the active account; a no-account context just shows the default.
     @State private var chatsPrivacyEnabled = true
 
+    /// A biometric lock that could be switched off without passing the lock is not a lock -
+    /// anyone holding an unlocked phone could have turned all three off and then read the seed
+    /// phrase. So the switch itself is gated, in BOTH directions: turning one on is a claim
+    /// about who is holding the device too.
+    ///
+    /// The Toggle is driven off a proxy binding rather than the setting: the write only happens
+    /// after authentication succeeds, so a failed or cancelled prompt leaves the switch exactly
+    /// where it was instead of flipping and flipping back.
+    private func biometricToggle(_ title: String, reason: String, isOn: Binding<Bool>) -> some View {
+        Toggle(title, isOn: Binding(
+            get: { isOn.wrappedValue },
+            set: { requested in
+                guard requested != isOn.wrappedValue else { return }
+                DeviceAuth.authenticate(reason: reason) {
+                    isOn.wrappedValue = requested
+                    settingsViewModel.saveSettings()
+                } onFailure: {
+                    // Nothing to undo - the setting was never written.
+                    Haptics.impact(.medium)
+                }
+            }
+        ))
+    }
+
     var body: some View {
         Form {
             Section("Security") {
-                Toggle("Biometrics for Seed Phrase", isOn: $settingsViewModel.settings.biometricSeedPhraseEnabled)
-                    .onChange(of: settingsViewModel.settings.biometricSeedPhraseEnabled) { _ in
-                        settingsViewModel.saveSettings()
-                    }
-
-                Toggle("Biometrics for Account Login", isOn: $settingsViewModel.settings.biometricAccountLoginEnabled)
-                    .onChange(of: settingsViewModel.settings.biometricAccountLoginEnabled) { _ in
-                        settingsViewModel.saveSettings()
-                    }
-
-                Toggle("Biometrics for Address Private Keys", isOn: $settingsViewModel.settings.biometricSpendingKeyEnabled)
-                    .onChange(of: settingsViewModel.settings.biometricSpendingKeyEnabled) { _ in
-                        settingsViewModel.saveSettings()
-                    }
+                biometricToggle(
+                    "Biometrics for Seed Phrase",
+                    reason: "Unlock to change the seed phrase biometric lock",
+                    isOn: $settingsViewModel.settings.biometricSeedPhraseEnabled
+                )
+                biometricToggle(
+                    "Biometrics for Account Login",
+                    reason: "Unlock to change the account login biometric lock",
+                    isOn: $settingsViewModel.settings.biometricAccountLoginEnabled
+                )
+                biometricToggle(
+                    "Biometrics for Address Private Keys",
+                    reason: "Unlock to change the private key biometric lock",
+                    isOn: $settingsViewModel.settings.biometricSpendingKeyEnabled
+                )
 
                 NavigationLink {
                     ChildModeSettingsView()
