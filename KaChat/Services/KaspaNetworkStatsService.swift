@@ -15,6 +15,11 @@ final class KaspaNetworkStatsService: ObservableObject {
     /// Current block reward in KAS, for the mining estimate. Kaspa's reward steps down every
     /// month (the chromatic halving), so this is read from the API rather than hardcoded.
     @Published private(set) var blockRewardKas: Double?
+    /// What the reward steps down to at the next chromatic halving, and when. Read from the API
+    /// rather than derived: the step is a clean 1/2^(1/12), but the DAA score it lands on is not
+    /// something a client can date accurately on its own.
+    @Published private(set) var nextBlockRewardKas: Double?
+    @Published private(set) var nextHalvingDate: Date?
     @Published private(set) var isLoading = false
 
     private var lastFetchedAt: Date?
@@ -52,6 +57,7 @@ final class KaspaNetworkStatsService: ObservableObject {
             currentHashrate = points.last?.value
             lastFetchedAt = Date()
             await refreshBlockReward()
+            await refreshNextHalving()
         } catch {
             // A chart nobody asked for is not worth an error banner; the card simply stays empty.
             AppLog.log("%@", "[Hashrate] Fetch failed: \(error.localizedDescription)")
@@ -80,6 +86,33 @@ final class KaspaNetworkStatsService: ObservableObject {
 
     private struct BlockRewardResponse: Decodable {
         let blockreward: Double
+    }
+
+    /// The next reward step-down and its date.
+    ///
+    /// Kaspa's emission steps every month, so "next halving" here is the next monthly reduction,
+    /// not a four-year event - which is why it is usually only weeks away.
+    private func refreshNextHalving() async {
+        guard var components = URLComponents(string: AppSettings.load().kaspaRestAPIURL) else { return }
+        components.path += "/info/halving"
+        guard let url = components.url else { return }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
+            let decoded = try JSONDecoder().decode(HalvingResponse.self, from: data)
+            if decoded.nextHalvingAmount > 0 { nextBlockRewardKas = decoded.nextHalvingAmount }
+            if decoded.nextHalvingTimestamp > 0 {
+                nextHalvingDate = Date(timeIntervalSince1970: decoded.nextHalvingTimestamp)
+            }
+        } catch {
+            // The rest of the screen stands without it; those two rows just stay empty.
+            AppLog.log("%@", "[Hashrate] Halving fetch failed: \(error.localizedDescription)")
+        }
+    }
+
+    private struct HalvingResponse: Decodable {
+        let nextHalvingTimestamp: TimeInterval
+        let nextHalvingAmount: Double
     }
 
     /// Blocks per second on mainnet since the Crescendo hardfork (May 2025) took Kaspa from 1 to

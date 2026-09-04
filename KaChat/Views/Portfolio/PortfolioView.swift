@@ -781,6 +781,7 @@ private struct HashrateChartScreen: View {
                         .frame(maxWidth: .infinity)
                 }
                 rangePicker
+                blockRewardCard
                 MiningEstimateCard(
                     networkHashratePHs: networkStats.currentHashrate,
                     blockRewardKas: networkStats.blockRewardKas,
@@ -840,6 +841,44 @@ private struct HashrateChartScreen: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    /// What a block pays now, and what it pays after the next step down.
+    ///
+    /// Kaspa's emission steps every month rather than halving every four years, so "next" here is
+    /// usually weeks away, not years - which is what makes it worth showing beside the current
+    /// figure rather than buried in an explainer.
+    private var blockRewardCard: some View {
+        VStack(spacing: 0) {
+            rewardRow(
+                "Block Reward",
+                networkStats.blockRewardKas.map(PortfolioFormat.kas) ?? "—"
+            )
+            Divider()
+            rewardRow(
+                "Next Block Reward",
+                networkStats.nextBlockRewardKas.map(PortfolioFormat.kas) ?? "—"
+            )
+            Divider()
+            rewardRow(
+                "Next Reward Date",
+                networkStats.nextHalvingDate.map {
+                    $0.formatted(.dateTime.month(.abbreviated).day().year())
+                } ?? "—"
+            )
+        }
+        .padding(.vertical, 4)
+        .background(portfolioGlassBackground(cornerRadius: 18))
+    }
+
+    private func rewardRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).font(.subheadline).foregroundColor(.secondary)
+            Spacer()
+            Text(value).font(.body).fontWeight(.semibold)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 
     private var explanation: some View {

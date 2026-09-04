@@ -127,13 +127,17 @@ struct ProfileView: View {
                     Button {
                         showNotifCenter = true
                     } label: {
+                        // The dot is drawn INSIDE the padded bounds rather than offset out
+                        // past the glyph's corner. A toolbar item clips to its own frame, so an
+                        // outward offset put most of the dot outside it and the badge came out
+                        // as a sliver.
                         Image(systemName: "bell")
+                            .padding(4)
                             .overlay(alignment: .topTrailing) {
                                 if notifCenter.unreadCount > 0 {
                                     Circle()
                                         .fill(Color.red)
                                         .frame(width: 8, height: 8)
-                                        .offset(x: 5, y: -3)
                                 }
                             }
                     }
