@@ -267,10 +267,15 @@ struct PassphraseOptionView: View {
             Text("Your chatting address")
                 .font(.caption)
                 .foregroundColor(.secondary)
+            // Every character, wrapped over as many lines as it takes. This is the one place the
+            // address has to be readable in full: truncating it would hide exactly the part that
+            // changes when the passphrase does, which is the whole reason it is on screen.
             Text(previewAddress ?? "Checking...")
                 .font(.system(.footnote, design: .monospaced))
                 .foregroundColor(previewAddress == nil ? .secondary : .primary)
-                .lineLimit(2)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
                 .animation(.none, value: previewAddress)
             Text(passphrase.isEmpty
                  ? "This is the account your seed phrase opens on its own."
