@@ -298,7 +298,6 @@
 "Leave & Delete" = "离开并删除";
 "Leaving this broadcast permanently deletes every message cached for it on this device. This cannot be undone - rejoining later starts with no history." = "离开此广播将永久删除此设备上为其缓存的每条消息。此操作无法撤销 - 之后重新加入将没有历史记录。";
 "Let's add more details about yourself" = "让我们添加更多关于您的详细信息";
-"Let's fund your chatting address so that you can start chatting with people. 5-10 Kaspa is enough. (1 KAS is about ~500 messages)" = "让我们为您的聊天地址充值，以便您可以开始与他人聊天。5-10 Kaspa 就足够了。（1 KAS 大约相当于 500 条消息）";
 "Let's walk through the basics so you're ready to send your first message." = "让我们了解一下基本知识，以便您准备好发送第一条消息。";
 "Link System Contact" = "链接系统 联系方式";
 "Link from Contacts" = "从联系人关联";
@@ -656,7 +655,6 @@
 "When on, you'll only get notified about messages that @mention you - other messages still show up in the chat, just silently." = "开启后,您只会收到 @提及 您的消息的通知 - 其他消息仍会显示在聊天中,只是不会有通知。";
 "When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, click the hand icon to send a request to communicate which will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)" = "当您在 KaChat 上给新对象发送消息时,对方不会收到通知,您的消息将保持隐藏,直到对方回复您或也将您添加。这可以防止垃圾信息并提高您的隐私。如果您希望对方收到通知,请点击手形图标发送通信请求,费用为 0.2 KAS。(注意:所有非 KaChat 的消息应用都需要发送通信请求)";
 "When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, hold the send button and slide up to request to communicate. This will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)" = "当你在KaChat上给新联系人发消息时，对方不会收到通知，你的消息会保持隐藏状态，直到对方也给你发消息或添加你为止。这可以防止垃圾信息并提高你的隐私安全。如果你希望对方收到通知，请长按发送按钮并向上滑动以请求建立通讯。此操作将花费0.2 KAS。（注意：所有非KaChat的消息应用都需要发送通讯请求）";
-"Where you send and receive Kaspa you intend to use as money." = "您在此发送和接收打算用作货币的 Kaspa。";
 "Wipe Account & Messages" = "清除账户和消息";
 "Wipe Incoming Messages" = "清除接收消息";
 "Wipe Local & iCloud Data" = "清除本地和 iCloud 数据";

@@ -298,7 +298,6 @@
 "Leave & Delete" = "나가기 및 삭제";
 "Leaving this broadcast permanently deletes every message cached for it on this device. This cannot be undone - rejoining later starts with no history." = "이 방송을 나가면 이 기기에 캐시된 모든 메시지가 영구적으로 삭제됩니다. 되돌릴 수 없습니다 - 나중에 다시 참여하면 기록 없이 시작됩니다.";
 "Let's add more details about yourself" = "당신에 대한 세부 정보를 더 추가해 봅시다";
-"Let's fund your chatting address so that you can start chatting with people. 5-10 Kaspa is enough. (1 KAS is about ~500 messages)" = "사람들과 채팅을 시작할 수 있도록 채팅 주소를 충전해 봅시다. 5-10 Kaspa면 충분합니다. (1 KAS는 약 500개의 메시지에 해당합니다)";
 "Let's walk through the basics so you're ready to send your first message." = "첫 메시지를 보낼 준비가 되도록 기본 사항을 살펴보겠습니다.";
 "Link System Contact" = "링크 시스템 연락처";
 "Link from Contacts" = "연락처에서 연결";
@@ -656,7 +655,6 @@
 "When on, you'll only get notified about messages that @mention you - other messages still show up in the chat, just silently." = "켜져 있으면 @멘션된 메시지에 대해서만 알림을 받습니다 - 다른 메시지는 알림 없이 채팅에 계속 표시됩니다.";
 "When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, click the hand icon to send a request to communicate which will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)" = "KaChat에서 새로운 사람에게 메시지를 보내면 상대방은 알림을 받지 않으며 상대방이 답장하거나 당신을 추가할 때까지 메시지가 숨겨진 상태로 유지됩니다. 이는 스팸을 방지하고 개인정보 보호를 강화합니다. 상대방에게 알리고 싶다면 손 아이콘을 탭하여 0.2 KAS의 비용이 드는 통신 요청을 보내세요. (참고: KaChat이 아닌 모든 메시징 앱은 통신 요청이 필요합니다)";
 "When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, hold the send button and slide up to request to communicate. This will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)" = "KaChat에서 새로운 사람에게 메시지를 보내면, 상대방은 알림을 받지 못하고 상대방도 당신에게 메시지를 보내거나 추가할 때까지 메시지가 숨겨진 상태로 유지됩니다. 이는 스팸을 방지하고 개인정보를 보호해 줍니다. 상대방에게 알림을 보내고 싶다면, 보내기 버튼을 길게 누른 후 위로 밀어서 대화를 요청하세요. 비용은 0.2 KAS입니다. (참고: KaChat 이외의 모든 메시징 앱은 대화 요청이 필요합니다)";
-"Where you send and receive Kaspa you intend to use as money." = "돈으로 사용하려는 Kaspa를 보내고 받는 곳입니다.";
 "Wipe Account & Messages" = "계정 및 메시지 삭제";
 "Wipe Incoming Messages" = "수신 메시지 삭제";
 "Wipe Local & iCloud Data" = "로컬 및 iCloud 데이터 삭제";

@@ -298,7 +298,6 @@
 "Leave & Delete" = "Keluar & Hapus";
 "Leaving this broadcast permanently deletes every message cached for it on this device. This cannot be undone - rejoining later starts with no history." = "Meninggalkan siaran ini akan menghapus secara permanen semua pesan yang tersimpan untuk siaran ini di perangkat ini. Ini tidak dapat dibatalkan - bergabung kembali nanti akan dimulai tanpa riwayat.";
 "Let's add more details about yourself" = "Mari tambahkan lebih banyak detail tentang Anda";
-"Let's fund your chatting address so that you can start chatting with people. 5-10 Kaspa is enough. (1 KAS is about ~500 messages)" = "Mari isi saldo alamat obrolan Anda agar dapat mulai mengobrol. 5-10 Kaspa sudah cukup. (1 KAS setara ~500 pesan)";
 "Let's walk through the basics so you're ready to send your first message." = "Mari pelajari dasar-dasarnya agar Anda siap mengirim pesan pertama.";
 "Link System Contact" = "Tautkan Kontak Sistem";
 "Link from Contacts" = "Tautkan dari Kontak";
@@ -656,7 +655,6 @@
 "When on, you'll only get notified about messages that @mention you - other messages still show up in the chat, just silently." = "Saat aktif, Anda hanya akan diberi tahu tentang pesan yang menyebut (@mention) Anda - pesan lain tetap muncul tanpa suara.";
 "When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, click the hand icon to send a request to communicate which will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)" = "Saat mengirim pesan ke orang baru di KaChat, mereka tidak mendapat notifikasi dan pesan Anda tersembunyi hingga mereka membalas. Untuk memberi tahu mereka, klik ikon tangan untuk mengirim permintaan komunikasi seharga 0.2 KAS.";
 "When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, hold the send button and slide up to request to communicate. This will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)" = "Saat mengirim pesan ke orang baru di KaChat, mereka tidak mendapat notifikasi dan pesan Anda tersembunyi hingga mereka membalas. Untuk memberi tahu mereka, tahan tombol kirim lalu geser ke atas untuk mengirim permintaan komunikasi seharga 0.2 KAS.";
-"Where you send and receive Kaspa you intend to use as money." = "Tempat Anda mengirim dan menerima Kaspa yang ingin Anda gunakan sebagai mata uang.";
 "Wipe Account & Messages" = "Hapus Bersih Akun & Pesan";
 "Wipe Incoming Messages" = "Hapus Bersih Pesan Masuk";
 "Wipe Local & iCloud Data" = "Hapus Bersih Data Lokal & iCloud";

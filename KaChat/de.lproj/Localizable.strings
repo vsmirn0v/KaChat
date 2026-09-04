@@ -267,7 +267,6 @@
 "Leave" = "Verlassen";
 "Leave & Delete" = "Verlassen & löschen";
 "Let's add more details about yourself" = "Lass uns mehr Details über dich hinzufügen";
-"Let's fund your chatting address so that you can start chatting with people. 5-10 Kaspa is enough. (1 KAS is about ~500 messages)" = "Lass uns deine Chat-Adresse aufladen, damit du mit anderen chatten kannst. 5-10 Kaspa reichen aus. (1 KAS entspricht etwa ~500 Nachrichten)";
 "Let's walk through the basics so you're ready to send your first message." = "Gehen wir die Grundlagen durch, damit du bereit bist, deine erste Nachricht zu senden.";
 "Link System Contact" = "Systemkontakt verknüpfen";
 "Link from Contacts" = "Aus Kontakten verknüpfen";
@@ -609,7 +608,6 @@
 "Welcome to KaChat!" = "Willkommen bei KaChat!";
 "When on, you'll only get notified about messages that @mention you - other messages still show up in the chat, just silently." = "Wenn aktiviert, wirst du nur über Nachrichten benachrichtigt, die dich @erwähnen - andere Nachrichten werden immer noch im Chat angezeigt, nur lautlos.";
 "When you message someone new on KaChat, they won't get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy." = "Wenn du jemand Neuem auf KaChat schreibst, erhält die Person keine Benachrichtigung und deine Nachricht bleibt verborgen, bis sie dir antwortet oder dich ebenfalls hinzufügt. Dies schützt vor Spam und erhöht deine Privatsphäre.";
-"Where you send and receive Kaspa you intend to use as money." = "Wo du Kaspa sendest und empfängst, das du als Geld verwenden möchtest.";
 "Wipe Account & Messages" = "Konto & Nachrichten löschen";
 "Wipe Incoming Messages" = "Eingehende Nachrichten löschen";
 "Wipe Local & iCloud Data" = "Lokale & iCloud-Daten löschen";

@@ -298,7 +298,6 @@
 "Leave & Delete" = "退出して削除";
 "Leaving this broadcast permanently deletes every message cached for it on this device. This cannot be undone - rejoining later starts with no history." = "このブロードキャストを退出すると、このデバイスにキャッシュされているすべてのメッセージが完全に削除されます。これは元に戻せません - 後で再参加すると履歴なしで開始されます。";
 "Let's add more details about yourself" = "あなたについての詳細をもっと追加しましょう";
-"Let's fund your chatting address so that you can start chatting with people. 5-10 Kaspa is enough. (1 KAS is about ~500 messages)" = "他の人とチャットを始められるように、チャットアドレスに入金しましょう。5〜10 Kaspaで十分です。（1 KASで約500メッセージ分）";
 "Let's walk through the basics so you're ready to send your first message." = "最初のメッセージを送信する準備ができるよう、基本を確認しましょう。";
 "Link System Contact" = "リンクシステムお問い合わせ先";
 "Link from Contacts" = "連絡先からリンク";
@@ -656,7 +655,6 @@
 "When on, you'll only get notified about messages that @mention you - other messages still show up in the chat, just silently." = "オンにすると、@であなたがメンションされたメッセージについてのみ通知されます - 他のメッセージは通知なしでチャットに表示され続けます。";
 "When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, click the hand icon to send a request to communicate which will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)" = "KaChatで新しい相手にメッセージを送ると、相手には通知が届かず、相手が返信するかあなたを追加するまであなたのメッセージは非表示のままです。これによりスパムから保護され、プライバシーが向上します。相手に通知させたい場合は、手のアイコンをタップして通信リクエストを送信してください。費用は0.2 KASです。(注: KaChat以外のすべてのメッセージングアプリは通信リクエストが必要です)";
 "When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, hold the send button and slide up to request to communicate. This will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)" = "KaChatで新しい相手にメッセージを送ると、相手には通知されず、相手もあなたにメッセージを送るかあなたを追加するまであなたのメッセージは表示されません。これによりスパムを防ぎ、プライバシーが守られます。相手に通知したい場合は、送信ボタンを長押しして上にスライドし、コミュニケーションのリクエストを送信してください。これには0.2 KASかかります。（注：KaChat以外のすべてのメッセージングアプリではコミュニケーションリクエストが必要です）";
-"Where you send and receive Kaspa you intend to use as money." = "お金として使う予定のKaspaを送受信する場所です。";
 "Wipe Account & Messages" = "アカウントとメッセージを消去";
 "Wipe Incoming Messages" = "受信メッセージを消去";
 "Wipe Local & iCloud Data" = "ローカルとiCloudデータを消去";

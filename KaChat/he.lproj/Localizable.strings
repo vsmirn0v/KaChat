@@ -298,7 +298,6 @@
 "Leave & Delete" = "עזוב ומחק";
 "Leaving this broadcast permanently deletes every message cached for it on this device. This cannot be undone - rejoining later starts with no history." = "עזיבת השידור הזה מוחקת לצמיתות כל הודעה שנשמרה במטמון עבורו במכשיר זה. לא ניתן לבטל זאת - הצטרפות מחדש מאוחר יותר מתחילה ללא היסטוריה.";
 "Let's add more details about yourself" = "בואו נוסיף עוד פרטים עליך";
-"Let's fund your chatting address so that you can start chatting with people. 5-10 Kaspa is enough. (1 KAS is about ~500 messages)" = "בואו נממן את כתובת הצ'אט שלך כדי שתוכל להתחיל לשוחח עם אנשים. 5-10 Kaspa מספיקים. (1 KAS שווה בערך ל-500 הודעות)";
 "Let's walk through the basics so you're ready to send your first message." = "בואו נעבור על היסודות כדי שתהיו מוכנים לשלוח את ההודעה הראשונה שלכם.";
 "Link System Contact" = "קישור מערכת איש קשר";
 "Link from Contacts" = "קשר מאנשי קשר";
@@ -656,7 +655,6 @@
 "When on, you'll only get notified about messages that @mention you - other messages still show up in the chat, just silently." = "כאשר מופעל, תקבל התראות רק על הודעות שמתייגות אותך ב-@ - הודעות אחרות עדיין מופיעות בצ'אט, רק בשקט.";
 "When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, click the hand icon to send a request to communicate which will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)" = "כשאתה שולח הודעה למישהו חדש ב-KaChat, הוא לא יקבל התראה וההודעה שלך תישאר מוסתרת עד שהוא ישיב לך או גם יוסיף אותך. זה מגן מפני ספאם ומגביר את הפרטיות שלך. אם אתה רוצה שהוא יקבל התראה, הקש על סמל היד כדי לשלוח בקשת תקשורת שתעלה 0.2 KAS. (הערה: כל אפליקציות ההודעות שאינן KaChat ידרשו בקשת תקשורת)";
 "When you message someone new on KaChat, they won’t get a notification and your message stays hidden until they message you back or add as well. This protects against spam and increases your privacy. If you want them to be notified, hold the send button and slide up to request to communicate. This will cost 0.2 KAS. (Note: all non KaChat messaging apps will require a request to communicate)" = "כשאתה שולח הודעה למישהו חדש ב-KaChat, הוא לא יקבל התראה וההודעה שלך תישאר מוסתרת עד שגם הוא ישלח לך הודעה או יוסיף אותך. זה מגן מפני ספאם ומגביר את הפרטיות שלך. אם אתה רוצה שהוא יקבל התראה, לחץ לחיצה ארוכה על כפתור השליחה והחלק למעלה כדי לבקש תקשורת. זה יעלה 0.2 KAS. (הערה: כל אפליקציות ההודעות שאינן KaChat ידרשו בקשת תקשורת)";
-"Where you send and receive Kaspa you intend to use as money." = "היכן שאתה שולח ומקבל Kaspa שבכוונתך להשתמש בו ככסף.";
 "Wipe Account & Messages" = "מחק חשבון והודעות";
 "Wipe Incoming Messages" = "מחק הודעות נכנסות";
 "Wipe Local & iCloud Data" = "מחק נתונים מקומיים ו-iCloud";

@@ -716,7 +716,7 @@ struct WelcomeGuideView: View {
         scaffold(
             icon: "qrcode",
             title: "Fund Your Chatting Address",
-            body: "Let's fund your chatting address so that you can start chatting with people. 5-10 Kaspa is enough. (1 KAS is about ~500 messages)",
+            body: "50 Kaspa is recommended to get started to be able to create a KNS profile and chat for a while. 5 Kaspa is enough for about 1500 messages",
             buttonTitle: "Next",
             extra: {
                 VStack(spacing: 12) {
@@ -1002,7 +1002,7 @@ struct WelcomeGuideView: View {
                             icon: "dollarsign.circle.fill",
                             title: "Spending Address",
                             address: walletManager.currentSpendingAddress() ?? "",
-                            caption: "Where you send and receive Kaspa you intend to use as money."
+                            caption: "Where you send and receive Kaspa you intend to use for everything else."
                         )
                     }
                     .padding(.horizontal, 24)
