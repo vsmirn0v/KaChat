@@ -381,12 +381,41 @@ extension ChatService {
     ///   - pageSize: Number of transactions per page (default: 50)
     ///   - maxTransactions: Maximum total transactions to fetch (default: 10000)
     /// - Returns: Array of all fetched transactions
+    /// Whether a history fetch actually finished, alongside what it got.
+    ///
+    /// `complete == false` means a page failed after its retries - the list is a partial answer,
+    /// not the address's real history. Callers that render a list need this: without it a
+    /// rate-limited or timed-out request is indistinguishable from an address with no
+    /// transactions, and "No transactions yet." is a confident lie about someone's money.
+    struct HistoryFetchResult {
+        let transactions: [KaspaFullTransactionResponse]
+        let complete: Bool
+    }
+
+    /// Retry the SAME page on a growing pause before giving up on it. api.kaspa.org is a shared
+    /// public endpoint that rate-limits, and a single 429 used to end the whole fetch.
+    private static let historyPageRetryDelaysSeconds: [Double] = [0, 0.6, 2, 5]
+
     func fetchFullTransactionsPaginated(
         for address: String,
         stopAtBlockTime: UInt64 = 0,
         pageSize: Int = 50,
         maxTransactions: Int = 10000
     ) async -> [KaspaFullTransactionResponse] {
+        await fetchFullTransactionsResult(
+            for: address,
+            stopAtBlockTime: stopAtBlockTime,
+            pageSize: pageSize,
+            maxTransactions: maxTransactions
+        ).transactions
+    }
+
+    func fetchFullTransactionsResult(
+        for address: String,
+        stopAtBlockTime: UInt64 = 0,
+        pageSize: Int = 50,
+        maxTransactions: Int = 10000
+    ) async -> HistoryFetchResult {
         var allTransactions: [KaspaFullTransactionResponse] = []
         var offset = 0
         var pageCount = 0
@@ -408,58 +437,76 @@ extension ChatService {
                 AppLog.log("[ChatService] Kaspa API URL: %@", url.absoluteString)
             }
 
-            do {
-                let (data, response) = try await URLSession.shared.data(from: url)
-
-                guard let httpResponse = response as? HTTPURLResponse,
-                      (200...299).contains(httpResponse.statusCode) else {
-                    AppLog.log("[ChatService] Kaspa API returned non-2xx status")
-                    break
+            // This page, retried on a backoff. Nil means every attempt failed, which is a
+            // genuinely incomplete fetch rather than the end of the list.
+            var pageTransactions: [KaspaFullTransactionResponse]?
+            for (attempt, delay) in Self.historyPageRetryDelaysSeconds.enumerated() {
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
-
-                let transactions = try JSONDecoder().decode([KaspaFullTransactionResponse].self, from: data)
-
-                if transactions.isEmpty {
-                    break
-                }
-
-                allTransactions.append(contentsOf: transactions)
-
-                // Check if we've reached transactions older than our stop time
-                if stopAtBlockTime > 0 {
-                    // Find the oldest transaction in this batch
-                    let oldestBlockTime = transactions.compactMap { $0.blockTime }.min() ?? 0
-                    if oldestBlockTime > 0 && oldestBlockTime <= stopAtBlockTime {
-                        AppLog.log("[ChatService] Pagination: reached transactions older than stopAtBlockTime, stopping")
-                        break
+                if Task.isCancelled { return HistoryFetchResult(transactions: allTransactions, complete: false) }
+                do {
+                    let (data, response) = try await URLSession.shared.data(from: url)
+                    guard let httpResponse = response as? HTTPURLResponse else { continue }
+                    guard (200...299).contains(httpResponse.statusCode) else {
+                        // 4xx other than 429 will not improve by asking again.
+                        let worthRetrying = httpResponse.statusCode == 429 || httpResponse.statusCode >= 500
+                        AppLog.log("[ChatService] History page %d: HTTP %d%@",
+                                   pageCount, httpResponse.statusCode, worthRetrying ? " (retrying)" : "")
+                        if !worthRetrying { break }
+                        continue
                     }
-                }
-
-                // If we got fewer than pageSize, we've reached the end
-                if transactions.count < pageSize {
+                    pageTransactions = try JSONDecoder().decode([KaspaFullTransactionResponse].self, from: data)
                     break
+                } catch {
+                    AppLog.log("[ChatService] History page %d attempt %d failed: %@",
+                               pageCount, attempt + 1, error.localizedDescription)
                 }
+            }
 
-                // Continue to next page
-                offset += pageSize
-                pageCount += 1
+            guard let transactions = pageTransactions else {
+                // Out of retries. Hand back what we have, marked incomplete, so the caller can
+                // say so rather than presenting a short list as the whole story.
+                return HistoryFetchResult(transactions: allTransactions, complete: false)
+            }
 
-                if pageCount > 0 {
-                    AppLog.log("[ChatService] Pagination: fetched page %d, total transactions: %d, offset: %d",
-                          pageCount + 1, allTransactions.count, offset)
-                }
-
-            } catch {
-                AppLog.log("[ChatService] Pagination error: %@", error.localizedDescription)
+            if transactions.isEmpty {
                 break
             }
+
+            allTransactions.append(contentsOf: transactions)
+
+            // Check if we've reached transactions older than our stop time
+            if stopAtBlockTime > 0 {
+                // Find the oldest transaction in this batch
+                let oldestBlockTime = transactions.compactMap { $0.blockTime }.min() ?? 0
+                if oldestBlockTime > 0 && oldestBlockTime <= stopAtBlockTime {
+                    AppLog.log("[ChatService] Pagination: reached transactions older than stopAtBlockTime, stopping")
+                    break
+                }
+            }
+
+            // If we got fewer than pageSize, we've reached the end
+            if transactions.count < pageSize {
+                break
+            }
+
+            // Continue to next page
+            offset += pageSize
+            pageCount += 1
+
+            if pageCount > 0 {
+                AppLog.log("[ChatService] Pagination: fetched page %d, total transactions: %d, offset: %d",
+                      pageCount + 1, allTransactions.count, offset)
+            }
+
         }
 
         if allTransactions.count >= maxTransactions {
             AppLog.log("[ChatService] Pagination: reached max transactions limit (%d)", maxTransactions)
         }
 
-        return allTransactions
+        return HistoryFetchResult(transactions: allTransactions, complete: true)
     }
 
     func processHandshakes(_ handshakes: [HandshakeResponse], isOutgoing: Bool, myAddress: String, privateKey: Data?) async {

@@ -2192,6 +2192,10 @@ private struct SpendingAddressTransactionHistoryView: View {
 
     @State private var selectedTab: Tab = .transactions
     @State private var transactions: [KaspaFullTransactionResponse] = []
+    /// The last history fetch gave up partway. Kept separate from `transactions.isEmpty` because
+    /// the two mean opposite things and used to render identically: a rate-limited request looked
+    /// exactly like an address that has never been used.
+    @State private var historyIncomplete = false
     @State private var isLoading = false
     @State private var utxos: [UTXO] = []
     @State private var isLoadingUtxos = false
@@ -2375,10 +2379,28 @@ private struct SpendingAddressTransactionHistoryView: View {
                     ProgressView()
                     Spacer()
                 }
+            } else if transactions.isEmpty && historyIncomplete {
+                // A failed fetch is not an empty history. Saying "No transactions yet." here was
+                // a confident answer about someone's money that the app had not actually got.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Could not load transactions.")
+                        .foregroundColor(.secondary)
+                    Button("Try Again") {
+                        Task { await loadTransactions() }
+                    }
+                    .font(.subheadline.weight(.semibold))
+                }
             } else if transactions.isEmpty {
                 Text("No transactions yet.")
                     .foregroundColor(.secondary)
             } else {
+                if historyIncomplete {
+                    // Some pages landed, some did not. Say so rather than letting a truncated
+                    // list read as the whole history.
+                    Text("Some transactions could not be loaded. Pull to refresh to try again.")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
                 ForEach(transactions, id: \.transactionId) { tx in
                     Button {
                         Haptics.impact(.light)
@@ -2632,7 +2654,9 @@ private struct SpendingAddressTransactionHistoryView: View {
         isLoading = true
         // Confirmed live against api.kaspa.org that limit=500 works fine in a single call
         // (~0.7s) - cuts this from up to 4 sequential round trips down to 1.
-        transactions = await chatService.fetchFullTransactionsPaginated(for: entry.address, pageSize: 200, maxTransactions: 200)
+        let result = await chatService.fetchFullTransactionsResult(for: entry.address, pageSize: 200, maxTransactions: 200)
+        transactions = result.transactions
+        historyIncomplete = !result.complete
         isLoading = false
     }
 
