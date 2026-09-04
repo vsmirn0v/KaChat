@@ -73,8 +73,8 @@ struct CreateWalletView: View {
                     .font(.headline)
 
                 Picker("Seed Phrase Length", selection: $wordCount) {
-                    Text("24 words (recommended)").tag(24)
                     Text("12 words").tag(12)
+                    Text("24 words").tag(24)
                 }
                 .pickerStyle(.segmented)
             }

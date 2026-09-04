@@ -42,8 +42,8 @@ struct ImportWalletView: View {
 
             // Word-count selector
             Picker("", selection: $seedWordCount) {
-                Text("24 words").tag(24)
                 Text("12 words").tag(12)
+                Text("24 words").tag(24)
             }
             .pickerStyle(.segmented)
 
