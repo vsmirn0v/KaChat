@@ -196,6 +196,29 @@ struct GroupChatDetailView: View {
 
     private var myAddress: String? { walletManager.currentWallet?.publicAddress }
 
+    private func emojiPickerSheet(targetTxId: String) -> some View {
+        EmojiReactionPicker { emoji in
+            toggleGroupReaction(targetTxId: targetTxId, emoji: emoji)
+        }
+    }
+
+    /// Adds the reaction, or removes it when it is the one already on this message from us -
+    /// the same toggle the quick bar performs.
+    private func toggleGroupReaction(targetTxId: String, emoji: String) {
+        let reactions: [GroupStore.ReactionSnapshot] =
+            groupChatService.reactionsByGroupId[group.id]?[targetTxId] ?? []
+        let mine = reactions.first { $0.reactorAddress == myAddress }
+        let action = mine?.emoji == emoji ? "remove" : "add"
+        Task {
+            try? await groupChatService.sendGroupReaction(
+                targetTxId: targetTxId,
+                groupId: group.id,
+                emoji: emoji,
+                action: action
+            )
+        }
+    }
+
     /// Zero-balance compose gate - same trigger as 1:1 chat (confirmed 0 KAS only, never on an
     /// unknown/still-loading balance). See `WalletManager.hasConfirmedZeroChattingBalance`.
     private var isChattingBalanceZero: Bool {
@@ -584,14 +607,11 @@ struct GroupChatDetailView: View {
         } message: {
             Text("This only deletes the message from this device - other members still have their own copy, and the encrypted transaction remains permanently on the Kaspa blockchain, visible to anyone but unreadable without your keys. This cannot be undone.")
         }
+        // Body extracted to a method with an explicit return type: inline, the nested
+        // optional-chained dictionary lookup inside a closure inside this already-long modifier
+        // chain pushed the type checker past its budget and it failed the whole expression.
         .sheet(item: $emojiPickerTarget) { target in
-            EmojiReactionPicker { emoji in
-                let existing = groupChatService.reactionsByGroupId[group.id]?[target.id]?.first { $0.reactorAddress == myAddress }
-                let action = existing?.emoji == emoji ? "remove" : "add"
-                Task {
-                    try? await groupChatService.sendGroupReaction(targetTxId: target.id, groupId: group.id, emoji: emoji, action: action)
-                }
-            }
+            emojiPickerSheet(targetTxId: target.id)
         }
         .sheet(item: $reactionsSheetTarget) { target in
             ReactionsSheet(

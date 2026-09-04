@@ -70,6 +70,28 @@ struct BroadcastChannelView: View {
         walletManager.currentWallet?.publicAddress
     }
 
+    private func emojiPickerSheet(targetTxId: String) -> some View {
+        EmojiReactionPicker { emoji in
+            toggleBroadcastReaction(targetTxId: targetTxId, emoji: emoji)
+        }
+    }
+
+    /// Adds the reaction, or removes it when it is the one already on this message from us -
+    /// the same toggle the quick bar performs.
+    private func toggleBroadcastReaction(targetTxId: String, emoji: String) {
+        let reactions = broadcastService.reactions(forChannel: channelName)[targetTxId] ?? []
+        let mine = reactions.first { $0.reactorAddress == myAddress }
+        let action = mine?.emoji == emoji ? "remove" : "add"
+        Task {
+            try? await broadcastService.sendBroadcastReaction(
+                channel: channelName,
+                targetTxId: targetTxId,
+                emoji: emoji,
+                action: action
+            )
+        }
+    }
+
     /// Zero-balance compose gate - same trigger as 1:1 chat (confirmed 0 KAS only, never on an
     /// unknown/still-loading balance). See `WalletManager.hasConfirmedZeroChattingBalance`.
     private var isChattingBalanceZero: Bool {
@@ -131,20 +153,10 @@ struct BroadcastChannelView: View {
     private var chrome: some View {
         navigation
         .toast(message: toastMessage, style: .success)
+        // Extracted, like the group screen's: inline, this closure inside an already-long
+        // modifier chain is the kind of expression the type checker gives up on.
         .sheet(item: $emojiPickerTarget) { target in
-            EmojiReactionPicker { emoji in
-                let existing = broadcastService.reactions(forChannel: channelName)[target.id]?
-                    .first { $0.reactorAddress == myAddress }
-                let action = existing?.emoji == emoji ? "remove" : "add"
-                Task {
-                    try? await broadcastService.sendBroadcastReaction(
-                        channel: channelName,
-                        targetTxId: target.id,
-                        emoji: emoji,
-                        action: action
-                    )
-                }
-            }
+            emojiPickerSheet(targetTxId: target.id)
         }
         .sheet(item: $reactionsSheetTarget) { target in
             ReactionsSheet(

@@ -936,15 +936,10 @@ struct ChatDetailView: View {
                 initialLayoutReady = true
             }
         }
+        // Extracted, like the group screen's: inline, this closure inside an already-long
+        // modifier chain is the kind of expression the type checker gives up on.
         .sheet(item: $emojiPickerTarget) { target in
-            EmojiReactionPicker { emoji in
-                let myAddress = walletManager.currentWallet?.publicAddress ?? ""
-                let existing = chatService.reactionsByTxId[target.id]?.first { $0.reactorAddress == myAddress }
-                let action = existing?.emoji == emoji ? "remove" : "add"
-                Task {
-                    try? await chatService.sendReaction(to: contact, targetTxId: target.id, emoji: emoji, action: action)
-                }
-            }
+            emojiPickerSheet(targetTxId: target.id)
         }
         .onDisappear {
             // Take the keyboard down before this view goes. Popping with it still up leaves its
@@ -2843,6 +2838,24 @@ struct ChatDetailView: View {
             await MainActor.run {
                 isSending = false
             }
+        }
+    }
+
+    private func emojiPickerSheet(targetTxId: String) -> some View {
+        EmojiReactionPicker { emoji in
+            toggleReaction(targetTxId: targetTxId, emoji: emoji)
+        }
+    }
+
+    /// Adds the reaction, or removes it when it is the one already on this message from us -
+    /// the same toggle the quick bar performs.
+    private func toggleReaction(targetTxId: String, emoji: String) {
+        let myAddress = walletManager.currentWallet?.publicAddress ?? ""
+        let reactions = chatService.reactionsByTxId[targetTxId] ?? []
+        let mine = reactions.first { $0.reactorAddress == myAddress }
+        let action = mine?.emoji == emoji ? "remove" : "add"
+        Task {
+            try? await chatService.sendReaction(to: contact, targetTxId: targetTxId, emoji: emoji, action: action)
         }
     }
 
