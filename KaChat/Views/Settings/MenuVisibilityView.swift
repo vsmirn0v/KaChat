@@ -22,14 +22,35 @@ import UniformTypeIdentifiers
 /// Profile because it is the way to Settings and your accounts.
 struct MenuVisibilityView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Set when a tap cannot be honoured, so the reason appears where the tap happened instead of
     /// the tap looking like it did nothing.
     @State private var refusal: String?
 
+    /// The arrangement being edited, which is NOT the live one until this screen is left.
+    ///
+    /// This screen is pushed from Settings, which lives inside the Profile tab. Writing the real
+    /// `dockTabs` on every move changes `AppTab.visible(from:)`, which is the collection
+    /// `MainTabView`'s TabView builds its pages from - so every single move tore down and rebuilt
+    /// the tab pages underneath this screen, including the navigation stack this screen is sitting
+    /// in. That threw the user out of the screen and could leave a tab rendering black, which is
+    /// the same failure `MainTabView` already guards against for tabs that disappear entirely.
+    ///
+    /// Under a drag-only design it took a deliberate gesture to hit that. Now a single tap moves a
+    /// tab, so it happened on every tap. The bottom of this screen is already an accurate picture
+    /// of the dock, so nothing is lost by leaving the real one alone until the user is done.
+    @State private var draftDock: [AppTab] = []
+    @State private var draftHub: [AppTab] = []
+    /// Guards against persisting before the drafts have been seeded, which would save two empty
+    /// lists over a real arrangement.
+    @State private var loaded = false
+
     private var settings: AppSettings { settingsViewModel.settings }
-    private var dockTabs: [AppTab] { AppTab.visible(from: settings) }
-    private var hubTabs: [AppTab] { AppTab.ecosystemSections(from: settings) }
+    // Falling back to the live arrangement until the drafts are seeded, so the first frame draws
+    // the real dock rather than an empty one.
+    private var dockTabs: [AppTab] { loaded ? draftDock : AppTab.visible(from: settings) }
+    private var hubTabs: [AppTab] { loaded ? draftHub : AppTab.ecosystemSections(from: settings) }
     private var dockIsFull: Bool { dockTabs.count >= AppTab.maxDockItems }
 
     /// Three across, matching `EcosystemView`'s grid - the point of this screen is that it looks
@@ -75,6 +96,18 @@ struct MenuVisibilityView: View {
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             dockPreview
+        }
+        .onAppear {
+            guard !loaded else { return }
+            draftDock = AppTab.visible(from: settings)
+            draftHub = AppTab.ecosystemSections(from: settings)
+            loaded = true
+        }
+        .onDisappear { persist() }
+        // Backgrounding is the one way off this screen that never calls onDisappear, and an app
+        // killed from the background would otherwise lose the arrangement.
+        .onChange(of: scenePhase) { phase in
+            if phase != .active { persist() }
         }
     }
 
@@ -204,13 +237,15 @@ struct MenuVisibilityView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
         // Pinned tabs are dimmed rather than hidden: they hold their real dock position, and the
-        // dimming is what says "this one is not yours to move" before you tap it.
+        // dimming is what says "this one is not yours to move OUT" before you tap it. Dragging
+        // them to a different slot is still fine.
         .opacity(tab.isPinnedToDock ? 0.55 : 1)
         .contentShape(Rectangle())
         .onTapGesture { moveToHub(tab) }
-        // Pinned tabs render but do not lift. Reordering them would be harmless, but a tab that
-        // refuses a tap and accepts a drag is a worse story than one that simply sits still.
-        .ifDraggable(!tab.isPinnedToDock, tab: tab)
+        // Pinned tabs drag like the rest: what they cannot do is LEAVE the dock, and reordering
+        // never moves anything out of it. Where Kaspa Hub and Profile sit among the five is still
+        // the user's, and the dimming plus the refused tap is what says so.
+        .draggable(tab)
     }
 
     private var emptyDockSlot: some View {
@@ -268,7 +303,8 @@ struct MenuVisibilityView: View {
 
     /// Drags reorder and nothing else, which is enforced here rather than at the drag source:
     /// membership is the check, so a tab dragged out of the dock and dropped on a Hub tile is
-    /// simply refused instead of moving by a gesture the screen says is for ordering.
+    /// simply refused instead of moving by a gesture the screen says is for ordering. That is also
+    /// what lets the pinned tabs drag freely - a reorder cannot evict anything by construction.
     private func reorderDock(_ tab: AppTab, before target: AppTab) -> Bool {
         guard tab != target, dockTabs.contains(tab), let targetIndex = dockTabs.firstIndex(of: target) else {
             return false
@@ -302,9 +338,19 @@ struct MenuVisibilityView: View {
         Haptics.impact(.light)
         withAnimation(.snappy(duration: 0.22)) {
             refusal = nil
-            settingsViewModel.settings.dockTabs = dock.map(\.rawValue)
-            settingsViewModel.settings.hubTabs = hub.map(\.rawValue)
+            draftDock = dock
+            draftHub = hub
         }
+    }
+
+    /// Writes the draft to the real settings, and so rebuilds the tab bar - once, on the way out.
+    private func persist() {
+        guard loaded else { return }
+        let dock = draftDock.map(\.rawValue)
+        let hub = draftHub.map(\.rawValue)
+        guard dock != settings.dockTabs || hub != settings.hubTabs else { return }
+        settingsViewModel.settings.dockTabs = dock
+        settingsViewModel.settings.hubTabs = hub
         settingsViewModel.saveSettings()
     }
 }
@@ -324,18 +370,4 @@ extension UTType {
     /// App-private type: dragging a tab out of KaChat into another app should do nothing, and a
     /// public type like `.text` would let it land somewhere as a stray word.
     static let kaChatAppTab = UTType(exportedAs: "com.kachat.app.apptab")
-}
-
-private extension View {
-    /// `.draggable` applied conditionally without an `if` in the view tree - a structural branch
-    /// here would give the pinned and unpinned cases different identities and re-create the item
-    /// whenever one changed.
-    @ViewBuilder
-    func ifDraggable(_ enabled: Bool, tab: AppTab) -> some View {
-        if enabled {
-            self.draggable(tab)
-        } else {
-            self
-        }
-    }
 }
