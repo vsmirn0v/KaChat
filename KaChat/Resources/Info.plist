@@ -16,21 +16,6 @@
 	<string>Face ID is used to unlock your seed phrase and sign back in, when enabled in Settings.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>KaChat uses the camera to let you take a photo to send in a chat.</string>
-	<!-- Drag payload for Settings > Customize Dock. App-private on purpose: dragging a tab out
-	     of KaChat should do nothing, which a public type like text would not guarantee. -->
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.kachat.app.apptab</string>
-			<key>UTTypeDescription</key>
-			<string>KaChat Tab</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-		</dict>
-	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.kachat.app.messageFetch</string>
