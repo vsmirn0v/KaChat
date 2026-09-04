@@ -597,6 +597,7 @@ extension WalletManager {
         var matchCount = 0
         var consecutiveMisses = 0
         var index = 0
+        var matchedIndices: Set<Int> = []
 
         while consecutiveMisses < gapLimit {
             if let onProgress {
@@ -612,11 +613,20 @@ extension WalletManager {
             if matches {
                 lastMatchIndex = index
                 matchCount += 1
+                matchedIndices.insert(index)
                 consecutiveMisses = 0
             } else {
                 consecutiveMisses += 1
             }
             index += 1
+        }
+
+        // Anything the scan matched gets un-hidden. A previously-hidden address that now holds a
+        // balance or a domain would otherwise be found and then dropped straight back out of the
+        // list, which reads as the scan not finding it at all - and hiding is a tidying choice
+        // about empty addresses, not a decision that should outrank a balance.
+        if !matchedIndices.isEmpty {
+            hiddenSpendingIndices.subtract(matchedIndices)
         }
 
         // The stored bound has to cover the highest match so those rows can be derived and shown,

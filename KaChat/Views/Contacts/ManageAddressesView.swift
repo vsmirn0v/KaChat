@@ -2780,8 +2780,11 @@ private struct SpendingAddressVisibilityView: View {
         // offer lifecycle owns them, and they're force-unhidden anyway), never uncheckable
         // (toggle() guards them), labeled so the user knows why.
         let isReserved = reservedAddresses.contains(entry.address)
-        let locked = isPrimary || funded || isReserved
         let visible = !entry.hidden || isReserved
+        // Funded/reserved rows lock only while they are VISIBLE - the rule stops them being
+        // hidden, not shown. A funded row that is currently hidden must stay tappable, or there
+        // is no way back.
+        let locked = isPrimary || ((funded || isReserved) && visible)
         return HStack(spacing: 10) {
             Image(systemName: visible ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 20))
@@ -2865,12 +2868,18 @@ private struct SpendingAddressVisibilityView: View {
     }
 
     private func toggle(_ entry: SpendingAddressEntry) {
-        // Locked rows (primary / funded / payment-pool reserved) don't toggle - mirrors the
-        // server-side guard, against the LIVE primary index (the pointer can rotate while the
-        // sheet is open).
-        guard entry.index != walletManager.currentSpendingAddressIndex,
-              entry.balanceSompi == 0,
-              !reservedAddresses.contains(entry.address) else { return }
+        // The primary never toggles either way, against the LIVE index (the pointer can rotate
+        // while this sheet is open).
+        guard entry.index != walletManager.currentSpendingAddressIndex else { return }
+        // Funded and reserved rows are locked against HIDING only, which is what the rule is
+        // actually for. Applying it in both directions meant a funded address that was already
+        // hidden could never be brought back - the balance that makes it worth seeing was the
+        // very thing preventing it. `setSpendingAddressHidden` has always guarded only the hide
+        // direction; this now matches it.
+        let isHiding = !entry.hidden
+        if isHiding {
+            guard entry.balanceSompi == 0, !reservedAddresses.contains(entry.address) else { return }
+        }
         Task {
             let revealedMax = entries.map(\.index).max() ?? -1
             if entry.index > revealedMax {
