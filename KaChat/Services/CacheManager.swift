@@ -138,7 +138,7 @@ final class CacheManager: ObservableObject {
             await emptyDirectories(directories(for: category))
             // The in-memory half has to go too, or the screen keeps showing what was just
             // deleted from disk until the app is relaunched.
-            await KNSProfileImageCache.shared.resetAfterExternalPurge()
+            await KNSProfileImageCacheControl.resetAfterExternalPurge()
         case .contactPhotos:
             await emptyDirectories(directories(for: category))
         case .temporaryFiles:
@@ -152,7 +152,7 @@ final class CacheManager: ObservableObject {
             await emptyDirectories(directories(for: category))
         }
         URLCache.shared.removeAllCachedResponses()
-        await KNSProfileImageCache.shared.resetAfterExternalPurge()
+        await KNSProfileImageCacheControl.resetAfterExternalPurge()
         await refreshSizes()
     }
 

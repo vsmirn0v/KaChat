@@ -504,13 +504,25 @@ private struct KNSProfileImageDescriptor {
     }
 }
 
-actor KNSProfileImageCache {
+/// The one thing outside this file needs from the image cache: a way to say "the files are gone".
+///
+/// A seam rather than making the actor itself internal - its methods take
+/// `KNSProfileImageDescriptor`, which is private, and an internal method cannot expose a private
+/// type. Widening both to satisfy one call would put the whole caching mechanism into the app's
+/// API surface for no reason.
+enum KNSProfileImageCacheControl {
+    /// Call after deleting the image directory (Settings > Storage > Cache). Without it the
+    /// in-memory cache and the manifest keep describing files that are gone, so the app shows
+    /// avatars that no longer exist on disk until the next launch and never re-downloads them.
+    static func resetAfterExternalPurge() async {
+        await KNSProfileImageCache.shared.resetAfterExternalPurge()
+    }
+}
+
+private actor KNSProfileImageCache {
     static let shared = KNSProfileImageCache()
 
-    /// Called after something outside this actor deletes the image directory (Settings > Storage >
-    /// Cache). Without it the in-memory image cache and the manifest keep describing files that
-    /// are gone, so the screen shows avatars that no longer exist on disk until the next launch
-    /// and no re-download is ever attempted.
+    /// See `KNSProfileImageCacheControl.resetAfterExternalPurge`.
     func resetAfterExternalPurge() {
         memoryCache.removeAllObjects()
         manifest = [:]
