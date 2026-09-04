@@ -92,13 +92,16 @@ struct PassphraseOptionView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(mode == .create
-                 ? "Most people do not need one. You can always create another account with a passphrase later."
-                 : "If you are not sure, the answer is almost certainly no. A passphrase is something you would have typed in on purpose.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+            // Import keeps a line of steer, because someone who has never heard of a passphrase
+            // still has to answer a question about their own past. Create needs none: the choice
+            // is theirs to make, and "What is a passphrase?" is right there if they want it.
+            if mode == .importExisting {
+                Text("If you are not sure, the answer is almost certainly no. A passphrase is something you would have typed in on purpose.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             Spacer(minLength: 0)
 
