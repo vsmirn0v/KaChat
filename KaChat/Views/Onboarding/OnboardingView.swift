@@ -17,11 +17,18 @@ struct OnboardingView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 40) {
-                Spacer()
-                titleSection
-                Spacer()
-                actionButtonsSection
+            // GeometryReader so the accounts list can be told a height that DEMONSTRABLY leaves
+            // room for Create and Import. Sizing it off five rows alone pushed them off the
+            // bottom of the screen on a short phone, and nothing here scrolls the page, so they
+            // were simply unreachable.
+            GeometryReader { proxy in
+                VStack(spacing: hasSavedAccounts ? 20 : 40) {
+                    Spacer(minLength: 0)
+                    titleSection
+                    Spacer(minLength: 0)
+                    actionButtonsSection(availableHeight: proxy.size.height)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             // App-wide settings (Security incl. Child Mode, Appearance/Language/Currency,
             // Connection, Diagnostics) - reachable with NO account active, so a parent can
@@ -103,27 +110,35 @@ struct OnboardingView: View {
         }
     }
 
+    private var hasSavedAccounts: Bool { !walletManager.savedAccounts.isEmpty }
+
+    /// Compacts once there are accounts to show: the 80pt glyph and the tagline are a welcome
+    /// for a first run, and on a returning device they are the reason the list below has nowhere
+    /// to go.
     private var titleSection: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "bubble.left.and.bubble.right.fill")
-                .font(.system(size: 80))
-                .foregroundColor(.accentColor)
+        VStack(spacing: hasSavedAccounts ? 8 : 16) {
+            if !hasSavedAccounts {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 80))
+                    .foregroundColor(.accentColor)
+            }
 
             Text("KaChat")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+                .font(hasSavedAccounts ? .title.weight(.bold) : .largeTitle.weight(.bold))
 
-            Text("Secure messaging on Kaspa BlockDAG")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+            if !hasSavedAccounts {
+                Text("Secure messaging on Kaspa BlockDAG")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 
-    private var actionButtonsSection: some View {
+    private func actionButtonsSection(availableHeight: CGFloat) -> some View {
         VStack(spacing: 16) {
-            if !walletManager.savedAccounts.isEmpty {
-                savedAccountsSection
+            if hasSavedAccounts {
+                savedAccountsSection(availableHeight: availableHeight)
             }
 
             Button {
@@ -158,48 +173,55 @@ struct OnboardingView: View {
         .padding(.bottom, 40)
     }
 
-    /// Five rows plus the gaps between them, past which the list scrolls inside itself rather
-    /// than pushing Create and Import off the bottom of the screen.
-    ///
-    /// `savedAccountRowHeight` is enforced on the row itself, not estimated from its contents -
-    /// the height below has to be exactly right for the arithmetic to hold.
+    /// At most five rows, and never more than the page can spare - Create and Import have to
+    /// stay on screen, and nothing here scrolls the page to reach them.
     private static let visibleSavedAccountRows = 5
     private static let savedAccountRowHeight: CGFloat = 64
     private static let savedAccountRowSpacing: CGFloat = 10
 
-    private var savedAccountsSection: some View {
+    private func savedAccountsSection(availableHeight: CGFloat) -> some View {
         let count = walletManager.savedAccounts.count
-        let overflows = count > Self.visibleSavedAccountRows
-        let cappedHeight = CGFloat(Self.visibleSavedAccountRows) * Self.savedAccountRowHeight
+        let fiveRows = CGFloat(Self.visibleSavedAccountRows) * Self.savedAccountRowHeight
             + CGFloat(Self.visibleSavedAccountRows - 1) * Self.savedAccountRowSpacing
+        // Everything else on this page - compact title, section header, both buttons and the
+        // spacing around them. Whatever is left after that is what the list may take, floored at
+        // two rows so it is always obviously a list.
+        let reservedForRest: CGFloat = 300
+        let twoRows = 2 * Self.savedAccountRowHeight + Self.savedAccountRowSpacing
+        let spare = max(availableHeight - reservedForRest, twoRows)
+        let listHeight = min(fiveRows, spare)
+        let contentHeight = CGFloat(count) * Self.savedAccountRowHeight
+            + CGFloat(max(count - 1, 0)) * Self.savedAccountRowSpacing
+        let overflows = contentHeight > listHeight
+
         return VStack(alignment: .leading, spacing: 10) {
             Text("Saved Accounts")
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if overflows {
-                // A FIXED height, not maxHeight. This sits between two Spacers in a VStack, and
-                // both a ScrollView and a Spacer are flexible vertically - so with only an upper
-                // bound the layout was free to hand the ScrollView its full content height and
-                // squeeze the Spacers instead. At that size there is nothing to scroll: drags
-                // did nothing, and since the row is a Button, a drag that goes nowhere reads as
-                // a tap and signs you in.
-                ScrollView {
-                    savedAccountRows
+                // A List, not a ScrollView. This is a column of Buttons, and in a ScrollView the
+                // buttons won the drag: scrolling did nothing and the attempt registered as a tap
+                // that signed you in. A List is a UICollectionView underneath and gets
+                // scroll-versus-tap right, which is the whole reason to reach for one here.
+                List {
+                    ForEach(walletManager.savedAccounts) { account in
+                        savedAccountRow(account)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: Self.savedAccountRowSpacing, trailing: 0))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                    }
                 }
-                .frame(height: cappedHeight)
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .frame(height: listHeight)
             } else {
-                // Five or fewer needs no scroll view at all - one that cannot scroll still eats
-                // the drag.
-                savedAccountRows
-            }
-        }
-    }
-
-    private var savedAccountRows: some View {
-        VStack(spacing: Self.savedAccountRowSpacing) {
-            ForEach(walletManager.savedAccounts) { account in
-                savedAccountRow(account)
+                // Fits: no scroll container at all. One that cannot scroll still eats the drag.
+                VStack(spacing: Self.savedAccountRowSpacing) {
+                    ForEach(walletManager.savedAccounts) { account in
+                        savedAccountRow(account)
+                    }
+                }
             }
         }
     }
