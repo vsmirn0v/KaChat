@@ -44,8 +44,19 @@ struct ManageAddressesView: View {
     /// and shrunk per-row the moment each probe lands, so low rows resolve within a second
     /// or two of the screen opening instead of when the whole sweep ends.
     @State private var unknownUsedAddresses: Set<String> = []
-    /// The bulk show/hide checklist (toolbar top-right).
+    /// The bulk show/hide checklist, reached from the Address Actions sheet - it is one of this
+    /// account's address actions, so it lives with the others rather than as an unlabelled
+    /// checklist glyph in the toolbar. Same placement as Cold Storage.
     @State private var showVisibilityManager = false
+    /// The "Address Actions" half sheet, and the per-row one behind each ellipsis.
+    @State private var showAddressActions = false
+    @State private var addressActionsTarget: SpendingAddressEntry?
+    /// The Chat Privacy tab's read-only rows get their own, shorter sheet.
+    @State private var poolActionsTarget: SpendingAddressEntry?
+    /// Live scan position while discovering, so the actions sheet can count up rather than sit
+    /// on a spinner for the half-minute a gap-limit walk takes.
+    @State private var discoveryProgress: WalletManager.SpendingDiscoveryProgress?
+    @State private var discoverySummary: String?
 
     /// Top-of-screen tab switch, same segmented-picker treatment as the address-details
     /// screen's History/UTXOs/KNS Domains tabs. "Addresses" is the normal spending-address
@@ -150,62 +161,22 @@ struct ManageAddressesView: View {
                 await loadEntries()
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            // The action menu belongs to the Addresses tab only - the Chat Privacy tab is
-            // purely a viewer, so Generate/Discover/Consolidate disappear entirely there.
-            // With privacy OFF the screen IS the Addresses list, whatever selectedTab says.
-            if selectedTab == .addresses || !chatsPrivacyOn {
-                Menu {
-                    Button {
-                        generateNew()
-                    } label: {
-                        Label("Generate New Spending Address", systemImage: "plus.circle")
-                    }
-                    Button {
-                        discoverAddresses()
-                    } label: {
-                        Label("Discover Addresses", systemImage: "magnifyingglass")
-                    }
-                    Button {
-                        showConsolidateConfirm = true
-                    } label: {
-                        Label("Send All Kaspa To Primary Spend Address", systemImage: "arrow.up.to.line")
-                    }
-                } label: {
-                    Group {
-                        if isGenerating || isDiscovering || isConsolidating {
-                            ProgressView()
-                                .tint(.black)
-                        } else {
-                            Text("Address Actions")
-                                .font(.subheadline)
-                                .fontWeight(.bold)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .foregroundColor(.black)
-                    .background(Capsule().fill(Color.accentColor))
-                }
-                .tint(.accentColor)
-                .padding(.horizontal)
-                .padding(.bottom, 16)
-                .disabled(isGenerating || isDiscovering || isConsolidating)
-            }
-        }
         .navigationTitle("Manage Addresses")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            // Bulk visibility manager: compact checkmark list of EVERY address, so dozens can
-            // be toggled off the main list in one sitting.
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    showVisibilityManager = true
-                } label: {
-                    Image(systemName: "checklist")
-                }
-                .accessibilityLabel(Text("Manage address visibility"))
-            }
+        .sheet(isPresented: $showAddressActions) {
+            addressActionsSheet
+                .presentationDetents([.height(440)])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $addressActionsTarget) { entry in
+            addressRowActionsSheet(entry)
+                .presentationDetents([.height(rowActionsSheetHeight(entry))])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $poolActionsTarget) { entry in
+            poolRowActionsSheet(entry)
+                .presentationDetents([.height(244)])
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showVisibilityManager, onDismiss: {
             // Apply the visibility edits to the rows we already have IMMEDIATELY -
@@ -312,7 +283,13 @@ struct ManageAddressesView: View {
     private var addressesTabContent: some View {
         // The chatting address is not a spending address, so it does not open this list. It has
         // its own card on Profile, warning and all; leading with it here made the first thing on
-        // a spending screen an address you must not spend from.
+        // a spending screen an address you must not spend from - and it is why the total below
+        // counts spending addresses only.
+        accountSummary
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+
         if isLoading && entries.isEmpty {
             HStack {
                 Spacer()
@@ -435,27 +412,19 @@ struct ManageAddressesView: View {
 
             Spacer()
 
-            Menu {
-                Button {
-                    UIPasteboard.general.string = entry.address
-                    Haptics.success()
-                    showToast(entry.address.addressCopiedToastText)
-                } label: {
-                    Label("Copy Address", systemImage: "doc.on.doc")
-                }
-                Button {
-                    qrTarget = entry
-                } label: {
-                    Label("Show QR Code", systemImage: "qrcode")
-                }
+            // Half sheet, same as the Addresses tab's rows - a pool row is read-only, so it
+            // gets only the two actions that apply.
+            Button {
+                poolActionsTarget = entry
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 18, weight: .bold))
                     .rotationEffect(.degrees(90))
                     .foregroundColor(.secondary)
                     .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
-            .tint(.accentColor)
+            .buttonStyle(.plain)
         }
         .padding(16)
         .background(glassBackground(cornerRadius: 18))
@@ -528,59 +497,287 @@ struct ManageAddressesView: View {
                 if switchingPrimaryIndex == entry.index {
                     ProgressView()
                 } else {
-                    Menu {
-                        Button {
-                            renameText = entry.label ?? ""
-                            renameTarget = entry
-                        } label: {
-                            Label("Rename Address", systemImage: "pencil")
-                        }
-                        Button {
-                            UIPasteboard.general.string = entry.address
-                            Haptics.success()
-                            showToast(entry.address.addressCopiedToastText)
-                        } label: {
-                            Label("Copy Address", systemImage: "doc.on.doc")
-                        }
-                        Button {
-                            qrTarget = entry
-                        } label: {
-                            Label("Show QR Code", systemImage: "qrcode")
-                        }
-                        if !isPrimary {
-                            Button {
-                                setPrimary(entry)
-                            } label: {
-                                Label("Set as Primary Address", systemImage: "star")
-                            }
-                        }
-                        // Hide straight from the row — same effect as unchecking it in Address
-                        // Visibility, without opening that sheet. Same guard as the checklist
-                        // (against the LIVE primary index, so a just-rotated old primary is
-                        // hideable immediately): never the primary, never a funded address,
-                        // never an address offered to a contact as a payment-pool reservation.
-                        // setSpendingAddressHidden re-enforces all three server-side regardless.
-                        if !isPrimary && entry.balanceSompi == 0 && !reservedPoolAddresses.contains(entry.address) {
-                            Button {
-                                hideAddress(entry)
-                            } label: {
-                                Label("Hide Address", systemImage: "eye.slash")
-                            }
-                        }
+                    // Half sheet rather than a context menu - the rows have room to say what
+                    // each one does, which a menu of bare verbs cannot. See
+                    // `addressRowActionsSheet`.
+                    Button {
+                        addressActionsTarget = entry
                     } label: {
                         Image(systemName: "ellipsis")
                             .font(.system(size: 18, weight: .bold))
                             .rotationEffect(.degrees(90))
                             .foregroundColor(.secondary)
                             .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
-                    .tint(.accentColor)
+                    .buttonStyle(.plain)
                     .disabled(switchingPrimaryIndex != nil)
                 }
             }
             .padding(16)
         }
         .background(glassBackground(cornerRadius: 18))
+    }
+
+    /// Everything the visible spending addresses hold, together. Deliberately excludes the
+    /// chatting address: that one funds message and inscription fees and is kept separate on
+    /// purpose, so folding it in here would make the number mean nothing in particular.
+    private var totalBalanceSompi: UInt64 {
+        entries.filter { !$0.hidden }.reduce(0) { $0 + $1.balanceSompi }
+    }
+
+    /// Total, then the actions button - directly under it rather than pinned to the bottom of
+    /// the screen. The actions are about this account, so they belong with the account, and a
+    /// floating bar covered the last address row on a short list. Same shape as Cold Storage.
+    private var accountSummary: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Total Balance")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Text("\(formatKasExact(totalBalanceSompi)) KAS")
+                    .font(.title2)
+                    .fontWeight(.bold)
+            }
+
+            Button {
+                Haptics.impact(.light)
+                showAddressActions = true
+            } label: {
+                Group {
+                    if isGenerating || isDiscovering || isConsolidating {
+                        ProgressView().tint(.black)
+                    } else {
+                        Text("Address Actions")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .foregroundColor(.black)
+                .background(Capsule().fill(Color.accentColor))
+            }
+            .buttonStyle(.plain)
+            .disabled(isGenerating || isDiscovering || isConsolidating)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+    }
+
+    /// The half sheet behind "Address Actions".
+    ///
+    /// Discovery reports its position as it walks, and that lands HERE rather than dismissing:
+    /// a scan is a balance lookup per address until the gap limit is reached, easily half a
+    /// minute, and a sheet closing on an unmoving spinner said nothing about whether it was
+    /// working. The sheet stays put, counts up, and finishes with what it found.
+    private var addressActionsSheet: some View {
+        VStack(spacing: 0) {
+            Text("Address Actions")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+
+            if isDiscovering, let progress = discoveryProgress {
+                VStack(spacing: 10) {
+                    ProgressView()
+                    Text("Checking address #\(progress.checkingIndex)")
+                        .font(.subheadline.weight(.semibold))
+                    Text(progress.foundCount == 0
+                         ? "No addresses with a balance or domain yet"
+                         : "\(progress.foundCount) found so far")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("Scanning stops after 20 unused addresses in a row.")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 24)
+            } else {
+                VStack(spacing: 12) {
+                    ActionSheetRow(
+                        title: "Generate New Spending Address",
+                        subtitle: "Reveals the next unused address in this wallet.",
+                        systemImage: "plus.circle",
+                        isBusy: isGenerating,
+                        isDisabled: isDiscovering || isConsolidating
+                    ) {
+                        generateNew()
+                        showAddressActions = false
+                    }
+                    ActionSheetRow(
+                        title: "Discover Addresses",
+                        subtitle: "Finds addresses holding a balance or a KNS domain.",
+                        systemImage: "magnifyingglass",
+                        isDisabled: isDiscovering || isConsolidating
+                    ) {
+                        discoverAddresses()
+                    }
+                    ActionSheetRow(
+                        title: "Address Visibility",
+                        subtitle: "Check off every address you want on the list, in one sitting.",
+                        systemImage: "checklist",
+                        isDisabled: isDiscovering
+                    ) {
+                        showAddressActions = false
+                        // One runloop turn: presenting a sheet from inside one that is still
+                        // dismissing drops it.
+                        DispatchQueue.main.async { showVisibilityManager = true }
+                    }
+                    ActionSheetRow(
+                        title: "Send All Kaspa To Primary",
+                        subtitle: "Sweeps every other address into your primary spending address.",
+                        systemImage: "arrow.up.to.line",
+                        isDisabled: isDiscovering || isConsolidating
+                    ) {
+                        showAddressActions = false
+                        DispatchQueue.main.async { showConsolidateConfirm = true }
+                    }
+                    if let discoverySummary {
+                        Text(discoverySummary)
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
+                            .padding(.top, 2)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // Dismissing mid-scan would abandon the only progress readout, and the work keeps running
+        // either way - so the sheet holds until it is done.
+        .interactiveDismissDisabled(isDiscovering)
+        .onDisappear { discoverySummary = nil }
+    }
+
+    /// Rows vary by address, so the detent has to as well - see `addressRowActionsSheet`.
+    private func rowActionsSheetHeight(_ entry: SpendingAddressEntry) -> CGFloat {
+        let isPrimary = entry.index == primaryIndex
+        var rows = 3
+        if !isPrimary { rows += 1 }
+        if !isPrimary && entry.balanceSompi == 0 && !reservedPoolAddresses.contains(entry.address) { rows += 1 }
+        return CGFloat(120 + rows * 62)
+    }
+
+    /// The half sheet behind one address row's ellipsis, replacing the menu that was there.
+    private func addressRowActionsSheet(_ entry: SpendingAddressEntry) -> some View {
+        let isPrimary = entry.index == primaryIndex
+        return VStack(spacing: 12) {
+            VStack(spacing: 2) {
+                Text(entry.label?.isEmpty == false ? entry.label! : "Address \(entry.index)")
+                    .font(.headline)
+                Text(entry.shortAddress)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 4)
+
+            ActionSheetRow(
+                title: "Rename Address",
+                subtitle: "Gives this address a label of your own.",
+                systemImage: "pencil"
+            ) {
+                addressActionsTarget = nil
+                DispatchQueue.main.async {
+                    renameText = entry.label ?? ""
+                    renameTarget = entry
+                }
+            }
+            ActionSheetRow(
+                title: "Copy Address",
+                subtitle: "Puts the full address on the clipboard.",
+                systemImage: "doc.on.doc"
+            ) {
+                UIPasteboard.general.string = entry.address
+                Haptics.success()
+                addressActionsTarget = nil
+                showToast(entry.address.addressCopiedToastText)
+            }
+            ActionSheetRow(
+                title: "Show QR Code",
+                subtitle: "Full screen, for scanning with another device.",
+                systemImage: "qrcode"
+            ) {
+                addressActionsTarget = nil
+                DispatchQueue.main.async { qrTarget = entry }
+            }
+            if !isPrimary {
+                ActionSheetRow(
+                    title: "Set as Primary Address",
+                    subtitle: "New payments send from here by default.",
+                    systemImage: "star"
+                ) {
+                    addressActionsTarget = nil
+                    setPrimary(entry)
+                }
+            }
+            // Hide straight from the row - same effect as unchecking it in Address Visibility,
+            // without opening that screen. Same guard as the checklist (against the LIVE primary
+            // index, so a just-rotated old primary is hideable immediately): never the primary,
+            // never a funded address, never an address offered to a contact as a payment-pool
+            // reservation. setSpendingAddressHidden re-enforces all three regardless.
+            if !isPrimary && entry.balanceSompi == 0 && !reservedPoolAddresses.contains(entry.address) {
+                ActionSheetRow(
+                    title: "Hide Address",
+                    subtitle: "Removes it from this list. Re-enable it in Address Visibility.",
+                    systemImage: "eye.slash",
+                    tint: .orange
+                ) {
+                    addressActionsTarget = nil
+                    hideAddress(entry)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Copy/QR for a Chat Privacy pool row. No rename, primary or hide: the address is actively
+    /// offered to a contact, so none of those apply while it is in the pool.
+    private func poolRowActionsSheet(_ entry: SpendingAddressEntry) -> some View {
+        VStack(spacing: 12) {
+            VStack(spacing: 2) {
+                Text(entry.label?.isEmpty == false ? entry.label! : "Address \(entry.index)")
+                    .font(.headline)
+                Text(entry.shortAddress)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 4)
+
+            ActionSheetRow(
+                title: "Copy Address",
+                subtitle: "Puts the full address on the clipboard.",
+                systemImage: "doc.on.doc"
+            ) {
+                UIPasteboard.general.string = entry.address
+                Haptics.success()
+                poolActionsTarget = nil
+                showToast(entry.address.addressCopiedToastText)
+            }
+            ActionSheetRow(
+                title: "Show QR Code",
+                subtitle: "Full screen, for scanning with another device.",
+                systemImage: "qrcode"
+            ) {
+                poolActionsTarget = nil
+                DispatchQueue.main.async { qrTarget = entry }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     /// Row-menu "Hide Address": flips the same per-wallet hidden flag the Address Visibility
@@ -856,10 +1053,20 @@ struct ManageAddressesView: View {
     private func discoverAddresses() {
         guard !isDiscovering else { return }
         isDiscovering = true
+        discoverySummary = nil
+        discoveryProgress = WalletManager.SpendingDiscoveryProgress(checkingIndex: 0, foundCount: 0)
         Task {
-            _ = await walletManager.discoverSpendingAddresses()
+            let discovered = await walletManager.discoverSpendingAddresses { progress in
+                discoveryProgress = progress
+            }
             await loadEntries()
             isDiscovering = false
+            discoveryProgress = nil
+            // The count is addresses that hold a balance or a KNS domain - say so, rather than
+            // "used", which is what the old high-water-mark number implied and was not.
+            discoverySummary = discovered == 0
+                ? "No addresses with a balance or domain found."
+                : "Found \(discovered) address\(discovered == 1 ? "" : "es") with a balance or domain."
         }
     }
 

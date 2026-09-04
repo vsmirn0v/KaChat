@@ -565,31 +565,67 @@ extension WalletManager {
         }
     }
 
-    /// Gap-limit scan beyond the current max index for addresses with on-chain history, mirroring
-    /// standard BIP44 wallet-recovery discovery. Extends `maxSpendingAddressIndex` to cover any
-    /// found. Returns how many new indices were revealed.
-    func discoverSpendingAddresses(gapLimit: Int = 20) async -> Int {
-        guard let changeKey = spendingChangeKey() else { return 0 }
-        var index = maxSpendingAddressIndex + 1
-        var consecutiveUnused = 0
-        var highestFound = maxSpendingAddressIndex
+    /// Where a discovery scan currently is, so a UI can count up instead of showing an unmoving
+    /// spinner for the half-minute a gap-limit walk takes. Mirrors `ColdStorageManager`'s.
+    struct SpendingDiscoveryProgress: Equatable {
+        let checkingIndex: Int
+        let foundCount: Int
+    }
 
-        while consecutiveUnused < gapLimit {
+    /// Gap-limit scan for spending addresses worth surfacing, matching Cold Storage's discovery
+    /// exactly (`ColdStorageManager.discoverAddresses`). Extends `maxSpendingAddressIndex` to
+    /// cover the highest match. Returns how many addresses were FOUND, not the new bound.
+    ///
+    /// Two deliberate differences from what this used to do:
+    ///
+    /// An address is worth surfacing when it HOLDS SOMETHING - a balance, or a KNS domain - not
+    /// when it has transaction history. History still decides the "Unused" badge on a row (address
+    /// reuse is a privacy problem), but every address ever touched and emptied is not what this
+    /// list is for.
+    ///
+    /// And the walk starts at index 0, never at the stored high-water mark, because the answer
+    /// CHANGES: an address that was empty last month can hold a balance today, and a scan starting
+    /// past it would never look again.
+    @discardableResult
+    func discoverSpendingAddresses(
+        gapLimit: Int = 20,
+        onProgress: (@MainActor (SpendingDiscoveryProgress) -> Void)? = nil
+    ) async -> Int {
+        guard let changeKey = spendingChangeKey() else { return 0 }
+
+        var lastMatchIndex = -1
+        var matchCount = 0
+        var consecutiveMisses = 0
+        var index = 0
+
+        while consecutiveMisses < gapLimit {
+            if let onProgress {
+                let snapshot = SpendingDiscoveryProgress(checkingIndex: index, foundCount: matchCount)
+                await MainActor.run { onProgress(snapshot) }
+            }
             guard let address = spendingAddress(at: index, changeKey: changeKey) else { break }
-            let used = await ChatService.shared.hasSpendingAddressBeenUsed(address)
-            if used {
-                highestFound = index
-                consecutiveUnused = 0
+
+            // Balance first: it short-circuits the KNS lookup for the common case.
+            let hasBalance = !((try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []).isEmpty
+            let matches = hasBalance ? true : await KNSService.shared.ownsAnyDomain(address)
+
+            if matches {
+                lastMatchIndex = index
+                matchCount += 1
+                consecutiveMisses = 0
             } else {
-                consecutiveUnused += 1
+                consecutiveMisses += 1
             }
             index += 1
         }
 
-        guard highestFound > maxSpendingAddressIndex else { return 0 }
-        let revealed = highestFound - maxSpendingAddressIndex
-        await updateSpendingBounds(maxIndex: highestFound)
-        return revealed
+        // The stored bound has to cover the highest match so those rows can be derived and shown,
+        // and it only ever grows: an address that held funds last month and is empty now should
+        // not vanish from the list.
+        if lastMatchIndex > maxSpendingAddressIndex {
+            await updateSpendingBounds(maxIndex: lastMatchIndex)
+        }
+        return matchCount
     }
 }
 
