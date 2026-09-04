@@ -1128,7 +1128,16 @@ final class NextcloudService: ObservableObject {
     // MARK: - Thumbnails (the picker's photo grid)
 
     /// In-memory only — thumbnails are cheap to refetch and shouldn't outlive the session.
-    private let thumbnailCache = NSCache<NSString, NSData>()
+    ///
+    /// Bounded: NSCache evicts under memory pressure on its own, but "on its own" means after the
+    /// system is already struggling. Browsing a large photo grid is thousands of 256px blobs, and
+    /// a cost limit keeps that from being the reason pressure arrives.
+    private let thumbnailCache: NSCache<NSString, NSData> = {
+        let cache = NSCache<NSString, NSData>()
+        cache.countLimit = 400
+        cache.totalCostLimit = 32 * 1024 * 1024
+        return cache
+    }()
 
     /// Server-generated square thumbnail via Nextcloud's authenticated `core/preview` endpoint
     /// (`a=1` keeps aspect by cropping). Works for images everywhere and for videos when the
@@ -1151,14 +1160,14 @@ final class NextcloudService: ObservableObject {
               let http = response as? HTTPURLResponse,
               (200..<300).contains(http.statusCode),
               !data.isEmpty else { return nil }
-        thumbnailCache.setObject(data as NSData, forKey: path as NSString)
+        thumbnailCache.setObject(data as NSData, forKey: path as NSString, cost: data.count)
         return data
     }
 
     /// Lets the picker cache a client-side generated thumbnail (HEIC decode / video frame grab)
     /// alongside the server-generated ones.
     func storeThumbnail(_ data: Data, for path: String) {
-        thumbnailCache.setObject(data as NSData, forKey: path as NSString)
+        thumbnailCache.setObject(data as NSData, forKey: path as NSString, cost: data.count)
     }
 
     /// Authenticated GET request for a file's raw bytes over WebDAV — used by the thumbnail

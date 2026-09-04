@@ -117,10 +117,16 @@ struct BroadcastChannelView: View {
             broadcastService.release(channelName)
         }
         .task {
-            // Keeps retention feeling "live" while this room is open - a message actually
-            // disappears a few seconds after it expires instead of only on next open/send.
+            // Keeps retention feeling "live" while this room is open - a message disappears
+            // shortly after it expires rather than only on the next open or send.
+            //
+            // Every 30s, not every second. A tick is not cheap: pruneExpiredMessages runs a
+            // SYNCHRONOUS main-queue performAndWait that fetches every channel and executes two
+            // batch deletes per channel, so at 1Hz an open room was doing dozens of main-thread
+            // SQLite round trips a second. Retention is measured in DAYS (3, or 30 for indexed
+            // rooms), so a second's precision bought nothing for that cost.
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
                 guard !Task.isCancelled else { return }
                 broadcastService.pruneNowAndRefresh(forChannel: channelName)
             }
