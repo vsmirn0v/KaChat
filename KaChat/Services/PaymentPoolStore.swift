@@ -420,6 +420,35 @@ final class PaymentPoolStore {
         return true
     }
 
+    /// User-initiated: take this address out of Chats Payment Privacy for good.
+    ///
+    /// Distinct from `markReservationFunded`, which records that a payment arrived. This says
+    /// nothing about payments - it is someone looking at the Chat Privacy tab and deciding an
+    /// address should be an ordinary spending address again, usually because it is holding a
+    /// balance the automatic detection never noticed.
+    ///
+    /// Clears `activeOffer` so it leaves the live pool, and marks it `reclaimed` so a privacy
+    /// re-enable never offers it back to its original contact - the address is no longer
+    /// promised to anyone. `offered` stays true: it is historical, and a payment still in flight
+    /// to this address has to keep landing and rendering.
+    @discardableResult
+    func releaseReservation(_ address: String, wallet walletAddress: String) -> Bool {
+        var current = state(for: walletAddress)
+        var didRelease = false
+        for (contactAddress, entries) in current.myReservations {
+            guard let index = entries.firstIndex(where: { $0.address == address }) else { continue }
+            var updated = entries
+            updated[index].activeOffer = false
+            updated[index].reclaimed = true
+            current.myReservations[contactAddress] = updated
+            didRelease = true
+            break
+        }
+        guard didRelease else { return false }
+        save(current, for: walletAddress)
+        return true
+    }
+
     /// The contact a reservation belongs to, by address - used by the UTXO-watch funding
     /// detection to route a funded reservation back to the contact whose pool it came from.
     func reservationContact(for address: String, wallet walletAddress: String) -> String? {

@@ -53,6 +53,8 @@ struct ManageAddressesView: View {
     @State private var addressActionsTarget: SpendingAddressEntry?
     /// The Chat Privacy tab's read-only rows get their own, shorter sheet.
     @State private var poolActionsTarget: SpendingAddressEntry?
+    /// The chat-privacy address whose "move out of the pool" sheet is open.
+    @State private var moveOutTarget: SpendingAddressEntry?
     /// Live scan position while discovering, so the actions sheet can count up rather than sit
     /// on a spinner for the half-minute a gap-limit walk takes.
     @State private var discoveryProgress: WalletManager.SpendingDiscoveryProgress?
@@ -177,6 +179,9 @@ struct ManageAddressesView: View {
             poolRowActionsSheet(entry)
                 .presentationDetents([.height(244)])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $moveOutTarget) { entry in
+            moveOutSheet(entry)
         }
         .sheet(isPresented: $showVisibilityManager, onDismiss: {
             // Apply the visibility edits to the rows we already have IMMEDIATELY -
@@ -404,9 +409,20 @@ struct ManageAddressesView: View {
                     .font(.system(.subheadline, design: .monospaced))
                     .foregroundColor(.primary)
                 if entry.balanceSompi > 0 {
-                    Text("\(formatKasExact(entry.balanceSompi)) KAS")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                    // Money on a pool address is worth noticing: it means the offer has been
+                    // paid into and the address is not really "fresh and waiting" any more.
+                    HStack(spacing: 6) {
+                        Text("\(formatKasExact(entry.balanceSompi)) KAS")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.accentColor)
+                        Text("Funded")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundColor(.accentColor)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                    }
                 }
             }
 
@@ -428,6 +444,9 @@ struct ManageAddressesView: View {
         }
         .padding(16)
         .background(glassBackground(cornerRadius: 18))
+        // The whole row opens the move-out sheet; the ellipsis keeps copy and QR.
+        .contentShape(Rectangle())
+        .onTapGesture { moveOutTarget = entry }
     }
 
     private var emptyState: some View {
@@ -739,6 +758,67 @@ struct ManageAddressesView: View {
         }
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    /// Tapping a Chat Privacy address: what it is, and the one thing the user can do about it.
+    ///
+    /// The pool normally manages these rows by itself - an offer is revoked, superseded, or
+    /// marked funded when a payment_notice arrives. None of that reaches a device that was not
+    /// running when the payment landed, so an address can sit here holding a balance with nothing
+    /// to nudge it out. This is the manual override for exactly that case.
+    private func moveOutSheet(_ entry: SpendingAddressEntry) -> some View {
+        let funded = entry.balanceSompi > 0
+        return VStack(spacing: 12) {
+            VStack(spacing: 2) {
+                Text("Address \(entry.index)")
+                    .font(.headline)
+                Text(entry.shortAddress)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(.secondary)
+                if funded {
+                    Text("Holding \(formatKasExact(entry.balanceSompi)) KAS")
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.accentColor)
+                }
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 4)
+
+            ActionSheetRow(
+                title: "Move out of Chat Payment Privacy",
+                subtitle: funded
+                    ? "It has been paid into, so it is no longer a fresh address. Moves it to your normal spending list where you can send from it."
+                    : "Stops offering this address to your contact and moves it to your normal spending list.",
+                systemImage: "lock.open"
+            ) {
+                moveOutTarget = nil
+                releaseFromPool(entry)
+            }
+            ActionSheetRow(
+                title: "Cancel",
+                subtitle: "Leave it in the pool.",
+                systemImage: "xmark"
+            ) {
+                moveOutTarget = nil
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .presentationDetents([.height(funded ? 320 : 300)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func releaseFromPool(_ entry: SpendingAddressEntry) {
+        guard let walletAddress = walletManager.currentWallet?.publicAddress else { return }
+        guard PaymentPoolStore.shared.releaseReservation(entry.address, wallet: walletAddress) else { return }
+        Task {
+            // It was locked visible while it was an offer; nothing holds it hidden now.
+            _ = await walletManager.setSpendingAddressHidden(index: entry.index, hidden: false)
+            await loadEntries()
+            showToast("Moved out of Chat Payment Privacy.")
+        }
     }
 
     /// Copy/QR for a Chat Privacy pool row. No rename, primary or hide: the address is actively
