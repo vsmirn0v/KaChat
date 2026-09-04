@@ -2754,6 +2754,7 @@ struct KaPostsView: View {
             .ignoresSafeArea(edges: .top)
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
+            .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { menuSheet = nil }
@@ -2978,6 +2979,7 @@ struct KaPostsView: View {
             .ignoresSafeArea(edges: .top)
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
+            .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { profileTarget = nil }
@@ -3298,6 +3300,7 @@ struct KaPostsView: View {
             }
             .navigationTitle(kind.title)
             .navigationBarTitleDisplayMode(.inline)
+            .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { menuSheet = nil }
@@ -3359,6 +3362,7 @@ struct KaPostsView: View {
             }
             .navigationTitle("Drafts")
             .navigationBarTitleDisplayMode(.inline)
+            .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { menuSheet = nil }
@@ -3440,6 +3444,7 @@ struct KaPostsView: View {
             }
             .navigationTitle("Bookmarks")
             .navigationBarTitleDisplayMode(.inline)
+            .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { menuSheet = nil }
@@ -3678,6 +3683,7 @@ struct KaPostsView: View {
                 }
                 .navigationTitle("Post")
                 .navigationBarTitleDisplayMode(.inline)
+                .kaPostsStatusChrome()
                 // The main view's toast layer sits BEHIND this sheet — without a copy in here,
                 // a like/repost/reply made from an open thread showed no undo toast and no
                 // network confirmation, reading as dead buttons for the whole 5s undo window.
@@ -3734,6 +3740,7 @@ struct KaPostsView: View {
                         Button("Done") { detailTarget = nil; profileDetailTarget = nil }
                     }
                 }
+                .kaPostsStatusChrome()
             }
         }
     }
@@ -5801,6 +5808,7 @@ struct KaPostEngagementView: View {
             }
             .navigationTitle("Post Activity")
             .navigationBarTitleDisplayMode(.inline)
+            .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -6094,6 +6102,7 @@ struct KaPostsFollowListView: View {
         }
         .navigationTitle(kind.title)
         .navigationBarTitleDisplayMode(.inline)
+        .kaPostsStatusChrome()
         .task { await load() }
     }
 
@@ -6360,6 +6369,7 @@ struct KaPostsNotificationsView: View {
             }
             .navigationTitle("Notifications")
             .navigationBarTitleDisplayMode(.inline)
+            .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -6705,4 +6715,28 @@ private struct BioFullHeightKey: PreferenceKey {
 private struct BioClampedHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+// MARK: - Persistent status chrome
+
+private extension View {
+    /// Repeats the feed's own header indicators - green connection dot leading, chatting balance
+    /// centered - on every screen that stacks in front of it. Reading a thread or a profile is
+    /// still "being in KaPosts", and both indicators answer questions that come up mid-read:
+    /// whether a like that isn't landing is the network's fault, and whether there is enough KAS
+    /// to reply at all.
+    ///
+    /// The balance takes the inline title's slot deliberately. "Post" and "Profile" restate what
+    /// is plainly on screen; the connection state and the balance are not visible anywhere else
+    /// once a sheet covers the feed.
+    func kaPostsStatusChrome() -> some View {
+        toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                ConnectionStatusIndicator()
+            }
+            ToolbarItem(placement: .principal) {
+                BalanceToolbarLabel()
+            }
+        }
+    }
 }
