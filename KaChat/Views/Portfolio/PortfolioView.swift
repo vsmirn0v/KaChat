@@ -316,7 +316,11 @@ private struct PortfolioValueChartScreen: View {
     }
 
     private func header(currentValue: Double) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        // Today's change, not all-time P&L - the same figure the portfolio cards show, from the
+        // stable seven-day history rather than the visible range, so switching to 1Y does not
+        // change what "today" means.
+        let todayChange = PortfolioManager.shared.activePortfolioId.flatMap { viewModel.todayChange(for: $0) }
+        return VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text("Portfolio Value").font(.title3).fontWeight(.semibold)
                 Spacer()
@@ -325,8 +329,22 @@ private struct PortfolioValueChartScreen: View {
                 Text(scrub.timestamp, format: .dateTime.month().day().year())
                     .font(.subheadline).foregroundColor(.secondary)
             }
-            Text(PortfolioFormat.currency(scrubbed?.value ?? currentValue, currency))
-                .font(.system(size: 34, weight: .bold))
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(PortfolioFormat.currency(scrubbed?.value ?? currentValue, currency))
+                    .font(.system(size: 34, weight: .bold))
+                // Hidden while scrubbing: the big number is then a past value, and a change
+                // figure for today sitting beside it would read as that day's move.
+                if scrubbed == nil, let todayChange {
+                    let isUp = todayChange.amount >= 0
+                    HStack(spacing: 4) {
+                        Image(systemName: isUp ? "arrow.up.right" : "arrow.down.right")
+                            .font(.caption.weight(.bold))
+                        Text("\(PortfolioFormat.currency(abs(todayChange.amount), currency)) (\(String(format: "%.2f", abs(todayChange.percent)))%)")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .foregroundColor(isUp ? .green : .red)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
