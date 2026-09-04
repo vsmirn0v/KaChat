@@ -629,14 +629,58 @@ extension WalletManager {
             hiddenSpendingIndices.subtract(matchedIndices)
         }
 
-        // The stored bound has to cover the highest match so those rows can be derived and shown,
-        // and it only ever grows: an address that held funds last month and is empty now should
-        // not vanish from the list.
+        // The stored bound has to cover the highest match so those rows can be derived and
+        // shown, and it only ever grows: an address that held funds last month and is empty now
+        // should not vanish from the list.
         if lastMatchIndex > maxSpendingAddressIndex {
             await updateSpendingBounds(maxIndex: lastMatchIndex)
         }
+
+        await releaseFundedReservations()
         return matchCount
     }
+
+    /// Retires any Chats Payment Privacy reservation that has actually been paid into.
+    ///
+    /// A reservation normally leaves the active set the moment funding is detected - but that
+    /// detection is a live signal: a `payment_notice` from the contact, or the UTXO watch seeing
+    /// the deposit while this app is running. Neither reaches a device that was not there when it
+    /// happened, which is exactly what a second device running the same seed is. That device goes
+    /// on believing the address is an unfunded offer: it stays on the Chat Privacy tab, stays
+    /// locked out of the main list, and its balance sits somewhere the user cannot see.
+    ///
+    /// So a scan asks the chain directly, for every active reservation, whatever index it sits
+    /// at - the gap-limit walk above can stop before reaching one. Money on an address ends its
+    /// life as an offer regardless of what any device was told.
+    private func releaseFundedReservations() async {
+        guard let walletAddress = currentWallet?.publicAddress else { return }
+        let store = PaymentPoolStore.shared
+        let reserved = store.activeOfferedReservationAddresses(wallet: walletAddress)
+        guard !reserved.isEmpty else { return }
+
+        // One lookup for the lot rather than one per address.
+        let utxos = (try? await NodePoolService.shared.getUtxosByAddresses(reserved)) ?? []
+        guard !utxos.isEmpty else { return }
+        let fundedAddresses = Set(utxos.filter { $0.amount > 0 }.map(\.address))
+
+        var fundedReservationAddresses: Set<String> = []
+        for address in reserved where fundedAddresses.contains(address) {
+            guard let contact = store.reservationContact(for: address, wallet: walletAddress) else { continue }
+            store.markReservationFunded(address, for: contact, wallet: walletAddress)
+            fundedReservationAddresses.insert(address)
+        }
+        guard !fundedReservationAddresses.isEmpty else { return }
+
+        // A funded address belongs on the main list, so it must not stay hidden either. Derived
+        // over the revealed range rather than asking per address - there is no address-to-index
+        // lookup, and this range is already cached.
+        let derived = spendingAddresses(inRange: 0..<(maxSpendingAddressIndex + 1))
+        let indicesToShow = derived.filter { fundedReservationAddresses.contains($0.value) }.map(\.key)
+        if !indicesToShow.isEmpty {
+            hiddenSpendingIndices.subtract(indicesToShow)
+        }
+    }
+
 }
 
 extension Notification.Name {
