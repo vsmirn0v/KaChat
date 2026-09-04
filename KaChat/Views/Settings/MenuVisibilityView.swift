@@ -8,7 +8,13 @@ import UniformTypeIdentifiers
 /// worked, but it asked you to hold a layout in your head: the dock is a row of five at the bottom
 /// of the screen and the Hub is a three-across grid, and neither looked anything like a table row.
 /// So this is the Hub grid up top and the dock bar along the bottom, both drawn the way they
-/// actually appear, and you drag things between them.
+/// actually appear.
+///
+/// Two gestures, one job each. A TAP moves a tab between the two: tap something in the Hub and it
+/// joins the dock, tap something in the dock and it goes back to the Hub. A DRAG only reorders,
+/// within whichever section the tab is already in. Dragging across the screen to a target you
+/// cannot see while your finger is over it was the fiddly part; moving is now a tap, and dragging
+/// is left to the one thing a tap cannot express, which is position.
 ///
 /// Placement, not visibility. Every tab is either in the dock or in the Hub, and always in exactly
 /// one of them, so nothing can end up nowhere. Kaspa Hub and Profile are pinned to the dock
@@ -17,9 +23,9 @@ import UniformTypeIdentifiers
 struct MenuVisibilityView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
 
-    /// The tab currently being dragged, so its source slot can dim and the drop targets can tell
-    /// a real drag from a stray provider.
-    @State private var draggingTab: AppTab?
+    /// Set when a tap cannot be honoured, so the reason appears where the tap happened instead of
+    /// the tap looking like it did nothing.
+    @State private var refusal: String?
 
     private var settings: AppSettings { settingsViewModel.settings }
     private var dockTabs: [AppTab] { AppTab.visible(from: settings) }
@@ -35,11 +41,11 @@ struct MenuVisibilityView: View {
             VStack(alignment: .leading, spacing: 12) {
                 sectionHeader(
                     AppTab.ecosystem.label,
-                    detail: "Opened from the \(AppTab.ecosystem.label) tab, in this order. Nothing here is switched off - it is one tap further away than the dock."
+                    detail: "Opened from the \(AppTab.ecosystem.label) tab, in this order. Nothing here is switched off - it is one tap further away than the dock. Tap one to move it into your dock, or hold and drag to reorder."
                 )
 
                 if hubTabs.isEmpty {
-                    emptyHubDropZone
+                    emptyHubHint
                 } else {
                     LazyVGrid(columns: hubColumns, spacing: 14) {
                         ForEach(hubTabs) { tab in
@@ -47,16 +53,18 @@ struct MenuVisibilityView: View {
                                 .draggable(tab)
                                 .dropDestination(for: AppTab.self) { items, _ in
                                     guard let dragged = items.first else { return false }
-                                    return insertIntoHub(dragged, before: tab)
+                                    return reorderHub(dragged, before: tab)
                                 }
                         }
                     }
-                    // Dropping on the gaps between tiles still means "put it in the Hub", it just
-                    // has no position to insert at - so it lands at the end.
-                    .dropDestination(for: AppTab.self) { items, _ in
-                        guard let dragged = items.first else { return false }
-                        return appendToHub(dragged)
-                    }
+                }
+
+                if let refusal {
+                    Label(refusal, systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
                 }
             }
             .padding(.horizontal, 16)
@@ -112,26 +120,22 @@ struct MenuVisibilityView: View {
                             .stroke(Color.white.opacity(0.15), lineWidth: 0.8)
                     )
             )
-            .opacity(draggingTab == tab ? 0.35 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .onTapGesture { moveToDock(tab) }
     }
 
-    /// A Hub with nothing in it still has to be a drop target, or the last tab moved out of it
-    /// could never be moved back.
-    private var emptyHubDropZone: some View {
+    /// With everything in the dock there is nothing to drag or tap, so this is a sentence rather
+    /// than a drop target: the way back is to tap something in the dock.
+    private var emptyHubHint: some View {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
             .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6]))
             .foregroundColor(.secondary.opacity(0.5))
             .frame(height: 96)
             .overlay {
-                Text("Everything is in your dock.\nDrag something here to move it out.")
+                Text("Everything is in your dock.\nTap a dock item to move it back here.")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
-            }
-            .dropDestination(for: AppTab.self) { items, _ in
-                guard let dragged = items.first else { return false }
-                return appendToHub(dragged)
             }
     }
 
@@ -157,28 +161,25 @@ struct MenuVisibilityView: View {
                     dockItem(tab)
                         .dropDestination(for: AppTab.self) { items, _ in
                             guard let dragged = items.first else { return false }
-                            return insertIntoDock(dragged, before: tab)
+                            return reorderDock(dragged, before: tab)
                         }
                 }
-                // An unfilled dock keeps its empty slots visible, so there is somewhere obvious
-                // to aim at and the count is legible without reading the number.
+                // An unfilled dock keeps its empty slots visible, so the count is legible without
+                // reading the number.
                 ForEach(dockTabs.count..<AppTab.maxDockItems, id: \.self) { _ in
                     emptyDockSlot
                 }
             }
             .padding(.horizontal, 8)
             .padding(.bottom, 4)
-            .dropDestination(for: AppTab.self) { items, _ in
-                guard let dragged = items.first else { return false }
-                return appendToDock(dragged)
-            }
 
             Text(dockIsFull
-                 ? "The dock is full. Drag something up to \(AppTab.ecosystem.label) to free a slot."
-                 : "Drag tiles down here to put them in your dock.")
+                 ? "Your dock is full. Tap one of these to move it up to \(AppTab.ecosystem.label) and free a slot. \(AppTab.ecosystem.label) and \(AppTab.profile.label) must stay in the dock."
+                 : "Tap a dock item to move it up to \(AppTab.ecosystem.label), or hold and drag to reorder. \(AppTab.ecosystem.label) and \(AppTab.profile.label) must stay in the dock.")
                 .font(.caption2)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 6)
         }
@@ -202,10 +203,13 @@ struct MenuVisibilityView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
-        .opacity(draggingTab == tab ? 0.35 : 1)
+        // Pinned tabs are dimmed rather than hidden: they hold their real dock position, and the
+        // dimming is what says "this one is not yours to move" before you tap it.
+        .opacity(tab.isPinnedToDock ? 0.55 : 1)
         .contentShape(Rectangle())
-        // Pinned tabs render but do not lift: the Hub holds whatever is not in the dock, and
-        // Profile is the way to Settings, so neither can be moved out of it.
+        .onTapGesture { moveToHub(tab) }
+        // Pinned tabs render but do not lift. Reordering them would be harmless, but a tab that
+        // refuses a tap and accepts a drag is a worse story than one that simply sits still.
         .ifDraggable(!tab.isPinnedToDock, tab: tab)
     }
 
@@ -216,10 +220,6 @@ struct MenuVisibilityView: View {
             .frame(height: 44)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
-            .dropDestination(for: AppTab.self) { items, _ in
-                guard let dragged = items.first else { return false }
-                return appendToDock(dragged)
-            }
     }
 
     @ViewBuilder
@@ -238,64 +238,73 @@ struct MenuVisibilityView: View {
 
     // MARK: - Moves
 
-    /// All four moves funnel through here so a tab can never be in both lists or neither: the
-    /// destination list is rebuilt from a copy with the tab removed from BOTH first.
-    private func place(_ tab: AppTab, intoDockAt dockIndex: Int?, intoHubAt hubIndex: Int?) -> Bool {
+    /// Tap in the Hub: join the dock, at the end, where the empty slot you can see already is.
+    private func moveToDock(_ tab: AppTab) {
+        guard !dockIsFull else {
+            refuse("Your dock is full. Tap something in the dock to move it up here first.")
+            return
+        }
         var dock = dockTabs
         var hub = hubTabs
-
-        if dockIndex != nil {
-            // Pinned tabs are already in the dock; a reorder is fine, an eviction is not.
-            guard dock.contains(tab) || !dockIsFull else { return false }
-        } else if tab.isPinnedToDock {
-            return false
-        }
-
         dock.removeAll { $0 == tab }
         hub.removeAll { $0 == tab }
-
-        if let index = dockIndex {
-            dock.insert(tab, at: min(max(index, 0), dock.count))
-        } else if let index = hubIndex {
-            hub.insert(tab, at: min(max(index, 0), hub.count))
-        }
-
+        dock.append(tab)
         commit(dock: dock, hub: hub)
+    }
+
+    /// Tap in the dock: back to the Hub, at the end of the grid.
+    private func moveToHub(_ tab: AppTab) {
+        guard !tab.isPinnedToDock else {
+            refuse("\(tab.label) has to stay in your dock.")
+            return
+        }
+        var dock = dockTabs
+        var hub = hubTabs
+        dock.removeAll { $0 == tab }
+        hub.removeAll { $0 == tab }
+        hub.append(tab)
+        commit(dock: dock, hub: hub)
+    }
+
+    /// Drags reorder and nothing else, which is enforced here rather than at the drag source:
+    /// membership is the check, so a tab dragged out of the dock and dropped on a Hub tile is
+    /// simply refused instead of moving by a gesture the screen says is for ordering.
+    private func reorderDock(_ tab: AppTab, before target: AppTab) -> Bool {
+        guard tab != target, dockTabs.contains(tab), let targetIndex = dockTabs.firstIndex(of: target) else {
+            return false
+        }
+        var dock = dockTabs
+        dock.removeAll { $0 == tab }
+        dock.insert(tab, at: min(targetIndex, dock.count))
+        commit(dock: dock, hub: hubTabs)
         return true
     }
 
-    private func insertIntoDock(_ tab: AppTab, before target: AppTab) -> Bool {
-        guard tab != target else { return false }
-        var dock = dockTabs
-        dock.removeAll { $0 == tab }
-        let index = dock.firstIndex(of: target) ?? dock.count
-        return place(tab, intoDockAt: index, intoHubAt: nil)
-    }
-
-    private func appendToDock(_ tab: AppTab) -> Bool {
-        guard !dockTabs.contains(tab) else { return false }
-        return place(tab, intoDockAt: dockTabs.count, intoHubAt: nil)
-    }
-
-    private func insertIntoHub(_ tab: AppTab, before target: AppTab) -> Bool {
-        guard tab != target else { return false }
+    private func reorderHub(_ tab: AppTab, before target: AppTab) -> Bool {
+        guard tab != target, hubTabs.contains(tab), let targetIndex = hubTabs.firstIndex(of: target) else {
+            return false
+        }
         var hub = hubTabs
         hub.removeAll { $0 == tab }
-        let index = hub.firstIndex(of: target) ?? hub.count
-        return place(tab, intoDockAt: nil, intoHubAt: index)
+        hub.insert(tab, at: min(targetIndex, hub.count))
+        commit(dock: dockTabs, hub: hub)
+        return true
     }
 
-    private func appendToHub(_ tab: AppTab) -> Bool {
-        guard !hubTabs.contains(tab) else { return false }
-        return place(tab, intoDockAt: nil, intoHubAt: hubTabs.count)
+    private func refuse(_ message: String) {
+        Haptics.error()
+        withAnimation { refusal = message }
     }
 
     /// Both lists are written together, so a tab can never be missing from both or present in
     /// both after a move.
     private func commit(dock: [AppTab], hub: [AppTab]) {
         Haptics.impact(.light)
-        settingsViewModel.settings.dockTabs = dock.map(\.rawValue)
-        settingsViewModel.settings.hubTabs = hub.map(\.rawValue)
+        withAnimation(.snappy(duration: 0.22)) {
+            refusal = nil
+            settingsViewModel.settings.dockTabs = dock.map(\.rawValue)
+            settingsViewModel.settings.hubTabs = hub.map(\.rawValue)
+        }
         settingsViewModel.saveSettings()
     }
 }
