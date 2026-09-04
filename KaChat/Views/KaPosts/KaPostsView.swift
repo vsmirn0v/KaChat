@@ -431,7 +431,7 @@ struct KaPostsView: View {
             }
             // Quote from a Bookmarks / my-Profile cell: presented from INSIDE this sheet,
             // since the presenter of this sheet is already busy presenting it.
-            .sheet(item: $menuQuoteComposerTarget) { target in
+            .fullScreenCover(item: $menuQuoteComposerTarget) { target in
                 quoteComposerSheet(for: target)
             }
         }
@@ -458,7 +458,11 @@ struct KaPostsView: View {
         .overlay(alignment: .bottom) {
             toastOverlay
         }
-        .sheet(isPresented: $showComposer) {
+        // Full screen like every other KaPosts screen. As a card sheet it started below the
+        // status bar with rounded top corners, which clipped the connection dot in its own
+        // header into a crescent and left the composer looking like a panel over the feed
+        // rather than the screen it is.
+        .fullScreenCover(isPresented: $showComposer) {
             KaPostComposerView(
                 onPost: { text in
                     schedulePost(text: text)
@@ -467,10 +471,6 @@ struct KaPostsView: View {
                     scheduleThread(segments)
                 }
             )
-            // Large only. The composer auto-focuses, and at the medium detent the keyboard
-            // takes practically all of the sheet - the editor was left with a sliver and the
-            // caret slid behind the keyboard as the post grew.
-            .presentationDetents([.large])
         }
         .sheet(item: $tipTarget) { target in
             KaPostTipSheet(address: target.address, displayName: posterDisplayName(target.address))
@@ -515,7 +515,7 @@ struct KaPostsView: View {
         .fullScreenCover(item: $engagementTarget) { target in
             KaPostEngagementView(post: target)
         }
-        .sheet(item: $quoteComposerTarget) { target in
+        .fullScreenCover(item: $quoteComposerTarget) { target in
             quoteComposerSheet(for: target)
         }
         // Tapping an @mention anywhere in KaPosts (feed, thread detail, profiles - sheets
@@ -2131,9 +2131,6 @@ struct KaPostsView: View {
         ) { text in
             scheduleQuote(target: target, text: text)
         }
-        // Single large detent: the composer auto-focuses, and on a medium sheet the keyboard
-        // leaves no usable room for the editor (see the composer's own layout notes).
-        .presentationDetents([.large])
     }
 
     /// K's repost mechanism is the quote action: nil text = plain repost (marker-only message),
@@ -2746,7 +2743,7 @@ struct KaPostsView: View {
             .fullScreenCover(item: $profileDetailTarget) { target in
                 postDetailSheet(postId: target.id)
             }
-            .sheet(item: $profileQuoteComposerTarget) { target in
+            .fullScreenCover(item: $profileQuoteComposerTarget) { target in
                 quoteComposerSheet(for: target)
             }
             .task(id: myAddress) {
@@ -2964,7 +2961,7 @@ struct KaPostsView: View {
             }
             // Quote tapped on a post in this profile - presented from the profile's OWN
             // NavigationStack for the same reason as the thread sheet above it.
-            .sheet(item: $profileQuoteComposerTarget) { target in
+            .fullScreenCover(item: $profileQuoteComposerTarget) { target in
                 quoteComposerSheet(for: target)
             }
             .task(id: target.id) {
@@ -3331,7 +3328,7 @@ struct KaPostsView: View {
             }
             // Presented from this sheet's own stack, like the profile's thread sheet - a
             // top-level presenter cannot open while this one is on screen.
-            .sheet(item: $editingDraft) { draft in
+            .fullScreenCover(item: $editingDraft) { draft in
                 KaPostComposerView(
                     onPost: { text in
                         draftStore.delete(draft.id)
@@ -3664,7 +3661,7 @@ struct KaPostsView: View {
                     // present while this thread sheet is up, so it presents from in here.
                     KaPostEngagementView(post: target)
                 }
-                .sheet(item: $threadQuoteComposerTarget) { target in
+                .fullScreenCover(item: $threadQuoteComposerTarget) { target in
                     // Quote on the open post OR on one of its comments. Exactly the same
                     // nested-sheet rule: feedLayer's $quoteComposerTarget sheet cannot come
                     // up while this thread sheet is, which is why the composer used to appear
