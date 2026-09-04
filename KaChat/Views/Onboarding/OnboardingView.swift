@@ -7,6 +7,8 @@ struct OnboardingView: View {
     @State private var showImportWallet = false
     @State private var signingInAccountId: String?
     @State private var pendingRemovalAccount: SavedAccountSummary?
+    /// The pencil's half sheet: Rename or Delete for one saved account.
+    @State private var accountActionsTarget: SavedAccountSummary?
     @State private var isRemovingAccount = false
     @State private var signInErrorMessage: String?
     @State private var pendingRenameAccount: SavedAccountSummary?
@@ -46,24 +48,22 @@ struct OnboardingView: View {
                 // identity derivation path family, then seed entry continues as before.
                 ImportSourceWalletView()
             }
-            .confirmationDialog(
-                "Remove Saved Account",
-                isPresented: Binding(
-                    get: { pendingRemovalAccount != nil },
-                    set: { if !$0 { pendingRemovalAccount = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                Button("Remove from Device", role: .destructive) {
-                    guard let account = pendingRemovalAccount else { return }
-                    removeSavedAccount(account)
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
+            .sheet(item: $accountActionsTarget) { account in
+                accountActionsSheet(account)
+            }
+            .sheet(isPresented: Binding(
+                get: { pendingRemovalAccount != nil },
+                set: { if !$0 { pendingRemovalAccount = nil } }
+            )) {
                 if let account = pendingRemovalAccount {
-                    Text("This removes \(account.displayAlias) (\(account.shortPublicAddress)) and its local data from this device.")
-                } else {
-                    Text("This account will be removed from this device.")
+                    ConfirmActionSheet(
+                        title: "Remove Saved Account",
+                        confirmTitle: "Remove from Device",
+                        confirmSubtitle: "Deletes \(account.displayAlias) (\(account.shortPublicAddress)) and its local data from this device.",
+                        confirmSystemImage: "trash"
+                    ) {
+                        removeSavedAccount(account)
+                    }
                 }
             }
             .task {
@@ -158,16 +158,77 @@ struct OnboardingView: View {
         .padding(.bottom, 40)
     }
 
+    /// Rows are a fixed height, so five of them plus the gaps between is a height this can cap
+    /// at - past that the list scrolls inside itself instead of pushing Create and Import off
+    /// the bottom of the screen, which is what a dozen saved accounts used to do.
+    private static let visibleSavedAccountRows = 5
+    private static let savedAccountRowHeight: CGFloat = 64
+    private static let savedAccountRowSpacing: CGFloat = 10
+
     private var savedAccountsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let count = walletManager.savedAccounts.count
+        let capped = min(count, Self.visibleSavedAccountRows)
+        let maxHeight = CGFloat(capped) * Self.savedAccountRowHeight
+            + CGFloat(max(capped - 1, 0)) * Self.savedAccountRowSpacing
+        return VStack(alignment: .leading, spacing: 10) {
             Text("Saved Accounts")
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            ForEach(walletManager.savedAccounts) { account in
-                savedAccountRow(account)
+            ScrollView {
+                VStack(spacing: Self.savedAccountRowSpacing) {
+                    ForEach(walletManager.savedAccounts) { account in
+                        savedAccountRow(account)
+                    }
+                }
             }
+            .frame(maxHeight: maxHeight)
+            // Nothing to scroll at five or fewer, and leaving it enabled let the whole section
+            // bounce against a page that does not move.
+            .scrollDisabled(count <= Self.visibleSavedAccountRows)
         }
+    }
+
+    /// Rename or Delete for one saved account, behind the pencil.
+    private func accountActionsSheet(_ account: SavedAccountSummary) -> some View {
+        VStack(spacing: 12) {
+            VStack(spacing: 2) {
+                Text(account.displayAlias)
+                    .font(.headline)
+                Text(account.shortPublicAddress)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 4)
+
+            ActionSheetRow(
+                title: "Rename",
+                subtitle: "Gives this account a name of your own.",
+                systemImage: "pencil"
+            ) {
+                accountActionsTarget = nil
+                DispatchQueue.main.async {
+                    renameText = account.alias
+                    pendingRenameAccount = account
+                }
+            }
+            ActionSheetRow(
+                title: "Delete",
+                subtitle: "Removes this account and its local data from this device.",
+                systemImage: "trash",
+                tint: .red
+            ) {
+                accountActionsTarget = nil
+                DispatchQueue.main.async { pendingRemovalAccount = account }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .presentationDetents([.height(280)])
+        .presentationDragIndicator(.visible)
     }
 
     private func savedAccountRow(_ account: SavedAccountSummary) -> some View {
@@ -197,24 +258,18 @@ struct OnboardingView: View {
             .buttonStyle(.plain)
             .disabled(signingInAccountId != nil || isRemovingAccount)
 
-            Menu {
-                Button {
-                    renameText = account.alias
-                    pendingRenameAccount = account
-                } label: {
-                    Label("Rename", systemImage: "pencil")
-                }
-                Button(role: .destructive) {
-                    pendingRemovalAccount = account
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
+            // Half sheet rather than a context menu, like every other chooser in the app - and
+            // Delete gets a line saying what it takes with it, which a menu of bare verbs cannot.
+            Button {
+                accountActionsTarget = account
             } label: {
                 Image(systemName: "pencil")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.accentColor)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
             }
-            .tint(.accentColor)
+            .buttonStyle(.plain)
             .disabled(signingInAccountId != nil || isRemovingAccount)
         }
         .padding(.horizontal, 12)
