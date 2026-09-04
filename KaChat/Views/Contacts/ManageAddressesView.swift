@@ -310,11 +310,9 @@ struct ManageAddressesView: View {
     /// contact as payment-pool reservations, which now live on the Chat Privacy tab.
     @ViewBuilder
     private var addressesTabContent: some View {
-        chattingAddressWarningCard
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-
+        // The chatting address is not a spending address, so it does not open this list. It has
+        // its own card on Profile, warning and all; leading with it here made the first thing on
+        // a spending screen an address you must not spend from.
         if isLoading && entries.isEmpty {
             HStack {
                 Spacer()
@@ -458,30 +456,6 @@ struct ManageAddressesView: View {
                     .frame(width: 24, height: 24)
             }
             .tint(.accentColor)
-        }
-        .padding(16)
-        .background(glassBackground(cornerRadius: 18))
-    }
-
-    /// Matches the address rows below font-for-font (small secondary label, monospaced primary
-    /// value) rather than a bold title - it used to read as a bigger, more prominent card than
-    /// the rest of the list even though it's just one more address among equals here.
-    private var chattingAddressWarningCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Chatting Address")
-                .font(.caption)
-                .fontWeight(.medium)
-                .foregroundColor(.secondary)
-            if let identity = walletManager.currentWallet?.publicAddress {
-                Text(identity)
-                    .font(.system(.subheadline, design: .monospaced))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            Text("Never send Kaspa you intend to spend to this address — it's for chatting fees only.")
-                .font(.caption2)
-                .foregroundColor(.orange)
         }
         .padding(16)
         .background(glassBackground(cornerRadius: 18))
