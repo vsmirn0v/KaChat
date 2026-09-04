@@ -15,6 +15,13 @@ struct OnboardingView: View {
     @State private var renameText = ""
     @State private var showAppSettings = false
 
+    /// The brand's near-black with a green cast, taken from the KaChat banner rather than the
+    /// app's usual true black. Scoped to this screen only, and applied in both appearances on
+    /// purpose - it is the sign-in screen, the one place the product introduces itself.
+    private static let pageBackground = Color(red: 0.055, green: 0.086, blue: 0.078)
+    /// One step up from the page, same cast, for the account rows.
+    private static let rowBackground = Color(red: 0.102, green: 0.149, blue: 0.141)
+
     var body: some View {
         NavigationStack {
             // GeometryReader so the accounts list can be told a height that DEMONSTRABLY leaves
@@ -29,6 +36,11 @@ struct OnboardingView: View {
                     actionButtonsSection(availableHeight: proxy.size.height)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Self.pageBackground.ignoresSafeArea())
+                // The background is dark in both appearances, so the system colors drawn on top
+                // of it have to be their dark variants too - otherwise `.primary` text renders
+                // black on near-black in light mode. Scoped to this subtree.
+                .environment(\.colorScheme, .dark)
             }
             // App-wide settings (Security incl. Child Mode, Appearance/Language/Currency,
             // Connection, Diagnostics) - reachable with NO account active, so a parent can
@@ -313,7 +325,7 @@ struct OnboardingView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: Self.savedAccountRowHeight)
-        .background(Color(.systemGray6))
+        .background(Self.rowBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
