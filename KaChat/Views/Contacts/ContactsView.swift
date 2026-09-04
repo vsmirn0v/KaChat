@@ -3132,6 +3132,9 @@ struct KNSDomainSendView: View {
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @State private var result: KNSDomainTransferResult?
+    /// Where the transfer has got to. A commit, a wait, then a reveal is most of a minute, and a
+    /// toolbar spinner through all of it is indistinguishable from being stuck.
+    @State private var transferStage: KNSDomainTransferService.TransferStage?
 
     @State private var isResolvingKNS = false
     @State private var resolvedAddress: String?
@@ -3438,6 +3441,7 @@ struct KNSDomainSendView: View {
 
     private func send() {
         isSubmitting = true
+        transferStage = .preparing
         errorMessage = nil
         let recipient = effectiveAddress.trimmingCharacters(in: .whitespacesAndNewlines)
         let fee = priorityFeeSompi
@@ -3448,15 +3452,18 @@ struct KNSDomainSendView: View {
                     assetId: domain.inscriptionId,
                     to: recipient,
                     priorityFeeSompi: fee,
-                    fromSpendingAddressIndex: spendingAddressIndex
+                    fromSpendingAddressIndex: spendingAddressIndex,
+                    onProgress: { stage in transferStage = stage }
                 )
                 await MainActor.run {
                     isSubmitting = false
+                    transferStage = nil
                     result = transferResult
                 }
             } catch {
                 await MainActor.run {
                     isSubmitting = false
+                    transferStage = nil
                     errorMessage = error.localizedDescription
                     Haptics.impact(.medium)
                 }
