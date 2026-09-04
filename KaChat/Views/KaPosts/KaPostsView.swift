@@ -2599,34 +2599,54 @@ struct KaPostsView: View {
         }
         let myPosts = (myProfileRemotePosts + localOnly).sorted { $0.timestamp > $1.timestamp }
         return NavigationStack {
-            // Fixed chrome (banner, avatar, name, counts, tab bar) with ONLY the feed paging
-            // underneath - see the pager comment below.
-            VStack(spacing: 0) {
+            // One scroll for the whole page: banner, bio and tab bar are the feed's header
+            // rather than pinned chrome above it, so they travel up out of the way while you
+            // read. Pinning them held most of a phone screen for a name you had already read.
+            // The cost is the horizontal Posts/Replies swipe - a pager needs its pages to own
+            // their scrolling, which is exactly what puts the header outside them.
+            profileFeedPage(
+                items: myProfileFeedTab == .posts ? myPosts : myProfileRemoteReplies,
+                isLoading: isLoadingMyProfilePosts,
+                emptyIcon: myProfileFeedTab == .posts ? "square.and.pencil" : "bubble.left",
+                emptyTitle: myProfileFeedTab == .posts ? "No posts yet" : "No replies yet",
+                emptyBody: myProfileFeedTab == .posts
+                    ? "Your posts will show up here."
+                    : "Replies you post will show up here.",
+                pageState: myProfileFeedTab == .posts ? myPostsPage : myRepliesPage,
+                onLoadMore: { loadMoreMyProfile(myProfileFeedTab == .posts ? .posts : .replies) },
+                onRetryLoadMore: {
+                    if myProfileFeedTab == .posts {
+                        myPostsPage.prepareManualRetry()
+                        loadMoreMyProfile(.posts)
+                    } else {
+                        myRepliesPage.prepareManualRetry()
+                        loadMoreMyProfile(.replies)
+                    }
+                },
+                onRefresh: {
+                    guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
+                    if myProfileFeedTab == .posts {
+                        await loadMyProfilePosts(pubkey: pubkey, reset: true)
+                    } else {
+                        await loadMyProfileReplies(pubkey: pubkey, reset: true)
+                    }
+                },
+                header: {
                 VStack(alignment: .leading, spacing: 0) {
                     // Banner (KNS profile banner when set, subtle gradient fallback).
+                    // Through KNSBannerImageView, not a bare AsyncImage: a KNS bannerUrl is not
+                    // always a plain https URL, so URL(string:) handed AsyncImage something it
+                    // could not fetch and the banner silently never appeared. That view resolves
+                    // the value the same way every other banner in the app does, and caches it.
                     ZStack(alignment: .bottomLeading) {
-                        // Overlay, not a child: see the note on `KNSBannerImageView`. A
-                        // fill-scaled banner reports a width far past the screen, and a vertical
-                        // ScrollView takes its content's width rather than clamping it, so the
-                        // whole profile stretched and looked zoomed in.
-                        Color.clear
-                            .frame(maxWidth: .infinity)
+                        bannerFallback
                             .frame(height: 140)
-                            .overlay {
-                                if let bannerURL = myInfo?.profile?.bannerUrl,
-                                   let url = URL(string: bannerURL) {
-                                    AsyncImage(url: url) { phase in
-                                        if let image = phase.image {
-                                            image.resizable().scaledToFill()
-                                        } else {
-                                            bannerFallback
-                                        }
-                                    }
-                                } else {
-                                    bannerFallback
-                                }
-                            }
                             .clipped()
+                        KNSBannerImageView(
+                            bannerURLString: myInfo?.profile?.bannerUrl,
+                            height: 140,
+                            cornerRadius: 0
+                        )
                     }
 
                     // Avatar overlapping the banner, X-style.
@@ -2706,54 +2726,9 @@ struct KaPostsView: View {
 
                     profileFeedTabBar(selection: $myProfileFeedTab)
                 }
-
-                // Finger-tracking pager between Posts and Replies - the same page-style
-                // TabView machinery as the main feed tabs. Both pages stay alive, so the
-                // swipe tracks the finger, each tab keeps its own scroll position, and a
-                // switch never rebuilds the other tab's cells (the old end-of-drag
-                // crossfade rebuilt both lists on every flip).
-                TabView(selection: $myProfileFeedTab) {
-                    profileFeedPage(
-                        items: myPosts,
-                        isLoading: isLoadingMyProfilePosts,
-                        emptyIcon: "square.and.pencil",
-                        emptyTitle: "No posts yet",
-                        emptyBody: "Your posts will show up here.",
-                        pageState: myPostsPage,
-                        onLoadMore: { loadMoreMyProfile(.posts) },
-                        onRetryLoadMore: {
-                            myPostsPage.prepareManualRetry()
-                            loadMoreMyProfile(.posts)
-                        },
-                        onRefresh: {
-                            guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
-                            await loadMyProfilePosts(pubkey: pubkey, reset: true)
-                        },
-                        cell: { post in myProfileCell(post) }
-                    )
-                    .tag(ProfileFeedTab.posts)
-                    profileFeedPage(
-                        items: myProfileRemoteReplies,
-                        isLoading: isLoadingMyProfilePosts,
-                        emptyIcon: "bubble.left",
-                        emptyTitle: "No replies yet",
-                        emptyBody: "Replies you post will show up here.",
-                        pageState: myRepliesPage,
-                        onLoadMore: { loadMoreMyProfile(.replies) },
-                        onRetryLoadMore: {
-                            myRepliesPage.prepareManualRetry()
-                            loadMoreMyProfile(.replies)
-                        },
-                        onRefresh: {
-                            guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return }
-                            await loadMyProfileReplies(pubkey: pubkey, reset: true)
-                        },
-                        cell: { post in myProfileCell(post) }
-                    )
-                    .tag(ProfileFeedTab.replies)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-            }
+                },
+                cell: { post in myProfileCell(post) }
+            )
             // Banner starts BELOW the bar rather than ignoring the top safe area: it
             // used to run under the notch and under the dot/balance/Done row,
             // leaving the profile's own chrome sitting on top of an image.
@@ -2829,29 +2804,45 @@ struct KaPostsView: View {
         let address = target.address
         let info = knsService.profileCache[address]
         return NavigationStack {
-            // Fixed chrome + finger-tracking Posts/Replies pager, mirroring myProfileSheet.
-            VStack(spacing: 0) {
+            // One scroll for the whole page - see myProfileSheet's note.
+            profileFeedPage(
+                items: posterProfileFeedTab == .posts ? posterProfilePosts : posterProfileReplies,
+                isLoading: isLoadingPosterProfile,
+                emptyIcon: posterProfileFeedTab == .posts ? "square.and.pencil" : "bubble.left",
+                emptyTitle: posterProfileFeedTab == .posts ? "No posts yet" : "No replies yet",
+                emptyBody: nil,
+                pageState: posterProfileFeedTab == .posts ? posterPostsPage : posterRepliesPage,
+                onLoadMore: { loadMorePosterProfile(posterProfileFeedTab == .posts ? .posts : .replies) },
+                onRetryLoadMore: {
+                    if posterProfileFeedTab == .posts {
+                        posterPostsPage.prepareManualRetry()
+                        loadMorePosterProfile(.posts)
+                    } else {
+                        posterRepliesPage.prepareManualRetry()
+                        loadMorePosterProfile(.replies)
+                    }
+                },
+                onRefresh: {
+                    guard let pubkey = posterProfilePubkey else { return }
+                    if posterProfileFeedTab == .posts {
+                        await loadPosterProfilePosts(pubkey: pubkey, reset: true)
+                    } else {
+                        await loadPosterProfileReplies(pubkey: pubkey, reset: true)
+                    }
+                },
+                header: {
                 VStack(alignment: .leading, spacing: 0) {
+                    // Through KNSBannerImageView - see the matching note on the own-profile
+                    // banner for why a bare AsyncImage never loaded a KNS bannerUrl.
                     ZStack(alignment: .bottomLeading) {
-                        // Overlay, not a child - see the matching note on the own-profile banner.
-                        Color.clear
-                            .frame(maxWidth: .infinity)
+                        bannerFallback
                             .frame(height: 140)
-                            .overlay {
-                                if let bannerURL = info?.profile?.bannerUrl,
-                                   let url = URL(string: bannerURL) {
-                                    AsyncImage(url: url) { phase in
-                                        if let image = phase.image {
-                                            image.resizable().scaledToFill()
-                                        } else {
-                                            bannerFallback
-                                        }
-                                    }
-                                } else {
-                                    bannerFallback
-                                }
-                            }
                             .clipped()
+                        KNSBannerImageView(
+                            bannerURLString: info?.profile?.bannerUrl,
+                            height: 140,
+                            cornerRadius: 0
+                        )
                     }
 
                     KNSAvatarView(
@@ -2937,50 +2928,9 @@ struct KaPostsView: View {
 
                     profileFeedTabBar(selection: $posterProfileFeedTab)
                 }
-
-                // Finger-tracking Posts/Replies pager - see myProfileSheet's pager comment.
-                TabView(selection: $posterProfileFeedTab) {
-                    profileFeedPage(
-                        items: posterProfilePosts,
-                        isLoading: isLoadingPosterProfile,
-                        emptyIcon: "square.and.pencil",
-                        emptyTitle: "No posts yet",
-                        emptyBody: nil,
-                        pageState: posterPostsPage,
-                        onLoadMore: { loadMorePosterProfile(.posts) },
-                        onRetryLoadMore: {
-                            posterPostsPage.prepareManualRetry()
-                            loadMorePosterProfile(.posts)
-                        },
-                        onRefresh: {
-                            guard let pubkey = posterProfilePubkey else { return }
-                            await loadPosterProfilePosts(pubkey: pubkey, reset: true)
-                        },
-                        cell: { post in posterProfileCell(post) }
-                    )
-                    .tag(ProfileFeedTab.posts)
-                    profileFeedPage(
-                        items: posterProfileReplies,
-                        isLoading: isLoadingPosterProfile,
-                        emptyIcon: "bubble.left",
-                        emptyTitle: "No replies yet",
-                        emptyBody: nil,
-                        pageState: posterRepliesPage,
-                        onLoadMore: { loadMorePosterProfile(.replies) },
-                        onRetryLoadMore: {
-                            posterRepliesPage.prepareManualRetry()
-                            loadMorePosterProfile(.replies)
-                        },
-                        onRefresh: {
-                            guard let pubkey = posterProfilePubkey else { return }
-                            await loadPosterProfileReplies(pubkey: pubkey, reset: true)
-                        },
-                        cell: { post in posterProfileCell(post) }
-                    )
-                    .tag(ProfileFeedTab.replies)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-            }
+                },
+                cell: { post in posterProfileCell(post) }
+            )
             // Banner starts BELOW the bar rather than ignoring the top safe area: it
             // used to run under the notch and under the dot/balance/Done row,
             // leaving the profile's own chrome sitting on top of an image.
@@ -3112,7 +3062,7 @@ struct KaPostsView: View {
     /// One page of a profile pager (Posts or Replies): its own ScrollView + LazyVStack with the
     /// standard trigger-row prefetch and load-more footer. The pager keeps both pages alive, so
     /// each tab's scroll position survives swiping between them.
-    private func profileFeedPage<Cell: View>(
+    private func profileFeedPage<Header: View, Cell: View>(
         items: [DraftPost],
         isLoading: Bool,
         emptyIcon: String,
@@ -3122,10 +3072,14 @@ struct KaPostsView: View {
         onLoadMore: @escaping () -> Void,
         onRetryLoadMore: @escaping () -> Void,
         onRefresh: @escaping () async -> Void,
+        /// Scrolls WITH the feed rather than sitting above it - a profile's banner, bio and tab
+        /// bar are page content, and pinning them cost most of a phone screen while reading.
+        @ViewBuilder header: @escaping () -> Header = { EmptyView() },
         @ViewBuilder cell: @escaping (DraftPost) -> Cell
     ) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                header()
                 if items.isEmpty, isLoading {
                     ProgressView()
                         .frame(maxWidth: .infinity)
