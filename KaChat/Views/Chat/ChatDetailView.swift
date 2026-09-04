@@ -934,6 +934,10 @@ struct ChatDetailView: View {
             }
         }
         .onDisappear {
+            // Take the keyboard down before this view goes. Popping with it still up leaves its
+            // area behind as a black band over the chat list underneath.
+            isPaymentFocused = false
+            isMessageFocused = false
             chatService.leaveConversation()
             chatService.cancelReply()
             cancelRecording()
@@ -2334,7 +2338,10 @@ struct ChatDetailView: View {
                 )
             )
                 .keyboardType(.decimalPad)
-                .numericKeyboardDoneButton()
+                // No keyboard toolbar here. The payment bar has its own send button right
+                // beside the field, so a checkmark to dismiss was one control too many - and a
+                // keyboard toolbar on a view that can be popped is what left a black band where
+                // the keyboard had been when you went back with it still open.
                 .focused($isPaymentFocused)
             if let conversionLabel = fiatAmountState.conversionLabelText(
                 priceInCurrency: portfolioViewModel.currentPriceUsd,
