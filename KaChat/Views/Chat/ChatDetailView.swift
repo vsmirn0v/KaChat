@@ -156,6 +156,9 @@ struct ChatDetailView: View {
     /// across all rows (not per-bubble state) so a single tap-anywhere-to-dismiss gesture on the
     /// message list can close it regardless of which row it belongs to.
     @State private var activeQuickReactionMessageId: UUID?
+    /// The message whose full emoji picker is open. Owned by the SCREEN, not by the reaction bar -
+    /// see `QuickReactionBarView.onMore`.
+    @State private var emojiPickerTarget: IdentifiedTxId?
     @State private var highlightedMessageID: UUID?
     @State private var inputMode: InputMode = .message
     @State private var amountText = ""
@@ -931,6 +934,16 @@ struct ChatDetailView: View {
             if !initialLayoutReady {
                 configureInitialMessageWindow()
                 initialLayoutReady = true
+            }
+        }
+        .sheet(item: $emojiPickerTarget) { target in
+            EmojiReactionPicker { emoji in
+                let myAddress = walletManager.currentWallet?.publicAddress ?? ""
+                let existing = chatService.reactionsByTxId[target.id]?.first { $0.reactorAddress == myAddress }
+                let action = existing?.emoji == emoji ? "remove" : "add"
+                Task {
+                    try? await chatService.sendReaction(to: contact, targetTxId: target.id, emoji: emoji, action: action)
+                }
             }
         }
         .onDisappear {
@@ -2999,6 +3012,7 @@ struct ChatDetailView: View {
                     try? await chatService.sendReaction(to: contact, targetTxId: message.txId, emoji: emoji, action: action)
                 }
             },
+            onMoreReactions: { emojiPickerTarget = IdentifiedTxId(id: message.txId) },
             activeQuickReactionMessageId: $activeQuickReactionMessageId,
             onJumpToReply: replyQuote != nil ? { pendingJumpToTxId = replyQuote?.replyToId } : nil,
             avatarURLString: senderAddress.flatMap { knsService.profileCache[$0]?.avatarURL },

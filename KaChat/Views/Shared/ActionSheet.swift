@@ -478,3 +478,8 @@ struct ConfirmActionSheet: View {
         .presentationDragIndicator(.visible)
     }
 }
+
+/// A transaction id made Identifiable, for `.sheet(item:)` presentations keyed on one message.
+struct IdentifiedTxId: Identifiable {
+    let id: String
+}

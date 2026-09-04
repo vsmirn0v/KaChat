@@ -63,6 +63,8 @@ struct BroadcastChannelView: View {
     /// group chat's identical `GroupChatDetailView.activeQuickReactionMessageId`, except broadcast
     /// row ids are the wire txId `String` rather than a local `UUID`.
     @State private var activeQuickReactionMessageId: String?
+    /// The message whose full emoji picker is open. Owned by the SCREEN, not by the reaction bar.
+    @State private var emojiPickerTarget: IdentifiedTxId?
 
     private var myAddress: String? {
         walletManager.currentWallet?.publicAddress
@@ -129,6 +131,21 @@ struct BroadcastChannelView: View {
     private var chrome: some View {
         navigation
         .toast(message: toastMessage, style: .success)
+        .sheet(item: $emojiPickerTarget) { target in
+            EmojiReactionPicker { emoji in
+                let existing = broadcastService.reactions(forChannel: channelName)[target.id]?
+                    .first { $0.reactorAddress == myAddress }
+                let action = existing?.emoji == emoji ? "remove" : "add"
+                Task {
+                    try? await broadcastService.sendBroadcastReaction(
+                        channel: channelName,
+                        targetTxId: target.id,
+                        emoji: emoji,
+                        action: action
+                    )
+                }
+            }
+        }
         .sheet(item: $reactionsSheetTarget) { target in
             ReactionsSheet(
                 entries: (broadcastService.reactions(forChannel: channelName)[target.txId] ?? [])
@@ -508,6 +525,7 @@ struct BroadcastChannelView: View {
                     )
                 }
             },
+            onMoreReactions: { emojiPickerTarget = IdentifiedTxId(id: message.id) },
             activeQuickReactionMessageId: $activeQuickReactionMessageId,
             revealOffset: revealOffset,
             maxRevealOffset: maxRevealOffset
@@ -1116,6 +1134,8 @@ private struct BroadcastMessageRow: View {
     /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
     /// entirely (matches group chat's `GroupMessageBubbleRow.onReact`).
     var onReact: ((String) -> Void)?
+    /// Asks the SCREEN to open the full emoji picker - see `QuickReactionBarView.onMore`.
+    var onMoreReactions: (() -> Void)?
     /// Shared across every bubble in the room (not per-bubble `@State`) - mirrors group chat's
     /// identical binding, keyed by the broadcast row's `String` txId.
     var activeQuickReactionMessageId: Binding<String?> = .constant(nil)
@@ -1202,6 +1222,12 @@ private struct BroadcastMessageRow: View {
                             onReply: {
                                 onReply()
                                 activeQuickReactionMessageId.wrappedValue = nil
+                            },
+                            onMore: {
+                                // Close the bar and hand off in one go: the screen owns the
+                                // picker, so it survives this bar going away.
+                                activeQuickReactionMessageId.wrappedValue = nil
+                                onMoreReactions?()
                             }
                         )
                         .frame(maxWidth: .infinity, alignment: isOwnMessage ? .trailing : .leading)

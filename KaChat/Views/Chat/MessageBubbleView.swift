@@ -37,6 +37,9 @@ struct MessageBubbleView: View {
     /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
     /// entirely (matches how `onReply` being nil already disables reply everywhere it's checked).
     let onReact: ((String) -> Void)?
+    /// Asks the SCREEN to open the full emoji picker for this message - see
+    /// `QuickReactionBarView.onMore` for why the bar cannot present it itself.
+    var onMoreReactions: (() -> Void)? = nil
     /// Shared across every bubble in the conversation (not per-bubble `@State`) so the list's own
     /// tap-anywhere-to-dismiss gesture can close whichever bubble's bar is open from outside this
     /// view entirely - see `ChatDetailView`'s `activeQuickReactionMessageId`.
@@ -97,6 +100,7 @@ struct MessageBubbleView: View {
         myReactorAddress: String = "",
         onShowReactions: (() -> Void)? = nil,
         onReact: ((String) -> Void)? = nil,
+        onMoreReactions: (() -> Void)? = nil,
         activeQuickReactionMessageId: Binding<UUID?> = .constant(nil),
         onJumpToReply: (() -> Void)? = nil,
         avatarURLString: String? = nil,
@@ -125,6 +129,7 @@ struct MessageBubbleView: View {
         self.myReactorAddress = myReactorAddress
         self.onShowReactions = onShowReactions
         self.onReact = onReact
+        self.onMoreReactions = onMoreReactions
         self._activeQuickReactionMessageId = activeQuickReactionMessageId
         self.onJumpToReply = onJumpToReply
         self.avatarURLString = avatarURLString
@@ -215,6 +220,12 @@ struct MessageBubbleView: View {
                         onReply: {
                             onReply?()
                             activeQuickReactionMessageId = nil
+                        },
+                        onMore: {
+                            // Close the bar and hand off in one go: the screen owns the picker,
+                            // so it survives this bar going away.
+                            activeQuickReactionMessageId = nil
+                            onMoreReactions?()
                         }
                     )
                     .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)

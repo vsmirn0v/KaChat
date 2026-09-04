@@ -89,6 +89,8 @@ struct GroupChatDetailView: View {
     /// Which message (if any) currently has its double-tap quick-reaction bar open - mirrors 1:1
     /// chat's identical `ChatDetailView.activeQuickReactionMessageId`.
     @State private var activeQuickReactionMessageId: UUID?
+    /// The message whose full emoji picker is open. Owned by the SCREEN, not by the reaction bar.
+    @State private var emojiPickerTarget: IdentifiedTxId?
     @State private var highlightedMessageID: UUID?
 
     /// Scroll-to-bottom floating button, matching 1:1/broadcast's identical debounced-visibility
@@ -581,6 +583,15 @@ struct GroupChatDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This only deletes the message from this device - other members still have their own copy, and the encrypted transaction remains permanently on the Kaspa blockchain, visible to anyone but unreadable without your keys. This cannot be undone.")
+        }
+        .sheet(item: $emojiPickerTarget) { target in
+            EmojiReactionPicker { emoji in
+                let existing = groupChatService.reactionsByGroupId[group.id]?[target.id]?.first { $0.reactorAddress == myAddress }
+                let action = existing?.emoji == emoji ? "remove" : "add"
+                Task {
+                    try? await groupChatService.sendGroupReaction(targetTxId: target.id, groupId: group.id, emoji: emoji, action: action)
+                }
+            }
         }
         .sheet(item: $reactionsSheetTarget) { target in
             ReactionsSheet(
@@ -1873,6 +1884,7 @@ struct GroupChatDetailView: View {
                     try? await groupChatService.sendGroupReaction(targetTxId: message.txId, groupId: group.id, emoji: emoji, action: action)
                 }
             },
+            onMoreReactions: { emojiPickerTarget = IdentifiedTxId(id: message.txId) },
             activeQuickReactionMessageId: $activeQuickReactionMessageId,
             onJumpToReply: { pendingJumpToTxId = $0 },
             revealOffset: revealOffset,
@@ -1989,6 +2001,8 @@ private struct GroupMessageBubbleRow: View {
     /// Sends/toggles a reaction on this message - nil disables the double-tap quick-reaction bar
     /// entirely (matches 1:1 chat's `MessageBubbleView.onReact`).
     var onReact: ((String) -> Void)?
+    /// Asks the SCREEN to open the full emoji picker - see `QuickReactionBarView.onMore`.
+    var onMoreReactions: (() -> Void)?
     /// Shared across every bubble in the conversation (not per-bubble `@State`) - mirrors 1:1
     /// chat's identical `MessageBubbleView.activeQuickReactionMessageId` binding.
     var activeQuickReactionMessageId: Binding<UUID?> = .constant(nil)
@@ -2182,6 +2196,12 @@ private struct GroupMessageBubbleRow: View {
                         onReply: {
                             onReply()
                             activeQuickReactionMessageId.wrappedValue = nil
+                        },
+                        onMore: {
+                            // Close the bar and hand off in one go: the screen owns the picker,
+                            // so it survives this bar going away.
+                            activeQuickReactionMessageId.wrappedValue = nil
+                            onMoreReactions?()
                         }
                     )
                     .frame(maxWidth: .infinity, alignment: message.isOutgoing ? .trailing : .leading)

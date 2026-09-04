@@ -10,8 +10,14 @@ struct QuickReactionBarView: View {
     var emojis: [String] = AppSettings.defaultQuickReactionEmojis
     let onReact: (String) -> Void
     let onReply: () -> Void
+    /// Opens the full emoji picker. The HOST presents it, not this view.
+    ///
+    /// This bar lives inside the message list, and the list carries a `simultaneousGesture` that
+    /// closes the bar on any tap in it - including the tap on "+". A sheet owned here was
+    /// therefore attached to a view that was being torn down by the very tap that asked for it,
+    /// so it never appeared. Presenting from the screen means the picker outlives the bar.
+    var onMore: () -> Void = {}
 
-    @State private var showFullPicker = false
     @ObservedObject private var recents = EmojiRecentsStore.shared
 
     var body: some View {
@@ -20,7 +26,7 @@ struct QuickReactionBarView: View {
                 // Leads the row: the six quick emoji cover the common cases, and this is the way
                 // to any of the others without going to Settings to change which six they are.
                 Button {
-                    showFullPicker = true
+                    onMore()
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 15, weight: .bold))
@@ -55,11 +61,6 @@ struct QuickReactionBarView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .sheet(isPresented: $showFullPicker) {
-            EmojiReactionPicker { emoji in
-                onReact(emoji)
-            }
-        }
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(.regularMaterial)

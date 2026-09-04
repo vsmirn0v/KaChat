@@ -50,14 +50,32 @@ struct EmojiReactionPicker: View {
         ("Animals & Nature", ["🐶","🐱","🦊","🐻","🐼","🐨","🦁","🐮","🐷","🐸","🐵","🐔","🐧","🦄","🐝","🦋","🌸","🌻","🌈","🌊","🌙","☀️"]),
     ]
 
+    /// Search matches an emoji's own NAME. Matching the character itself (what this used to do)
+    /// only ever found something if you already had the emoji to paste, which is not a search.
+    /// Names come from Unicode via `localizedName`, so "fire", "heart", "cat" all work without
+    /// this file carrying a keyword table that would go stale.
     private var filteredSections: [(title: String, emojis: [String])] {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else { return Self.sections }
-        // Matching on the emoji itself, so pasting one finds it; there are no names to search.
         return Self.sections.compactMap { section in
-            let matches = section.emojis.filter { $0.contains(trimmed) }
+            let matches = section.emojis.filter { emoji in
+                emoji.contains(trimmed) || Self.localizedName(for: emoji).contains(trimmed)
+            }
             return matches.isEmpty ? nil : (section.title, matches)
         }
+    }
+
+    /// The Unicode name for an emoji, lowercased ("fire", "red heart", "grinning face"). Cached
+    /// because the transform is not free and the whole grid is filtered on every keystroke.
+    private static var nameCache: [String: String] = [:]
+    private static func localizedName(for emoji: String) -> String {
+        if let cached = nameCache[emoji] { return cached }
+        let name = (emoji.applyingTransform(.toUnicodeName, reverse: false) ?? "")
+            .replacingOccurrences(of: "\\N{", with: "")
+            .replacingOccurrences(of: "}", with: " ")
+            .lowercased()
+        nameCache[emoji] = name
+        return name
     }
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 8)
@@ -70,12 +88,22 @@ struct EmojiReactionPicker: View {
                         section(title: "Recents", emojis: recents.recents)
                     }
                     ForEach(filteredSections, id: \.title) { section(title: $0.title, emojis: $0.emojis) }
+                    if filteredSections.isEmpty {
+                        Text("No emoji match that.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 32)
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
             .navigationTitle("React")
             .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search emoji")
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.never)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
