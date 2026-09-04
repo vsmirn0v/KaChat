@@ -189,6 +189,11 @@ struct MenuVisibilityView: View {
             }
             .padding(.horizontal, 16)
 
+            // No placeholder slots for the unused capacity. The real dock divides its whole width
+            // between however many tabs it has, so a four-tab dock is four WIDER items and not
+            // four items with a gap on the right - and a preview that showed the gap would be
+            // showing an arrangement the user is never going to see. The count above the bar is
+            // what says how much room is left.
             HStack(spacing: 0) {
                 ForEach(dockTabs) { tab in
                     dockItem(tab)
@@ -196,11 +201,6 @@ struct MenuVisibilityView: View {
                             guard let dragged = items.first else { return false }
                             return reorderDock(dragged, before: tab)
                         }
-                }
-                // An unfilled dock keeps its empty slots visible, so the count is legible without
-                // reading the number.
-                ForEach(dockTabs.count..<AppTab.maxDockItems, id: \.self) { _ in
-                    emptyDockSlot
                 }
             }
             .padding(.horizontal, 8)
@@ -246,15 +246,6 @@ struct MenuVisibilityView: View {
         // never moves anything out of it. Where Kaspa Hub and Profile sit among the five is still
         // the user's, and the dimming plus the refused tap is what says so.
         .draggable(tab)
-    }
-
-    private var emptyDockSlot: some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4]))
-            .foregroundColor(.secondary.opacity(0.35))
-            .frame(height: 44)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
     }
 
     @ViewBuilder
@@ -306,23 +297,24 @@ struct MenuVisibilityView: View {
     /// simply refused instead of moving by a gesture the screen says is for ordering. That is also
     /// what lets the pinned tabs drag freely - a reorder cannot evict anything by construction.
     private func reorderDock(_ tab: AppTab, before target: AppTab) -> Bool {
-        guard tab != target, dockTabs.contains(tab), let targetIndex = dockTabs.firstIndex(of: target) else {
-            return false
-        }
+        guard tab != target, dockTabs.contains(tab) else { return false }
         var dock = dockTabs
         dock.removeAll { $0 == tab }
-        dock.insert(tab, at: min(targetIndex, dock.count))
+        // Read AFTER the removal. Taking the target's index from the ORIGINAL list overshoots by
+        // one whenever the tab is moving forwards, because the removal shifts everything past it
+        // down - which is what made dragging something rightwards land a slot too far.
+        guard let index = dock.firstIndex(of: target) else { return false }
+        dock.insert(tab, at: index)
         commit(dock: dock, hub: hubTabs)
         return true
     }
 
     private func reorderHub(_ tab: AppTab, before target: AppTab) -> Bool {
-        guard tab != target, hubTabs.contains(tab), let targetIndex = hubTabs.firstIndex(of: target) else {
-            return false
-        }
+        guard tab != target, hubTabs.contains(tab) else { return false }
         var hub = hubTabs
         hub.removeAll { $0 == tab }
-        hub.insert(tab, at: min(targetIndex, hub.count))
+        guard let index = hub.firstIndex(of: target) else { return false }
+        hub.insert(tab, at: index)
         commit(dock: dockTabs, hub: hub)
         return true
     }
