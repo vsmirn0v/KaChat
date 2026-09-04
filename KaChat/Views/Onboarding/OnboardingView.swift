@@ -158,34 +158,49 @@ struct OnboardingView: View {
         .padding(.bottom, 40)
     }
 
-    /// Rows are a fixed height, so five of them plus the gaps between is a height this can cap
-    /// at - past that the list scrolls inside itself instead of pushing Create and Import off
-    /// the bottom of the screen, which is what a dozen saved accounts used to do.
+    /// Five rows plus the gaps between them, past which the list scrolls inside itself rather
+    /// than pushing Create and Import off the bottom of the screen.
+    ///
+    /// `savedAccountRowHeight` is enforced on the row itself, not estimated from its contents -
+    /// the height below has to be exactly right for the arithmetic to hold.
     private static let visibleSavedAccountRows = 5
     private static let savedAccountRowHeight: CGFloat = 64
     private static let savedAccountRowSpacing: CGFloat = 10
 
     private var savedAccountsSection: some View {
         let count = walletManager.savedAccounts.count
-        let capped = min(count, Self.visibleSavedAccountRows)
-        let maxHeight = CGFloat(capped) * Self.savedAccountRowHeight
-            + CGFloat(max(capped - 1, 0)) * Self.savedAccountRowSpacing
+        let overflows = count > Self.visibleSavedAccountRows
+        let cappedHeight = CGFloat(Self.visibleSavedAccountRows) * Self.savedAccountRowHeight
+            + CGFloat(Self.visibleSavedAccountRows - 1) * Self.savedAccountRowSpacing
         return VStack(alignment: .leading, spacing: 10) {
             Text("Saved Accounts")
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            ScrollView {
-                VStack(spacing: Self.savedAccountRowSpacing) {
-                    ForEach(walletManager.savedAccounts) { account in
-                        savedAccountRow(account)
-                    }
+            if overflows {
+                // A FIXED height, not maxHeight. This sits between two Spacers in a VStack, and
+                // both a ScrollView and a Spacer are flexible vertically - so with only an upper
+                // bound the layout was free to hand the ScrollView its full content height and
+                // squeeze the Spacers instead. At that size there is nothing to scroll: drags
+                // did nothing, and since the row is a Button, a drag that goes nowhere reads as
+                // a tap and signs you in.
+                ScrollView {
+                    savedAccountRows
                 }
+                .frame(height: cappedHeight)
+            } else {
+                // Five or fewer needs no scroll view at all - one that cannot scroll still eats
+                // the drag.
+                savedAccountRows
             }
-            .frame(maxHeight: maxHeight)
-            // Nothing to scroll at five or fewer, and leaving it enabled let the whole section
-            // bounce against a page that does not move.
-            .scrollDisabled(count <= Self.visibleSavedAccountRows)
+        }
+    }
+
+    private var savedAccountRows: some View {
+        VStack(spacing: Self.savedAccountRowSpacing) {
+            ForEach(walletManager.savedAccounts) { account in
+                savedAccountRow(account)
+            }
         }
     }
 
@@ -273,7 +288,7 @@ struct OnboardingView: View {
             .disabled(signingInAccountId != nil || isRemovingAccount)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .frame(height: Self.savedAccountRowHeight)
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
