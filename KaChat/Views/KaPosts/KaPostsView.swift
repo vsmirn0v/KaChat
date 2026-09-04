@@ -440,17 +440,11 @@ struct KaPostsView: View {
     private var feedLayer: some View {
         VStack(spacing: 0) {
             feedTabBar
-            // Horizontal paging between the three feeds, synced both ways with the top tab bar
-            // (tap animates the page across; swipe moves the underline). Page-style TabView is
-            // safe here - unlike the chat list, post cells have no row-level horizontal swipe
-            // gestures to fight with.
-            TabView(selection: $selectedFeed) {
-                ForEach(FeedTab.allCases, id: \.self) { tab in
-                    feedContent(for: tab)
-                        .tag(tab)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
+            // The tab bar is the only way between feeds - no horizontal paging. A swipe that
+            // silently changes which feed you are reading is easy to trigger by accident while
+            // scrolling, and there is nothing on screen afterwards to explain why the posts
+            // changed.
+            feedContent(for: selectedFeed)
         }
         .overlay(alignment: .bottomTrailing) {
             createPostButton
