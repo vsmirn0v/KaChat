@@ -723,8 +723,12 @@ fileprivate func settingsCategoryRow<Destination: View>(
 /// Mode is reachable from the accounts list (a parent can manage it without unlocking anything).
 struct SecuritySettingsPage: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
-    /// Per-ACCOUNT Chats Payment Privacy (moved here from the Chats page). Seeded on appear
-    /// from the active account; a no-account context just shows the default.
+    @ObservedObject private var walletManager = WalletManager.shared
+    /// Per-ACCOUNT Chats Payment Privacy. Seeded on appear from the active account - and hidden
+    /// entirely when there is not one, which is the case on the accounts screen's App Settings.
+    /// Every other row on this page is app-wide; this one is not, so with no account signed in
+    /// there is nothing for it to be the setting OF. It was rendering the default there and
+    /// writing to whichever account happened to be active next.
     @State private var chatsPrivacyEnabled = true
 
     /// A biometric lock that could be switched off without passing the lock is not a lock -
@@ -789,6 +793,7 @@ struct SecuritySettingsPage: View {
                 }
             }
 
+            if walletManager.currentWallet != nil {
             Section {
                 Toggle("Chats Payment Privacy", isOn: $chatsPrivacyEnabled)
                     .onChange(of: chatsPrivacyEnabled) { newValue in
@@ -800,7 +805,8 @@ struct SecuritySettingsPage: View {
                         ChatService.shared.handleChatsPrivacyToggleChanged(enabled: newValue)
                     }
             } footer: {
-                Text("On: you receive payments on fresh private addresses shared with each contact, and payments you send are funded from your private spending addresses. Off: you receive on your public chatting address and send from it. Either way, payments you send arrive on a fresh address whenever the recipient shares one.")
+                Text("On: you receive payments on fresh private addresses shared with each contact, and payments you send are funded from your private spending addresses. Off: you receive on your public chatting address and send from it. Either way, payments you send arrive on a fresh address whenever the recipient shares one. This setting belongs to this account alone - your other accounts keep their own.")
+            }
             }
         }
         .navigationTitle("Security")
