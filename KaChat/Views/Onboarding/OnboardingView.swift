@@ -112,19 +112,20 @@ struct OnboardingView: View {
 
     private var hasSavedAccounts: Bool { !walletManager.savedAccounts.isEmpty }
 
-    /// Compacts once there are accounts to show: the 80pt glyph and the tagline are a welcome
-    /// for a first run, and on a returning device they are the reason the list below has nowhere
-    /// to go.
+    /// Wordmark with the app mark beside it, matching Android. The tagline is a welcome for a
+    /// first run and drops once there are accounts to show - on a returning device it was part
+    /// of why the list below had nowhere to go.
     private var titleSection: some View {
-        VStack(spacing: hasSavedAccounts ? 8 : 16) {
-            if !hasSavedAccounts {
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 80))
-                    .foregroundColor(.accentColor)
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Text("KaChat")
+                    .font(.largeTitle.weight(.bold))
+                Image("KaChatLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
-
-            Text("KaChat")
-                .font(hasSavedAccounts ? .title.weight(.bold) : .largeTitle.weight(.bold))
 
             if !hasSavedAccounts {
                 Text("Secure messaging on Kaspa BlockDAG")
@@ -173,15 +174,16 @@ struct OnboardingView: View {
         .padding(.bottom, 40)
     }
 
-    /// At most five rows, and never more than the page can spare - Create and Import have to
-    /// stay on screen, and nothing here scrolls the page to reach them.
-    private static let visibleSavedAccountRows = 5
+    /// At most four rows, and never more than the page can spare - Create and Import have to
+    /// stay on screen, and nothing here scrolls the page to reach them. The fifth account is
+    /// where scrolling starts.
+    private static let visibleSavedAccountRows = 4
     private static let savedAccountRowHeight: CGFloat = 64
     private static let savedAccountRowSpacing: CGFloat = 10
 
     private func savedAccountsSection(availableHeight: CGFloat) -> some View {
         let count = walletManager.savedAccounts.count
-        let fiveRows = CGFloat(Self.visibleSavedAccountRows) * Self.savedAccountRowHeight
+        let cappedRows = CGFloat(Self.visibleSavedAccountRows) * Self.savedAccountRowHeight
             + CGFloat(Self.visibleSavedAccountRows - 1) * Self.savedAccountRowSpacing
         // Everything else on this page - compact title, section header, both buttons and the
         // spacing around them. Whatever is left after that is what the list may take, floored at
@@ -189,7 +191,7 @@ struct OnboardingView: View {
         let reservedForRest: CGFloat = 300
         let twoRows = 2 * Self.savedAccountRowHeight + Self.savedAccountRowSpacing
         let spare = max(availableHeight - reservedForRest, twoRows)
-        let listHeight = min(fiveRows, spare)
+        let listHeight = min(cappedRows, spare)
         let contentHeight = CGFloat(count) * Self.savedAccountRowHeight
             + CGFloat(max(count - 1, 0)) * Self.savedAccountRowSpacing
         let overflows = contentHeight > listHeight
