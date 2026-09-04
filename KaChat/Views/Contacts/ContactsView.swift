@@ -90,28 +90,19 @@ struct ProfileView: View {
                 HStack(spacing: 12) {
                     Text("Profile")
                         .font(.largeTitle.weight(.bold))
-                    // Global notification center: KaPosts activity, group @mentions, live
-                    // broadcasts - its own glass pill beside the title (moved out of the nav
-                    // bar, where it crowded the balance off center). A plain red DOT (no
-                    // count) signals unread.
+                    // Settings sits beside the title in its own glass pill, deliberately
+                    // larger than a toolbar icon: everything on this screen is reached through
+                    // it, and it was previously the smallest thing in the bar.
                     Button {
-                        showNotifCenter = true
+                        showSettings = true
                     } label: {
-                        Image(systemName: "bell")
-                            .font(.system(size: 16, weight: .semibold))
+                        Image(systemName: "gear")
+                            .font(.system(size: 20, weight: .semibold))
                             .foregroundColor(.accentColor)
-                            .frame(width: 38, height: 38)
-                            .background(bellGlassBackground)
-                            .overlay(alignment: .topTrailing) {
-                                if notifCenter.unreadCount > 0 {
-                                    Circle()
-                                        .fill(Color.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: -4, y: 4)
-                                }
-                            }
+                            .frame(width: 44, height: 44)
+                            .background(titleChipGlassBackground)
                     }
-                    .accessibilityLabel(Text("Notifications"))
+                    .accessibilityLabel(Text("Settings"))
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 16)
@@ -124,11 +115,11 @@ struct ProfileView: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // One item per side (dot left, gear right) so the bar's glass pills hug their
-                // real content and the principal balance centers naturally. The notification
-                // bell lives next to the pinned "Profile" title below, not in this bar - an
-                // earlier hidden-mirror centering trick made iOS 26's Liquid Glass stretch
-                // the leading pill into a long empty capsule around the lone dot.
+                // One item per side (dot left, bell right) so the bar's glass pills hug their
+                // real content and the principal balance centers naturally. Settings lives next
+                // to the pinned "Profile" title below, not in this bar - an earlier
+                // hidden-mirror centering trick made iOS 26's Liquid Glass stretch the leading
+                // pill into a long empty capsule around the lone dot.
                 ToolbarItem(placement: .navigationBarLeading) {
                     ConnectionStatusIndicator()
                 }
@@ -136,12 +127,22 @@ struct ProfileView: View {
                     balanceToolbarView
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
+                    // Global notification center: KaPosts activity, group @mentions, live
+                    // broadcasts. A plain red DOT (no count) signals unread.
                     Button {
-                        showSettings = true
+                        showNotifCenter = true
                     } label: {
-                        Image(systemName: "gear")
+                        Image(systemName: "bell")
+                            .overlay(alignment: .topTrailing) {
+                                if notifCenter.unreadCount > 0 {
+                                    Circle()
+                                        .fill(Color.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 5, y: -3)
+                                }
+                            }
                     }
-                    .accessibilityLabel(Text("Settings"))
+                    .accessibilityLabel(Text("Notifications"))
                 }
             }
             .sheet(isPresented: $showNotifCenter) {
@@ -376,11 +377,11 @@ struct ProfileView: View {
         }
     }
 
-    /// The bell's circular glass chip: the system's real Liquid Glass on iOS 26+, the app's
-    /// established material-and-hairline glass look on older iOS (same pattern as the KaPosts
-    /// drawer card).
+    /// The title-row chip's circular glass: the system's real Liquid Glass on iOS 26+, the
+    /// app's established material-and-hairline glass look on older iOS (same pattern as the
+    /// KaPosts drawer card).
     @ViewBuilder
-    private var bellGlassBackground: some View {
+    private var titleChipGlassBackground: some View {
         if #available(iOS 26.0, *) {
             Color.clear
                 .glassEffect(.regular, in: Circle())
