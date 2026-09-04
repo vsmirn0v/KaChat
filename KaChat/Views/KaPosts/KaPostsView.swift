@@ -2759,7 +2759,7 @@ struct KaPostsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { menuSheet = nil }
                 }
             }
@@ -2984,7 +2984,7 @@ struct KaPostsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { profileTarget = nil }
                 }
             }
@@ -3305,7 +3305,7 @@ struct KaPostsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { menuSheet = nil }
                 }
             }
@@ -3367,7 +3367,7 @@ struct KaPostsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { menuSheet = nil }
                 }
             }
@@ -3449,7 +3449,7 @@ struct KaPostsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { menuSheet = nil }
                 }
             }
@@ -3714,7 +3714,7 @@ struct KaPostsView: View {
                     quoteComposerSheet(for: target)
                 }
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
+                    ToolbarItem(placement: .navigationBarTrailing) {
                         // Clear whichever target presented this thread (feed = detailTarget,
                         // profile = profileDetailTarget); nil-ing the other is a harmless no-op.
                         Button("Done") { detailTarget = nil; profileDetailTarget = nil }
@@ -3739,7 +3739,7 @@ struct KaPostsView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
+                    ToolbarItem(placement: .navigationBarTrailing) {
                         Button("Done") { detailTarget = nil; profileDetailTarget = nil }
                     }
                 }
@@ -5813,7 +5813,7 @@ struct KaPostEngagementView: View {
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
@@ -6374,7 +6374,7 @@ struct KaPostsNotificationsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
@@ -6734,6 +6734,8 @@ private extension View {
     /// once a sheet covers the feed.
     func kaPostsStatusChrome() -> some View {
         toolbar {
+            // Leading is the dot's alone - Done sits trailing on these screens so the two are
+            // not read as one control.
             ToolbarItem(placement: .navigationBarLeading) {
                 ConnectionStatusIndicator()
             }
