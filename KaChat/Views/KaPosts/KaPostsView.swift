@@ -2754,7 +2754,9 @@ struct KaPostsView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
-            .ignoresSafeArea(edges: .top)
+            // Banner starts BELOW the bar rather than ignoring the top safe area: it
+            // used to run under the notch and under the dot/balance/Done row,
+            // leaving the profile's own chrome sitting on top of an image.
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
@@ -2979,7 +2981,9 @@ struct KaPostsView: View {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
             }
-            .ignoresSafeArea(edges: .top)
+            // Banner starts BELOW the bar rather than ignoring the top safe area: it
+            // used to run under the notch and under the dot/balance/Done row,
+            // leaving the profile's own chrome sitting on top of an image.
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .kaPostsStatusChrome()
@@ -5111,6 +5115,19 @@ private struct KaPostComposerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Same dot/balance row every other KaPosts screen carries, above the X. A post
+            // costs KAS, so this is the one screen where the balance is not just reassurance,
+            // and the composer covers the feed that would otherwise be showing both.
+            ZStack {
+                BalanceToolbarLabel()
+                HStack {
+                    ConnectionStatusIndicator()
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+
             // Header card row, matching the desktop composer: X in a rounded square, bold
             // title, and a teal capsule Post button.
             HStack(spacing: 12) {
@@ -5150,7 +5167,7 @@ private struct KaPostComposerView: View {
                 .disabled(!canPost)
             }
             .padding(.horizontal, 16)
-            .padding(.top, 14)
+            .padding(.top, 10)
             .padding(.bottom, 10)
             // Half sheet rather than a confirmation dialog, matching Android and every other
             // chooser in the app - and it gives each option room to say what happens to what you
