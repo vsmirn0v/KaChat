@@ -225,6 +225,29 @@ struct GroupChatDetailView: View {
         walletManager.hasConfirmedZeroChattingBalance
     }
 
+    /// Cheap fingerprint of everything `messages` derives from.
+    ///
+    /// Integer folding over the raw array: no allocation, no comparator, no Calendar. Computing
+    /// this per body evaluation costs a fraction of what rebuilding the pipeline does, and it is
+    /// what lets the pipeline be skipped when nothing it depends on actually moved - which, while
+    /// you are typing, is every single keystroke.
+    ///
+    /// Deliberately includes deliveryStatus: a message going pending -> sent mutates an element
+    /// without changing the count, and a key that missed it would freeze the checkmarks.
+    private var messagesFingerprint: Int {
+        var hasher = Hasher()
+        let raw = groupChatService.groupMessages[group.id] ?? []
+        hasher.combine(raw.count)
+        for message in raw {
+            hasher.combine(message.id)
+            hasher.combine(message.timestamp)
+            hasher.combine(message.deliveryStatus)
+        }
+        hasher.combine(groupChatService.hiddenMemberAddresses(for: group.id).count)
+        hasher.combine(systemLineClock)
+        return hasher.finalize()
+    }
+
     private var messages: [GroupMessage] {
         let hidden = groupChatService.hiddenMemberAddresses(for: group.id)
         // `systemLineClock` is only read so this recomputes on the minute tick below - without
@@ -284,7 +307,37 @@ struct GroupChatDetailView: View {
     /// Messages are in ascending order, so the day only has to be resolved when one falls outside
     /// the current day's half-open range: O(distinct days) Calendar calls instead of O(messages),
     /// which for a normal thread is one or two per frame rather than hundreds. Same output.
-    private var timelineItems: [GroupTimelineItem] {
+    /// The rendered timeline, rebuilt only when its inputs actually change.
+    ///
+    /// It used to be a computed property, so a keystroke in the composer re-ran the whole
+    /// pipeline: filter every message in the group, SORT every message in the group, then walk
+    /// the window building day separators - all on the main thread, between one character and the
+    /// next. Now `body` reads cached state and the rebuild is driven by `messagesFingerprint`.
+    @State private var cachedTimelineItems: [GroupTimelineItem] = []
+    @State private var cachedTimelineKey: TimelineCacheKey?
+
+    private struct TimelineCacheKey: Equatable {
+        let fingerprint: Int
+        let window: Int
+        let ready: Bool
+    }
+
+    private var timelineCacheKey: TimelineCacheKey {
+        TimelineCacheKey(
+            fingerprint: messagesFingerprint,
+            window: loadedGroupMessageCount,
+            ready: initialLayoutReady
+        )
+    }
+
+    private func rebuildTimelineIfNeeded() {
+        let key = timelineCacheKey
+        guard key != cachedTimelineKey else { return }
+        cachedTimelineKey = key
+        cachedTimelineItems = buildTimelineItems()
+    }
+
+    private func buildTimelineItems() -> [GroupTimelineItem] {
         var items: [GroupTimelineItem] = []
         items.reserveCapacity(displayedMessages.count + 8)
         let calendar = Calendar.autoupdatingCurrent
@@ -322,7 +375,7 @@ struct GroupChatDetailView: View {
                     .allowsHitTesting(false)
 
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(timelineItems) { item in
+                        ForEach(cachedTimelineItems) { item in
                             switch item {
                             case .daySeparator(let day):
                                 daySeparator(day)
@@ -664,6 +717,10 @@ struct GroupChatDetailView: View {
                 try? await Task.sleep(nanoseconds: 60_000_000_000)
             }
         }
+        // Rebuilt here rather than in `body`: writing @State during a view update is undefined
+        // behaviour, and the whole point of the cache is to stop doing work during updates.
+        .task { rebuildTimelineIfNeeded() }
+        .onChange(of: timelineCacheKey) { _ in rebuildTimelineIfNeeded() }
         .task {
             groupChatService.loadMessages(for: group.id)
             groupChatService.enterGroup(group.id)
