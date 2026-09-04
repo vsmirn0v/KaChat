@@ -357,7 +357,7 @@ final class WalletManager: ObservableObject {
             publicAddress: publicAddress,
             publicKey: publicKey,
             alias: alias,
-            createdAt: Date()
+            createdAt: accountAddedDate(for: publicAddress)
         )
 
         snapshotStoredWalletIfPossible()
@@ -534,7 +534,7 @@ final class WalletManager: ObservableObject {
                 publicAddress: account.publicAddress,
                 publicKey: account.publicKey,
                 alias: account.alias,
-                createdAt: Date()
+                createdAt: accountAddedDate(for: account.publicAddress)
             )
             try keychainService.saveWallet(wallet)
             try keychainService.saveSeedPhrase(snapshot.seedPhrase)
@@ -832,6 +832,31 @@ final class WalletManager: ObservableObject {
     private func resetInMemoryChatStateForAccountSwitch() {
         ChatService.shared.resetForNewWallet(skipStoreClear: true)
         ContactsManager.shared.clearInMemoryContacts(syncShared: true, updatePush: false)
+    }
+
+    /// When this account was first added to the app on this device, stamped once and never
+    /// moved.
+    ///
+    /// `Wallet.createdAt` was `Date()` at every site that builds a Wallet - including switching
+    /// back to a saved account and re-importing a seed already on the device - so About's
+    /// "Created" showed the last time you signed in, not when the account arrived. Keyed by
+    /// address in UserDefaults rather than added to the Wallet model: the value has to survive
+    /// the account being logged out and the Keychain record being rebuilt from a snapshot, which
+    /// is exactly when the old value was being lost.
+    ///
+    /// An account already on this device from before this fix has no stamp, so it takes the
+    /// creation date currently stored for it - the best evidence available - and keeps that from
+    /// then on rather than resetting again on the next switch.
+    private func accountAddedDate(for address: String) -> Date {
+        let key = "kachat_account_added_at.\(address)"
+        if let stored = UserDefaults.standard.object(forKey: key) as? Date {
+            return stored
+        }
+        let inherited = (try? keychainService.loadWallet())
+            .flatMap { $0.publicAddress == address ? $0.createdAt : nil }
+        let date = inherited ?? Date()
+        UserDefaults.standard.set(date, forKey: key)
+        return date
     }
 
     private func snapshotStoredWalletIfPossible() {
