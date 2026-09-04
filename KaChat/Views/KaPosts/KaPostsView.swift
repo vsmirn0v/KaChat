@@ -597,6 +597,15 @@ struct KaPostsView: View {
 
     private var feedTabBar: some View {
         VStack(spacing: 0) {
+            // The title is drawn here as fixed chrome rather than by the nav bar. A system
+            // .large title belongs to the scroll view underneath it, so a pull-to-refresh
+            // stretched it down THROUGH the icon row below - the icons stayed put and the title
+            // slid behind them. Above the scroll view, nothing but the feed moves.
+            Text("KaPosts")
+                .font(.largeTitle.weight(.bold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 2)
             sideMenuIconRow
             HStack(spacing: 0) {
                 ForEach(FeedTab.allCases, id: \.title) { tab in
@@ -6558,8 +6567,10 @@ struct KaPostsPageView: View {
     var body: some View {
         NavigationStack {
             KaPostsView()
+                // Inline, because the title itself is now pinned chrome inside KaPostsView -
+                // see feedTabBar. The bar keeps the dot and the balance either side of it.
                 .navigationTitle("KaPosts")
-                .navigationBarTitleDisplayMode(.large)
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
                         ConnectionStatusIndicator()
