@@ -81,6 +81,12 @@ struct SettingsView: View {
                 settingsCategoryRow("Diagnostics", icon: "stethoscope", tint: .accentColor) {
                     diagnosticsPage
                 }
+                // Its own section, always here: Profile only offers the gift while there is
+                // something to claim, so once claimed this is the one place its state - and the
+                // reset gesture - stays reachable.
+                settingsCategoryRow("Gift", icon: "gift", tint: .accentColor) {
+                    GiftSettingsPage()
+                }
                 // Direct action, not a sub-page: straight into the seed phrase (behind the
                 // biometric gate when enabled).
                 Button {
@@ -4180,5 +4186,85 @@ struct ResyncChatPickerView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Gift
+
+/// The gift claim, on its own page in Settings. Profile shows the claim row only while there is
+/// something to claim; this page is where the gift lives permanently, whatever its state.
+///
+/// The `.alreadyClaimed` case keeps the hidden 10-tap reset gesture Profile's row used to carry
+/// (a support/debug tool) - the button is never `.disabled()`, so the gesture keeps registering
+/// even when the claim action itself is a no-op.
+struct GiftSettingsPage: View {
+    @EnvironmentObject var walletManager: WalletManager
+    @ObservedObject private var giftService = GiftService.shared
+    @State private var alreadyClaimedTapCount = 0
+    @State private var toastMessage: String?
+
+    private var isClaimable: Bool {
+        giftService.claimState == .eligible
+    }
+
+    private var rowTitle: String {
+        switch giftService.claimState {
+        case .checking, .eligible: return "Claim Gift"
+        case .claiming: return "Claiming gift..."
+        case .claimed: return "Gift claimed"
+        case .alreadyClaimed: return "Gift already claimed"
+        case .unavailable: return "Gift unavailable"
+        }
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                Button {
+                    switch giftService.claimState {
+                    case .eligible:
+                        guard let address = walletManager.currentWallet?.publicAddress else { return }
+                        Task { await giftService.claimGift(walletAddress: address) }
+                    case .alreadyClaimed:
+                        alreadyClaimedTapCount += 1
+                        guard alreadyClaimedTapCount >= 10 else { return }
+                        alreadyClaimedTapCount = 0
+                        giftService.resetClaimStateForRetry()
+                        Haptics.success()
+                        toastMessage = "Gift claim reset. You can request it again."
+                    default:
+                        break
+                    }
+                } label: {
+                    HStack {
+                        Text(rowTitle)
+                            .foregroundColor(isClaimable ? .primary : .secondary)
+                        Spacer()
+                        if giftService.claimState == .claiming {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: isClaimable ? "gift.fill" : "gift")
+                                .foregroundColor(isClaimable ? .accentColor : .secondary)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } footer: {
+                if case .unavailable(let reason) = giftService.claimState {
+                    Text(reason)
+                        .foregroundColor(.red)
+                } else {
+                    Text("A one-time gift of Kaspa to get you started, funded to your chatting address.")
+                }
+            }
+        }
+        .navigationTitle("Gift")
+        .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: giftService.claimState) { _ in
+            alreadyClaimedTapCount = 0
+        }
+        .toast(message: toastMessage, style: .success)
     }
 }

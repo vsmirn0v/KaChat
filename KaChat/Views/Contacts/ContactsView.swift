@@ -65,8 +65,16 @@ struct ProfileView: View {
                         qrButtonsSection(wallet)
                         addressDropdownsSection(wallet)
                         yourDomainsSection
+                        settingsSection
                         helpSection
-                        claimGiftSection
+                        // Only while there is something to claim. Once it is claimed the row was
+                        // a permanent "Gift already claimed" line on the main profile screen -
+                        // an answer to a question nobody is still asking. It keeps its own
+                        // section in Settings, where the state (and the reset gesture) stays
+                        // reachable forever.
+                        if !isGiftSettled {
+                            claimGiftSection
+                        }
                         logOutSection
                         aboutSection(wallet)
                     } else {
@@ -90,19 +98,6 @@ struct ProfileView: View {
                 HStack(spacing: 12) {
                     Text("Profile")
                         .font(.largeTitle.weight(.bold))
-                    // Settings sits beside the title in its own glass pill, deliberately
-                    // larger than a toolbar icon: everything on this screen is reached through
-                    // it, and it was previously the smallest thing in the bar.
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "gear")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.accentColor)
-                            .frame(width: 44, height: 44)
-                            .background(titleChipGlassBackground)
-                    }
-                    .accessibilityLabel(Text("Settings"))
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, 16)
@@ -377,21 +372,6 @@ struct ProfileView: View {
         }
     }
 
-    /// The title-row chip's circular glass: the system's real Liquid Glass on iOS 26+, the
-    /// app's established material-and-hairline glass look on older iOS (same pattern as the
-    /// KaPosts drawer card).
-    @ViewBuilder
-    private var titleChipGlassBackground: some View {
-        if #available(iOS 26.0, *) {
-            Color.clear
-                .glassEffect(.regular, in: Circle())
-        } else {
-            Circle()
-                .fill(.regularMaterial)
-                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
-        }
-    }
-
     private var balanceToolbarView: some View {
         let sompi = walletManager.currentWallet?.balanceSompi
         let exact = sompi.map(formatKaspaExact) ?? "--"
@@ -501,6 +481,34 @@ struct ProfileView: View {
             .buttonStyle(.plain)
             .background(glassBackground(cornerRadius: 18))
         }
+    }
+
+    /// Settings, as a card in the list rather than a glyph in the chrome - it belongs with the
+    /// other destinations you tap into from here (Your Domains, Help), and it is the entry point
+    /// to everything the app can be configured to do.
+    private var settingsSection: some View {
+        Button {
+            showSettings = true
+        } label: {
+            HStack {
+                Label("Settings", systemImage: "gear")
+                    .foregroundColor(.primary)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(glassBackground(cornerRadius: 18))
+    }
+
+    /// True once the gift is done with for this wallet, either way - nothing left for the
+    /// profile screen to offer.
+    private var isGiftSettled: Bool {
+        giftService.claimState == .claimed || giftService.claimState == .alreadyClaimed
     }
 
     /// Entry to the Help screen: every guide in one place.
