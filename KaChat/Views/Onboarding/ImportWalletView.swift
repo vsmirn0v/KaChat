@@ -79,7 +79,14 @@ struct ImportWalletView: View {
         .navigationTitle("Import Account")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $showPassphraseStep) {
-            PassphraseOptionView(mode: .importExisting) { passphrase in
+            PassphraseOptionView(
+                mode: .importExisting,
+                // The live address preview needs the words and the derivation family, so what it
+                // shows is the address this import would actually produce.
+                seedWords: slots.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                    .filter { !$0.isEmpty },
+                family: sourceFamily
+            ) { passphrase in
                 try await commitImport(passphrase: passphrase)
             }
         }

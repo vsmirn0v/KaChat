@@ -951,6 +951,22 @@ final class WalletManager: ObservableObject {
         return identityPrivateKey(at: UInt32(currentChattingAddressIndex), baseNode: baseNode, family: currentWalletSourceFamily)
     }
 
+    /// The chatting address a seed would produce with `passphrase`, without committing anything.
+    ///
+    /// Exists for the passphrase step, where seeing address #0 change as you type is the only
+    /// direct evidence that a passphrase opens a DIFFERENT account rather than unlocking the same
+    /// one - which is the single thing people get wrong about passphrases. Returns nil when the
+    /// words are not a valid mnemonic.
+    func previewChattingAddress(
+        words: [String],
+        passphrase: String,
+        chattingIndex: UInt32 = 0,
+        family: WalletSourceFamily = .kaspaStandard
+    ) -> String? {
+        let seed = SeedPhrase(words: words, passphrase: passphrase.isEmpty ? nil : passphrase)
+        return try? deriveKeysFromSeed(seed, chattingIndex: chattingIndex, family: family).publicAddress
+    }
+
     private func deriveKeysFromSeed(_ seedPhrase: SeedPhrase, chattingIndex: UInt32 = 0, family: WalletSourceFamily = .kaspaStandard) throws -> (publicKey: String, publicAddress: String, privateKey: Data) {
         // Derive seed using BIP39 standard (PBKDF2 with 2048 iterations). The optional BIP39
         // passphrase carried on the SeedPhrase changes the derived account entirely; reading it

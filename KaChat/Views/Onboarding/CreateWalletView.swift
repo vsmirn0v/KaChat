@@ -33,7 +33,11 @@ struct CreateWalletView: View {
             }
         }
         .navigationDestination(isPresented: $showPassphraseStep) {
-            PassphraseOptionView(mode: .create) { passphrase in
+            PassphraseOptionView(
+                mode: .create,
+                // The live address preview needs the words this account will be built from.
+                seedWords: generatedSeedPhrase?.words ?? []
+            ) { passphrase in
                 try await commit(passphrase: passphrase)
             }
         }
