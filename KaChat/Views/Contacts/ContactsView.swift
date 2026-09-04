@@ -508,7 +508,11 @@ struct ProfileView: View {
     /// True once the gift is done with for this wallet, either way - nothing left for the
     /// profile screen to offer.
     private var isGiftSettled: Bool {
-        giftService.claimState == .claimed || giftService.claimState == .alreadyClaimed
+        // `.claimed` carries the tx id, so this pattern-matches rather than compares.
+        switch giftService.claimState {
+        case .claimed, .alreadyClaimed: return true
+        default: return false
+        }
     }
 
     /// Entry to the Help screen: every guide in one place.
