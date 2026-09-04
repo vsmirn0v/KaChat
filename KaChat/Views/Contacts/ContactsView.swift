@@ -442,10 +442,14 @@ struct ProfileView: View {
     /// they were there at all.
     @ViewBuilder
     private var yourDomainsSection: some View {
-        if let profileInfo = knsProfileInfo, profileInfo.assetId != nil {
+        // Shown for every account, not only ones that already own a domain. Hiding it until a
+        // KNS profile existed meant the feature was invisible to exactly the people who had not
+        // found it yet, and the list itself has an empty state and an inscribe path - so there
+        // is something to do on the other side of the row even at zero domains.
+        if let walletAddress = knsProfileInfo?.address ?? walletManager.currentWallet?.publicAddress {
             NavigationLink {
                 KNSDomainsListView(
-                    walletAddress: profileInfo.address,
+                    walletAddress: walletAddress,
                     domains: knsDomains,
                     primaryDomain: knsPrimaryDomain,
                     settingPrimaryDomainId: settingPrimaryDomainId,
@@ -456,7 +460,7 @@ struct ProfileView: View {
                     onInscribeComplete: { result in
                         Haptics.success()
                         showToast(localizedFormat("Inscribe submitted for %@.", result.domain))
-                        Task { await refreshKNSData(for: profileInfo.address) }
+                        Task { await refreshKNSData(for: walletAddress) }
                     },
                     onTransferComplete: { result in
                         Haptics.success()
@@ -464,9 +468,9 @@ struct ProfileView: View {
                             ? localizedFormat("%@ transferred to %@.", result.domain, result.recipientAddress)
                             : localizedFormat("Transfer submitted for %@.", result.domain)
                         showToast(message)
-                        Task { await refreshKNSData(for: profileInfo.address) }
+                        Task { await refreshKNSData(for: walletAddress) }
                     },
-                    onRefresh: { await refreshKNSDomainsOnly(for: profileInfo.address) }
+                    onRefresh: { await refreshKNSDomainsOnly(for: walletAddress) }
                 )
             } label: {
                 HStack {
