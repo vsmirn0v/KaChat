@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Settings > Customization > Customize Dock - where each tab lives, arranged on a picture of the
 /// thing being arranged.
@@ -7,19 +8,18 @@ import SwiftUI
 /// worked, but it asked you to hold a layout in your head: the dock is a row of five at the bottom
 /// of the screen and the Hub is a three-across grid, and neither looked anything like a table row.
 /// So this is the Hub grid up top and the dock bar along the bottom, both drawn the way they
-/// actually appear - including their widths, which is why neither draws placeholders for the
-/// slots it is not using.
+/// actually appear.
 ///
 /// Two gestures, one job each. A TAP moves a tab between the two: tap something in the Hub and it
-/// joins the dock, tap something in the dock and it goes back to the Hub. A HOLD lifts a tab and
-/// dragging it slides the tabs it passes over into the space it left, so the arrangement under
-/// your finger is the arrangement you will get.
+/// joins the dock, tap something in the dock and it goes back to the Hub. A DRAG only reorders,
+/// within whichever section the tab is already in. Dragging across the screen to a target you
+/// cannot see while your finger is over it was the fiddly part; moving is now a tap, and dragging
+/// is left to the one thing a tap cannot express, which is position.
 ///
 /// Placement, not visibility. Every tab is either in the dock or in the Hub, and always in exactly
 /// one of them, so nothing can end up nowhere. Kaspa Hub and Profile are pinned to the dock
 /// (`AppTab.isPinnedToDock`) - the Hub because it is what holds everything not in the dock, and
-/// Profile because it is the way to Settings and your accounts. They reorder like the rest; what
-/// they cannot do is leave.
+/// Profile because it is the way to Settings and your accounts.
 struct MenuVisibilityView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
     @Environment(\.scenePhase) private var scenePhase
@@ -46,27 +46,6 @@ struct MenuVisibilityView: View {
     /// lists over a real arrangement.
     @State private var loaded = false
 
-    // MARK: Drag state
-    //
-    // Hand-rolled rather than `.draggable`/`.dropDestination`. A system drag can tell you what was
-    // dropped where, but not where the drag is hovering right now - and the whole point of this
-    // gesture is that the other tabs move aside while you are still holding one.
-
-    /// The tab being held, and where it started in its own section.
-    @State private var draggingTab: AppTab?
-    @State private var dragOrigin = 0
-    @State private var dragInDock = false
-    /// Live finger translation, so the held tab tracks the finger exactly.
-    @State private var dragTranslation: CGSize = .zero
-    /// The index the held tab would land on if released now. Everything between here and
-    /// `dragOrigin` slides one place to fill the gap.
-    @State private var dropTarget = 0
-
-    /// Measured, because a slot's width is the bar divided by however many tabs are in it - the
-    /// same arithmetic the drag uses to decide which slot the finger is over.
-    @State private var dockWidth: CGFloat = 0
-    @State private var hubWidth: CGFloat = 0
-
     private var settings: AppSettings { settingsViewModel.settings }
     // Falling back to the live arrangement until the drafts are seeded, so the first frame draws
     // the real dock rather than an empty one.
@@ -76,26 +55,7 @@ struct MenuVisibilityView: View {
 
     /// Three across, matching `EcosystemView`'s grid - the point of this screen is that it looks
     /// like the real thing.
-    private static let hubColumnCount = 3
-    private static let hubSpacing: CGFloat = 14
-    private let hubColumns = Array(
-        repeating: GridItem(.flexible(), spacing: hubSpacing),
-        count: hubColumnCount
-    )
-
-    private var dockSlotWidth: CGFloat {
-        dockTabs.isEmpty ? 0 : dockWidth / CGFloat(dockTabs.count)
-    }
-
-    /// One grid step: a tile plus the gap after it. Tiles are square, so this is both the
-    /// horizontal and the vertical stride.
-    private var hubStride: CGFloat {
-        let columns = CGFloat(Self.hubColumnCount)
-        let tile = (hubWidth - Self.hubSpacing * (columns - 1)) / columns
-        return tile + Self.hubSpacing
-    }
-
-    private var slideAnimation: Animation { .spring(response: 0.28, dampingFraction: 0.82) }
+    private let hubColumns = Array(repeating: GridItem(.flexible(), spacing: 14), count: 3)
 
     var body: some View {
         ScrollView {
@@ -108,7 +68,16 @@ struct MenuVisibilityView: View {
                 if hubTabs.isEmpty {
                     emptyHubHint
                 } else {
-                    hubGrid
+                    LazyVGrid(columns: hubColumns, spacing: 14) {
+                        ForEach(hubTabs) { tab in
+                            hubTile(tab)
+                                .draggable(tab)
+                                .dropDestination(for: AppTab.self) { items, _ in
+                                    guard let dragged = items.first else { return false }
+                                    return reorderHub(dragged, before: tab)
+                                }
+                        }
+                    }
                 }
 
                 if let refusal {
@@ -123,7 +92,6 @@ struct MenuVisibilityView: View {
             .padding(.top, 12)
             .padding(.bottom, 24)
         }
-        .coordinateSpace(name: "dockEditor")
         .navigationTitle("Customize Dock")
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -158,25 +126,6 @@ struct MenuVisibilityView: View {
 
     // MARK: - Hub
 
-    private var hubGrid: some View {
-        LazyVGrid(columns: hubColumns, spacing: Self.hubSpacing) {
-            ForEach(Array(hubTabs.enumerated()), id: \.element) { index, tab in
-                let held = draggingTab == tab && !dragInDock
-                hubTile(tab)
-                    .offset(hubOffset(for: index))
-                    .scaleEffect(held ? 1.06 : 1)
-                    .shadow(color: .black.opacity(held ? 0.28 : 0), radius: held ? 10 : 0, y: held ? 4 : 0)
-                    .zIndex(held ? 1 : 0)
-                    // The held tile must track the finger exactly, so only the tiles moving ASIDE
-                    // are animated.
-                    .animation(held ? nil : slideAnimation, value: dropTarget)
-                    .animation(held ? nil : slideAnimation, value: draggingTab)
-                    .gesture(holdAndDrag(tab: tab, index: index, inDock: false))
-            }
-        }
-        .background(widthReader { hubWidth = $0 })
-    }
-
     /// Same square-over-a-clear-canvas construction as `EcosystemView.tile`, so a tile here is the
     /// size and shape it will be there whatever it is called.
     private func hubTile(_ tab: AppTab) -> some View {
@@ -208,8 +157,8 @@ struct MenuVisibilityView: View {
             .onTapGesture { moveToDock(tab) }
     }
 
-    /// With everything in the dock there is nothing to tap or drag up here, so this is a sentence
-    /// rather than a target: the way back is to tap something in the dock.
+    /// With everything in the dock there is nothing to drag or tap, so this is a sentence rather
+    /// than a drop target: the way back is to tap something in the dock.
     private var emptyHubHint: some View {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
             .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [6]))
@@ -246,19 +195,14 @@ struct MenuVisibilityView: View {
             // showing an arrangement the user is never going to see. The count above the bar is
             // what says how much room is left.
             HStack(spacing: 0) {
-                ForEach(Array(dockTabs.enumerated()), id: \.element) { index, tab in
-                    let held = draggingTab == tab && dragInDock
+                ForEach(dockTabs) { tab in
                     dockItem(tab)
-                        .offset(x: dockOffset(for: index))
-                        .scaleEffect(held ? 1.12 : 1)
-                        .shadow(color: .black.opacity(held ? 0.3 : 0), radius: held ? 8 : 0, y: held ? 3 : 0)
-                        .zIndex(held ? 1 : 0)
-                        .animation(held ? nil : slideAnimation, value: dropTarget)
-                        .animation(held ? nil : slideAnimation, value: draggingTab)
-                        .gesture(holdAndDrag(tab: tab, index: index, inDock: true))
+                        .dropDestination(for: AppTab.self) { items, _ in
+                            guard let dragged = items.first else { return false }
+                            return reorderDock(dragged, before: tab)
+                        }
                 }
             }
-            .background(widthReader { dockWidth = $0 })
             .padding(.horizontal, 8)
             .padding(.bottom, 4)
 
@@ -298,6 +242,10 @@ struct MenuVisibilityView: View {
         .opacity(tab.isPinnedToDock ? 0.55 : 1)
         .contentShape(Rectangle())
         .onTapGesture { moveToHub(tab) }
+        // Pinned tabs drag like the rest: what they cannot do is LEAVE the dock, and reordering
+        // never moves anything out of it. Where Kaspa Hub and Profile sit among the five is still
+        // the user's, and the dimming plus the refused tap is what says so.
+        .draggable(tab)
     }
 
     @ViewBuilder
@@ -314,127 +262,20 @@ struct MenuVisibilityView: View {
         }
     }
 
-    /// Reports its container's width without taking part in the layout.
-    private func widthReader(_ report: @escaping (CGFloat) -> Void) -> some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear { report(proxy.size.width) }
-                .onChange(of: proxy.size.width) { report($0) }
-        }
-    }
-
-    // MARK: - Dragging
-
-    /// A hold, then a drag. Sequenced rather than simultaneous so an ordinary swipe still scrolls
-    /// the page: until the press has been held, this gesture has not claimed the touch.
-    private func holdAndDrag(tab: AppTab, index: Int, inDock: Bool) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.3)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named("dockEditor")))
-            .onChanged { value in
-                switch value {
-                case .first:
-                    beginDrag(tab: tab, index: index, inDock: inDock)
-                case .second(_, let drag):
-                    // The hold can be reported straight through to the drag phase, so the pick-up
-                    // is done here too rather than only in `.first`.
-                    if draggingTab != tab { beginDrag(tab: tab, index: index, inDock: inDock) }
-                    guard let drag else { return }
-                    dragTranslation = drag.translation
-                    dropTarget = targetIndex(for: drag.translation, inDock: inDock)
-                }
-            }
-            .onEnded { _ in endDrag() }
-    }
-
-    private func beginDrag(tab: AppTab, index: Int, inDock: Bool) {
-        guard draggingTab != tab else { return }
-        Haptics.impact(.medium)
-        draggingTab = tab
-        dragOrigin = index
-        dragInDock = inDock
-        dragTranslation = .zero
-        dropTarget = index
-    }
-
-    /// Which slot the finger is over, as whole slots travelled from where the drag began. Derived
-    /// from the FIXED origin rather than from the last target, so it depends only on where the
-    /// finger is - which is what stops a fast drag oscillating between two slots.
-    private func targetIndex(for translation: CGSize, inDock: Bool) -> Int {
-        let count = inDock ? dockTabs.count : hubTabs.count
-        guard count > 0 else { return 0 }
-        if inDock {
-            guard dockSlotWidth > 0 else { return dragOrigin }
-            let slots = Int((translation.width / dockSlotWidth).rounded())
-            return min(max(dragOrigin + slots, 0), count - 1)
-        } else {
-            guard hubStride > 0 else { return dragOrigin }
-            let columns = Int((translation.width / hubStride).rounded())
-            let rows = Int((translation.height / hubStride).rounded())
-            return min(max(dragOrigin + columns + rows * Self.hubColumnCount, 0), count - 1)
-        }
-    }
-
-    /// Where a tab sits while a drag is in progress: the held one follows the finger, and every
-    /// tab between the gap it left and the slot it is hovering over shifts one place to close it.
-    private func displacedIndex(_ index: Int) -> Int {
-        if dropTarget > dragOrigin, index > dragOrigin, index <= dropTarget { return index - 1 }
-        if dropTarget < dragOrigin, index >= dropTarget, index < dragOrigin { return index + 1 }
-        return index
-    }
-
-    private func dockOffset(for index: Int) -> CGFloat {
-        guard draggingTab != nil, dragInDock else { return 0 }
-        if index == dragOrigin { return dragTranslation.width }
-        return CGFloat(displacedIndex(index) - index) * dockSlotWidth
-    }
-
-    private func hubOffset(for index: Int) -> CGSize {
-        guard draggingTab != nil, !dragInDock else { return .zero }
-        if index == dragOrigin { return dragTranslation }
-        let moved = displacedIndex(index)
-        let columns = Self.hubColumnCount
-        return CGSize(
-            width: CGFloat(moved % columns - index % columns) * hubStride,
-            height: CGFloat(moved / columns - index / columns) * hubStride
-        )
-    }
-
-    /// Commits the hovered arrangement.
-    ///
-    /// Without animation, deliberately: the tabs are already drawn where the new order puts them,
-    /// so animating the order change would move everything a second time from where it already is.
-    private func endDrag() {
-        defer {
-            draggingTab = nil
-            dragTranslation = .zero
-        }
-        guard let tab = draggingTab, dropTarget != dragOrigin else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            if dragInDock {
-                var dock = dockTabs
-                dock.remove(at: dragOrigin)
-                dock.insert(tab, at: min(dropTarget, dock.count))
-                commit(dock: dock, hub: hubTabs, animated: false)
-            } else {
-                var hub = hubTabs
-                hub.remove(at: dragOrigin)
-                hub.insert(tab, at: min(dropTarget, hub.count))
-                commit(dock: dockTabs, hub: hub, animated: false)
-            }
-        }
-    }
-
     // MARK: - Moves
 
-    /// Tap in the Hub: join the dock, at the end, where the space you can see already is.
+    /// Tap in the Hub: join the dock, at the end, where the empty slot you can see already is.
     private func moveToDock(_ tab: AppTab) {
         guard !dockIsFull else {
             refuse("Your dock is full. Tap something in the dock to move it up here first.")
             return
         }
-        commit(dock: dockTabs.filter { $0 != tab } + [tab], hub: hubTabs.filter { $0 != tab })
+        var dock = dockTabs
+        var hub = hubTabs
+        dock.removeAll { $0 == tab }
+        hub.removeAll { $0 == tab }
+        dock.append(tab)
+        commit(dock: dock, hub: hub)
     }
 
     /// Tap in the dock: back to the Hub, at the end of the grid.
@@ -443,7 +284,39 @@ struct MenuVisibilityView: View {
             refuse("\(tab.label) has to stay in your dock.")
             return
         }
-        commit(dock: dockTabs.filter { $0 != tab }, hub: hubTabs.filter { $0 != tab } + [tab])
+        var dock = dockTabs
+        var hub = hubTabs
+        dock.removeAll { $0 == tab }
+        hub.removeAll { $0 == tab }
+        hub.append(tab)
+        commit(dock: dock, hub: hub)
+    }
+
+    /// Drags reorder and nothing else, which is enforced here rather than at the drag source:
+    /// membership is the check, so a tab dragged out of the dock and dropped on a Hub tile is
+    /// simply refused instead of moving by a gesture the screen says is for ordering. That is also
+    /// what lets the pinned tabs drag freely - a reorder cannot evict anything by construction.
+    private func reorderDock(_ tab: AppTab, before target: AppTab) -> Bool {
+        guard tab != target, dockTabs.contains(tab) else { return false }
+        var dock = dockTabs
+        dock.removeAll { $0 == tab }
+        // Read AFTER the removal. Taking the target's index from the ORIGINAL list overshoots by
+        // one whenever the tab is moving forwards, because the removal shifts everything past it
+        // down - which is what made dragging something rightwards land a slot too far.
+        guard let index = dock.firstIndex(of: target) else { return false }
+        dock.insert(tab, at: index)
+        commit(dock: dock, hub: hubTabs)
+        return true
+    }
+
+    private func reorderHub(_ tab: AppTab, before target: AppTab) -> Bool {
+        guard tab != target, hubTabs.contains(tab) else { return false }
+        var hub = hubTabs
+        hub.removeAll { $0 == tab }
+        guard let index = hub.firstIndex(of: target) else { return false }
+        hub.insert(tab, at: index)
+        commit(dock: dockTabs, hub: hub)
+        return true
     }
 
     private func refuse(_ message: String) {
@@ -453,17 +326,12 @@ struct MenuVisibilityView: View {
 
     /// Both lists are written together, so a tab can never be missing from both or present in
     /// both after a move.
-    private func commit(dock: [AppTab], hub: [AppTab], animated: Bool = true) {
+    private func commit(dock: [AppTab], hub: [AppTab]) {
         Haptics.impact(.light)
-        let apply = {
+        withAnimation(.snappy(duration: 0.22)) {
             refusal = nil
             draftDock = dock
             draftHub = hub
-        }
-        if animated {
-            withAnimation(.snappy(duration: 0.22)) { apply() }
-        } else {
-            apply()
         }
     }
 
@@ -477,4 +345,21 @@ struct MenuVisibilityView: View {
         settingsViewModel.settings.hubTabs = hub
         settingsViewModel.saveSettings()
     }
+}
+
+/// Drag payload for Customize Dock. A plain string identifier rather than a file or an image:
+/// what is being dragged is "which tab", and the destination looks it up.
+///
+/// Declared here rather than on the type in Models.swift so the drag-and-drop dependency belongs
+/// to the one screen that drags, not to every consumer of AppTab.
+extension AppTab: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .kaChatAppTab)
+    }
+}
+
+extension UTType {
+    /// App-private type: dragging a tab out of KaChat into another app should do nothing, and a
+    /// public type like `.text` would let it land somewhere as a stray word.
+    static let kaChatAppTab = UTType(exportedAs: "com.kachat.app.apptab")
 }
