@@ -207,6 +207,13 @@ struct SettingsView: View {
                     } label: {
                         Label("Customize Dock", systemImage: "list.bullet")
                     }
+
+                    // Moved here from Chats: it decides whether a number is drawn on the
+                    // composer, which is a display preference, not a chat behaviour.
+                    Toggle("Show Fee Estimate", isOn: $settingsViewModel.settings.showFeeEstimate)
+                        .onChange(of: settingsViewModel.settings.showFeeEstimate) { _ in
+                            settingsViewModel.saveSettings()
+                        }
                 }
         }
         .navigationTitle("Customization")
@@ -224,11 +231,6 @@ struct SettingsView: View {
     private var chatsPage: some View {
         Form {
             Section("Chats") {
-                    Toggle("Show Fee Estimate", isOn: $settingsViewModel.settings.showFeeEstimate)
-                        .onChange(of: settingsViewModel.settings.showFeeEstimate) { _ in
-                            settingsViewModel.saveSettings()
-                        }
-
                     Toggle("Require approval for photos from new contacts", isOn: $settingsViewModel.settings.requirePhotoApprovalForNewContacts)
                         .onChange(of: settingsViewModel.settings.requirePhotoApprovalForNewContacts) { _ in
                             settingsViewModel.saveSettings()
@@ -419,20 +421,11 @@ struct SettingsView: View {
                             .foregroundColor(.red)
                     }
                     .disabled(resyncCoordinator.isRunning)
-                    .confirmationDialog(
-                        "Wipe and re-sync incoming messages",
-                        isPresented: $showWipeIncomingConfirmation,
-                        titleVisibility: .visible
-                    ) {
-                        Button("All Chats", role: .destructive) {
-                            IncomingResyncCoordinator.shared.start(scope: .all)
-                        }
-                        Button("Select Chats...") {
-                            showResyncChatPicker = true
-                        }
-                        Button("Cancel", role: .cancel) {}
-                    } message: {
-                        Text("This removes incoming messages locally, then re-syncs them from the blockchain. Your account info and sent messages are preserved. Choose whether to re-sync every chat or only the chats you select.")
+                    // Half sheet, like every other chooser in the app - and a destructive action
+                    // is exactly where the consequence deserves a line of its own next to it,
+                    // which a dialog of bare verbs under a grey message cannot give it.
+                    .sheet(isPresented: $showWipeIncomingConfirmation) {
+                        resyncOptionsSheet
                     }
                     .sheet(isPresented: $showResyncChatPicker, onDismiss: {
                         if let selection = pendingResyncSelection {
@@ -464,19 +457,15 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(isWipingICloud)
-                    .confirmationDialog(
-                        "Wipe iCloud Data",
-                        isPresented: $showWipeICloudConfirmation,
-                        titleVisibility: .visible
-                    ) {
-                        Button("Wipe iCloud Data", role: .destructive) {
-                            Task {
-                                await wipeICloudData()
-                            }
+                    .sheet(isPresented: $showWipeICloudConfirmation) {
+                        ConfirmActionSheet(
+                            title: "Wipe iCloud Data",
+                            confirmTitle: "Wipe iCloud Data",
+                            confirmSubtitle: "Deletes this account's messages from iCloud only. Your local messages and your account stay on this device.",
+                            confirmSystemImage: "icloud.slash"
+                        ) {
+                            Task { await wipeICloudData() }
                         }
-                        Button("Cancel", role: .cancel) {}
-                    } message: {
-                        Text("This deletes this account's message data from iCloud only. Your local messages and your account stay on this device. If iCloud message storage is enabled, messages may upload to iCloud again over time.")
                     }
                 }
         }
@@ -512,6 +501,51 @@ struct SettingsView: View {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         messageStoreSize = formatter.string(fromByteCount: bytes)
+    }
+
+    /// The re-sync chooser. Three outcomes rather than a yes/no, so it builds its own rows
+    /// instead of reusing ConfirmActionSheet - each one saying what it actually does.
+    private var resyncOptionsSheet: some View {
+        VStack(spacing: 12) {
+            Text("Wipe and re-sync incoming messages")
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .padding(.top, 20)
+                .padding(.bottom, 4)
+
+            ActionSheetRow(
+                title: "All Chats",
+                subtitle: "Removes every incoming message locally, then re-syncs them from the blockchain. Sent messages and account info are kept.",
+                systemImage: "arrow.triangle.2.circlepath",
+                tint: .red
+            ) {
+                showWipeIncomingConfirmation = false
+                IncomingResyncCoordinator.shared.start(scope: .all)
+            }
+            ActionSheetRow(
+                title: "Select Chats...",
+                subtitle: "Pick which chats to wipe and re-sync. Everything else is left alone.",
+                systemImage: "checklist"
+            ) {
+                showWipeIncomingConfirmation = false
+                // One runloop turn: presenting from inside a sheet that is still dismissing
+                // drops it.
+                DispatchQueue.main.async { showResyncChatPicker = true }
+            }
+            ActionSheetRow(
+                title: "Cancel",
+                subtitle: "Leave your messages as they are.",
+                systemImage: "xmark"
+            ) {
+                showWipeIncomingConfirmation = false
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 20)
+        .presentationDetents([.height(380)])
+        .presentationDragIndicator(.visible)
     }
 
     /// iCloud-only wipe: deletes the CURRENT wallet's CloudKit zone and nothing else. Local
