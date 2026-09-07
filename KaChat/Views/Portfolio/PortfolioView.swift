@@ -301,11 +301,11 @@ private struct KasPriceChartScreen: View {
                 // disagree - and so it answers whichever range button is selected.
                 if scrubbed == nil, let change = viewModel.priceRangeChange {
                     HStack(spacing: 3) {
-                        Image(systemName: change.percent >= 0 ? "arrow.up" : "arrow.down").font(.footnote)
+                        Image(systemName: change.amount >= 0 ? "arrow.up" : "arrow.down").font(.footnote)
                         Text("\(PortfolioFormat.currency(abs(change.amount), currency)) (\(String(format: "%.2f", abs(change.percent)))%) \(viewModel.priceRangeLabel)")
                             .font(.subheadline).fontWeight(.semibold)
                     }
-                    .foregroundColor(change >= 0 ? .green : .red)
+                    .foregroundColor(change.amount >= 0 ? .green : .red)
                 }
             }
         }

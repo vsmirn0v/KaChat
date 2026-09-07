@@ -1087,10 +1087,7 @@ struct ProfileView: View {
                 title: "Spending",
                 address: walletManager.currentSpendingAddress(),
                 balanceText: spendingAddressBalanceSompi.map { "\(formatKaspaExact($0)) KAS" },
-                // Only worth a line when it says something the balance above does not.
-                totalText: spendingTotalSompi
-                    .filter { $0 != spendingAddressBalanceSompi }
-                    .map { "Total: \(formatKaspaExact($0)) KAS" },
+                totalText: spendingTotalText,
                 isLoadingBalance: isLoadingSpendingBalance,
                 onSend: { showSpendingAddressWithdraw = true }
             ) {
@@ -1198,6 +1195,13 @@ struct ProfileView: View {
             .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 0.8))
             .contentShape(Circle())
             .accessibilityLabel(Text(label))
+    }
+
+    /// The whole-account total, but only when it says something the balance above it does not -
+    /// on a one-address wallet the two are the same number and a second line saying so is noise.
+    private var spendingTotalText: String? {
+        guard let total = spendingTotalSompi, total != spendingAddressBalanceSompi else { return nil }
+        return "Total: \(formatKaspaExact(total)) KAS"
     }
 
     private func loadSpendingAddressBalance() async {
