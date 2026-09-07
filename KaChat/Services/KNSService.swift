@@ -25,6 +25,15 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     private let cacheKey = "kachat_kns_domain_cache_v1"
     private let profileCacheKey = "kachat_kns_profile_cache_v1"
     private let minRefreshInterval: TimeInterval = 10 * 60
+    /// How stale a GOOD cached entry has to be before a bulk sweep re-asks for it.
+    ///
+    /// Separate from `minRefreshInterval`, which stays 10 minutes for failure backoff and for
+    /// retrying empty entries. A domain and its profile - avatar, banner, bio - change rarely,
+    /// and these sweeps run over EVERY contact from screens that open often, so a ten-minute
+    /// window meant re-asking the whole address book several times an hour for answers that had
+    /// not changed. Anything the user edits themselves goes through `fetchProfile` directly and
+    /// is not affected by this.
+    private let bulkRefreshInterval: TimeInterval = 6 * 60 * 60
     private let maxBackoffInterval: TimeInterval = 6 * 60 * 60
     private let maxConcurrentRefreshes = 4
     private let maxConcurrentProfileRefreshes = 3
@@ -237,13 +246,24 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     }
 
     /// Refresh KNS info for multiple addresses if debounce allows it.
+    ///
+    /// The debounce falls back to the CACHED entry's `fetchedAt` when this run of the app has
+    /// not asked yet. `domainCache` is persisted and reloaded at launch, but `lastAttemptAt` is
+    /// in-memory only - so without this every cold start read "never asked" for every address
+    /// and refetched the lot, seconds after loading perfectly good answers for them from disk.
+    /// A `fetchedAt` IS the time of the last successful ask, which is exactly what this wants.
     func refreshIfNeeded(for addresses: [String], network: NetworkType = .mainnet) async {
         let now = Date()
         let eligible = addresses.filter { address in
             guard inFlightInfoFetches[address] == nil else { return false }
-            guard let last = lastAttemptAt[address] else { return true }
+            let cached = domainCache[address]
+            guard let last = lastAttemptAt[address] ?? cached?.fetchedAt else { return true }
             let failures = failureCounts[address, default: 0]
-            let backoff = min(maxBackoffInterval, minRefreshInterval * pow(2.0, Double(failures)))
+            // An entry that resolved to "no domains" may be a poisoned negative, so it keeps the
+            // short window; a good one is left alone for far longer.
+            let isEmpty = cached.map { $0.allDomains.isEmpty && $0.primaryDomain == nil } ?? true
+            let base = isEmpty ? minRefreshInterval : bulkRefreshInterval
+            let backoff = min(maxBackoffInterval, base * pow(2.0, Double(failures)))
             return now.timeIntervalSince(last) >= backoff
         }
         guard !eligible.isEmpty else { return }
@@ -432,13 +452,18 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     }
 
     /// Refresh KNS profiles for multiple addresses if debounce allows it.
+    ///
+    /// Falls back to the cached entry's `fetchedAt` on a cold start - see `refreshIfNeeded`.
     func refreshProfilesIfNeeded(for addresses: [String], network: NetworkType = .mainnet) async {
         let now = Date()
         let eligible = addresses.filter { address in
             guard inFlightProfileFetches[address] == nil else { return false }
-            guard let last = lastProfileAttemptAt[address] else { return true }
+            let cached = profileCache[address]
+            guard let last = lastProfileAttemptAt[address] ?? cached?.fetchedAt else { return true }
             let failures = profileFailureCounts[address, default: 0]
-            let backoff = min(maxBackoffInterval, minRefreshInterval * pow(2.0, Double(failures)))
+            let isEmpty = cached.map { $0.assetId == nil && $0.profile == nil } ?? true
+            let base = isEmpty ? minRefreshInterval : bulkRefreshInterval
+            let backoff = min(maxBackoffInterval, base * pow(2.0, Double(failures)))
             return now.timeIntervalSince(last) >= backoff
         }
         guard !eligible.isEmpty else { return }
