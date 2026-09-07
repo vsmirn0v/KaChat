@@ -25,6 +25,7 @@ struct MainTabView: View {
     // Red dot on the Profile tab while the bell (which lives on the Profile screen)
     // holds unread notifications.
     @ObservedObject private var notifCenter = GlobalNotificationCenter.shared
+    @ObservedObject private var kaPostsNotifCenter = KaPostsNotificationCenter.shared
     // Surfaces the Nextcloud silent auto-restore's one-line result ("Restored N messages...")
     // as a toast over whatever tab is showing - the automatic path has no modal by design.
     @ObservedObject private var nextcloudService = NextcloudService.shared
@@ -69,9 +70,11 @@ struct MainTabView: View {
                             }
                         }
                     }
-                    // Profile hosts the notification bell - surface its unread state on the
-                    // dock as a plain red dot (an empty badge renders as a dot, not a count).
-                    .badge(tab == .profile && notifCenter.unreadCount > 0 ? Text(" ") : nil)
+                    // Profile hosts the notification bell, and KaPosts hosts its own - surface
+                    // either one's unread state on the dock as a plain red dot (an empty badge
+                    // renders as a dot, not a count). Whether KaPosts is IN the dock is the
+                    // user's arrangement; when it is not, the count is still waiting on its bell.
+                    .badge(dockBadge(for: tab))
                     .tag(tab.tag)
             }
         }
@@ -201,6 +204,15 @@ struct MainTabView: View {
                 // paused and the poll timer dead.
                 handleTabSelectionChange(1)
             }
+        }
+    }
+
+    /// A dot on the tabs that own an unread count, and nothing on the rest.
+    private func dockBadge(for tab: AppTab) -> Text? {
+        switch tab {
+        case .profile: return notifCenter.unreadCount > 0 ? Text(" ") : nil
+        case .kaposts: return kaPostsNotifCenter.unseenCount > 0 ? Text(" ") : nil
+        default: return nil
         }
     }
 

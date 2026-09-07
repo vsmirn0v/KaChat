@@ -12,6 +12,7 @@ struct ColdStorageListView: View {
     @State private var showScanner = false
     @State private var showManualEntry = false
     @FocusState private var manualKpubFocused: Bool
+    @FocusState private var importNameFocused: Bool
     @State private var manualKpubInput = ""
     @State private var pendingKpub: String?
     @State private var nameInput = ""
@@ -117,28 +118,11 @@ struct ColdStorageListView: View {
                 beginImport(kpub: code)
             }
         }
-        .alert(
-            "Import Cold Storage Account",
-            isPresented: Binding(
-                get: { pendingKpub != nil },
-                set: { if !$0 { pendingKpub = nil } }
-            )
-        ) {
-            TextField("Name", text: $nameInput)
-            // `.tint()` on an ancestor view doesn't reliably reach a native `.alert()`'s own
-            // buttons on iOS (a known SwiftUI/UIAlertController quirk) - tinting each Button here
-            // directly is what actually makes them teal instead of the system default blue.
-            Button("Import") {
-                completeImport()
-            }
-            .tint(.accentColor)
-            .disabled(nameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            Button("Cancel", role: .cancel) {
-                pendingKpub = nil
-            }
-            .tint(.accentColor)
-        } message: {
-            Text("Give this account a name so you can recognize it.")
+        .sheet(isPresented: Binding(
+            get: { pendingKpub != nil },
+            set: { if !$0 { pendingKpub = nil } }
+        )) {
+            importNameSheet
         }
         .tint(.accentColor)
         .alert(
@@ -214,6 +198,66 @@ struct ColdStorageListView: View {
         .presentationDragIndicator(.visible)
         // A turn later: the field does not exist yet on the tap that presented this.
         .onAppear { DispatchQueue.main.async { manualKpubFocused = true } }
+    }
+
+    /// Naming the imported account. A half sheet rather than a system alert, matching the kpub
+    /// step it follows and every other menu on this screen - an alert box in the middle of a
+    /// sheet-shaped flow was the one thing here that still looked like a dialog.
+    private var importNameSheet: some View {
+        VStack(spacing: 12) {
+            VStack(spacing: 4) {
+                Text("Name This Account")
+                    .font(.headline)
+                Text("Give this account a name so you can recognize it.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 4)
+
+            TextField("Name", text: $nameInput)
+                .font(.body)
+                .focused($importNameFocused)
+                .submitLabel(.done)
+                .onSubmit { if !importNameIsEmpty { completeImport() } }
+                .padding(14)
+                .background(glassBackground(cornerRadius: 16))
+
+            HStack(spacing: 12) {
+                Button("Cancel") { pendingKpub = nil }
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundColor(.primary)
+                    .background(glassBackground(cornerRadius: 16))
+
+                Button("Import") { completeImport() }
+                    .font(.subheadline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundColor(.black)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.accentColor.opacity(importNameIsEmpty ? 0.4 : 1))
+                    )
+                    .disabled(importNameIsEmpty)
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.height(280)])
+        .presentationDragIndicator(.visible)
+        // A turn later: the field does not exist yet on the tap that presented this.
+        .onAppear { DispatchQueue.main.async { importNameFocused = true } }
+    }
+
+    private var importNameIsEmpty: Bool {
+        nameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var manualKpubIsEmpty: Bool {

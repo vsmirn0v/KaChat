@@ -373,6 +373,7 @@ struct KaPostsView: View {
     @ObservedObject private var knsService = KNSService.shared
     @ObservedObject private var followStore = KaPostsFollowStore.shared
     @ObservedObject private var moderationStore = KaPostsModerationStore.shared
+    @ObservedObject private var kaPostsNotifCenter = KaPostsNotificationCenter.shared
     @EnvironmentObject private var walletManager: WalletManager
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
     @Environment(\.openURL) private var openURL
@@ -427,6 +428,9 @@ struct KaPostsView: View {
                     myProfileSheet
                 case .notifications:
                     KaPostsNotificationsView()
+                        // Opening the list IS seeing them - clearing on appear rather than on
+                        // dismiss so the badge does not sit there while you read.
+                        .onAppear { KaPostsNotificationCenter.shared.markAllSeen() }
                 }
             }
             // Quote from a Bookmarks / my-Profile cell: presented from INSIDE this sheet,
@@ -636,9 +640,26 @@ struct KaPostsView: View {
                         .foregroundColor(.primary)
                         .frame(width: 46, height: 42)
                         .contentShape(Rectangle())
+                        // A count rather than a plain dot: in here you are one tap from the list,
+                        // so how many are waiting is worth knowing before you decide to look.
+                        .overlay(alignment: .topTrailing) {
+                            if item == .notifications, kaPostsNotifCenter.unseenCount > 0 {
+                                Text(kaPostsNotifCenter.badgeText)
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(Color.red))
+                                    .offset(x: 4, y: -2)
+                            }
+                        }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(Text(item.rawValue))
+                .accessibilityLabel(Text(
+                    item == .notifications && kaPostsNotifCenter.unseenCount > 0
+                        ? "\(item.rawValue), \(kaPostsNotifCenter.unseenCount) unseen"
+                        : item.rawValue
+                ))
             }
             Spacer(minLength: 0)
         }

@@ -77,7 +77,11 @@ final class GlobalNotificationCenter: ObservableObject {
     func reload() {
         if let data = UserDefaults.standard.data(forKey: entriesKey),
            let decoded = try? JSONDecoder().decode([Entry].self, from: data) {
-            entries = decoded
+            // Drops KaPosts rows an earlier build persisted. They live in KaPosts' own bell now,
+            // and leaving them would keep the profile bell double-counting until they aged out.
+            let kept = decoded.filter { $0.source != .kaposts }
+            entries = kept
+            if kept.count != decoded.count { persist() }
         } else {
             entries = []
         }
@@ -93,6 +97,10 @@ final class GlobalNotificationCenter: ObservableObject {
     // MARK: - Feed mutations
 
     func record(id: String, source: Entry.Source, title: String, body: String, timestamp: Int64, targetId: String?) {
+        // KaPosts activity is counted by KaPostsNotificationCenter and listed by the KaPosts
+        // notifications screen. Refused here rather than merely left uncalled, so a future caller
+        // cannot quietly reintroduce the double-reporting.
+        guard source != .kaposts else { return }
         guard !id.isEmpty, !entries.contains(where: { $0.id == id }) else { return }
         entries.insert(Entry(id: id, source: source, title: title, body: body, timestamp: timestamp, targetId: targetId), at: 0)
         if entries.count > maxEntries { entries = Array(entries.prefix(maxEntries)) }
@@ -160,47 +168,18 @@ final class GlobalNotificationCenter: ObservableObject {
         }
         UserDefaults.standard.set(NSNumber(value: max(newest, lastSeen)), forKey: kaPostsBaselineKey)
         let myAddress = WalletManager.shared.currentWallet?.publicAddress
+        // Counted, not listed. The KaPosts notifications screen already serves these rows from
+        // the indexer with richer formatting, so keeping a second copy here reported the same
+        // like or reply twice and let one busy feed dominate the profile bell's count. What the
+        // indexer cannot tell us is how many the user has not looked at, which is what this feeds.
+        var arrivals = 0
         for notification in notifications where notification.timestamp > lastSeen {
             guard let actorAddress = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
                   actorAddress != myAddress,
                   !KaPostsModerationStore.shared.isHidden(actorAddress) else { continue }
-            // Warm the KNS cache so displayName can use the actor's domain — a cold
-            // cache would fall back to the short address even when they own one.
-            if KNSService.shared.domainCache[actorAddress] == nil {
-                await KNSService.shared.refreshIfNeeded(for: [actorAddress])
-            }
-            let text = KaPostsAPIClient.stripMarker(notification.decodedContent ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let action: String
-            switch notification.contentType {
-            case "vote": action = notification.voteType == "downvote" ? "disliked your post" : "liked your post"
-            case "reply": action = "replied to your post"
-            case "quote": action = text.isEmpty ? "reposted your post" : "quoted your post"
-            case "follow": action = "followed you"
-            case "mention": action = "mentioned you in a post"
-            default: action = "interacted with your post"
-            }
-            // Per-kind tap target, matching the KaPosts notifications sheet: reply/quote-
-            // with-text open the reply itself; vote/mention open the containing post.
-            let targetTxId: String?
-            switch notification.contentType {
-            case "reply": targetTxId = notification.id
-            case "quote": targetTxId = text.isEmpty ? notification.contentId : notification.id
-            case "follow": targetTxId = nil
-            // A mention's acting content IS the post/comment mentioning you — fall back to
-            // the notification's own txid when contentId is empty, else the row has no target.
-            case "mention": targetTxId = (notification.contentId?.isEmpty == false) ? notification.contentId : notification.id
-            default: targetTxId = notification.contentId
-            }
-            record(
-                id: "kaposts-\(notification.id)",
-                source: .kaposts,
-                title: "\(displayName(for: actorAddress)) \(action)",
-                body: String(text.prefix(90)),
-                timestamp: notification.timestamp,
-                targetId: targetTxId
-            )
+            arrivals += 1
         }
+        KaPostsNotificationCenter.shared.recordArrivals(arrivals)
     }
 
     // MARK: - Helpers
