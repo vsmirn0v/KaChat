@@ -55,6 +55,40 @@ final class CoinGeckoService: Sendable {
         return formatter
     }()
 
+    /// Market cap and market-cap rank for KAS, in the requested currency.
+    ///
+    /// From CoinGecko's `/coins/markets`, the same keyless source the rest of this client uses.
+    /// CoinMarketCap's own API needs a key, and its rank agrees with CoinGecko's in all but the
+    /// occasional off-by-one around ties, so this is the figure people recognise without shipping
+    /// a second provider and a secret to reach it.
+    func getMarketStats(currency: AppCurrency) async -> (marketCap: Double, rank: Int?)? {
+        guard var components = URLComponents(string: baseURL + "/api/v3/coins/markets") else { return nil }
+        components.queryItems = [
+            URLQueryItem(name: "vs_currency", value: currency.rawValue),
+            URLQueryItem(name: "ids", value: "kaspa")
+        ]
+        guard let url = components.url else { return nil }
+        do {
+            let (data, response) = try await session.data(from: url)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            let decoded = try JSONDecoder().decode([MarketsRow].self, from: data)
+            guard let row = decoded.first, let cap = row.marketCap else { return nil }
+            return (marketCap: cap, rank: row.marketCapRank)
+        } catch {
+            return nil
+        }
+    }
+
+    private struct MarketsRow: Decodable {
+        let marketCap: Double?
+        let marketCapRank: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case marketCap = "market_cap"
+            case marketCapRank = "market_cap_rank"
+        }
+    }
+
     /// `change24hPercent` is nil only on a decode/response oddity, not treated as a separate
     /// failure from the price fetch itself — CoinGecko returns both in the same call
     /// (`include_24hr_change=true`), so there's no second request to independently fail.

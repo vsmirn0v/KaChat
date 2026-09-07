@@ -177,6 +177,8 @@ struct PortfolioView: View {
 
     private var valueSquare: some View {
         let summary = viewModel.summary
+        let todayChange = PortfolioManager.shared.activePortfolioId
+            .flatMap { viewModel.todayChange(for: $0) }
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: "chart.line.uptrend.xyaxis")
@@ -193,7 +195,20 @@ struct PortfolioView: View {
                 .font(.system(size: 22, weight: .bold))
                 .minimumScaleFactor(0.6)
                 .lineLimit(1)
-            changeBadge(percent: summary.totalPLPercent, positive: summary.totalPL >= 0)
+            // The last 24 hours, not all-time P&L. A card showing a number that only ever grows
+            // over the life of the portfolio says nothing about today, and it sat next to the
+            // Kaspa card's 24h figure reading as though the two were comparable.
+            if let change = todayChange {
+                changeBadge(percent: change.percent, positive: change.amount >= 0)
+            } else {
+                // No sample 24h old yet - a fresh portfolio has no move to report, and 0.00%
+                // would be a claim rather than an absence.
+                Text("24h change not available yet")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: 128)
@@ -227,12 +242,44 @@ private struct KasPriceChartScreen: View {
                 chart
                 PortfolioRangePicker(viewModel: viewModel, onChange: { scrubbed = nil })
                 KasConverterCard(priceUsd: viewModel.currentPriceUsd, currency: currency)
+                marketStatsCard
             }
             .padding(16)
         }
         .refreshable { await viewModel.refreshPriceAsync() }
         .navigationTitle("KAS Price")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Where Kaspa sits against every other coin, and what the whole supply is worth at the
+    /// price above. Both come from the same keyless CoinGecko client the chart already uses;
+    /// CoinMarketCap's own API needs a key, and the two ranks agree.
+    @ViewBuilder
+    private var marketStatsCard: some View {
+        if viewModel.marketCap != nil || viewModel.marketCapRank != nil {
+            VStack(spacing: 10) {
+                if let rank = viewModel.marketCapRank {
+                    HStack {
+                        Text("Rank").font(.subheadline).foregroundColor(.secondary)
+                        Spacer()
+                        Text("#\(rank)").font(.subheadline.weight(.semibold))
+                    }
+                }
+                if viewModel.marketCapRank != nil && viewModel.marketCap != nil {
+                    Divider()
+                }
+                if let cap = viewModel.marketCap {
+                    HStack {
+                        Text("Market Cap").font(.subheadline).foregroundColor(.secondary)
+                        Spacer()
+                        Text(PortfolioFormat.compactCurrency(cap, currency))
+                            .font(.subheadline.weight(.semibold))
+                    }
+                }
+            }
+            .padding(14)
+            .background(portfolioGlassBackground(cornerRadius: 18))
+        }
     }
 
     // The Kaspa logo + name stay put while scrubbing - only the date + scrubbed price change.
@@ -250,10 +297,12 @@ private struct KasPriceChartScreen: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text((scrubbed?.value ?? viewModel.currentPriceUsd).map { PortfolioFormat.price($0, currency: currency) } ?? "—")
                     .font(.system(size: 34, weight: .bold))
-                if scrubbed == nil, let change = viewModel.priceChange24h {
+                // Read off the series the chart is drawing, so the number and the line can never
+                // disagree - and so it answers whichever range button is selected.
+                if scrubbed == nil, let change = viewModel.priceRangeChange {
                     HStack(spacing: 3) {
-                        Image(systemName: change >= 0 ? "arrow.up" : "arrow.down").font(.footnote)
-                        Text("\(String(format: "%.2f", abs(change)))% (24h)")
+                        Image(systemName: change.percent >= 0 ? "arrow.up" : "arrow.down").font(.footnote)
+                        Text("\(PortfolioFormat.currency(abs(change.amount), currency)) (\(String(format: "%.2f", abs(change.percent)))%) \(viewModel.priceRangeLabel)")
                             .font(.subheadline).fontWeight(.semibold)
                     }
                     .foregroundColor(change >= 0 ? .green : .red)
@@ -316,10 +365,9 @@ private struct PortfolioValueChartScreen: View {
     }
 
     private func header(currentValue: Double) -> some View {
-        // Today's change, not all-time P&L - the same figure the portfolio cards show, from the
-        // stable seven-day history rather than the visible range, so switching to 1Y does not
-        // change what "today" means.
-        let todayChange = PortfolioManager.shared.activePortfolioId.flatMap { viewModel.todayChange(for: $0) }
+        // The move across the SELECTED range, so pressing 1W answers "how did this do this week"
+        // rather than repeating the 24h figure under every button.
+        let rangeChange = viewModel.valueRangeChange
         return VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text("Portfolio Value").font(.title3).fontWeight(.semibold)
@@ -334,13 +382,16 @@ private struct PortfolioValueChartScreen: View {
                     .font(.system(size: 34, weight: .bold))
                 // Hidden while scrubbing: the big number is then a past value, and a change
                 // figure for today sitting beside it would read as that day's move.
-                if scrubbed == nil, let todayChange {
-                    let isUp = todayChange.amount >= 0
+                if scrubbed == nil, let rangeChange {
+                    let isUp = rangeChange.amount >= 0
                     HStack(spacing: 4) {
                         Image(systemName: isUp ? "arrow.up.right" : "arrow.down.right")
                             .font(.caption.weight(.bold))
-                        Text("\(PortfolioFormat.currency(abs(todayChange.amount), currency)) (\(String(format: "%.2f", abs(todayChange.percent)))%)")
+                        Text("\(PortfolioFormat.currency(abs(rangeChange.amount), currency)) (\(String(format: "%.2f", abs(rangeChange.percent)))%)")
                             .font(.subheadline.weight(.semibold))
+                        Text(viewModel.priceRangeLabel)
+                            .font(.caption.weight(.semibold))
+                            .foregroundColor(.secondary)
                     }
                     .foregroundColor(isUp ? .green : .red)
                 }
@@ -455,6 +506,24 @@ enum PortfolioFormat {
         formatter.locale = Locale(identifier: "en_US")
         return formatter
     }()
+
+    /// Large money in the form people actually quote it: $2.4B, not $2,412,880,314.00. A market
+    /// cap written out in full is a wall of digits that has to be counted to be understood.
+    static func compactCurrency(_ value: Double, _ currency: AppCurrency) -> String {
+        let symbol = currencySymbol(for: currency)
+        let magnitude = abs(value)
+        let (scaled, suffix): (Double, String)
+        switch magnitude {
+        case 1_000_000_000_000...: (scaled, suffix) = (magnitude / 1_000_000_000_000, "T")
+        case 1_000_000_000...: (scaled, suffix) = (magnitude / 1_000_000_000, "B")
+        case 1_000_000...: (scaled, suffix) = (magnitude / 1_000_000, "M")
+        case 1_000...: (scaled, suffix) = (magnitude / 1_000, "K")
+        default: (scaled, suffix) = (magnitude, "")
+        }
+        let decimals = scaled < 10 ? 2 : (scaled < 100 ? 1 : 0)
+        let sign = value < 0 ? "-" : ""
+        return sign + symbol + String(format: "%.\(decimals)f", scaled) + suffix
+    }
 
     static func kas(_ value: Double) -> String {
         let text = kasFormatter.string(from: NSNumber(value: value)) ?? String(format: "%.4f", value)

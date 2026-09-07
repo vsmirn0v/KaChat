@@ -22,6 +22,11 @@ final class PortfolioViewModel: ObservableObject {
     /// shown next to the price in `summaryCard`. Nil while unavailable rather than 0, so the UI
     /// can distinguish "no data yet" from "flat".
     @Published private(set) var priceChange24h: Double?
+    /// Market cap and market-cap rank, shown under the price chart's converter. Nil until the
+    /// first successful fetch, and left at its last good value on a later failure - a rank that
+    /// blinks out because one request timed out is worse than a slightly stale one.
+    @Published private(set) var marketCap: Double?
+    @Published private(set) var marketCapRank: Int?
     @Published private(set) var priceHistory: [PricePoint] = []
     @Published private(set) var priceRangeDays: Int = 1
     @Published var scrubbedPricePoint: PricePoint?
@@ -102,6 +107,31 @@ final class PortfolioViewModel: ObservableObject {
         let scoped = transactions.filter { $0.portfolioId == portfolioId }
         let history = Self.computeValueHistory(transactions: scoped, priceHistory: sevenDayPriceHistory)
         return Self.computeTodayChange(valueHistory: history)
+    }
+
+    /// The active portfolio's move across the SELECTED chart range, for the Value chart header.
+    var valueRangeChange: (amount: Double, percent: Double)? {
+        Self.computeRangeChange(valueHistory)
+    }
+
+    /// The KAS price move across the SELECTED chart range, for the price chart header.
+    ///
+    /// At 1D this is computed from the same series the chart draws rather than reusing
+    /// CoinGecko's `priceChange24h`, so the number and the line can never disagree.
+    var priceRangeChange: (amount: Double, percent: Double)? {
+        Self.computeRangeChange(priceHistory)
+    }
+
+    /// How to name the selected range in a label beside the change figure.
+    var priceRangeLabel: String {
+        switch priceRangeDays {
+        case 1: return "24h"
+        case 7: return "1W"
+        case 30: return "1M"
+        case 90: return "3M"
+        case 365: return "1Y"
+        default: return "\(priceRangeDays)d"
+        }
     }
 
     init(coinGecko: CoinGeckoService = .shared) {
@@ -202,6 +232,10 @@ final class PortfolioViewModel: ObservableObject {
                 self.currentPriceUsd = result.price
                 self.priceChange24h = result.change24hPercent
             }
+            if let stats = await self.coinGecko.getMarketStats(currency: currency) {
+                self.marketCap = stats.marketCap
+                self.marketCapRank = stats.rank
+            }
             // Cold-launch path: this is the refresh MainTabView's warm-up triggers, so the
             // widget store must publish here too (refreshPriceAsync's publish only covers
             // pull-to-refresh).
@@ -260,7 +294,12 @@ final class PortfolioViewModel: ObservableObject {
         // mis-key the cache write or repaint the new range with the old range's data.
         let days = priceRangeDays
         async let price = coinGecko.getCurrentPrice(currency: currency)
+        async let stats = coinGecko.getMarketStats(currency: currency)
         async let history = Self.fetchHistoryDownsampled(coinGecko, days: days, currency: currency)
+        if let result = await stats {
+            marketCap = result.marketCap
+            marketCapRank = result.rank
+        }
         if let result = await price {
             currentPriceUsd = result.price
             priceChange24h = result.change24hPercent
@@ -958,6 +997,16 @@ final class PortfolioViewModel: ObservableObject {
     /// cards — the latest value-history sample minus whichever sample is closest to (but not
     /// after) 24h before it. `nil` when no sample exists that far back yet (e.g. a portfolio
     /// created today), so callers can show a neutral/no-data state instead of a wrong number.
+    /// First-to-last change across a series, which for a range-scoped history IS that range's
+    /// move. Used by both full-chart headers so the figure beside the big number always answers
+    /// the range button the user just pressed, rather than always answering "24h".
+    static func computeRangeChange(_ series: [PricePoint]) -> (amount: Double, percent: Double)? {
+        guard let first = series.first, let last = series.last, series.count >= 2 else { return nil }
+        let amount = last.value - first.value
+        let percent = first.value == 0 ? 0 : (amount / first.value) * 100.0
+        return (amount, percent)
+    }
+
     static func computeTodayChange(valueHistory: [PricePoint]) -> (amount: Double, percent: Double)? {
         guard let latest = valueHistory.last else { return nil }
         let dayAgo = latest.timestamp.addingTimeInterval(-86400)
