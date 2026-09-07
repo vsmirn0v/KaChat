@@ -335,6 +335,26 @@ struct ProfileView: View {
                 if let spendingAddress = walletManager.currentSpendingAddress() {
                     ProfileQRCodeCache.preload(address: spendingAddress, completion: nil)
                 }
+                // Resolve the Receive QR's address NOW, not when the button is tapped. The
+                // freshness check is a network round trip, so doing it on tap meant a spinner
+                // between pressing Receive Kaspa and seeing a code. Warmed here it is almost
+                // always already decided by the time anyone taps.
+                Task { await warmReceiveAddress() }
+            }
+            // Funds landing used to show up here only on the next appear or pull-to-refresh -
+            // the screen that shows your balance was the one screen not listening for it.
+            // ManageAddresses and Cold Storage already reload on these.
+            .onReceive(NotificationCenter.default.publisher(for: .ownAddressUtxoActivity)) { _ in
+                Task {
+                    _ = try? await walletManager.refreshBalance()
+                    await loadSpendingAddressBalance()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .ownAddressActivity)) { _ in
+                Task {
+                    _ = try? await walletManager.refreshBalance()
+                    await loadSpendingAddressBalance()
+                }
             }
             .task {
                 guard let address = walletManager.currentWallet?.publicAddress else { return }
@@ -1048,8 +1068,19 @@ struct ProfileView: View {
             }
             .task {
                 guard address == nil else { return }
+                // Warmed on Profile's appear - when it is there this screen draws immediately,
+                // and the check below is a no-op re-confirmation rather than something the user
+                // waits behind.
+                if let warmed = ReceiveAddressWarmCache.address {
+                    address = warmed
+                    resolving = false
+                }
                 let resolved = await walletManager.freshReceiveAddress()
-                address = resolved
+                // Only swap if the warmed answer went stale between warming and opening. A QR is
+                // scanned the instant it appears, so it must not change under a pointed camera
+                // for any lesser reason.
+                if resolved != address { address = resolved }
+                ReceiveAddressWarmCache.address = resolved
                 resolving = false
                 guard let resolved else { return }
                 let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([resolved])) ?? []
@@ -1206,6 +1237,14 @@ struct ProfileView: View {
     private var spendingTotalText: String? {
         guard let total = spendingTotalSompi else { return nil }
         return "Total: \(formatKaspaExact(total)) KAS"
+    }
+
+    /// Decides the Receive QR's address ahead of the tap and hands it to the shared cache, so
+    /// opening the sheet is a read rather than a round trip.
+    private func warmReceiveAddress() async {
+        guard let address = await walletManager.freshReceiveAddress() else { return }
+        ReceiveAddressWarmCache.address = address
+        ProfileQRCodeCache.preload(address: address, completion: nil)
     }
 
     private func loadSpendingAddressBalance() async {
@@ -2048,6 +2087,16 @@ struct ProfileView: View {
         }
     }
 
+}
+
+/// The Receive QR's address, decided ahead of the tap.
+///
+/// A plain box rather than state on a view: the value is warmed by the Profile screen and read
+/// by the QR screen, which is presented by a NavigationLink and so has no chance to run anything
+/// before its first frame. Process-lifetime only - it is a head start, never a source of truth,
+/// and `freshReceiveAddress` re-confirms it on every open.
+enum ReceiveAddressWarmCache {
+    @MainActor static var address: String?
 }
 
 private struct KNSProfileEditorSubmission {
