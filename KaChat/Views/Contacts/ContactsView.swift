@@ -985,22 +985,11 @@ struct ProfileView: View {
         HStack(spacing: 24) {
             Spacer()
             NavigationLink {
-                // Never substitute the CHATTING address for the spending role — that was the
-                // "chatting balance under spending" flicker. If the spending address can't
-                // resolve this instant (locked keychain), show a retry note instead of the
-                // wrong address. (Rare now: derived addresses are persistently cached.)
-                if let spendingAddress = walletManager.currentSpendingAddress() {
-                    ChattingAddressQRView(
-                        address: spendingAddress,
-                        balanceSompi: spendingAddressBalanceSompi,
-                        subtitle: "This address should be used for everything not related to chatting or KNS profile creation."
-                    )
-                } else {
-                    Text("Spending address is unlocking — go back and try again.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .padding()
-                }
+                // A never-used address, resolved on the way in - see freshReceiveAddress. Never
+                // substitutes the CHATTING address for the spending role, which was the
+                // "chatting balance under spending" flicker; if nothing can be derived this
+                // instant (locked keychain) it says so rather than showing the wrong address.
+                ReceiveKaspaQRView()
             } label: {
                 VStack(spacing: 8) {
                     qrCircleIcon
@@ -1023,6 +1012,49 @@ struct ProfileView: View {
             }
             .buttonStyle(.plain)
             Spacer()
+        }
+    }
+
+    /// Resolves a fresh receive address before drawing the QR, so the code on screen is never
+    /// one that has already appeared on chain.
+    ///
+    /// A view of its own rather than resolving in the NavigationLink's destination builder: that
+    /// builder is evaluated eagerly while the row is merely on screen, so any work in it would
+    /// run whether or not the user ever taps, and it cannot await.
+    private struct ReceiveKaspaQRView: View {
+        @EnvironmentObject private var walletManager: WalletManager
+        @State private var address: String?
+        @State private var resolving = true
+        @State private var balanceSompi: UInt64?
+
+        var body: some View {
+            Group {
+                if let address {
+                    ChattingAddressQRView(
+                        address: address,
+                        balanceSompi: balanceSompi,
+                        subtitle: "A fresh address, never used before. This address should be used for everything not related to chatting or KNS profile creation."
+                    )
+                } else if resolving {
+                    ProgressView("Preparing a fresh address")
+                        .font(.subheadline)
+                        .padding()
+                } else {
+                    Text("Spending address is unlocking — go back and try again.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .padding()
+                }
+            }
+            .task {
+                guard address == nil else { return }
+                let resolved = await walletManager.freshReceiveAddress()
+                address = resolved
+                resolving = false
+                guard let resolved else { return }
+                let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([resolved])) ?? []
+                balanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
+            }
         }
     }
 

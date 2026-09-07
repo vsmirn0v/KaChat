@@ -349,6 +349,30 @@ extension WalletManager {
         return newIndex
     }
 
+    /// The address to show on the Receive QR: one that has never been used.
+    ///
+    /// Reusing an address across payments links them to each other and to you, so the QR should
+    /// never hand out one that has already appeared on chain. It does NOT mint a new address per
+    /// tap: an address that has never been used is still fresh the second time you open the
+    /// sheet, and minting one per tap would balloon the address list and lengthen every future
+    /// gap-limit scan for no privacy gained.
+    ///
+    /// So: keep the current primary while it is unused, and advance the primary to a fresh slot
+    /// once it has been paid into. Advancing the PRIMARY rather than just showing some other
+    /// address keeps one coherent "your address" - the balance under Spending goes on meaning
+    /// the address the QR just showed, and a send still rotates it the same way it always did.
+    ///
+    /// Returns nil only when the keychain cannot derive an address at all. A probe that FAILS
+    /// (used-ness unknown) keeps the current address rather than rotating on a guess: rotating
+    /// every time the network hiccups is how an address list fills with empty slots.
+    func freshReceiveAddress() async -> String? {
+        guard let current = currentSpendingAddress() else { return nil }
+        guard await ChatService.shared.spendingAddressUsedState(current) == true else { return current }
+        let index = await lowestUnusedSpendingAddress()
+        await setActiveSpendingAddress(index)
+        return currentSpendingAddress() ?? current
+    }
+
     /// Reveals a specific index from the Address Visibility pager, extending the chain when the
     /// index is beyond the current max - intermediate newly-covered indices are marked hidden so
     /// checking ONE far-out row doesn't flood the main list with everything below it.
