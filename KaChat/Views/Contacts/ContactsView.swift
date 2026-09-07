@@ -1197,10 +1197,14 @@ struct ProfileView: View {
             .accessibilityLabel(Text(label))
     }
 
-    /// The whole-account total, but only when it says something the balance above it does not -
-    /// on a one-address wallet the two are the same number and a second line saying so is noise.
+    /// The whole-account total, shown whenever it is known.
+    ///
+    /// Deliberately NOT hidden when it matches the balance above it. On a wallet whose funds all
+    /// sit on the current address the two ARE the same number, and hiding the line then is
+    /// exactly when its absence is most confusing - it reads as the feature being missing rather
+    /// than as "nothing else to add".
     private var spendingTotalText: String? {
-        guard let total = spendingTotalSompi, total != spendingAddressBalanceSompi else { return nil }
+        guard let total = spendingTotalSompi else { return nil }
         return "Total: \(formatKaspaExact(total)) KAS"
     }
 
@@ -1217,17 +1221,17 @@ struct ProfileView: View {
         isLoadingSpendingBalance = false
 
         // The whole set, in ONE call - a per-address loop would be dozens of requests on a wallet
-        // that has been used, and the node takes the list. Left at nil on failure so the row
-        // simply omits the line rather than claiming a total of zero.
+        // that has been used, and the node takes the list.
         let all = walletManager.allSpendingAddresses()
         guard !all.isEmpty else {
             spendingTotalSompi = nil
             return
         }
+        // A failure leaves the previous total in place rather than clearing it. A line that
+        // vanishes because one request timed out reads as the feature being broken; a total a
+        // few seconds stale does not.
         if let allUtxos = try? await NodePoolService.shared.getUtxosByAddresses(all) {
             spendingTotalSompi = allUtxos.reduce(UInt64(0)) { $0 + $1.amount }
-        } else {
-            spendingTotalSompi = nil
         }
     }
 
