@@ -349,28 +349,63 @@ extension WalletManager {
         return newIndex
     }
 
+    /// Which index the Receive QR is currently handing out. Persisted per wallet, and entirely
+    /// separate from the primary: receiving and spending are different jobs, and the QR must not
+    /// change which address a payment comes out of.
+    private var receiveAddressIndex: Int? {
+        get {
+            guard let key = spendingDefaultsKey("receiveIndex") else { return nil }
+            return UserDefaults.standard.object(forKey: key) as? Int
+        }
+        set {
+            guard let key = spendingDefaultsKey("receiveIndex") else { return }
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+    }
+
     /// The address to show on the Receive QR: one that has never been used.
     ///
-    /// Reusing an address across payments links them to each other and to you, so the QR should
-    /// never hand out one that has already appeared on chain. It does NOT mint a new address per
-    /// tap: an address that has never been used is still fresh the second time you open the
-    /// sheet, and minting one per tap would balloon the address list and lengthen every future
-    /// gap-limit scan for no privacy gained.
+    /// Reusing an address across payments links them to each other and to you, so the QR must
+    /// never hand out one that has already appeared on chain. Three rules, in order:
     ///
-    /// So: keep the current primary while it is unused, and advance the primary to a fresh slot
-    /// once it has been paid into. Advancing the PRIMARY rather than just showing some other
-    /// address keeps one coherent "your address" - the balance under Spending goes on meaning
-    /// the address the QR just showed, and a send still rotates it the same way it always did.
+    /// 1. The address it handed out last time, while that is still unused. It does NOT mint a new
+    ///    address per tap - an unused address is still unused the second time you open the sheet,
+    ///    and minting one per tap would balloon the address list and lengthen every future
+    ///    gap-limit scan for no privacy gained.
+    /// 2. Otherwise the primary, while THAT is unused - a fresh wallet should not reveal a second
+    ///    slot before the first one has seen anything.
+    /// 3. Otherwise a newly revealed slot, remembered as the receive pointer for next time.
+    ///
+    /// The primary is never changed. Receiving and spending are separate jobs: which address a
+    /// payment comes out of is not the QR's business, and moving it would make the balance under
+    /// Spending mean something different from one tap to the next. Funds that arrive here are
+    /// covered by the Total line on the same screen and by Manage Addresses.
     ///
     /// Returns nil only when the keychain cannot derive an address at all. A probe that FAILS
-    /// (used-ness unknown) keeps the current address rather than rotating on a guess: rotating
+    /// (used-ness unknown) keeps the current answer rather than rotating on a guess: rotating
     /// every time the network hiccups is how an address list fills with empty slots.
     func freshReceiveAddress() async -> String? {
-        guard let current = currentSpendingAddress() else { return nil }
-        guard await ChatService.shared.spendingAddressUsedState(current) == true else { return current }
+        // Rule 1: the pointer from last time, if it is still untouched.
+        if let index = receiveAddressIndex, let address = spendingAddress(at: index) {
+            if await ChatService.shared.spendingAddressUsedState(address) != true {
+                return address
+            }
+        }
+        // Rule 2: the primary, while it has seen nothing.
+        if let current = currentSpendingAddress(),
+           await ChatService.shared.spendingAddressUsedState(current) != true {
+            receiveAddressIndex = currentSpendingAddressIndex
+            return current
+        }
+        // Rule 3: a slot that has never been revealed, funded or offered.
         let index = await lowestUnusedSpendingAddress()
-        await setActiveSpendingAddress(index)
-        return currentSpendingAddress() ?? current
+        guard let address = spendingAddress(at: index) else { return currentSpendingAddress() }
+        receiveAddressIndex = index
+        return address
     }
 
     /// Reveals a specific index from the Address Visibility pager, extending the chain when the

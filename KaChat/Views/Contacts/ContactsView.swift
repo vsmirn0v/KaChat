@@ -1033,7 +1033,7 @@ struct ProfileView: View {
                     ChattingAddressQRView(
                         address: address,
                         balanceSompi: balanceSompi,
-                        subtitle: "A fresh address, never used before. This address should be used for everything not related to chatting or KNS profile creation."
+                        subtitle: "A fresh address, never used before. Kaspa sent here lands in this account and shows in your spending total. This address should be used for everything not related to chatting or KNS profile creation."
                     )
                 } else if resolving {
                     ProgressView("Preparing a fresh address")
