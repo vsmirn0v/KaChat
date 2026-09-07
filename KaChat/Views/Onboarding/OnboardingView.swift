@@ -124,9 +124,9 @@ struct OnboardingView: View {
 
     private var hasSavedAccounts: Bool { !walletManager.savedAccounts.isEmpty }
 
-    /// Wordmark with the app mark beside it, matching Android. The tagline is a welcome for a
-    /// first run and drops once there are accounts to show - on a returning device it was part
-    /// of why the list below had nowhere to go.
+    /// Wordmark with the app mark beside it, matching Android. The tagline stays whether or not
+    /// there are accounts saved: it is what the screen is, and hiding it on a returning device
+    /// left the wordmark sitting on its own with nothing saying what it belongs to.
     private var titleSection: some View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
@@ -139,12 +139,10 @@ struct OnboardingView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
 
-            if !hasSavedAccounts {
-                Text("Secure messaging on Kaspa BlockDAG")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
+            Text("Secure messaging on Kaspa BlockDAG")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
         }
     }
 
