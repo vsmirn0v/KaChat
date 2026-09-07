@@ -33,6 +33,10 @@ struct ProfileView: View {
     @State private var showWithdrawSheet = false
     @State private var spendingAddressBalanceSompi: UInt64?
     @State private var isLoadingSpendingBalance = false
+    /// Every revealed spending address together, not just the primary. The row above shows what
+    /// the address you are about to spend FROM holds, which is not the same question as how much
+    /// this account has - and after a few payments those two numbers diverge a long way.
+    @State private var spendingTotalSompi: UInt64?
     @State private var showSpendingAddressWithdraw = false
     @State private var showAvatarPreview = false
     @State private var showKNSEditor = false
@@ -1051,6 +1055,10 @@ struct ProfileView: View {
                 title: "Spending",
                 address: walletManager.currentSpendingAddress(),
                 balanceText: spendingAddressBalanceSompi.map { "\(formatKaspaExact($0)) KAS" },
+                // Only worth a line when it says something the balance above does not.
+                totalText: spendingTotalSompi
+                    .filter { $0 != spendingAddressBalanceSompi }
+                    .map { "Total: \(formatKaspaExact($0)) KAS" },
                 isLoadingBalance: isLoadingSpendingBalance,
                 onSend: { showSpendingAddressWithdraw = true }
             ) {
@@ -1070,6 +1078,9 @@ struct ProfileView: View {
         title: String,
         address: String?,
         balanceText: String?,
+        /// Optional second line under the balance. Used by the Spending row for the whole-account
+        /// total; the Chatting row has one address, so there is no total to distinguish.
+        totalText: String? = nil,
         isLoadingBalance: Bool = false,
         onSend: @escaping () -> Void,
         @ViewBuilder manageDestination: @escaping () -> Destination
@@ -1106,6 +1117,12 @@ struct ProfileView: View {
                             .fontWeight(.semibold)
                             .foregroundColor(.accentColor)
                             .lineLimit(1)
+                        if let totalText {
+                            Text(totalText)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                 }
                 // Fixed width so the Send/Manage buttons land in the same column on both
@@ -1162,6 +1179,20 @@ struct ProfileView: View {
         let utxos = (try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []
         spendingAddressBalanceSompi = utxos.reduce(UInt64(0)) { $0 + $1.amount }
         isLoadingSpendingBalance = false
+
+        // The whole set, in ONE call - a per-address loop would be dozens of requests on a wallet
+        // that has been used, and the node takes the list. Left at nil on failure so the row
+        // simply omits the line rather than claiming a total of zero.
+        let all = walletManager.allSpendingAddresses()
+        guard !all.isEmpty else {
+            spendingTotalSompi = nil
+            return
+        }
+        if let allUtxos = try? await NodePoolService.shared.getUtxosByAddresses(all) {
+            spendingTotalSompi = allUtxos.reduce(UInt64(0)) { $0 + $1.amount }
+        } else {
+            spendingTotalSompi = nil
+        }
     }
 
     private func glassBackground(cornerRadius: CGFloat) -> some View {
