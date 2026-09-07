@@ -37,6 +37,8 @@ struct ProfileView: View {
     /// the address you are about to spend FROM holds, which is not the same question as how much
     /// this account has - and after a few payments those two numbers diverge a long way.
     @State private var spendingTotalSompi: UInt64?
+    /// The pending coalesced refresh - see `scheduleBalanceRefresh`.
+    @State private var balanceRefreshTask: Task<Void, Never>?
     @State private var showSpendingAddressWithdraw = false
     @State private var showAvatarPreview = false
     @State private var showKNSEditor = false
@@ -345,16 +347,10 @@ struct ProfileView: View {
             // the screen that shows your balance was the one screen not listening for it.
             // ManageAddresses and Cold Storage already reload on these.
             .onReceive(NotificationCenter.default.publisher(for: .ownAddressUtxoActivity)) { _ in
-                Task {
-                    _ = try? await walletManager.refreshBalance()
-                    await loadSpendingAddressBalance()
-                }
+                scheduleBalanceRefresh()
             }
             .onReceive(NotificationCenter.default.publisher(for: .ownAddressActivity)) { _ in
-                Task {
-                    _ = try? await walletManager.refreshBalance()
-                    await loadSpendingAddressBalance()
-                }
+                scheduleBalanceRefresh()
             }
             .task {
                 guard let address = walletManager.currentWallet?.publicAddress else { return }
@@ -1237,6 +1233,25 @@ struct ProfileView: View {
     private var spendingTotalText: String? {
         guard let total = spendingTotalSompi else { return nil }
         return "Total: \(formatKaspaExact(total)) KAS"
+    }
+
+    /// Coalesces balance refreshes triggered by own-address activity.
+    ///
+    /// A single send fires several of these - the spend, its change, and the acceptance - and
+    /// BOTH notifications fire for the same event, so an un-coalesced handler ran the refresh
+    /// half a dozen times in a couple of seconds. Each run is a balance fetch plus a UTXO fetch
+    /// over every spending address, on the same actor driving the send sheet's keyboard, which
+    /// is why sending felt heavy. One refresh, shortly after the burst stops, says the same
+    /// thing.
+    private func scheduleBalanceRefresh() {
+        balanceRefreshTask?.cancel()
+        balanceRefreshTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            _ = try? await walletManager.refreshBalance()
+            guard !Task.isCancelled else { return }
+            await loadSpendingAddressBalance()
+        }
     }
 
     /// Decides the Receive QR's address ahead of the tap and hands it to the shared cache, so

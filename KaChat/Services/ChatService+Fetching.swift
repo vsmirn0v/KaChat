@@ -2528,18 +2528,27 @@ extension ChatService {
             // Decode payment message
             var content = paymentContent(payment, isOutgoing: isOutgoing)
 
+            // Moving your own money between your own addresses is not a conversation, in
+            // either direction. Sending from the chatting address to one of your own spending
+            // addresses used to open a 1:1 chat with that address - a chat with yourself, named
+            // after a string you never chose to talk to. Wallet history and Manage Addresses
+            // still show the move; only the chat list is spared it.
+            //
+            // Checked before the contact lookup, because an own address CAN also be a saved
+            // contact (someone adds their own second address to try the app) and it is still
+            // not a conversation.
+            if WalletManager.shared.allSpendingAddresses().contains(contactAddress) {
+                AppLog.log("[ChatService] Skipping payment %@ - internal move within own wallet", String(payment.txId.prefix(16)))
+                continue
+            }
+
             // A plain KAS payment from an address we have NO contact for must not open a
-            // chat with the stranger. Internal moves from our own spending chain surface
-            // nowhere in chats; genuinely unknown senders collect in the SELF-chat (the
+            // chat with the stranger. Genuinely unknown senders collect in the SELF-chat (the
             // conversation with our own chatting address) with the sender noted in the
-            // bubble. Wallet history and notifications are unaffected. Outgoing payments
-            // (withdrawals from the chatting address) keep creating destination chats.
+            // bubble. Wallet history and notifications are unaffected. Outgoing payments to a
+            // stranger's address keep creating destination chats - you chose that address.
             var conversationAddress = contactAddress
             if !isOutgoing, contactsManager.getContact(byAddress: contactAddress) == nil {
-                if WalletManager.shared.allSpendingAddresses().contains(contactAddress) {
-                    AppLog.log("[ChatService] Skipping payment %@ - internal move from own spending chain", String(payment.txId.prefix(16)))
-                    continue
-                }
                 conversationAddress = myAddress
                 content = "\(content)\n\(AppLocalization.string("From:")) \(contactAddress)"
             }
