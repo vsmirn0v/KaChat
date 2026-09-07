@@ -128,12 +128,40 @@ final class ContactsManager: ObservableObject {
 
     // MARK: - KNS Integration
 
-    /// Fetch KNS domains for all contacts
-    func fetchKNSDomainsForAllContacts(network: NetworkType = .mainnet) async {
+    /// When the last full sweep finished, so repeat callers do not re-run it.
+    private var lastFullKNSSweepAt: Date?
+    /// How long a completed sweep stands for. Shorter than KNSService's own 10-minute per-address
+    /// debounce, so a sweep inside this window still costs nothing, but this stops the WALK
+    /// itself - hundreds of addresses each checked and re-published - from happening at all.
+    private static let fullKNSSweepInterval: TimeInterval = 5 * 60
+
+    /// Fetch KNS domains for all contacts.
+    ///
+    /// Guarded twice, because this walks EVERY contact through two KNS passes and is called from
+    /// screens that open often - the chat list, and both KaPosts composers.
+    ///
+    /// `isFetchingKNS` was being set and never read, so two callers (opening the composer while
+    /// the chat list had one running, or the two composer views together) each started their own
+    /// full sweep over the same addresses. And nothing remembered a sweep had just finished, so
+    /// every composer open started another walk: with a large contact list that is hundreds of
+    /// requests, and hundreds of profile-cache publishes into an `@ObservedObject` the composer
+    /// is watching, which is a re-render of the editor per landing profile. Reported as the app
+    /// freezing on opening the KaPosts composer, with a burst of KNS profile calls before it.
+    ///
+    /// `force` is for the pull-to-refresh paths, where the user has explicitly asked.
+    func fetchKNSDomainsForAllContacts(network: NetworkType = .mainnet, force: Bool = false) async {
         guard !contacts.isEmpty else { return }
+        guard !isFetchingKNS else { return }
+        if !force, let last = lastFullKNSSweepAt,
+           Date().timeIntervalSince(last) < Self.fullKNSSweepInterval {
+            return
+        }
 
         isFetchingKNS = true
-        defer { isFetchingKNS = false }
+        defer {
+            isFetchingKNS = false
+            lastFullKNSSweepAt = Date()
+        }
 
         let addresses = contacts.map { $0.address }
         await knsService.refreshIfNeeded(for: addresses, network: network)

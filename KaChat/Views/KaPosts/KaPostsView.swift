@@ -5034,9 +5034,12 @@ private struct KaPostComposerView: View {
 
     @EnvironmentObject private var settingsViewModel: SettingsViewModel
     @Environment(\.dismiss) private var dismiss
-    // Observed so the @mention list live-updates as KNS lookups land after the on-appear
-    // prefetch (an unobserved singleton read would stay empty until an unrelated re-render).
-    @ObservedObject private var knsService = KNSService.shared
+    // This view deliberately does NOT observe KNSService. The on-appear contact sweep publishes
+    // once per profile that lands, and observing it here re-rendered the WHOLE composer each
+    // time - including MarkdownComposerField, a UIViewRepresentable whose updateUIView then ran
+    // against a live UITextView on every one of them, while the keyboard was coming up. The
+    // @mention list still updates live: KaPostComposerMentionBar is its own small view and
+    // observes the service itself, so a landing profile re-renders the bar and nothing else.
     @State private var text = ""
     @State private var threadSegments: [String] = []
     /// A live KNS resolution of the CURRENT @query - lets you mention anyone with a KNS
@@ -5282,50 +5285,11 @@ private struct KaPostComposerView: View {
     /// which read as "no list at all".
     @ViewBuilder
     private var mentionSuggestionBar: some View {
-        if !mentionSuggestions.isEmpty {
-            let rows = VStack(alignment: .leading, spacing: 0) {
-                ForEach(mentionSuggestions, id: \.self) { domain in
-                    Button {
-                        insertMention(domain)
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text("@")
-                                .font(.subheadline.weight(.bold))
-                                .foregroundColor(.accentColor)
-                            Text(domain)
-                                .font(.subheadline)
-                                .foregroundColor(.primary)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    if domain != mentionSuggestions.last {
-                        Divider()
-                    }
-                }
-            }
-            Group {
-                // Short lists hug their content; longer ones get an EXACT-height ScrollView
-                // (~4.5 rows so it visibly reads as scrollable) - group chat's pattern.
-                if mentionSuggestions.count > 4 {
-                    ScrollView {
-                        rows
-                    }
-                    .frame(height: 168)
-                } else {
-                    rows
-                }
-            }
-            .frame(maxWidth: 280, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.12), lineWidth: 1))
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        KaPostComposerMentionBar(
+            query: mentionQuery,
+            resolvedAnyDomain: resolvedAnyDomain,
+            onSelect: { insertMention($0) }
+        )
     }
 
     /// The bordered editor card. A growing multi-line TextField, deliberately NOT a TextEditor:
@@ -5463,28 +5427,6 @@ private struct KaPostComposerView: View {
     }
 
     /// Mentionable = your 1:1 contacts that have a KNS domain, filtered by the live @query.
-    private var mentionSuggestions: [String] {
-        guard let query = mentionQuery else { return [] }
-        var seen = Set<String>()
-        var out: [String] = []
-        for contact in ContactsManager.shared.activeContacts {
-            // Read through the OBSERVED service so rows appear live as lookups land.
-            guard let raw = knsService.domainCache[contact.address]?.primaryDomain else { continue }
-            let bare = KaPostsView.strippingKasSuffix(raw).lowercased()
-            guard !bare.isEmpty, !seen.contains(bare),
-                  query.isEmpty || bare.hasPrefix(query) else { continue }
-            seen.insert(bare)
-            out.append(bare)
-        }
-        out.sort()
-        // Live-resolved non-contact domain matching the current query rides along at the end.
-        if let extra = resolvedAnyDomain, !seen.contains(extra),
-           query.isEmpty || extra.hasPrefix(query) {
-            out.append(extra)
-        }
-        return out
-    }
-
     private func insertMention(_ domain: String) {
         guard let range = text.range(of: "@[a-z0-9-]*$", options: [.regularExpression, .caseInsensitive]) else { return }
         text.replaceSubrange(range, with: "@\(domain) ")
@@ -5528,6 +5470,88 @@ private struct KaPostComposerView: View {
     }
 }
 
+
+/// The composer's @mention list, split out so it - and not the whole composer - is what
+/// re-renders when a KNS lookup lands. See the note on `KaPostComposerView.knsService`.
+private struct KaPostComposerMentionBar: View {
+    let query: String?
+    let resolvedAnyDomain: String?
+    let onSelect: (String) -> Void
+
+    @ObservedObject private var knsService = KNSService.shared
+
+    private var mentionSuggestions: [String] {
+        guard let query else { return [] }
+        var seen = Set<String>()
+        var out: [String] = []
+        for contact in ContactsManager.shared.activeContacts {
+            // Read through the OBSERVED service so rows appear live as lookups land.
+            guard let raw = knsService.domainCache[contact.address]?.primaryDomain else { continue }
+            let bare = KaPostsView.strippingKasSuffix(raw).lowercased()
+            guard !bare.isEmpty, !seen.contains(bare),
+                  query.isEmpty || bare.hasPrefix(query) else { continue }
+            seen.insert(bare)
+            out.append(bare)
+        }
+        out.sort()
+        // Live-resolved non-contact domain matching the current query rides along at the end.
+        if let extra = resolvedAnyDomain, !seen.contains(extra),
+           query.isEmpty || extra.hasPrefix(query) {
+            out.append(extra)
+        }
+        return out
+    }
+
+    private func insertMention(_ domain: String) { onSelect(domain) }
+
+    @ViewBuilder
+    var body: some View {
+        if !mentionSuggestions.isEmpty {
+            let rows = VStack(alignment: .leading, spacing: 0) {
+                ForEach(mentionSuggestions, id: \.self) { domain in
+                    Button {
+                        insertMention(domain)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("@")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundColor(.accentColor)
+                            Text(domain)
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if domain != mentionSuggestions.last {
+                        Divider()
+                    }
+                }
+            }
+            Group {
+                // Short lists hug their content; longer ones get an EXACT-height ScrollView
+                // (~4.5 rows so it visibly reads as scrollable) - group chat's pattern.
+                if mentionSuggestions.count > 4 {
+                    ScrollView {
+                        rows
+                    }
+                    .frame(height: 168)
+                } else {
+                    rows
+                }
+            }
+            .frame(maxWidth: 280, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.12), lineWidth: 1))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
 
 // MARK: - Action scheduler (5s undo window)
 
