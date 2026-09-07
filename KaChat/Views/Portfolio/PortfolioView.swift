@@ -58,6 +58,22 @@ struct PortfolioView: View {
             }
             .navigationTitle("Portfolio")
             .navigationBarTitleDisplayMode(.large)
+            // All three destinations live HERE, on the stack's root, not on the buttons that
+            // present them. Those buttons sit inside the transactions List, and a lazy container
+            // only builds a child when it is about to be drawn - so the navigation stack could
+            // not see a destination until its row happened to be on screen, which is both what
+            // the runtime warning is about ("it will be ignored in a future release") and why
+            // opening a chart took a visible moment: the push had to wait for SwiftUI to realise
+            // the row and evaluate the destination before it had anything to push.
+            .navigationDestination(isPresented: $showPriceChart) {
+                KasPriceChartScreen(viewModel: viewModel)
+            }
+            .navigationDestination(isPresented: $showValueChart) {
+                PortfolioValueChartScreen(viewModel: viewModel)
+            }
+            .navigationDestination(isPresented: $showHashrateChart) {
+                HashrateChartScreen()
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     ConnectionStatusIndicator()
@@ -91,9 +107,6 @@ struct PortfolioView: View {
                 priceSquare
             }
             .buttonStyle(.plain)
-            .navigationDestination(isPresented: $showPriceChart) {
-                KasPriceChartScreen(viewModel: viewModel)
-            }
 
             Button {
                 Haptics.impact(.light)
@@ -102,9 +115,6 @@ struct PortfolioView: View {
                 valueSquare
             }
             .buttonStyle(.plain)
-            .navigationDestination(isPresented: $showValueChart) {
-                PortfolioValueChartScreen(viewModel: viewModel)
-            }
         }
     }
 
@@ -141,9 +151,6 @@ struct PortfolioView: View {
             .background(portfolioGlassBackground(cornerRadius: 18))
         }
         .buttonStyle(.plain)
-        .navigationDestination(isPresented: $showHashrateChart) {
-            HashrateChartScreen()
-        }
         .task { await networkStats.refreshIfNeeded() }
     }
 
