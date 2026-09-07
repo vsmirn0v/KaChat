@@ -294,19 +294,26 @@ private struct KasPriceChartScreen: View {
                 Text(scrub.timestamp, format: .dateTime.month().day().year().hour().minute())
                     .font(.subheadline).foregroundColor(.secondary)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text((scrubbed?.value ?? viewModel.currentPriceUsd).map { PortfolioFormat.price($0, currency: currency) } ?? "—")
-                    .font(.system(size: 34, weight: .bold))
-                // Read off the series the chart is drawing, so the number and the line can never
-                // disagree - and so it answers whichever range button is selected.
-                if scrubbed == nil, let change = viewModel.priceRangeChange {
-                    HStack(spacing: 3) {
-                        Image(systemName: change.amount >= 0 ? "arrow.up" : "arrow.down").font(.footnote)
-                        Text("\(PortfolioFormat.currency(abs(change.amount), currency)) (\(String(format: "%.2f", abs(change.percent)))%) \(viewModel.priceRangeLabel)")
-                            .font(.subheadline).fontWeight(.semibold)
-                    }
-                    .foregroundColor(change.amount >= 0 ? .green : .red)
+            // The change sits UNDER the price rather than beside it. A long price and a long
+            // change figure on one line had no room left at larger text sizes or in a currency
+            // with a wordy symbol, and something had to shrink or clip. Stacked, neither
+            // constrains the other whatever they say.
+            Text((scrubbed?.value ?? viewModel.currentPriceUsd).map { PortfolioFormat.price($0, currency: currency) } ?? "—")
+                .font(.system(size: 34, weight: .bold))
+            // Read off the series the chart is drawing, so the number and the line can never
+            // disagree - and so it answers whichever range button is selected. Percent only:
+            // the move in currency is the price above minus itself a moment ago, which the chart
+            // already draws, and a per-KAS amount at four decimal places says very little.
+            if scrubbed == nil, let change = viewModel.priceRangeChange {
+                HStack(spacing: 3) {
+                    Image(systemName: change.amount >= 0 ? "arrow.up" : "arrow.down").font(.footnote)
+                    Text("\(String(format: "%.2f", abs(change.percent)))%")
+                        .font(.subheadline).fontWeight(.semibold)
+                    Text(viewModel.priceRangeLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
                 }
+                .foregroundColor(change.amount >= 0 ? .green : .red)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -377,24 +384,24 @@ private struct PortfolioValueChartScreen: View {
                 Text(scrub.timestamp, format: .dateTime.month().day().year())
                     .font(.subheadline).foregroundColor(.secondary)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(PortfolioFormat.currency(scrubbed?.value ?? currentValue, currency))
-                    .font(.system(size: 34, weight: .bold))
-                // Hidden while scrubbing: the big number is then a past value, and a change
-                // figure for today sitting beside it would read as that day's move.
-                if scrubbed == nil, let rangeChange {
-                    let isUp = rangeChange.amount >= 0
-                    HStack(spacing: 4) {
-                        Image(systemName: isUp ? "arrow.up.right" : "arrow.down.right")
-                            .font(.caption.weight(.bold))
-                        Text("\(PortfolioFormat.currency(abs(rangeChange.amount), currency)) (\(String(format: "%.2f", abs(rangeChange.percent)))%)")
-                            .font(.subheadline.weight(.semibold))
-                        Text(viewModel.priceRangeLabel)
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(.secondary)
-                    }
-                    .foregroundColor(isUp ? .green : .red)
+            // The change sits UNDER the value rather than beside it - see the note on the price
+            // header. A six-figure portfolio and its change had nowhere to go on one line.
+            Text(PortfolioFormat.currency(scrubbed?.value ?? currentValue, currency))
+                .font(.system(size: 34, weight: .bold))
+            // Hidden while scrubbing: the big number is then a past value, and a change figure
+            // for the range sitting under it would read as that point's own move.
+            if scrubbed == nil, let rangeChange {
+                let isUp = rangeChange.amount >= 0
+                HStack(spacing: 4) {
+                    Image(systemName: isUp ? "arrow.up.right" : "arrow.down.right")
+                        .font(.caption.weight(.bold))
+                    Text("\(PortfolioFormat.currency(abs(rangeChange.amount), currency)) (\(String(format: "%.2f", abs(rangeChange.percent)))%)")
+                        .font(.subheadline.weight(.semibold))
+                    Text(viewModel.priceRangeLabel)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.secondary)
                 }
+                .foregroundColor(isUp ? .green : .red)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
