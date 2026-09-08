@@ -430,9 +430,11 @@ struct KaPostsView: View {
                     myProfileSheet
                 case .search:
                     KaPostsSearchView(
-                        onOpenPost: { post in
-                            // Straight to the thread, the same route a feed tap takes.
-                            postDetailTarget = PostDetailTarget(id: post.id)
+                        onOpenPost: { txId in
+                            // The same route a shared link takes: a search result can be older
+                            // than the loaded feed, and openSharedPost is what knows how to go
+                            // and find one that is not already in memory.
+                            Task { await openSharedPost(txId: txId) }
                         },
                         onOpenProfile: { address in
                             // pubkey is nil: the profile screen resolves it from the address,

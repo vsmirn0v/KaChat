@@ -19,7 +19,10 @@ struct KaPostsSearchView: View {
     }
 
     /// Opening a result: the parent owns navigation, so it is handed back rather than pushed.
-    var onOpenPost: (KaPostsView.DraftPost) -> Void
+    /// A TXID rather than the post itself - the parent resolves it through the same path a
+    /// shared link takes, which knows how to find a post that is not in the loaded feed. Every
+    /// row here came from the indexer, so it always has one.
+    var onOpenPost: (String) -> Void
     var onOpenProfile: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -135,7 +138,8 @@ struct KaPostsSearchView: View {
             List {
                 ForEach(matchingPosts) { post in
                     Button {
-                        onOpenPost(post)
+                        guard let txId = post.remoteId else { return }
+                        onOpenPost(txId)
                         dismiss()
                     } label: {
                         VStack(alignment: .leading, spacing: 4) {
