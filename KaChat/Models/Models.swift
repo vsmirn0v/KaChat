@@ -1844,6 +1844,10 @@ struct AppSettings: Codable {
     var kaPostsNotifyFollows: Bool
     var kaPostsNotifyDislikes: Bool
     var kaPostsNotifyComments: Bool
+    /// Being named used to be unswitchable on the theory that a mention is always about you.
+    /// It is - but a busy account can be mentioned constantly, and "always about you" is a
+    /// reason to make the choice available, not a reason to make it for them.
+    var kaPostsNotifyMentions: Bool
     var messagePollInterval: TimeInterval
     var liveUpdatesEnabled: Bool
     var chatPhotoQualityPreset: ChatPhotoQualityPreset
@@ -2029,6 +2033,7 @@ struct AppSettings: Codable {
             kaPostsNotifyFollows: true,
             kaPostsNotifyDislikes: true,
             kaPostsNotifyComments: true,
+            kaPostsNotifyMentions: true,
             messagePollInterval: 10.0,
             liveUpdatesEnabled: false,
             chatPhotoQualityPreset: .default,
@@ -2094,6 +2099,7 @@ struct AppSettings: Codable {
         case kaPostsNotifyFollows
         case kaPostsNotifyDislikes
         case kaPostsNotifyComments
+        case kaPostsNotifyMentions
         case messagePollInterval
         case liveUpdatesEnabled
         case chatPhotoQualityPreset
@@ -2160,6 +2166,7 @@ struct AppSettings: Codable {
         kaPostsNotifyFollows: Bool = true,
         kaPostsNotifyDislikes: Bool = true,
         kaPostsNotifyComments: Bool = true,
+        kaPostsNotifyMentions: Bool = true,
         messagePollInterval: TimeInterval,
         liveUpdatesEnabled: Bool,
         chatPhotoQualityPreset: ChatPhotoQualityPreset = .default,
@@ -2216,6 +2223,7 @@ struct AppSettings: Codable {
         self.kaPostsNotifyFollows = kaPostsNotifyFollows
         self.kaPostsNotifyDislikes = kaPostsNotifyDislikes
         self.kaPostsNotifyComments = kaPostsNotifyComments
+        self.kaPostsNotifyMentions = kaPostsNotifyMentions
         self.messagePollInterval = messagePollInterval
         self.liveUpdatesEnabled = liveUpdatesEnabled
         self.chatPhotoQualityPreset = chatPhotoQualityPreset
@@ -2300,6 +2308,9 @@ struct AppSettings: Codable {
         kaPostsNotifyFollows = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyFollows) ?? true
         kaPostsNotifyDislikes = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyDislikes) ?? true
         kaPostsNotifyComments = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyComments) ?? true
+        // Defaults ON, and an older settings file with no such key decodes as ON - a switch
+        // appearing for the first time must not silently mute anything.
+        kaPostsNotifyMentions = try container.decodeIfPresent(Bool.self, forKey: .kaPostsNotifyMentions) ?? true
         messagePollInterval = try container.decodeIfPresent(TimeInterval.self, forKey: .messagePollInterval) ?? 10.0
         liveUpdatesEnabled = try container.decodeIfPresent(Bool.self, forKey: .liveUpdatesEnabled) ?? false
         chatPhotoQualityPreset = try container.decodeIfPresent(
@@ -2416,6 +2427,7 @@ struct AppSettings: Codable {
         try container.encode(kaPostsNotifyFollows, forKey: .kaPostsNotifyFollows)
         try container.encode(kaPostsNotifyDislikes, forKey: .kaPostsNotifyDislikes)
         try container.encode(kaPostsNotifyComments, forKey: .kaPostsNotifyComments)
+        try container.encode(kaPostsNotifyMentions, forKey: .kaPostsNotifyMentions)
         try container.encode(messagePollInterval, forKey: .messagePollInterval)
         try container.encode(liveUpdatesEnabled, forKey: .liveUpdatesEnabled)
         try container.encode(chatPhotoQualityPreset, forKey: .chatPhotoQualityPreset)
@@ -2489,8 +2501,7 @@ struct AppSettings: Codable {
         case "reply": return kaPostsNotifyComments
         case "quote": return kaPostsNotifyReposts
         case "follow": return kaPostsNotifyFollows
-        // Being @mentioned always pings - deliberate, not the unknown-kind fallback.
-        case "mention": return true
+        case "mention": return kaPostsNotifyMentions
         default: return true
         }
     }

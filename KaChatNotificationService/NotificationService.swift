@@ -610,7 +610,7 @@ class NotificationService: UNNotificationServiceExtension {
             case "reply": key = "comments"
             case "quote", "repost": key = "reposts"
             case "follow": key = "follows"
-            // A mention is not switchable: being named is the one kind that is about you.
+            case "mention": key = "mentions"
             default: return true
             }
         } else {
@@ -620,6 +620,7 @@ class NotificationService: UNNotificationServiceExtension {
             else if lowered.contains("replied to your") { key = "comments" }
             else if lowered.contains("quoted your") || lowered.contains("reposted your") { key = "reposts" }
             else if lowered.contains("followed you") { key = "follows" }
+            else if lowered.contains("mentioned you") { key = "mentions" }
             else { return true }
         }
         return kinds[key] ?? true

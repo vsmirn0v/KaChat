@@ -1309,8 +1309,13 @@ struct KaPostsNotificationSettingsView: View {
                         // only ever changed a value nothing downstream could see.
                         SharedDataManager.syncGroupsForExtension()
                     }
+                Toggle("Mentions", isOn: $settingsViewModel.settings.kaPostsNotifyMentions)
+                    .onChange(of: settingsViewModel.settings.kaPostsNotifyMentions) { _ in
+                        settingsViewModel.saveSettings()
+                        SharedDataManager.syncGroupsForExtension()
+                    }
             } footer: {
-                Text("Choose which KaPosts activity sends a notification. Quotes of your posts count as reposts.")
+                Text("Choose which KaPosts activity reaches you. Anything switched off sends no notification and does not appear in the KaPosts bell. Quotes of your posts count as reposts.")
             }
         }
         .navigationTitle("KaPosts")

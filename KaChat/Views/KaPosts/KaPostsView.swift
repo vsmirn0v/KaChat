@@ -6524,12 +6524,22 @@ struct KaPostsNotificationsView: View {
                     return (result.notifications, result.pagination)
                 },
                 keep: { (notifications: [KaPostsAPIClient.KNotification]) -> [Item] in
-                    notifications.compactMap { notification in
+                    // Read once per page rather than per row - AppSettings.load() reads and
+                    // decodes UserDefaults, and this runs over every notification fetched.
+                    let settings = AppSettings.load()
+                    return notifications.compactMap { notification in
                         newestSeenTimestamp = max(newestSeenTimestamp, notification.timestamp)
                         guard !seen.contains(notification.id),
                               let address = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
                               address != myAddress,
-                              !moderationStore.isHidden(address) else { return nil }
+                              !moderationStore.isHidden(address),
+                              // A kind you switched off in Settings does not belong in this list
+                              // either. The switch reads "do not tell me about this", and a list
+                              // full of the thing you muted is the switch not working.
+                              settings.shouldNotifyKaPostsAction(
+                                  contentType: notification.contentType,
+                                  voteType: notification.voteType
+                              ) else { return nil }
                         seen.insert(notification.id)
                         let text = KaPostsAPIClient.stripMarker(notification.decodedContent ?? "")
                             .trimmingCharacters(in: .whitespacesAndNewlines)

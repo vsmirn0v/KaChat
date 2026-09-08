@@ -152,6 +152,7 @@ final class SharedDataManager {
             "comments": s.kaPostsNotifyComments,
             "reposts": s.kaPostsNotifyReposts,
             "follows": s.kaPostsNotifyFollows,
+            "mentions": s.kaPostsNotifyMentions,
         ], forKey: Keys.kaPostsNotificationKinds)
         if let silentData = try? JSONEncoder().encode(GroupChatService.shared.groupSilentNotifications) {
             sharedDefaults?.set(silentData, forKey: Keys.groupSilentNotifications)

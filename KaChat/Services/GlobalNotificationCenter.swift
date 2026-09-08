@@ -172,11 +172,19 @@ final class GlobalNotificationCenter: ObservableObject {
         // the indexer with richer formatting, so keeping a second copy here reported the same
         // like or reply twice and let one busy feed dominate the profile bell's count. What the
         // indexer cannot tell us is how many the user has not looked at, which is what this feeds.
+        // Gated by the per-kind switches, same as the banner. Switching Likes off and then
+        // finding a hundred likes waiting in the bell is the switch not working: the setting is
+        // "do not tell me about this", not "do not interrupt me about this".
+        let settings = AppSettings.load()
         var arrivals = 0
         for notification in notifications where notification.timestamp > lastSeen {
             guard let actorAddress = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
                   actorAddress != myAddress,
-                  !KaPostsModerationStore.shared.isHidden(actorAddress) else { continue }
+                  !KaPostsModerationStore.shared.isHidden(actorAddress),
+                  settings.shouldNotifyKaPostsAction(
+                      contentType: notification.contentType,
+                      voteType: notification.voteType
+                  ) else { continue }
             arrivals += 1
         }
         KaPostsNotificationCenter.shared.recordArrivals(arrivals)
