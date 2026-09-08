@@ -70,10 +70,9 @@ struct MainTabView: View {
                             }
                         }
                     }
-                    // Profile hosts the notification bell, and KaPosts hosts its own - surface
-                    // either one's unread state on the dock as a plain red dot (an empty badge
-                    // renders as a dot, not a count). Whether KaPosts is IN the dock is the
-                    // user's arrangement; when it is not, the count is still waiting on its bell.
+                    // Profile hosts the notification bell, and KaPosts hosts its own - each
+                    // shows how many are waiting. Whether KaPosts is IN the dock is the user's
+                    // arrangement; when it is not, the count still waits on its own bell.
                     .badge(dockBadge(for: tab))
                     .tag(tab.tag)
             }
@@ -207,13 +206,25 @@ struct MainTabView: View {
         }
     }
 
-    /// A dot on the tabs that own an unread count, and nothing on the rest.
+    /// The unread COUNT on the tabs that own one, and nothing on the rest.
+    ///
+    /// A bare dot said only "something happened". The number is the difference between
+    /// deciding to look now and deciding to look later, and the dock is where that decision
+    /// gets made - a badge with a space in it was the dot, and the space was the whole design.
     private func dockBadge(for tab: AppTab) -> Text? {
         switch tab {
-        case .profile: return notifCenter.unreadCount > 0 ? Text(" ") : nil
-        case .kaposts: return kaPostsNotifCenter.unseenCount > 0 ? Text(" ") : nil
+        case .profile: return Self.badgeLabel(notifCenter.unreadCount)
+        case .kaposts: return Self.badgeLabel(kaPostsNotifCenter.unseenCount)
         default: return nil
         }
+    }
+
+    /// Capped in the LABEL, not in the stored count: the real number survives a long absence
+    /// and only its rendering is abbreviated. Three characters is as wide as a tab-bar badge
+    /// can go before it starts crowding its neighbours.
+    private static func badgeLabel(_ count: Int) -> Text? {
+        guard count > 0 else { return nil }
+        return Text(count > 99 ? "99+" : "\(count)")
     }
 
     @ViewBuilder
