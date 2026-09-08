@@ -240,6 +240,17 @@ extension ChatService {
             return .skipped
         }
         let myAddress = wallet.publicAddress
+
+        // Incoming handshakes first, and BEFORE the empty-targets guard below, because neither
+        // the per-contact loop nor an empty target list can ever surface a first handshake:
+        // `foregroundSweepTargets` only includes contacts that already have an incoming alias,
+        // which is precisely what a first handshake creates, and a wallet with no contacts at all
+        // would return early having polled nothing.
+        if !(await sweepIncomingHandshakes(myAddress: myAddress, privateKey: privateKey)) {
+            return .failed
+        }
+        if Task.isCancelled { return .skipped }
+
         let targets = foregroundSweepTargets(excluding: activeConversationAddress)
         guard !targets.isEmpty else { return .succeeded }
 
@@ -259,6 +270,47 @@ extension ChatService {
             try? await Task.sleep(nanoseconds: 120_000_000)
         }
         return .succeeded
+    }
+
+    /// One cursor-based incoming-handshake fetch per sweep pass (not per contact), so a
+    /// handshake from someone who is not a contact yet appears while you sit on the chat list.
+    ///
+    /// Nothing periodic used to look for one. `fetchHandshakesOnly` runs once, as a startup
+    /// bootstrap phase; the contact sweep is by definition blind to a first handshake; and the
+    /// fallback poll only runs while the utxosChanged subscription is DOWN. So a stranger's
+    /// handshake had exactly one live path - the utxosChanged notification's unknown-sender
+    /// resolution - and every way that can come up empty (the payload not on the tx endpoint
+    /// yet, the mempool entry already gone, the indexer a beat behind) left the handshake
+    /// invisible until an app foreground cycle or a pull to refresh. Which is what it did.
+    ///
+    /// Android has always polled handshakes on every cycle of its own foreground loop
+    /// (`ChatRepository.syncMessages` calls `syncHandshakes`); this is the iOS equivalent.
+    ///
+    /// Deliberately NOT `fetchHandshakesOnly`: that also fetches outgoing handshakes and runs the
+    /// self-stash recovery scan from block time 0, which is a bootstrap's job, not a 5s poll's.
+    /// Returns false on an indexer error so the sweep's own backoff applies.
+    private func sweepIncomingHandshakes(myAddress: String, privateKey: Data?) async -> Bool {
+        let key = handshakeSyncObjectKey(direction: "in", address: myAddress)
+        let nowMs = currentTimeMs()
+        let fallbackSince = lastPollTime > syncReorgBufferMs ? lastPollTime - syncReorgBufferMs : lastPollTime
+        let since = syncStartBlockTime(for: key, fallbackBlockTime: fallbackSince, nowMs: nowMs)
+        let incoming: [HandshakeResponse]
+        do {
+            incoming = try await fetchIncomingHandshakes(for: myAddress, blockTime: since)
+        } catch {
+            AppLog.log("[ChatService] Foreground handshake sweep failed: %@", error.localizedDescription)
+            return false
+        }
+        // Advanced only on a successful fetch, so a failed pass re-asks the same window.
+        advanceSyncCursor(for: key, maxBlockTime: incoming.compactMap { $0.blockTime }.max())
+        guard !incoming.isEmpty else { return true }
+        AppLog.log("[ChatService] Foreground sweep picked up %d incoming handshake(s)", incoming.count)
+        // Idempotent: `processHandshakes` dedupes by txId, so re-serving the same handshake
+        // across the cursor's reorg rewind costs nothing.
+        await processHandshakes(incoming, isOutgoing: false, myAddress: myAddress, privateKey: privateKey)
+        saveMessages()
+        saveConversationAliases()
+        return true
     }
 
     /// Sweep target rule: active contacts that already have an incoming alias (no alias = no
