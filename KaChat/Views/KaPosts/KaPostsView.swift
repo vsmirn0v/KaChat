@@ -239,6 +239,8 @@ struct KaPostsView: View {
     /// Text handed back by Undo, for the composer that is about to open. Cleared as soon as it
     /// has been consumed, so a later ordinary Compose tap opens empty.
     @State private var restoredComposerText: String?
+    /// Thread segments handed back by Undo, stacked above the restored text.
+    @State private var restoredComposerSegments: [String] = []
     /// Poster being tipped via the quick-tip sheet (amount + direct send).
     @State private var tipTarget: TipTarget?
     /// Zero-balance interception for the new-post entry point: with a CONFIRMED 0 KAS chatting
@@ -419,6 +421,10 @@ struct KaPostsView: View {
         var draftText: String? = nil
         /// The post a quote was aimed at, so Undo reopens the quote composer still pointed at it.
         var quoteTarget: DraftPost? = nil
+        /// Every segment of a thread, in order, so Undo rebuilds the whole chain and not just
+        /// its first post. `allSegments` in the composer is `threadSegments + [current text]`,
+        /// so restoring splits it back that way.
+        var draftSegments: [String]? = nil
     }
     @State private var undoToast: UndoPostToast?
     @ObservedObject private var scheduler = KaPostsActionScheduler.shared
@@ -498,7 +504,7 @@ struct KaPostsView: View {
         // status bar with rounded top corners, which clipped the connection dot in its own
         // header into a crescent and left the composer looking like a panel over the feed
         // rather than the screen it is.
-        .fullScreenCover(isPresented: $showComposer, onDismiss: { restoredComposerText = nil }) {
+        .fullScreenCover(isPresented: $showComposer, onDismiss: { clearRestoredComposerDraft() }) {
             KaPostComposerView(
                 onPost: { text in
                     schedulePost(text: text)
@@ -506,7 +512,8 @@ struct KaPostsView: View {
                 onPostThread: { segments in
                     scheduleThread(segments)
                 },
-                initialText: restoredComposerText ?? ""
+                initialText: restoredComposerText ?? "",
+                initialThreadSegments: restoredComposerSegments
             )
         }
         .sheet(item: $tipTarget) { target in
@@ -554,7 +561,7 @@ struct KaPostsView: View {
         .fullScreenCover(item: $engagementTarget) { target in
             KaPostEngagementView(post: target)
         }
-        .fullScreenCover(item: $quoteComposerTarget, onDismiss: { restoredComposerText = nil }) { target in
+        .fullScreenCover(item: $quoteComposerTarget, onDismiss: { clearRestoredComposerDraft() }) { target in
             quoteComposerSheet(for: target)
         }
         // Tapping an @mention anywhere in KaPosts (feed, thread detail, profiles - sheets
@@ -1779,8 +1786,25 @@ struct KaPostsView: View {
         rootPost.isLocalThreadRoot = true
         let localId = rootPost.id
         posts.insert(rootPost, at: 0)
-        threadRemainders[localId] = ThreadRemainder(rootText: first, segments: Array(segments.dropFirst()), parentTxId: nil)
-        continueThread(localId: localId)
+        // A thread used to submit the instant it was composed - the one compose action with no
+        // undo window at all, and the one where a mistake costs the most to fix, since every
+        // segment is its own transaction. Same 5s hold as a single post now.
+        //
+        // threadRemainders is written INSIDE the scheduled block on purpose: it is the resume
+        // ledger, and an undone thread must leave nothing behind for a later retry to pick up.
+        let key = "post:\(localId)"
+        showUndoToast(
+            key: key,
+            postId: localId,
+            label: "Posting thread",
+            draftText: segments.last,
+            draftSegments: segments
+        )
+        scheduler.schedule(key: key) {
+            clearUndoToast(key: key)
+            threadRemainders[localId] = ThreadRemainder(rootText: first, segments: Array(segments.dropFirst()), parentTxId: nil)
+            continueThread(localId: localId)
+        }
     }
 
     /// Sequential, RESUMABLE chain submitter. Consecutive payload txs spend each other's change
@@ -1980,7 +2004,8 @@ struct KaPostsView: View {
         postId: UUID,
         label: String,
         draftText: String? = nil,
-        quoteTarget: DraftPost? = nil
+        quoteTarget: DraftPost? = nil,
+        draftSegments: [String]? = nil
     ) {
         withAnimation(.easeOut(duration: 0.25)) {
             undoToast = UndoPostToast(
@@ -1988,7 +2013,8 @@ struct KaPostsView: View {
                 deadline: Date().addingTimeInterval(KaPostsActionScheduler.undoDelay),
                 label: label,
                 draftText: draftText,
-                quoteTarget: quoteTarget
+                quoteTarget: quoteTarget,
+                draftSegments: draftSegments
             )
         }
     }
@@ -2015,6 +2041,11 @@ struct KaPostsView: View {
         restoreDraft(from: toast)
     }
 
+    private func clearRestoredComposerDraft() {
+        restoredComposerText = nil
+        restoredComposerSegments = []
+    }
+
     /// Puts an undone draft back where it was written, so the five seconds are a chance to fix
     /// something rather than a chance to lose it.
     ///
@@ -2028,12 +2059,16 @@ struct KaPostsView: View {
             return
         }
         guard toast.key.hasPrefix("post:") else { return }
+        // Split a thread back the way the composer holds it: every segment but the last is a
+        // stacked segment, the last is what was in the editor when Post All was pressed.
+        let segments = toast.draftSegments ?? []
+        let stacked = segments.count > 1 ? Array(segments.dropLast()) : []
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            restoredComposerText = text
+            restoredComposerSegments = stacked
             if let target = toast.quoteTarget {
-                restoredComposerText = text
                 quoteComposerTarget = target
             } else {
-                restoredComposerText = text
                 showComposer = true
             }
         }
