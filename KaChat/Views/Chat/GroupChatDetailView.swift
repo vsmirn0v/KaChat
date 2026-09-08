@@ -375,6 +375,12 @@ struct GroupChatDetailView: View {
                     .allowsHitTesting(false)
 
                     LazyVStack(alignment: .leading, spacing: 8) {
+                        // Landing marker for the header's "jump to the first message" tap. A
+                        // plain marker with no onAppear side effects, unlike 1:1's identically
+                        // named anchor, which also drives that thread's top pagination.
+                        Color.clear
+                            .frame(height: 1)
+                            .id("top_anchor")
                         ForEach(cachedTimelineItems) { item in
                             switch item {
                             case .daySeparator(let day):
@@ -548,12 +554,24 @@ struct GroupChatDetailView: View {
                 // showed a proper one. Same mechanism, same measurements as ChatDetailView.
                 .safeAreaInset(edge: .top, spacing: 0) {
                     groupTitleChip
+                    .frame(maxWidth: .infinity)
+                    // The tap target is a BACKGROUND, not a ZStack layer: `Color.clear` in a
+                    // ZStack is flexible in both axes and would size the whole inset to the
+                    // proposed height, swallowing the screen. As a background it takes exactly the
+                    // row's frame, and sitting behind the chip leaves the chip's own tap (Group
+                    // Info) untouched - this only claims the dead space either side of it.
+                    .background(
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { jumpToGroupStart(using: proxy) }
+                            .accessibilityLabel(Text("Go to the first message"))
+                            .accessibilityAddTraits(.isButton)
+                    )
                         // Reaches up into the navigation bar's row so the photo sits level with
                         // the back button. Bounded at -52 for the same reason as 1:1: the inset
                         // is measured from BELOW the safe area, so it can never reach the notch.
                         .padding(.top, -52)
                         .padding(.bottom, 2)
-                        .frame(maxWidth: .infinity)
                 }
                 // Host the compose bar as a real safeAreaInset ON the ScrollView (the mechanism
                 // SwiftUI itself uses for keyboard avoidance), rather than as a sibling below the
@@ -1858,6 +1876,28 @@ struct GroupChatDetailView: View {
     /// Group mirror of `ChatDetailView.chatTitleChip`: the group photo drawn over a glass name
     /// capsule that tucks under it, tapping through to Group Info. The negative spacing is what
     /// makes the two read as one piece rather than a stack.
+    /// Jumps to the oldest message in the group, from a tap on the header band.
+    ///
+    /// A group's whole history is already in memory (it is decrypted in one pass by
+    /// `loadMessages`); what stands in the way is the render window, which holds only the newest
+    /// slice so the LazyVStack's content height stays stable while typing. Opening the window
+    /// over everything is therefore the whole job. `isGrowingHistoryWindow` is deliberately NOT
+    /// armed: it exists to pin the viewport to the BOTTOM while older rows prepend, which is the
+    /// opposite of what this wants.
+    ///
+    /// The jump is not animated - see `ChatDetailView.jumpToChatStart` for why.
+    private func jumpToGroupStart(using proxy: ScrollViewProxy) {
+        let all = messages
+        guard !all.isEmpty else { return }
+        Haptics.impact(.light)
+        loadedGroupMessageCount = all.count
+        // A turn later: the rows just added to the window do not exist yet on this pass, so
+        // scrolling now would resolve against the old content height.
+        DispatchQueue.main.async {
+            proxy.scrollTo("top_anchor", anchor: .top)
+        }
+    }
+
     private var groupTitleChip: some View {
         Button {
             showInfo = true

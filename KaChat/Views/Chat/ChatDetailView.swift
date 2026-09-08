@@ -92,6 +92,9 @@ struct ChatDetailView: View {
     @State private var hasGenuineIncomingMessage = false
     @State private var hasGenuineOutgoingMessage = false
     @State private var isLoadingOlderMessages = false
+    /// True while "jump to the first message" is pulling the rest of the stored history in, so a
+    /// second tap on the header cannot start the sweep again underneath the first.
+    @State private var isJumpingToChatStart = false
     @State private var lastOlderPageRequestAt: Date = .distantPast
     @State private var topVisibleMessageId: UUID?
     @State private var isBottomAnchorVisible = false
@@ -534,13 +537,26 @@ struct ChatDetailView: View {
                         // them. The negative top padding is what closes that gap - the bar's
                         // height is fixed, so the header has to reach up into it.
                         chatTitleChip
+                        .frame(maxWidth: .infinity)
+                        // The tap target is a BACKGROUND, not a ZStack layer: `Color.clear` in a
+                        // ZStack is flexible in both axes and would size the whole inset to the
+                        // proposed height, swallowing the screen. As a background it takes exactly
+                        // the row's frame, and sitting behind the chip leaves the chip's own tap
+                        // (Chat Info) untouched - this only claims the dead space either side of
+                        // it, which previously did nothing.
+                        .background(
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture { jumpToChatStart(using: proxy) }
+                                .accessibilityLabel(Text("Go to the first message"))
+                                .accessibilityAddTraits(.isButton)
+                        )
                             // Reaches up into the navigation bar's row so the avatar sits level
                             // with the back button. Bounded at -52: the inset is measured from
                             // BELOW the safe area, so it can never reach the notch no matter the
                             // device - going further would only eat into the bar's own buttons.
                             .padding(.top, -52)
                             .padding(.bottom, 2)
-                            .frame(maxWidth: .infinity)
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         // Hosting the compose bar as a real `safeAreaInset` (rather than a
@@ -2974,6 +2990,50 @@ struct ChatDetailView: View {
                 }
             } else {
                 proxy.scrollTo("bottom_anchor", anchor: .bottom)
+            }
+        }
+    }
+
+    /// Jumps to the oldest message in the conversation, from a tap on the header band.
+    ///
+    /// Two things stand between the viewport and message one, and both have to be undone. The
+    /// thread only holds a page of history in memory at a time (`loadOlderMessagesPageAsync`
+    /// walks backwards through the store), and the LazyVStack only renders a window over what IS
+    /// in memory (`loadedMessageCount`). So: pull the remaining pages in, open the window over all
+    /// of them, and only then scroll. Scrolling first would land on whatever the oldest RENDERED
+    /// message happened to be, which is the bug this is meant to avoid.
+    ///
+    /// The jump is deliberately not animated. Animating a scroll across thousands of rows the
+    /// LazyVStack has only just been handed produces a long stuttering ride to somewhere
+    /// approximate; landing immediately is both faster and more accurate.
+    private func jumpToChatStart(using proxy: ScrollViewProxy) {
+        guard !isJumpingToChatStart else { return }
+        guard !messages.isEmpty else { return }
+        isJumpingToChatStart = true
+        Haptics.impact(.light)
+        Task { @MainActor in
+            // Reuses the existing top-pagination spinner, and its guard keeps the scroll-up
+            // pagination path from fetching the same pages underneath this sweep.
+            isLoadingOlderMessages = true
+            // Bounded purely so a store that keeps answering can never spin here forever; a page
+            // that returns nothing is the real terminating condition.
+            var pagesLeft = 200
+            while pagesLeft > 0 {
+                pagesLeft -= 1
+                let loaded = await chatService.loadOlderMessagesPageAsync(
+                    for: contact.address, pageSize: 500
+                )
+                if loaded == 0 { break }
+            }
+            isLoadingOlderMessages = false
+            loadedMessageCount = messages.count
+            rememberRenderedWindowStart()
+            refreshStoredMessageCountAsync()
+            isJumpingToChatStart = false
+            // A turn later: the rows just added to the window do not exist yet on this pass, so
+            // scrolling now would resolve against the old content height.
+            DispatchQueue.main.async {
+                proxy.scrollTo("top_anchor", anchor: .top)
             }
         }
     }

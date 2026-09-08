@@ -57,6 +57,9 @@ struct BroadcastChannelView: View {
     /// identical pair. `BroadcastMessage.id` is already the wire txId, unlike 1:1/group's `UUID`
     /// row ids, so this stays a `String` throughout.
     @State private var pendingJumpToTxId: String?
+    /// Set by a tap on the header band, consumed inside the `ScrollViewReader` (which is where
+    /// the proxy lives). Mirrors how `pendingJumpToTxId` reaches the same place.
+    @State private var pendingJumpToStart = false
     @State private var showRoomInfo = false
     @State private var highlightedMessageID: String?
     /// Which message (if any) currently has its double-tap quick-reaction bar open - mirrors
@@ -196,17 +199,10 @@ struct BroadcastChannelView: View {
             ToolbarItem(placement: .navigationBarLeading) {
                 ConnectionStatusIndicator()
             }
-            // The title itself is the way in to everything about the room - share, hidden
-            // users, its indexer, what is in it. It used to be two unlabelled toolbar glyphs
-            // with nowhere to put anything else.
-            //
-            // Its own view, not an inline Button: spelling it out here pushed this toolbar
-            // builder past the type checker's budget ("unable to type-check this expression in
-            // reasonable time"), which this file has hit before.
-            ToolbarItem(placement: .principal) {
-                BroadcastRoomTitleButton(channelName: channelName) { showRoomInfo = true }
-            }
         }
+        // Empty, because the name is drawn by `roomTitleChip` in the list's top inset now - same
+        // arrangement as 1:1 and group threads.
+        .navigationTitle("")
         .navigationDestination(isPresented: $showRoomInfo) {
             BroadcastRoomInfoView(channelName: channelName)
         }
@@ -242,6 +238,31 @@ struct BroadcastChannelView: View {
     /// The message list with the compose bar held above the keyboard.
     private var conversation: some View {
         messageList
+            // The room's name rides above the list as a pinned inset rather than as a navigation
+            // bar title, which is what 1:1 and group threads already do - so all three headers
+            // are now the same piece of furniture. It also gives the band either side of the name
+            // somewhere to live: tapping there jumps to the first message in the room.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                roomTitleChip
+                    .frame(maxWidth: .infinity)
+                    // The tap target is a BACKGROUND, not a ZStack layer: `Color.clear` in a
+                    // ZStack is flexible in both axes and would size the whole inset to the
+                    // proposed height, swallowing the screen. As a background it takes exactly the
+                    // row's frame, and sitting behind the chip leaves the chip's own tap (Room
+                    // Info) untouched - this only claims the dead space either side of it.
+                    .background(
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { jumpToRoomStart() }
+                            .accessibilityLabel(Text("Go to the first message"))
+                            .accessibilityAddTraits(.isButton)
+                    )
+                    // Reaches up into the navigation bar's row so the icon sits level with the
+                    // back button. Bounded at -52 for the same reason as the other two: the inset
+                    // is measured from BELOW the safe area, so it can never reach the notch.
+                    .padding(.top, -52)
+                    .padding(.bottom, 2)
+            }
             // Hosting the compose bar as a real `safeAreaInset` (rather than a floating ZStack
             // overlay with a manually-tracked keyboard offset) is what guarantees it always sits
             // flush above the keyboard on every device - this is the mechanism SwiftUI itself
@@ -272,6 +293,24 @@ struct BroadcastChannelView: View {
             }
     }
 
+    /// The room's name as one tappable chip into Room Info - the same piece 1:1 and group threads
+    /// put at the top of their own lists. Its own view, not spelled out inline: doing that here
+    /// pushed this file past the type checker's budget once already.
+    private var roomTitleChip: some View {
+        BroadcastRoomTitleChip(channelName: channelName) { showRoomInfo = true }
+    }
+
+    /// Jumps to the oldest message in the room, from a tap on the header band.
+    ///
+    /// Simpler than the other two threads': a room renders its whole history, with no store
+    /// pagination behind it and no render window in front of it, so there is nothing to open up
+    /// first. The scroll itself has to happen where the proxy is, hence the pending flag.
+    private func jumpToRoomStart() {
+        guard !broadcastService.messages(forChannel: channelName).isEmpty else { return }
+        Haptics.impact(.light)
+        pendingJumpToStart = true
+    }
+
     private var messageList: some View {
         let messages = broadcastService.messages(forChannel: channelName)
         return Group {
@@ -282,6 +321,10 @@ struct BroadcastChannelView: View {
                     ZStack(alignment: .bottomTrailing) {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 8) {
+                                // Landing marker for the header's "jump to the first message" tap.
+                                Color.clear
+                                    .frame(height: 1)
+                                    .id("top_anchor")
                                 ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                                     if shouldShowDateDivider(at: index, in: messages) {
                                         dateDivider(for: message.blockTime)
@@ -320,6 +363,13 @@ struct BroadcastChannelView: View {
                             guard let id else { return }
                             jumpToReplyOriginal(id: id, in: messages, using: proxy)
                             pendingJumpToTxId = nil
+                        }
+                        .onChange(of: pendingJumpToStart) { jump in
+                            guard jump else { return }
+                            pendingJumpToStart = false
+                            // Not animated: see `ChatDetailView.jumpToChatStart` for why a long
+                            // animated ride across a whole history is worse than landing.
+                            proxy.scrollTo("top_anchor", anchor: .top)
                         }
                         .onAppear {
                             scrollToBottom(using: proxy, animated: false)
@@ -1098,19 +1148,48 @@ struct BroadcastChannelView: View {
 }
 
 /// The room's `#name` in the navigation bar, as the button that opens Room Info.
-private struct BroadcastRoomTitleButton: View {
+/// The room's header chip: an icon over a name capsule, matching `ChatDetailView`'s and
+/// `GroupChatDetailView`'s chips measure for measure. A room has no photo, so the circle carries
+/// the same glyph the room list uses rather than an avatar.
+private struct BroadcastRoomTitleChip: View {
     let channelName: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
-                Text("#" + channelName)
-                    .font(.headline)
-                    .foregroundColor(.primary)
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundColor(.secondary)
+            VStack(spacing: -12) {
+                ZStack {
+                    Circle().fill(Color.accentColor.opacity(0.2))
+                    Image(systemName: "number")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.accentColor)
+                }
+                .frame(width: 46, height: 46)
+                // Drawn over the capsule, which tucks under it - the negative spacing is what
+                // makes the two read as one piece rather than a stack.
+                .zIndex(1)
+
+                HStack(spacing: 4) {
+                    Text("#" + channelName)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.bold))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 15)
+                .padding(.bottom, 5)
+                // iMessage's floating pill: a thin material so the messages scrolling underneath
+                // actually show through it, a hairline edge to keep it legible against a light
+                // bubble, and a soft shadow so it reads as sitting above the thread.
+                .background(
+                    Capsule()
+                        .fill(.ultraThinMaterial)
+                        .overlay(Capsule().stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
+                        .shadow(color: Color.black.opacity(0.10), radius: 6, x: 0, y: 2)
+                )
             }
             .contentShape(Rectangle())
         }
