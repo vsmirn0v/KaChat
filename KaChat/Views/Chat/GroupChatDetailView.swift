@@ -737,8 +737,21 @@ struct GroupChatDetailView: View {
         }
         // Rebuilt here rather than in `body`: writing @State during a view update is undefined
         // behaviour, and the whole point of the cache is to stop doing work during updates.
-        .task { rebuildTimelineIfNeeded() }
-        .onChange(of: timelineCacheKey) { _ in rebuildTimelineIfNeeded() }
+        //
+        // `task(id:)` rather than `onChange(of:)` + a separate first-run `task`, because the key
+        // is three independent things - the messages fingerprint, the render window, the
+        // layout-ready flag - and on a cold open all three move inside the same frame. An
+        // onChange fired once per move, rebuilding the whole timeline two or three times in that
+        // one frame (SwiftUI says so out loud: "action tried to update multiple times per
+        // frame"), which is real main-thread work at the worst possible moment on a long history.
+        // `task(id:)` cancels the pending run when the key moves again, so several changes in a
+        // frame collapse into a single rebuild against the final key. It also subsumes the
+        // first-run `task`, since it runs on appear as well.
+        //
+        // The rebuild lands a turn later than it used to. Nothing waits on it: the open-position
+        // path guards on `displayedMessages` and is re-invoked by its own onChange, and
+        // `scrollToBottom` carries a retry for exactly this kind of timing.
+        .task(id: timelineCacheKey) { rebuildTimelineIfNeeded() }
         .task {
             groupChatService.loadMessages(for: group.id)
             groupChatService.enterGroup(group.id)
