@@ -522,10 +522,14 @@ class NotificationService: UNNotificationServiceExtension {
         return (rootPayload.name, rootPayload.groupId)
     }
 
-    /// Mirrors `GroupChatService.groupRootEpoch` - admins can derive any past epoch's root on
-    /// demand (they hold groupSeed); non-admins only retain the current epoch's root.
+    /// Mirrors `GroupChatService.rootEpoch`, including the `previousRoots` archive: a member who
+    /// kept the old root can still read the old messages, and for a non-admin that archive is the
+    /// only way, since the seed fallback below exists only for the admin.
     private func groupRootEpoch(epoch: UInt64, bag: SharedGroupBag, groupId: Data) -> Data? {
         if epoch == bag.currentEpoch, let root = Data(hexString: bag.groupRootEpoch) {
+            return root
+        }
+        if let archived = bag.previousRoots?[String(epoch)], let root = Data(hexString: archived) {
             return root
         }
         if let seedHex = bag.groupSeed, let seed = Data(hexString: seedHex) {
@@ -1424,6 +1428,30 @@ private struct SharedGroupBag: Codable {
     let currentEpoch: UInt64
     let deviceId: String
     let msgCounter: UInt64
+    /// Retired epochs' roots. Without these a push for a message sent before the last membership
+    /// change cannot be decrypted here, and the banner falls back to the generic text - the same
+    /// omission that used to make the app itself lose group history.
+    let previousRoots: [String: String]?
+
+    private enum CodingKeys: String, CodingKey {
+        case groupId, groupSeed, groupRootEpoch, blindingKey, currentEpoch, deviceId, msgCounter, previousRoots
+    }
+
+    /// Hand-written for one reason: `previousRoots` must NEVER fail the whole bag. The main app
+    /// writes this blob with its own tolerant decoder (see `GroupBag`), so an older or odd shape
+    /// under that key has to degrade to "no archive" rather than take group push decryption down
+    /// with it.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        groupId = try container.decode(String.self, forKey: .groupId)
+        groupSeed = try container.decodeIfPresent(String.self, forKey: .groupSeed)
+        groupRootEpoch = try container.decode(String.self, forKey: .groupRootEpoch)
+        blindingKey = try container.decode(String.self, forKey: .blindingKey)
+        currentEpoch = try container.decode(UInt64.self, forKey: .currentEpoch)
+        deviceId = try container.decode(String.self, forKey: .deviceId)
+        msgCounter = try container.decode(UInt64.self, forKey: .msgCounter)
+        previousRoots = ((try? container.decodeIfPresent([String: String].self, forKey: .previousRoots)) ?? nil)
+    }
 }
 
 // MARK: - Group Chat Cipher (Notification Extension)

@@ -1873,6 +1873,27 @@ final class GroupChatService: ObservableObject {
     /// retain the current epoch's root - by design, this is the protocol's forward-secrecy
     /// boundary, not a bug.
     private func groupRootEpoch(for epoch: UInt64, bag: GroupBag, groupId: Data) -> Data? {
+        // Deliberately a straight delegation. There used to be a second copy of this logic in
+        // `rootEpoch` for the off-main decrypt path, and it had silently lost the `previousRoots`
+        // branch - see that function.
+        Self.rootEpoch(for: epoch, bag: bag, groupId: groupId)
+    }
+
+    // MARK: - Off-main decrypt (nonisolated statics so they run on a background executor)
+
+    /// The root that decrypts a message sent at `epoch`, or nil when this device holds no key for
+    /// it. Callable off the main actor (pure crypto, value-type inputs only), and the single
+    /// implementation both the ingest path and the stored-history decrypt path use.
+    ///
+    /// The `previousRoots` branch is not optional, and leaving it out of this copy is what made
+    /// the iPhone lose group history. Ingest consulted the archive and the message appeared;
+    /// `decryptGroupRows` did not, so on the next load - relaunch, wallet set, opening the thread,
+    /// an account switch - every message from before the last epoch rotation failed to decrypt and
+    /// dropped out of the thread. The ciphertext was in Core Data the whole time. It hit non-admin
+    /// members hardest, since the seed fallback below only exists for the admin, and it fired
+    /// whenever a member was added or removed (both rotate the epoch) or on any import that
+    /// replayed a rotation. Android never had it: one lookup, used everywhere.
+    nonisolated private static func rootEpoch(for epoch: UInt64, bag: GroupBag, groupId: Data) -> Data? {
         if epoch == bag.currentEpoch, let root = Data(hexString: bag.groupRootEpoch) {
             return root
         }
@@ -1880,19 +1901,6 @@ final class GroupChatService: ObservableObject {
         // seed fallback because only the admin has a seed - for everyone else this archive is
         // the only way history survives a membership change. See `GroupBag.previousRoots`.
         if let archived = bag.previousRoots?[String(epoch)], let root = Data(hexString: archived) {
-            return root
-        }
-        if let seedHex = bag.groupSeed, let seed = Data(hexString: seedHex) {
-            return GroupCipher.deriveGroupRootEpoch(groupSeed: seed, groupId: groupId, epoch: epoch)
-        }
-        return nil
-    }
-
-    // MARK: - Off-main decrypt (nonisolated statics so they run on a background executor)
-
-    /// `groupRootEpoch`, but callable off the main actor (pure crypto, value-type inputs only).
-    nonisolated private static func rootEpoch(for epoch: UInt64, bag: GroupBag, groupId: Data) -> Data? {
-        if epoch == bag.currentEpoch, let root = Data(hexString: bag.groupRootEpoch) {
             return root
         }
         if let seedHex = bag.groupSeed, let seed = Data(hexString: seedHex) {
@@ -2614,12 +2622,16 @@ final class GroupChatService: ObservableObject {
                     return
                 }
                 cursor = messages.last?.cursor
-                advanceGroupCatchUpCursor(for: syncKey, from: cursor)
                 for msg in messages {
                     guard let payloadString = Self.reconstructPayloadString(prefix: Self.gcommPrefix, messagePayloadHex: msg.messagePayload),
                           let parsed = GroupCipher.parseGroupMessagePayload(payloadString) else { continue }
                     handleIncomingGroupMessage(parsed, txId: msg.txId, blockTime: Int64(msg.blockTime))
                 }
+                // Cursor AFTER the page is ingested, never before. Written first, an
+                // interruption between the write and the ingest - backgrounded, killed, wallet
+                // switched - left the cursor sitting past messages that were never stored, and
+                // ordinary sync only ever walks forward, so that page was gone for good.
+                advanceGroupCatchUpCursor(for: syncKey, from: cursor)
                 // A short page is the last page.
                 if messages.count < 50 {
                     markDeepBackfilled(syncKey)
@@ -2631,6 +2643,11 @@ final class GroupChatService: ObservableObject {
                 return
             }
         }
+        // Page budget spent mid-stream. The walk from the start up to `cursor` was contiguous,
+        // so resuming from it next run loses nothing - and marking the key is the only thing that
+        // makes that resume happen. Without this, a stream longer than 2000 items restarted from
+        // nothing on every launch and could never reach its own newest end.
+        markDeepBackfilled(syncKey)
     }
 
     /// Paged for the same reason as `catchUpGroupMessages`, and it matters more here: control
@@ -2655,11 +2672,15 @@ final class GroupChatService: ObservableObject {
                     return
                 }
                 cursor = messages.last?.cursor
-                advanceGroupCatchUpCursor(for: syncKey, from: cursor)
                 for msg in messages {
                     guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
                     handleIncomingControlMessage(payloadString, senderAddress: msg.sender, blockTime: msg.blockTime)
                 }
+                // Cursor AFTER the page is ingested, never before. Written first, an
+                // interruption between the write and the ingest - backgrounded, killed, wallet
+                // switched - left the cursor sitting past messages that were never stored, and
+                // ordinary sync only ever walks forward, so that page was gone for good.
+                advanceGroupCatchUpCursor(for: syncKey, from: cursor)
                 if messages.count < 50 {
                     markDeepBackfilled(syncKey)
                     return
@@ -2670,6 +2691,11 @@ final class GroupChatService: ObservableObject {
                 return
             }
         }
+        // Page budget spent mid-stream. The walk from the start up to `cursor` was contiguous,
+        // so resuming from it next run loses nothing - and marking the key is the only thing that
+        // makes that resume happen. Without this, a stream longer than 2000 items restarted from
+        // nothing on every launch and could never reach its own newest end.
+        markDeepBackfilled(syncKey)
     }
 
     /// Discovers "you were added to a group" via recipient-addressed `gctl` - the only catch-up
@@ -2692,11 +2718,15 @@ final class GroupChatService: ObservableObject {
                     return
                 }
                 cursor = messages.last?.cursor
-                advanceGroupCatchUpCursor(for: syncKey, from: cursor)
                 for msg in messages {
                     guard let payloadString = Self.reconstructPayloadString(prefix: Self.gctlPrefix, messagePayloadHex: msg.messagePayload) else { continue }
                     handleIncomingControlMessage(payloadString, senderAddress: msg.sender, blockTime: msg.blockTime)
                 }
+                // Cursor AFTER the page is ingested, never before. Written first, an
+                // interruption between the write and the ingest - backgrounded, killed, wallet
+                // switched - left the cursor sitting past messages that were never stored, and
+                // ordinary sync only ever walks forward, so that page was gone for good.
+                advanceGroupCatchUpCursor(for: syncKey, from: cursor)
                 if messages.count < 50 {
                     markDeepBackfilled(syncKey)
                     return
@@ -2706,6 +2736,11 @@ final class GroupChatService: ObservableObject {
                 return
             }
         }
+        // Page budget spent mid-stream. The walk from the start up to `cursor` was contiguous,
+        // so resuming from it next run loses nothing - and marking the key is the only thing that
+        // makes that resume happen. Without this, a stream longer than 2000 items restarted from
+        // nothing on every launch and could never reach its own newest end.
+        markDeepBackfilled(syncKey)
     }
 
     private func advanceGroupCatchUpCursor(for syncKey: String, from cursor: String?) {
