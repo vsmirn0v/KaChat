@@ -60,6 +60,13 @@ final class GlobalNotificationCenter: ObservableObject {
         entries.filter { $0.timestamp > lastSeenAt }.count
     }
 
+    /// Unread entries from ONE source, for a tab that wants its own badge rather than the
+    /// profile bell's total. Broadcasts is the only caller today; the numbers deliberately
+    /// overlap, because the bell is the whole feed and a tab badge is that tab's share of it.
+    func unreadCount(for source: Entry.Source) -> Int {
+        entries.filter { $0.source == source && $0.timestamp > lastSeenAt }.count
+    }
+
     private init() {
         reload()
         // KaPosts rows arrive via ingestKaPostsNotifications, fed by KaPostsNotificationService's

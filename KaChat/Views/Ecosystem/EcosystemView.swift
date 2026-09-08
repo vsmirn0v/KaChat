@@ -188,6 +188,25 @@ struct EcosystemView: View {
                     }
                     .padding(.horizontal, 8)
                 }
+                // The same count the dock shows, from the same source - a tab moved between the
+                // dock and here must not silently lose its badge. Corner-anchored so a two- or
+                // three-character badge grows outward instead of over the icon.
+                .overlay(alignment: .topTrailing) {
+                    let count = AppTabBadge.unreadCount(for: tab)
+                    if count > 0 {
+                        Text(AppTabBadge.label(count))
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 5)
+                            .frame(minWidth: 20, minHeight: 20)
+                            // Capsule, not Circle: a Circle FILLS its frame, so a two- or
+                            // three-character badge would stretch into an ellipse. At equal
+                            // width and height a Capsule IS a circle, and it only becomes a
+                            // pill once the label actually needs the width.
+                            .background(Capsule().fill(Color.red))
+                            .offset(x: 6, y: -6)
+                    }
+                }
                 .background(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .fill(.regularMaterial)

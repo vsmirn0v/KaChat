@@ -212,19 +212,9 @@ struct MainTabView: View {
     /// deciding to look now and deciding to look later, and the dock is where that decision
     /// gets made - a badge with a space in it was the dot, and the space was the whole design.
     private func dockBadge(for tab: AppTab) -> Text? {
-        switch tab {
-        case .profile: return Self.badgeLabel(notifCenter.unreadCount)
-        case .kaposts: return Self.badgeLabel(kaPostsNotifCenter.unseenCount)
-        default: return nil
-        }
-    }
-
-    /// Capped in the LABEL, not in the stored count: the real number survives a long absence
-    /// and only its rendering is abbreviated. Three characters is as wide as a tab-bar badge
-    /// can go before it starts crowding its neighbours.
-    private static func badgeLabel(_ count: Int) -> Text? {
+        let count = AppTabBadge.unreadCount(for: tab)
         guard count > 0 else { return nil }
-        return Text(count > 99 ? "99+" : "\(count)")
+        return Text(AppTabBadge.label(count))
     }
 
     @ViewBuilder
