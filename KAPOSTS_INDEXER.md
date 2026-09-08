@@ -88,8 +88,8 @@ Errors: JSON `{"error": "...", "code": "..."}`. Public indexer rate limit is 100
 | `get-replies?postId=` | replies to a post | |
 | `get-user-details?user=` | `followersCount`, `followingCount`, `followedUser` | |
 | `get-users-following` / `get-users-followers` | follow lists | takes `userPubkey`; items `{id, userPublicKey, timestamp, followedUser, ...}` wrapped under the key `posts` (yes, really - the app also tolerates `users`/`following`/`followers`) |
-| `get-post?id=<txid>` | **NEEDED: single-post lookup** - returns one post object (same KPost shape). The app resolves notification taps and shared links by txid; today it falls back to searching feed + own-profile fetches, which misses OTHER people's older posts (replies/quotes outside the feed window) |
-| `search?q=<text>&type=posts\|users` | **NEEDED: search** - posts whose content matches, and users whose KNS domain matches AND who have posted at least once. Same `KPost` shape + pagination as the feeds; the user rows want `{userPublicKey, address, postCount}`. The app ships a client-side search that pages the global feed and filters what comes back, which cannot see further than it has paged - it says so in the UI, but a real index is the only way to search all of history |
+| `get-post?id=<txid>` | **NEEDED — see §5.5** single-post lookup by txid, any post, same `KPost` shape |
+| `search?q=<text>&type=posts\|users` | **NEEDED — see §5.6** content and people search |
 | `get-notifications` | actions on MY content | `{id, userPublicKey, postContent, timestamp, contentType, voteType, contentId}` — `id` is the **action's** txid |
 
 Post objects (see `KPost` in the client): `id, userPublicKey, postContent, signature,
@@ -107,8 +107,16 @@ profile features; serve social data only.
 
 These are confirmed product decisions; the iOS UI is already shaped for them.
 
-> **Status:** all four are now implemented in the KaChat indexer fork (see
-> `K-indexer/KAPOSTS.md`). The engagement endpoint is served as
+> **Status — read this first.**
+>
+> **§5.1–§5.4 are DONE** and live in the KaChat indexer fork (see `K-indexer/KAPOSTS.md`).
+> They are documented below for reference; you do not need to build them again.
+>
+> **§5.5 (`get-post`) and §5.6 (`search`) are the OUTSTANDING work** — that is what this
+> handoff is asking for. Both are additive read endpoints: no schema change, no protocol
+> change, no app release required to start benefiting. Ship them one at a time.
+>
+> Details of what is already done: the engagement endpoint is served as
 > `GET /get-post-engagement?postId=&type=<upvote|downvote|repost|quote|all>&requesterPubkey=&limit=&before=`
 > → `{ engagement: [{ actorPubkey, actionTxId, timestamp, kind }], pagination }`. Removal
 > payloads are finalized in §2. App-side wiring is DONE too: the like/dislike/repost toggles
@@ -136,10 +144,37 @@ These are confirmed product decisions; the iOS UI is already shaped for them.
    unfollow nets to zero).
 4. **Two-way exclusivity** (§3).
 
-Nice-to-haves once the core is up: a `get-post?id=` single-post lookup, richer
-notifications (mentions, replies to replies), and a push hook — the app already runs a
-forked kasia-indexer with a `PushNotificationActor` for chat push (see
-`PUSH_NOTIFICATIONS.md`), so mirroring that pattern for social notifications is natural.
+5. **Single-post lookup — `GET /get-post?id=<txid>`.** Returns one post object, same `KPost`
+   shape as the feeds, for ANY post regardless of age or author. Two features need it:
+   - **Shared links and notification taps.** Today the app resolves a txid by searching the
+     loaded feed, then re-fetching the feed, then fetching its own posts and replies — and
+     still misses other people's older content. See `openSharedPost` in the client.
+   - **Thread ancestor chains.** Both apps now stack the chain of parent posts above the one
+     you are reading (X-style), so you can jump up several levels at once. That chain is
+     currently built from posts already in memory, so it stops at the first ancestor that was
+     never loaded. With this endpoint the client can walk `parentPostId` to the root by txid
+     and the chain becomes complete.
+
+   Being able to fetch by id is the single highest-value addition for the client; both
+   features degrade to partial behaviour without it, and neither needs a schema change.
+
+6. **Search — `GET /search?q=<text>&type=posts|users`.** Same pagination envelope as the
+   feeds.
+   - `type=posts`: posts whose decoded content matches `q`, newest first, `KPost` shape.
+   - `type=users`: users whose identity matches `q` **and who have posted at least once** —
+     that last condition is a product requirement, not an optimisation. Rows want
+     `{userPublicKey, address, postCount}`. Matching on KNS domain is ideal; the indexer only
+     stores pubkeys, so either resolve pubkey→address→KNS server-side or return candidates by
+     address prefix and let the client filter on the name it already resolves.
+
+   Both apps ship a client-side search that pages the global feed and filters what comes
+   back. It says so in the UI ("Searched the most recent N posts"), but it cannot see further
+   than it has paged — a real index is the only way to search all of history.
+
+Nice-to-haves once the core is up: richer notifications (mentions, replies to replies), and
+a push hook — the app already runs a forked kasia-indexer with a `PushNotificationActor` for
+chat push (see `PUSH_NOTIFICATIONS.md`), so mirroring that pattern for social notifications
+is natural.
 
 ## 6. Getting started pointers
 
@@ -158,8 +193,15 @@ forked kasia-indexer with a `PushNotificationActor` for chat push (see
   `cb60eea63d13ac668704670a0e843b0733be2a2123f4b2a864cc8605fe7ebdb9`) to validate a
   from-genesis backfill against.
 - **Order of work:** (1) scan+verify+store `k:1:` payloads with marker filtering, (2) serve
-  the §4 compatibility endpoints, (3) add removals + actor lists (§5), (4) flip the app to
-  the new URL as default.
+  the §4 compatibility endpoints, (3) add removals + actor lists (§5.1–§5.4), (4) add
+  `get-post` (§5.5) — smallest change, biggest client win, (5) add `search` (§5.6), (6) flip
+  the app to the new URL as default.
+
+- **What "done" looks like from the app side.** Nothing in §5.5 or §5.6 needs an app release
+  to start being useful: both are additive endpoints the client will call once they answer.
+  If an endpoint is missing the client already falls back (partial ancestor chain,
+  feed-paging search), so shipping them one at a time is safe and each one is independently
+  observable in the UI.
 
 
 ## 7. Universal Links for shared posts (domain config, NOT indexer work)
