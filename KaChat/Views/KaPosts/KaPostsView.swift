@@ -2595,6 +2595,91 @@ struct KaPostsView: View {
         .buttonStyle(.plain)
     }
 
+    /// The chain above `post`, oldest first - what X shows stacked over the focal post.
+    ///
+    /// Two sources, because neither is complete on its own:
+    ///
+    /// - The navigation stack below the top. Those ARE ancestors by construction: you reached
+    ///   this post by tapping down through them, so no lookup can be wrong about it.
+    /// - `findParent` walking upward from the oldest of those, for the part you did not walk -
+    ///   a thread opened from a notification or a shared link starts mid-chain with nothing
+    ///   beneath it.
+    ///
+    /// PARTIAL, and knowingly so: findParent searches the loaded trees, so it stops at the first
+    /// ancestor that is not in memory. A `get-post?id=` endpoint on the indexer is what would
+    /// make it exact (flagged in KAPOSTS_INDEXER.md); until then a short chain is the honest
+    /// answer, and it is still strictly more than the one step this replaces.
+    private func ancestorChain(for post: DraftPost) -> [DraftPost] {
+        var walked = threadStack.dropLast().compactMap { findPost(id: $0) }
+        // Guard against a stack that has drifted from the post actually on screen (a deep link
+        // landing mid-thread): only trust it when its tail really is this post's ancestor.
+        if let last = walked.last, findParent(ofCommentId: post.id)?.id != last.id,
+           !last.comments.contains(where: { $0.id == post.id }) {
+            walked = []
+        }
+        var above: [DraftPost] = []
+        var cursor: DraftPost? = walked.first ?? post
+        var hops = 0
+        while let current = cursor, hops < 8, let parent = findParent(ofCommentId: current.id) {
+            // A cycle would hang the view rather than merely look wrong.
+            if above.contains(where: { $0.id == parent.id }) || walked.contains(where: { $0.id == parent.id }) { break }
+            above.append(parent)
+            cursor = parent
+            hops += 1
+        }
+        return above.reversed() + walked
+    }
+
+    /// One rung of the chain: who said it and what, tappable to jump straight there.
+    private func ancestorRow(_ ancestor: DraftPost) -> some View {
+        Button {
+            jumpToAncestor(ancestor)
+        } label: {
+            HStack(alignment: .top, spacing: 8) {
+                KNSAvatarView(
+                    avatarURLString: knsService.profileCache[ancestor.posterAddress]?.avatarURL,
+                    fallbackText: posterDisplayName(ancestor.posterAddress),
+                    size: 26,
+                    contactAddress: ancestor.posterAddress
+                )
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(posterDisplayName(ancestor.posterAddress))
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Text(ancestor.text)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.up")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Jump to a post in the chain: unwind the stack to it when it is on the path already,
+    /// otherwise start a fresh stack there - the rungs above what you walked were resolved from
+    /// the loaded tree, not navigated to.
+    private func jumpToAncestor(_ ancestor: DraftPost) {
+        replyText = ""
+        pendingThreadScrollRemoteId = nil
+        if let index = threadStack.firstIndex(of: ancestor.id) {
+            threadStack = Array(threadStack.prefix(index + 1))
+        } else {
+            threadStack = [ancestor.id]
+        }
+        Task {
+            await loadThreadReplies(for: ancestor, reset: true)
+            await loadSelfThreadChain(rootId: ancestor.id)
+        }
+    }
+
     /// One level back up the thread, to the post you came from.
     private func popThread() {
         guard threadStack.count > 1 else {
@@ -3502,24 +3587,12 @@ struct KaPostsView: View {
                     ScrollViewReader { scrollProxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            // X-style upward context: when this thread's root is itself a
-                            // reply, link back to what it replies to.
-                            if let parent = findParent(ofCommentId: post.id) {
-                                Button {
-                                    openDetail(parent)
-                                } label: {
-                                    HStack(spacing: 5) {
-                                        Image(systemName: "arrow.turn.up.left")
-                                            .font(.caption2.weight(.semibold))
-                                        Text("Replying to \(posterDisplayName(parent.posterAddress))")
-                                            .font(.caption.weight(.semibold))
-                                    }
-                                    .foregroundColor(.accentColor)
-                                    .padding(.horizontal, 16)
-                                    .padding(.top, 10)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
+                            // X-style upward context: the chain this post hangs off, oldest
+                            // first, each one tappable to jump straight to that level. Replaces
+                            // the single "Replying to X" link, which only ever showed one step
+                            // and left you tapping Back repeatedly to climb a deep thread.
+                            ForEach(ancestorChain(for: post)) { ancestor in
+                                ancestorRow(ancestor)
                             }
                             threadCell(post, isRoot: true)
                             Divider()
