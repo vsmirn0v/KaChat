@@ -3686,6 +3686,9 @@ struct ChattingAddressManageView: View {
     @State private var showSendSheet = false
     @State private var showCompoundSheet = false
     @State private var showPrivateKeySheet = false
+    /// The "Address Actions" half sheet, and the public-key screen it can open.
+    @State private var showAddressActions = false
+    @State private var showPublicKeySheet = false
     @State private var utxoLabels: [String: String] = [:]
     @State private var renamingUtxo: UTXO?
     @State private var renameUtxoText = ""
@@ -3726,6 +3729,25 @@ struct ChattingAddressManageView: View {
             .padding(.top, 8)
             .padding(.bottom, 4)
 
+            // What used to be two unlabelled glyphs in the navigation bar. A pair of icons has
+            // room for no words at all, so neither said what it did, and there was nowhere to put
+            // a third thing. Same button and same sheet as Manage Addresses' own Address Actions.
+            Button {
+                Haptics.impact(.light)
+                showAddressActions = true
+            } label: {
+                Text("Address Actions")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundColor(.black)
+                    .background(Capsule().fill(Color.accentColor))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal)
+            .padding(.bottom, 8)
+
             switch selectedTab {
             case .transactions:
                 transactionsList
@@ -3735,31 +3757,13 @@ struct ChattingAddressManageView: View {
         }
         .navigationTitle("Chatting Address")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 10) {
-                    Button {
-                        if settingsViewModel.settings.biometricSeedPhraseEnabled {
-                            DeviceAuth.authenticate(reason: "Unlock to view this address's private key") {
-                                showPrivateKeySheet = true
-                            }
-                        } else {
-                            showPrivateKeySheet = true
-                        }
-                    } label: {
-                        Image(systemName: "square.and.arrow.up.on.square")
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(.regularMaterial))
-                    }
-                    if let url = settingsViewModel.settings.kaspaExplorer.addressURL(for: address) {
-                        Link(destination: url) {
-                            Image(systemName: "globe")
-                                .frame(width: 32, height: 32)
-                                .background(Circle().fill(.regularMaterial))
-                        }
-                    }
-                }
-            }
+        .sheet(isPresented: $showAddressActions) {
+            addressActionsSheet
+                .presentationDetents([.height(330)])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showPublicKeySheet) {
+            ChattingAddressPublicKeyView(address: address)
         }
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: 12) {
@@ -3842,6 +3846,60 @@ struct ChattingAddressManageView: View {
             await loadTransactions()
             await loadUtxos()
         }
+    }
+
+    /// The half sheet behind "Address Actions". Same shape as Manage Addresses' and Cold
+    /// Storage's sheets of the same name, so all three read as the same object.
+    private var addressActionsSheet: some View {
+        VStack(spacing: 0) {
+            Text("Address Actions")
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+
+            VStack(spacing: 12) {
+                ActionSheetRow(
+                    title: "View Private Key",
+                    subtitle: "The key that spends this address. Never share it.",
+                    systemImage: "key.fill"
+                ) {
+                    showAddressActions = false
+                    // A turn later: presenting straight from a dismissing sheet is dropped.
+                    DispatchQueue.main.async {
+                        if settingsViewModel.settings.biometricSeedPhraseEnabled {
+                            DeviceAuth.authenticate(reason: "Unlock to view this address's private key") {
+                                showPrivateKeySheet = true
+                            }
+                        } else {
+                            showPrivateKeySheet = true
+                        }
+                    }
+                }
+                ActionSheetRow(
+                    title: "View Public Key",
+                    subtitle: "The public half of this address, for anyone who asks for it.",
+                    systemImage: "number"
+                ) {
+                    showAddressActions = false
+                    DispatchQueue.main.async { showPublicKeySheet = true }
+                }
+                if let url = settingsViewModel.settings.kaspaExplorer.addressURL(for: address) {
+                    ActionSheetRow(
+                        title: "View in Explorer",
+                        subtitle: "Opens this address on your chosen block explorer.",
+                        systemImage: "globe"
+                    ) {
+                        showAddressActions = false
+                        UIApplication.shared.open(url)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.bottom, 20)
     }
 
     private var transactionsList: some View {
@@ -4172,6 +4230,92 @@ private struct ChattingAddressPrivateKeyView: View {
             if UIPasteboard.general.string == copiedValue {
                 UIPasteboard.general.string = ""
             }
+        }
+    }
+
+    private func showToast(_ message: String) {
+        let token = UUID()
+        toastToken = token
+        withAnimation(.easeOut(duration: 0.2)) {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    toastMessage = nil
+                }
+            }
+        }
+    }
+}
+
+/// The chatting address's public key, from the Address Actions sheet.
+///
+/// Nothing is derived or unlocked to show this: a Kaspa P2PK address IS its public key in bech32,
+/// so this decodes the address the screen already has. No reveal gate and no clipboard expiry
+/// either - unlike the private key alongside it, this is a value you hand out on purpose.
+private struct ChattingAddressPublicKeyView: View {
+    let address: String
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var toastMessage: String?
+    @State private var toastToken = UUID()
+
+    /// nil only for an address shape that carries no key (script-hash), which the wallet's own
+    /// chatting address never is.
+    private var publicKeyHex: String? {
+        KaspaAddress.publicKey(from: address)?.hexString
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Label("Safe to share", systemImage: "checkmark.seal.fill")
+                        .font(.headline)
+                        .foregroundColor(.accentColor)
+                    Text("This is the public half of your chatting address. It identifies you and cannot spend anything.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                .padding()
+                .background(Color.accentColor.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                if let publicKeyHex {
+                    Text(publicKeyHex)
+                        .font(.system(.footnote, design: .monospaced))
+                        .multilineTextAlignment(.center)
+                        .textSelection(.enabled)
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color(.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    Button {
+                        UIPasteboard.general.string = publicKeyHex
+                        Haptics.success()
+                        showToast("Public key copied")
+                    } label: {
+                        Label("Copy Public Key", systemImage: "doc.on.doc")
+                    }
+                } else {
+                    Text("This address does not carry a public key.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Public Key")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Close") { dismiss() }
+                }
+            }
+            .toast(message: toastMessage)
         }
     }
 
