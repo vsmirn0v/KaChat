@@ -7,6 +7,9 @@ must add on top. The single client integration point in the app is
 `KaChat/Services/KaPostsAPIClient.swift` — read it alongside this doc; every wire shape the
 app expects is defined there.
 
+> Only here for the reply-thread work? `KAPOSTS_REPLIES_FIX.md` is the short version: the two
+> endpoints to add and why, without the protocol and build material below.
+
 ## 1. What KaPosts is
 
 KaPosts is a Twitter/X-style social feed inside KaChat. **Everything is on-chain**: each
@@ -90,6 +93,7 @@ Errors: JSON `{"error": "...", "code": "..."}`. Public indexer rate limit is 100
 | `get-users-following` / `get-users-followers` | follow lists | takes `userPubkey`; items `{id, userPublicKey, timestamp, followedUser, ...}` wrapped under the key `posts` (yes, really - the app also tolerates `users`/`following`/`followers`) |
 | `get-post?id=<txid>` | **NEEDED — see §5.5** single-post lookup by txid, any post, same `KPost` shape |
 | `search?q=<text>&type=posts\|users` | **NEEDED — see §5.6** content and people search |
+| `get-thread?id=<txid>` | **OPTIONAL — see `KAPOSTS_REPLIES_FIX.md`** the ancestor walk done server-side in one request |
 | `get-notifications` | actions on MY content | `{id, userPublicKey, postContent, timestamp, contentType, voteType, contentId}` — `id` is the **action's** txid |
 
 Post objects (see `KPost` in the client): `id, userPublicKey, postContent, signature,
