@@ -1223,9 +1223,49 @@ private struct QuickReactionSlotSelection: Identifiable {
 /// receive activity), and KaPosts (per-event-type ping toggles).
 struct NotificationsHubPage: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
+    @EnvironmentObject var pushManager: PushNotificationManager
+
+    @State private var isEnablingPush = false
+    @State private var notificationPermissionDenied = false
+    @State private var toastMessage: String?
+    @State private var toastToken = UUID()
+    @State private var toastStyle: ToastStyle = .success
+
+    private var pushEnabled: Bool {
+        settingsViewModel.settings.notificationMode == .remotePush
+    }
 
     var body: some View {
         Form {
+            // The master switch, at the top of the screen it governs. It used to live inside
+            // Chats, which read as a chats-only setting - it is not: push carries wallet
+            // activity, group mentions, broadcasts and KaPosts too, so it belongs above the
+            // per-feature pages rather than inside one of them.
+            //
+            // A toggle rather than the old Mode picker of two cases, and the registration
+            // Status / Watching rows are gone with it. Those answered "is the plumbing
+            // connected", which is a question for a diagnostics screen; here the only question
+            // is whether you want push at all, and a picker with exactly two options was a
+            // switch wearing a menu.
+            Section {
+                Toggle(isOn: Binding(
+                    get: { pushEnabled },
+                    set: { handleNotificationModeChange(to: $0 ? .remotePush : .disabled) }
+                )) {
+                    HStack(spacing: 8) {
+                        Text("Push Notifications")
+                        if isEnablingPush {
+                            ProgressView().scaleEffect(0.8)
+                        }
+                    }
+                }
+                .disabled(isEnablingPush)
+            } footer: {
+                Text(pushEnabled
+                     ? "Everything you have switched on below can reach you, even when the app is closed. Turning this off silences all of it."
+                     : "Turn this on to receive anything you have switched on below, even when the app is closed.")
+            }
+
             Section("Notifications") {
                 settingsCategoryRow("Chats", icon: "bubble.left.and.bubble.right", tint: .accentColor) {
                     NotificationsSettingsView()
@@ -1240,6 +1280,80 @@ struct NotificationsHubPage: View {
         }
         .navigationTitle("Notifications")
         .navigationBarTitleDisplayMode(.inline)
+        .toast(message: toastMessage, style: toastStyle)
+        .alert("Notifications Disabled", isPresented: $notificationPermissionDenied) {
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("To receive notifications, please enable them in Settings.")
+        }
+    }
+
+    private func handleNotificationModeChange(to newMode: NotificationMode) {
+        let previousMode = settingsViewModel.settings.notificationMode
+        guard newMode != previousMode else { return }
+
+        switch newMode {
+        case .disabled:
+            if previousMode == .remotePush {
+                disablePushNotifications()
+            }
+            settingsViewModel.settings.notificationMode = .disabled
+            settingsViewModel.saveSettings()
+        case .remotePush:
+            settingsViewModel.settings.notificationMode = .remotePush
+            settingsViewModel.saveSettings()
+            ChatService.shared.stopPollingTimerOnly()
+            BackgroundTaskManager.shared.cancelBackgroundFetch()
+            enablePushNotifications(previousMode: previousMode)
+        }
+    }
+
+    private func enablePushNotifications(previousMode: NotificationMode) {
+        isEnablingPush = true
+        Task {
+            do {
+                try await pushManager.requestPermissionAndRegisterAndWaitForIndexer()
+                settingsViewModel.settings.notificationMode = .remotePush
+                settingsViewModel.saveSettings()
+            } catch {
+                AppLog.log("[Settings] Failed to enable push: %@", error.localizedDescription)
+                settingsViewModel.settings.notificationMode = previousMode
+                settingsViewModel.saveSettings()
+                if case PushError.permissionDenied = error {
+                    notificationPermissionDenied = true
+                }
+                showToast("Push subscription failed.", style: .error)
+            }
+            isEnablingPush = false
+        }
+    }
+
+    private func disablePushNotifications() {
+        Task {
+            await pushManager.unregister()
+            settingsViewModel.saveSettings()
+        }
+    }
+
+    private func showToast(_ message: String, style: ToastStyle = .success) {
+        let token = UUID()
+        toastToken = token
+        toastStyle = style
+        withAnimation(.easeOut(duration: 0.2)) {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            if toastToken == token {
+                withAnimation(.easeIn(duration: 0.2)) {
+                    toastMessage = nil
+                }
+            }
+        }
     }
 }
 
@@ -1325,86 +1439,13 @@ struct KaPostsNotificationSettingsView: View {
 
 struct NotificationsSettingsView: View {
     @EnvironmentObject var settingsViewModel: SettingsViewModel
-    @EnvironmentObject var pushManager: PushNotificationManager
 
-    @State private var isEnablingPush = false
-    @State private var notificationPermissionDenied = false
     @State private var toastMessage: String?
     @State private var toastToken = UUID()
     @State private var toastStyle: ToastStyle = .success
 
     var body: some View {
         Form {
-            Section {
-                Picker("Mode", selection: Binding(
-                    get: { settingsViewModel.settings.notificationMode },
-                    set: { newValue in
-                        handleNotificationModeChange(to: newValue)
-                    }
-                )) {
-                    ForEach(NotificationMode.allCases, id: \.self) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .pickerStyle(.menu)
-                .disabled(isEnablingPush)
-
-                if settingsViewModel.settings.notificationMode == .remotePush {
-                    if pushManager.isRegistered {
-                        HStack {
-                            Text("Status")
-                            Spacer()
-                            HStack(spacing: 4) {
-                                Circle()
-                                    .fill(.green)
-                                    .frame(width: 8, height: 8)
-                                Text("Registered")
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-
-                        if let watchedCount = pushManager.watchedAddressesCount, watchedCount > 0 {
-                            HStack {
-                                Text("Watching")
-                                Spacer()
-                                Text("\(watchedCount) contacts")
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                    } else {
-                        HStack {
-                            Text("Status")
-                            Spacer()
-                            Text("Not registered")
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
-                if isEnablingPush {
-                    HStack {
-                        ProgressView()
-                            .scaleEffect(0.9)
-                        Text("Enabling remote push...")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                } else {
-                    switch settingsViewModel.settings.notificationMode {
-                    case .disabled:
-                        Text("Notifications are disabled.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    case .remotePush:
-                        Text("Receive notifications when contacts send messages, even when the app is closed.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            } header: {
-                Text("Push Notifications")
-            }
-
             Section {
                 Toggle("Play sound", isOn: $settingsViewModel.settings.incomingNotificationSoundEnabled)
                     .onChange(of: settingsViewModel.settings.incomingNotificationSoundEnabled) { _ in
@@ -1430,63 +1471,6 @@ struct NotificationsSettingsView: View {
         .toast(message: toastMessage, style: toastStyle)
         .navigationTitle("Chats")
         .navigationBarTitleDisplayMode(.inline)
-        .alert("Notifications Disabled", isPresented: $notificationPermissionDenied) {
-            Button("Open Settings") {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("To receive notifications, please enable them in Settings.")
-        }
-    }
-
-    private func handleNotificationModeChange(to newMode: NotificationMode) {
-        let previousMode = settingsViewModel.settings.notificationMode
-        guard newMode != previousMode else { return }
-
-        switch newMode {
-        case .disabled:
-            if previousMode == .remotePush {
-                disablePushNotifications()
-            }
-            settingsViewModel.settings.notificationMode = .disabled
-            settingsViewModel.saveSettings()
-        case .remotePush:
-            settingsViewModel.settings.notificationMode = .remotePush
-            settingsViewModel.saveSettings()
-            ChatService.shared.stopPollingTimerOnly()
-            BackgroundTaskManager.shared.cancelBackgroundFetch()
-            enablePushNotifications(previousMode: previousMode)
-        }
-    }
-
-    private func enablePushNotifications(previousMode: NotificationMode) {
-        isEnablingPush = true
-        Task {
-            do {
-                try await pushManager.requestPermissionAndRegisterAndWaitForIndexer()
-                settingsViewModel.settings.notificationMode = .remotePush
-                settingsViewModel.saveSettings()
-            } catch {
-                AppLog.log("[Settings] Failed to enable push: %@", error.localizedDescription)
-                settingsViewModel.settings.notificationMode = previousMode
-                settingsViewModel.saveSettings()
-                if case PushError.permissionDenied = error {
-                    notificationPermissionDenied = true
-                }
-                showToast("Push subscription failed.", style: .error)
-            }
-            isEnablingPush = false
-        }
-    }
-
-    private func disablePushNotifications() {
-        Task {
-            await pushManager.unregister()
-            settingsViewModel.saveSettings()
-        }
     }
 
     private func showToast(_ message: String, style: ToastStyle = .success) {
