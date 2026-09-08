@@ -347,6 +347,7 @@ struct KaPostsView: View {
     /// Left slide-out menu entries - all coming-soon placeholders for now.
     enum SideMenuItem: String, CaseIterable, Identifiable {
         case profile = "Profile"
+        case search = "Search"
         case notifications = "Notifications"
         case drafts = "Drafts"
         case bookmarks = "Bookmarks"
@@ -357,6 +358,7 @@ struct KaPostsView: View {
         var icon: String {
             switch self {
             case .profile: return "person.crop.circle"
+            case .search: return "magnifyingglass"
             case .notifications: return "bell"
             case .drafts: return "square.and.pencil"
             case .bookmarks: return "bookmark"
@@ -426,6 +428,18 @@ struct KaPostsView: View {
                     moderationSheet(kind: .blocked)
                 case .profile:
                     myProfileSheet
+                case .search:
+                    KaPostsSearchView(
+                        onOpenPost: { post in
+                            // Straight to the thread, the same route a feed tap takes.
+                            postDetailTarget = PostDetailTarget(id: post.id)
+                        },
+                        onOpenProfile: { address in
+                            // pubkey is nil: the profile screen resolves it from the address,
+                            // the same as a tap from a notification row.
+                            profileTarget = PosterProfileTarget(address: address, pubkey: nil)
+                        }
+                    )
                 case .notifications:
                     KaPostsNotificationsView()
                         // Opening the list IS seeing them - clearing on appear rather than on
