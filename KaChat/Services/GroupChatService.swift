@@ -1255,6 +1255,20 @@ final class GroupChatService: ObservableObject {
     }
 
     private func rotateEpoch(groupId: String, reason: GroupCipher.EpochChangeReason, mutateRoster: (inout [GroupMember]) throws -> Void) async throws {
+        // Catch up on our OWN control stream before reading the roster.
+        //
+        // The same account can be admin on two devices. Each holds its own copy of the roster,
+        // and a rotation rebuilds the roster from that copy - so a device that had not yet seen
+        // the other's change would send out a roster without it, and everyone would treat that
+        // as a removal. Reported exactly that way: a member added on one phone vanished when the
+        // other phone added someone else.
+        //
+        // The self-addressed root each rotation sends is what carries the change between our own
+        // devices; this is the read side of it. Best effort - offline, we proceed on what we
+        // have, which is no worse than before. Read AFTER this, never before.
+        if let myAddress = WalletManager.shared.currentWallet?.publicAddress {
+            await catchUpGroupControlByRecipient(recipientAddress: myAddress)
+        }
         guard var group = store.group(id: groupId), group.isAdmin else {
             throw KasiaError.networkError("Only the group admin can change membership.")
         }
@@ -1289,6 +1303,12 @@ final class GroupChatService: ObservableObject {
         // receive the rotated root — see applyRootPayload).
         insertMembershipSystemMessages(groupId: groupId, oldMembers: previousRoster, newMembers: roster)
         loadMessages(for: groupId)
+
+        // FIRST, before any member delivery: the self-addressed root is how this account's other
+        // devices learn what just changed. It used to be sent only by the catch-up backfill,
+        // which meant the other phone stayed on a stale roster until its next sync - long enough
+        // for it to make its own change and overwrite this one.
+        try? await sendSelfRootControlMessage(group: group, bag: bag, privateKey: privateKey)
 
         var sendErrors: [Error] = []
         for member in roster where member.address != wallet.publicAddress {
