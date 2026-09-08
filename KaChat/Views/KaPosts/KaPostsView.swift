@@ -252,6 +252,16 @@ struct KaPostsView: View {
     /// Post whose comment thread is open - the sheet looks the post up live by id, so new
     /// comments/likes appear immediately.
     @State private var detailTarget: PostDetailTarget?
+    /// Every thread opened on the way to the one on screen, oldest first.
+    ///
+    /// Opening a reply used to REPLACE `detailTarget`, so Done was the only way out and it
+    /// closed the whole thing - there was no walking back up to the post you started from.
+    /// Android has had a stack for this; X keeps one too, which is what makes a deep thread
+    /// readable: you go down into a reply and come back the way you came.
+    ///
+    /// `detailTarget` stays the presentation trigger (a fullScreenCover needs an Identifiable
+    /// item); this decides WHICH post that cover renders.
+    @State private var threadStack: [UUID] = []
     /// Comment thread opened from WITHIN the poster-profile sheet. Separate from `detailTarget`
     /// because the profile is itself a sheet: the thread must present from inside the profile's
     /// own NavigationStack (a view can only present one sheet at a time), not the top-level presenter.
@@ -497,8 +507,10 @@ struct KaPostsView: View {
         .fullScreenCover(item: $profileTarget) { target in
             posterProfileSheet(for: target)
         }
-        .fullScreenCover(item: $detailTarget) { target in
-            postDetailSheet(postId: target.id)
+        .fullScreenCover(item: $detailTarget) { _ in
+            // The TOP of the stack, not the item that triggered presentation - pushing a reply
+            // changes the stack without re-presenting the cover.
+            postDetailSheet(postId: threadStack.last ?? UUID())
         }
         // Half sheet rather than a confirmation dialog - see RepostActionsSheet.
         .sheet(item: $repostDialogTarget) { target in
@@ -1668,7 +1680,7 @@ struct KaPostsView: View {
             let hadSheetUp = detailTarget != nil || quoteComposerTarget != nil
                 || threadQuoteComposerTarget != nil || profileQuoteComposerTarget != nil
                 || menuQuoteComposerTarget != nil || showComposer
-            detailTarget = nil
+            closeThread()
             quoteComposerTarget = nil
             threadQuoteComposerTarget = nil
             profileQuoteComposerTarget = nil
@@ -2583,6 +2595,28 @@ struct KaPostsView: View {
         .buttonStyle(.plain)
     }
 
+    /// One level back up the thread, to the post you came from.
+    private func popThread() {
+        guard threadStack.count > 1 else {
+            closeThread()
+            return
+        }
+        replyText = ""
+        pendingThreadScrollRemoteId = nil
+        // Deliberately does NOT touch detailTarget. fullScreenCover(item:) re-presents whenever
+        // that item's id changes, so reassigning it would dismiss and re-present the whole cover
+        // on every Back - a full modal transition to move one level up a thread. The cover's
+        // body reads threadStack.last, so popping the stack swaps what it draws in place.
+        threadStack.removeLast()
+    }
+
+    /// Out of the thread entirely, however deep it went.
+    private func closeThread() {
+        threadStack = []
+        detailTarget = nil
+        profileDetailTarget = nil
+    }
+
     /// Expands a comment's reply chain inline, fetching its first page of replies from the
     /// indexer (the chain then pages endlessly like any other list).
     private func expandReplies(for comment: DraftPost) {
@@ -2597,7 +2631,14 @@ struct KaPostsView: View {
         // nil on every normal open, so a stale pending scroll target from an earlier
         // notification landing can never yank a later thread around.
         pendingThreadScrollRemoteId = scrollToCommentRemoteId
-        detailTarget = PostDetailTarget(id: post.id)
+        // Already reading a thread: push, so Back returns here rather than closing everything.
+        // Re-opening the post already on top is a no-op, so a double tap cannot stack it twice.
+        if detailTarget != nil {
+            if threadStack.last != post.id { threadStack.append(post.id) }
+        } else {
+            threadStack = [post.id]
+            detailTarget = PostDetailTarget(id: post.id)
+        }
         // Remote post: pull its real reply thread from the indexer into the comments array,
         // then walk the author's own continuation so the Thread section can render.
         Task {
@@ -3709,10 +3750,23 @@ struct KaPostsView: View {
                     quoteComposerSheet(for: target)
                 }
                 .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        // Only once there is somewhere to go back TO. Done still closes the lot.
+                        if threadStack.count > 1 {
+                            Button {
+                                popThread()
+                            } label: {
+                                HStack(spacing: 3) {
+                                    Image(systemName: "chevron.left")
+                                    Text("Back")
+                                }
+                            }
+                        }
+                    }
                     ToolbarItem(placement: .navigationBarTrailing) {
                         // Clear whichever target presented this thread (feed = detailTarget,
                         // profile = profileDetailTarget); nil-ing the other is a harmless no-op.
-                        Button("Done") { detailTarget = nil; profileDetailTarget = nil }
+                        Button("Done") { closeThread() }
                     }
                 }
             } else {
@@ -3735,7 +3789,7 @@ struct KaPostsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("Done") { detailTarget = nil; profileDetailTarget = nil }
+                        Button("Done") { closeThread() }
                     }
                 }
                 .kaPostsStatusChrome()
