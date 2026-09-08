@@ -119,6 +119,10 @@ Codes to implement: `MISSING_PARAMETER`, `INVALID_POST_ID`, `TOO_MANY_POSTS`, `T
 Lets a client stop offering a link it knows will fail. Cache-friendly; clients fetch it at most
 once per launch and fall back to "offer anyway" if it is unavailable.
 
+**Both shipping clients consume this as of 4.1**, so it is no longer optional in practice: a
+language missing from `target` here means readers who chose that language see no Translate link at
+all rather than a failure banner. Keep it in step with what the engine actually has loaded.
+
 ## 3. Rules the server must hold
 
 **Never cache a translation under a txid whose text you did not verify.** `posts[].text` is
@@ -161,8 +165,12 @@ services:
     image: libretranslate/libretranslate:latest
     restart: unless-stopped
     environment:
-      # Preload only what you serve; each pair is a model in memory.
-      LT_LOAD_ONLY: "en,es,pt,fr,de,it,nl,ru,uk,tr,ar,hi,id,ja,ko,zh"
+      # Preload only what you serve; each pair is a model in memory. This list must cover every
+      # language KaChat's own picker offers (Settings > Language / the Welcome Guide), because a
+      # reader who picks one you do not carry gets UNSUPPORTED_PAIR on every post forever. As of
+      # 4.1 the picker offers 19: ar bn de en es fa fr he hi id it ja ko pt ru tr vi zh (plus the
+      # ar-EG and zh-Hans variants, which the clients send as the bare "ar" and "zh").
+      LT_LOAD_ONLY: "ar,bn,de,en,es,fa,fr,he,hi,id,it,ja,ko,pt,ru,tr,vi,zh"
       LT_DISABLE_WEB_UI: "true"
       LT_THREADS: "4"
     expose:

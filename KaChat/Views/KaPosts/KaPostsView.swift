@@ -575,6 +575,10 @@ struct KaPostsView: View {
             return .handled
         })
         .task {
+            // What the translation service can actually serve, so a reader whose language this
+            // deployment does not carry is never offered a Translate link that can only fail.
+            // No-op after the first answer unless the service URL changed.
+            PostTranslationService.shared.refreshSupportedLanguages()
             if let myAddress = WalletManager.shared.currentWallet?.publicAddress {
                 followStore.removeIfPresent(myAddress)
             }
@@ -4662,7 +4666,7 @@ private struct KaPostCellView: View {
     private var translateAffordance: some View {
         switch translation.state(for: translationKey) {
         case .none:
-            if PostTranslationService.canOfferTranslation(for: post.text) {
+            if translation.canOffer(for: post.text) {
                 translateLink("Translate post") {
                     translation.translate(key: translationKey, text: post.text, postId: post.remoteId)
                 }
@@ -4700,11 +4704,18 @@ private struct KaPostCellView: View {
                 .padding(.top, 2)
             }
         case .failed:
-            // Almost always a dropped connection, so this stays a live button rather than dead
-            // text: tapping again once there is a network is the fix.
+            // A dropped connection or a server that was briefly away, so this stays a live button
+            // rather than dead text: tapping again once there is a network is the fix.
             translateLink("Translation unavailable - try again") {
                 translation.translate(key: translationKey, text: post.text, postId: post.remoteId)
             }
+        case .unavailable(let reason):
+            // Nothing a second tap can change - the pair is not served, the post is too long, the
+            // post was already in the reader's language. Say so instead of inviting a retry.
+            Text(reason)
+                .font(.footnote)
+                .foregroundColor(.secondary)
+                .padding(.top, 2)
         }
     }
 

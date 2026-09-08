@@ -30,7 +30,13 @@ final class PostTranslationService: ObservableObject {
         case translating
         /// `sourceName` is the localized language name for the "Translated from X" line.
         case translated(text: String, sourceName: String)
+        /// Retryable: a dropped connection, a timeout, a server that was briefly down. The link
+        /// stays live and says so.
         case failed
+        /// Terminal for this post and this reader: the pair is not served, the post is too long,
+        /// the text was already in the reader's language. Retrying cannot change the answer, so
+        /// the affordance says what happened instead of inviting a pointless second tap.
+        case unavailable(String)
     }
 
     /// Per-post translation state, keyed by `translationKey(for:)`.
@@ -38,6 +44,23 @@ final class PostTranslationService: ObservableObject {
     /// Posts the user has flipped back to the original text. Kept separately from `states` so
     /// toggling back and forth never re-runs the translation.
     @Published private(set) var showingOriginal: Set<String> = []
+
+    /// What the configured service can actually translate (`GET /translate/languages`).
+    ///
+    /// `nil` means "we do not know yet", either because the answer has not arrived or because the
+    /// deployment does not implement the endpoint. Both fall back to offering the link anyway,
+    /// which is the behaviour `TRANSLATION_SERVICE.md` specifies.
+    @Published private(set) var supportedLanguages: SupportedLanguages?
+
+    struct SupportedLanguages: Equatable {
+        let source: Set<String>
+        let target: Set<String>
+    }
+
+    /// The service URL `supportedLanguages` was fetched from. Held so a change in Settings >
+    /// Connection Settings re-asks the new deployment rather than trusting the old one's answer.
+    private var supportedLanguagesURL: String?
+    private var isRefreshingSupportedLanguages = false
 
     private init() {}
 
@@ -58,10 +81,10 @@ final class PostTranslationService: ObservableObject {
 
     /// Detection results cached by post text.
     ///
-    /// `canOfferTranslation` is read from the cell's body, so it runs for every visible post on
-    /// every render pass while scrolling. `NLLanguageRecognizer` over a 25k-character post is
-    /// nowhere near cheap enough for that. Keyed by content, like the cell's own linkify cache,
-    /// and boxed because NSCache holds objects.
+    /// `canOffer` is read from the cell's body, so it runs for every visible post on every render
+    /// pass while scrolling. `NLLanguageRecognizer` over a 25k-character post is nowhere near
+    /// cheap enough for that. Keyed by content, like the cell's own linkify cache, and boxed
+    /// because NSCache holds objects.
     private static let detectionCache: NSCache<NSString, DetectionBox> = {
         let cache = NSCache<NSString, DetectionBox>()
         cache.countLimit = 400
@@ -104,25 +127,50 @@ final class PostTranslationService: ObservableObject {
         return result
     }
 
-    /// Should this post offer a Translate link? Only when the language is identifiable and is not
-    /// already the reader's own.
+    // MARK: - The reader's language
+
+    /// The language the reader actually reads KaChat in, as the bare subtag the server expects
+    /// ("en", not "en-GB"; "zh" for "zh-Hans").
     ///
-    /// No OS gate any more: with the work on the server, iOS 16 and 17 get this too. They used to
-    /// see no affordance at all, because Apple's framework starts at 18.
-    static func canOfferTranslation(for text: String) -> Bool {
-        guard let detected = detectedLanguage(of: text) else { return false }
-        return detected.languageCode != Locale.current.language.languageCode
+    /// This is Settings > Language when it has been set, and only falls back to the device locale
+    /// for `.system`. It deliberately does NOT read `Locale.current`, which is the DEVICE's
+    /// language: the in-app override is applied through `.environment(\.locale, ...)` at the app
+    /// root (see `AppLanguage.locale`) and through `AppleLanguages` for the next cold launch, so
+    /// `Locale.current` does not reflect it in-process. Reading it here is what made a reader who
+    /// picked Vietnamese on an English phone get English posts with no Translate link at all
+    /// (source == target, so nothing was offered) and Vietnamese posts translated INTO English.
+    static var readerLanguageCode: String? {
+        if let chosen = AppSettings.load().language.appleLanguageCode {
+            return Locale.Language(identifier: chosen).languageCode?.identifier
+        }
+        return Locale.current.language.languageCode?.identifier
+    }
+
+    /// The locale to name languages in, so "Translated from Vietnamese" is written in the
+    /// language the reader chose rather than the one the phone is set to.
+    private static var readerLocale: Locale {
+        AppSettings.load().language.locale ?? .current
     }
 
     /// Localized name of a language, for "Translated from X".
     static func displayName(of language: Locale.Language) -> String {
         guard let code = language.languageCode?.identifier else { return "another language" }
-        return Locale.current.localizedString(forLanguageCode: code) ?? code
+        return readerLocale.localizedString(forLanguageCode: code) ?? code
     }
 
-    /// The reader's language, as the bare subtag the server expects ("en", not "en-GB").
-    private static var targetLanguageCode: String? {
-        Locale.current.language.languageCode?.identifier
+    /// Should this post offer a Translate link? Only when the language is identifiable, is not
+    /// already the reader's own, and the service can actually serve the pair.
+    ///
+    /// No OS gate any more: with the work on the server, iOS 16 and 17 get this too. They used to
+    /// see no affordance at all, because Apple's framework starts at 18.
+    func canOffer(for text: String) -> Bool {
+        guard let target = Self.readerLanguageCode,
+              let detected = Self.detectedLanguage(of: text),
+              let source = detected.languageCode?.identifier,
+              source != target else { return false }
+        guard let supported = supportedLanguages,
+              supportedLanguagesURL == Self.currentServiceURL else { return true }
+        return supported.source.contains(source) && supported.target.contains(target)
     }
 
     // MARK: - Requests
@@ -166,7 +214,7 @@ final class PostTranslationService: ObservableObject {
     }
 
     private func perform(key: String, text: String, postId: String?) async {
-        guard let target = Self.targetLanguageCode else {
+        guard let target = Self.readerLanguageCode else {
             states[key] = .failed
             return
         }
@@ -174,10 +222,10 @@ final class PostTranslationService: ObservableObject {
             let result = try await Self.requestTranslation(text: text, postId: postId, target: target)
             // The server returns the text unchanged when it decides the post was already in the
             // reader's language - our detection is a guess and is sometimes wrong. Showing the
-            // same text back under a "Translated from" line would look broken, so this reads as
-            // a failure the reader can dismiss by tapping again.
+            // same text back under a "Translated from" line would look broken, and inviting a
+            // retry is worse: the second tap gets the same answer.
             guard !result.untranslated, !result.text.isEmpty else {
-                states[key] = .failed
+                states[key] = .unavailable("Already in your language")
                 return
             }
             let sourceName = result.source.map { Self.displayName(of: Locale.Language(identifier: $0)) }
@@ -185,10 +233,50 @@ final class PostTranslationService: ObservableObject {
                 text: result.text,
                 sourceName: sourceName ?? "another language"
             )
+        } catch let error as TranslationError {
+            AppLog.log("%@", "[Translate] Failed: \(error.errorDescription ?? "")")
+            states[key] = error.isTerminal ? .unavailable(error.readerMessage) : .failed
         } catch {
             AppLog.log("%@", "[Translate] Failed: \(error.localizedDescription)")
             states[key] = .failed
         }
+    }
+
+    // MARK: - Supported languages
+
+    /// Asks the service what it can translate, so a reader whose language the deployment does not
+    /// serve is never offered a link that can only fail. Cheap, cached by the server, and asked
+    /// once per launch plus whenever the service URL changes.
+    func refreshSupportedLanguages() {
+        let url = Self.currentServiceURL
+        if supportedLanguages != nil, supportedLanguagesURL == url { return }
+        if isRefreshingSupportedLanguages { return }
+        isRefreshingSupportedLanguages = true
+        Task { [weak self] in
+            let fetched = await Self.requestSupportedLanguages()
+            guard let self else { return }
+            self.isRefreshingSupportedLanguages = false
+            guard let fetched else { return }
+            self.supportedLanguagesURL = url
+            self.supportedLanguages = fetched
+        }
+    }
+
+    private static func requestSupportedLanguages() async -> SupportedLanguages? {
+        guard var components = translationServiceComponents() else { return nil }
+        components.path += "/translate/languages"
+        guard let url = components.url else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let decoded = try? JSONDecoder().decode(LanguagesResponse.self, from: data) else {
+            return nil
+        }
+        let source = Set(decoded.source.map { $0.lowercased() })
+        let target = Set(decoded.target.map { $0.lowercased() })
+        guard !source.isEmpty, !target.isEmpty else { return nil }
+        return SupportedLanguages(source: source, target: target)
     }
 
     // MARK: - Wire
@@ -199,14 +287,23 @@ final class PostTranslationService: ObservableObject {
         let untranslated: Bool
     }
 
+    /// The configured service URL, trimmed, with the shipped default standing in for a blank one.
+    private static var currentServiceURL: String {
+        let raw = AppSettings.load().translationServiceURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return raw.isEmpty ? AppSettings.defaultTranslationServiceURL : raw
+    }
+
+    private static func translationServiceComponents() -> URLComponents? {
+        var components = URLComponents(string: currentServiceURL)
+        // A trailing slash on a custom URL would otherwise produce "//translate".
+        if components?.path.hasSuffix("/") == true { components?.path.removeLast() }
+        return components
+    }
+
     /// One post per call today. The endpoint takes an array because the shape should not have to
     /// change when a "translate everything on screen" action wants a batch.
     private static func requestTranslation(text: String, postId: String?, target: String) async throws -> TranslationResult {
-        let settings = AppSettings.load()
-        let raw = settings.translationServiceURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard var components = URLComponents(string: raw.isEmpty ? AppSettings.defaultTranslationServiceURL : raw) else {
-            throw TranslationError.badURL
-        }
+        guard var components = translationServiceComponents() else { throw TranslationError.badURL }
         components.path += "/translate"
         guard let url = components.url else { throw TranslationError.badURL }
 
@@ -219,17 +316,21 @@ final class PostTranslationService: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Deliberately no identity header of any kind - see the note on this type.
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        request.timeoutInterval = 20
+        // Generous, because the FIRST request for a language pair can make the server load that
+        // pair's model. Everyone after that is answered from its cache in well under a second, so
+        // the only reader who ever waits this long is the one who asked first. A 20s cap here
+        // turned that one reader's request into a failure banner.
+        request.timeoutInterval = 45
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw TranslationError.badResponse }
         guard http.statusCode == 200 else {
-            let message = (try? JSONDecoder().decode(APIError.self, from: data))?.error
-            throw TranslationError.server(message ?? "HTTP \(http.statusCode)")
+            let decoded = try? JSONDecoder().decode(APIError.self, from: data)
+            throw TranslationError.server(message: decoded?.error ?? "HTTP \(http.statusCode)", code: decoded?.code)
         }
         let decoded = try JSONDecoder().decode(TranslateResponse.self, from: data)
         guard let entry = decoded.translations.first else { throw TranslationError.badResponse }
-        if let error = entry.error { throw TranslationError.server(error) }
+        if let error = entry.error { throw TranslationError.server(message: error, code: entry.code) }
         guard let translated = entry.text else { throw TranslationError.badResponse }
         return TranslationResult(
             text: translated,
@@ -247,24 +348,45 @@ final class PostTranslationService: ObservableObject {
             let text: String?
             let untranslated: Bool?
             let error: String?
+            let code: String?
         }
+    }
+
+    private struct LanguagesResponse: Decodable {
+        let source: [String]
+        let target: [String]
     }
 
     private struct APIError: Decodable {
         let error: String?
+        let code: String?
     }
 
     private enum TranslationError: LocalizedError {
         case badURL
         case badResponse
-        case server(String)
+        case server(message: String, code: String?)
 
         var errorDescription: String? {
             switch self {
             case .badURL: return "Invalid translation service URL"
             case .badResponse: return "Unexpected response from the translation service"
-            case .server(let message): return message
+            case .server(let message, _): return message
             }
+        }
+
+        /// Codes whose answer will not change on a second tap. Everything else - a timeout, a
+        /// rate limit, a server restart - keeps the retry link.
+        var isTerminal: Bool {
+            guard case .server(_, let code) = self, let code else { return false }
+            return ["UNSUPPORTED_PAIR", "TEXT_TOO_LONG", "INVALID_POST_ID", "MISSING_PARAMETER"].contains(code)
+        }
+
+        /// What the reader is told under the post. Short, and never a raw server string for the
+        /// one case where we have better words than the server does.
+        var readerMessage: String {
+            guard case .server(let message, let code) = self else { return "Translation unavailable" }
+            return code == "UNSUPPORTED_PAIR" ? "Not available in your language" : message
         }
     }
 }
