@@ -236,6 +236,9 @@ struct KaPostsView: View {
     /// Set when the pill is tapped; the feed's ScrollViewReader consumes it to jump to the top.
     @State private var pendingScrollToFeedTop = false
     @State private var showComposer = false
+    /// Text handed back by Undo, for the composer that is about to open. Cleared as soon as it
+    /// has been consumed, so a later ordinary Compose tap opens empty.
+    @State private var restoredComposerText: String?
     /// Poster being tipped via the quick-tip sheet (amount + direct send).
     @State private var tipTarget: TipTarget?
     /// Zero-balance interception for the new-post entry point: with a CONFIRMED 0 KAS chatting
@@ -407,6 +410,15 @@ struct KaPostsView: View {
         let postId: UUID
         let deadline: Date
         let label: String
+        /// What was typed, so Undo can hand it back rather than throw it away.
+        ///
+        /// The five seconds exist for the moment you spot a typo as the toast appears. Undoing
+        /// and losing the text means retyping it, which is a worse outcome than the mistake -
+        /// so Undo reopens the composer with the words still in it. Nil for the reactions
+        /// (like / dislike / repost), which have nothing composed to restore.
+        var draftText: String? = nil
+        /// The post a quote was aimed at, so Undo reopens the quote composer still pointed at it.
+        var quoteTarget: DraftPost? = nil
     }
     @State private var undoToast: UndoPostToast?
     @ObservedObject private var scheduler = KaPostsActionScheduler.shared
@@ -486,14 +498,15 @@ struct KaPostsView: View {
         // status bar with rounded top corners, which clipped the connection dot in its own
         // header into a crescent and left the composer looking like a panel over the feed
         // rather than the screen it is.
-        .fullScreenCover(isPresented: $showComposer) {
+        .fullScreenCover(isPresented: $showComposer, onDismiss: { restoredComposerText = nil }) {
             KaPostComposerView(
                 onPost: { text in
                     schedulePost(text: text)
                 },
                 onPostThread: { segments in
                     scheduleThread(segments)
-                }
+                },
+                initialText: restoredComposerText ?? ""
             )
         }
         .sheet(item: $tipTarget) { target in
@@ -541,7 +554,7 @@ struct KaPostsView: View {
         .fullScreenCover(item: $engagementTarget) { target in
             KaPostEngagementView(post: target)
         }
-        .fullScreenCover(item: $quoteComposerTarget) { target in
+        .fullScreenCover(item: $quoteComposerTarget, onDismiss: { restoredComposerText = nil }) { target in
             quoteComposerSheet(for: target)
         }
         // Tapping an @mention anywhere in KaPosts (feed, thread detail, profiles - sheets
@@ -1919,7 +1932,7 @@ struct KaPostsView: View {
         let localId = newPost.id
         posts.insert(newPost, at: 0)
         let key = "post:\(localId)"
-        showUndoToast(key: key, postId: localId, label: "Posting")
+        showUndoToast(key: key, postId: localId, label: "Posting", draftText: text)
         scheduler.schedule(key: key) {
             clearUndoToast(key: key)
             // On-chain publish (Phase B): submit the K post tx; stamp the optimistic local
@@ -1955,19 +1968,27 @@ struct KaPostsView: View {
         let localId = quotePost.id
         posts.insert(quotePost, at: 0)
         let key = "post:\(localId)"
-        showUndoToast(key: key, postId: localId, label: "Posting quote")
+        showUndoToast(key: key, postId: localId, label: "Posting quote", draftText: text, quoteTarget: target)
         scheduler.schedule(key: key) {
             clearUndoToast(key: key)
             performRepost(target: target, text: text, localQuoteId: localId)
         }
     }
 
-    private func showUndoToast(key: String, postId: UUID, label: String) {
+    private func showUndoToast(
+        key: String,
+        postId: UUID,
+        label: String,
+        draftText: String? = nil,
+        quoteTarget: DraftPost? = nil
+    ) {
         withAnimation(.easeOut(duration: 0.25)) {
             undoToast = UndoPostToast(
                 key: key, postId: postId,
                 deadline: Date().addingTimeInterval(KaPostsActionScheduler.undoDelay),
-                label: label
+                label: label,
+                draftText: draftText,
+                quoteTarget: quoteTarget
             )
         }
     }
@@ -1990,6 +2011,31 @@ struct KaPostsView: View {
                 removeReply(withId: toast.postId)
             }
             undoToast = nil
+        }
+        restoreDraft(from: toast)
+    }
+
+    /// Puts an undone draft back where it was written, so the five seconds are a chance to fix
+    /// something rather than a chance to lose it.
+    ///
+    /// A comment goes straight back into the reply bar, which is still on screen. A post or a
+    /// quote reopens its composer - deferred a beat, because the toast's own dismissal animation
+    /// is running and presenting a sheet into that lands on nothing.
+    private func restoreDraft(from toast: UndoPostToast) {
+        guard let text = toast.draftText, !text.isEmpty else { return }
+        if toast.key.hasPrefix("comment:") {
+            replyText = text
+            return
+        }
+        guard toast.key.hasPrefix("post:") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            if let target = toast.quoteTarget {
+                restoredComposerText = text
+                quoteComposerTarget = target
+            } else {
+                restoredComposerText = text
+                showComposer = true
+            }
         }
     }
 
@@ -2179,10 +2225,10 @@ struct KaPostsView: View {
         KaPostComposerView(
             quotedPost: target,
             quotedDisplayName: posterDisplayName(target.posterAddress),
-            quotedAvatarURL: knsService.profileCache[target.posterAddress]?.avatarURL
-        ) { text in
-            scheduleQuote(target: target, text: text)
-        }
+            quotedAvatarURL: knsService.profileCache[target.posterAddress]?.avatarURL,
+            onPost: { text in scheduleQuote(target: target, text: text) },
+            initialText: restoredComposerText ?? ""
+        )
     }
 
     /// K's repost mechanism is the quote action: nil text = plain repost (marker-only message),
@@ -3744,7 +3790,7 @@ struct KaPostsView: View {
                             if let parentRemoteId = post.remoteId {
                                 let parentAuthor = post.posterPubkey
                                 let key = "comment:\(localReplyId)"
-                                showUndoToast(key: key, postId: localReplyId, label: "Posting comment")
+                                showUndoToast(key: key, postId: localReplyId, label: "Posting comment", draftText: trimmed)
                                 scheduler.schedule(key: key) {
                                     clearUndoToast(key: key)
                                     Task {
