@@ -596,6 +596,24 @@ struct ManageAddressesView: View {
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
+
+                    // The scan belongs to this screen, not to the sheet, so closing the sheet
+                    // does not stop it - it keeps running and reports what it found in a toast.
+                    // Holding the sheet open for the length of a thousand-address sweep was the
+                    // only reason to sit and watch it.
+                    Button {
+                        showAddressActions = false
+                    } label: {
+                        Text("Close and Keep Scanning")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .foregroundColor(.accentColor)
+                            .background(glassBackground(cornerRadius: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 6)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 24)
@@ -652,9 +670,10 @@ struct ManageAddressesView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        // Dismissing mid-scan would abandon the only progress readout, and the work keeps running
-        // either way - so the sheet holds until it is done.
-        .interactiveDismissDisabled(isDiscovering)
+        // Freely dismissable mid-scan now, by the swipe as well as by the button above: the scan
+        // belongs to this screen rather than to the sheet, so closing it does not abandon
+        // anything - the Address Actions button keeps its spinner and the result arrives as a
+        // toast. Holding the sheet open was only ever protecting a progress readout.
         .onDisappear { discoverySummary = nil }
     }
 
@@ -1106,9 +1125,13 @@ struct ManageAddressesView: View {
             discoveryProgress = nil
             // The count is addresses that hold a balance or a KNS domain - say so, rather than
             // "used", which is what the old high-water-mark number implied and was not.
-            discoverySummary = discovered == 0
+            let summary = discovered == 0
                 ? "No addresses with a balance or domain found."
                 : "Found \(discovered) address\(discovered == 1 ? "" : "es") with a balance or domain."
+            discoverySummary = summary
+            // Closed the sheet and carried on? Then the summary above has nowhere to render, so
+            // say it here instead of finishing silently.
+            if !showAddressActions { showToast(summary) }
         }
     }
 
