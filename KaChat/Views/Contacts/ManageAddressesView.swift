@@ -232,23 +232,20 @@ struct ManageAddressesView: View {
             // full height avoids that ambiguity for what's a fund-affecting confirmation.
             .presentationDetents([.large])
         }
-        .overlay {
-            if showConsolidateSuccess {
-                ZStack {
-                    Color.black.opacity(0.45)
-                        .ignoresSafeArea()
-                        .onTapGesture { showConsolidateSuccess = false }
-                    ConsolidateSuccessCard(
-                        txIds: consolidateSentTxIds,
-                        explorer: settingsViewModel.settings.kaspaExplorer
-                    ) {
-                        showConsolidateSuccess = false
-                    }
-                }
-                .transition(.opacity)
+        // A half sheet like every other send confirmation. It keeps its own card body rather
+        // than using `SentConfirmationSheet`, because a consolidation sweep submits one
+        // transaction per source address and the list of them is the whole point.
+        .sheet(isPresented: $showConsolidateSuccess) {
+            ConsolidateSuccessCard(
+                txIds: consolidateSentTxIds,
+                explorer: settingsViewModel.settings.kaspaExplorer
+            ) {
+                showConsolidateSuccess = false
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .presentationDetents([.height(min(420, 220 + CGFloat(consolidateSentTxIds.count) * 44))])
+            .presentationDragIndicator(.visible)
         }
-        .animation(.easeInOut(duration: 0.2), value: showConsolidateSuccess)
         .sheet(item: $qrTarget) { entry in
             SpendingAddressQRView(entry: entry)
         }
@@ -1377,9 +1374,9 @@ private struct ConsolidateToPrimaryConfirmView: View {
 /// Confirms a completed consolidation sweep - shown after "Send All Kaspa To Primary Spend
 /// Address" finishes, listing every transaction id it actually submitted (there can be more
 /// than one, one per source address swept) so the user has something concrete to check on an
-/// explorer rather than just trusting the sheet silently closed. Same floating-card look as
-/// WithdrawalSuccessCard (checkmark + "Sent" + teal tappable id) rather than a separate,
-/// differently-styled full page, just extended to a list since this can be more than one id.
+/// explorer rather than just trusting the sheet silently closed. Same half-sheet language as
+/// `SentConfirmationSheet` (checkmark + "Sent" + tappable ids), just extended to a list, since a
+/// sweep submits one transaction per source address and that list is the whole point.
 private struct ConsolidateSuccessCard: View {
     let txIds: [String]
     let explorer: KaspaExplorer
@@ -1468,7 +1465,8 @@ struct SpendingAddressWithdrawView: View {
     @State private var isSending = false
     @State private var isEstimatingMax = false
     @State private var errorMessage: String?
-    @State private var successTxId: String?
+    /// The completed send, driving the sent-confirmation half sheet.
+    @State private var sentTransaction: SentTransaction?
 
     @State private var isResolvingKNS = false
     @State private var resolvedAddress: String?
@@ -1809,27 +1807,17 @@ struct SpendingAddressWithdrawView: View {
                     manualUtxos = selection
                 }
             }
-            .overlay {
-                if let successTxId {
-                    ZStack {
-                        Color.black.opacity(0.45)
-                            .ignoresSafeArea()
-                            .onTapGesture {
-                                onComplete()
-                                dismiss()
-                            }
-                        WithdrawalSuccessCard(
-                            txId: successTxId,
-                            explorerURL: settingsViewModel.settings.kaspaExplorer.txURL(for: successTxId)
-                        ) {
-                            onComplete()
-                            dismiss()
-                        }
-                    }
-                    .transition(.opacity)
+            // A half sheet rather than the dimmed overlay card this used to be, so every send in
+            // the app finishes the same way - see `SentConfirmationSheet`.
+            .sheet(item: $sentTransaction) { sent in
+                SentConfirmationSheet(transaction: sent) {
+                    sentTransaction = nil
+                    onComplete()
+                    dismiss()
                 }
+                .presentationDetents([.height(sent.sheetHeight)])
+                .presentationDragIndicator(.visible)
             }
-            .animation(.easeInOut(duration: 0.2), value: successTxId)
         }
         .interactiveDismissDisabled()
     }
@@ -1966,7 +1954,13 @@ struct SpendingAddressWithdrawView: View {
                 let txId = try await chatService.sendFromSpendingAddress(index: entry.index, toAddress: recipient, amountSompi: amountSompi, manualUtxos: manualUtxos, extraFeeSompi: tipSompi)
                 await MainActor.run {
                     isSending = false
-                    successTxId = txId
+                    sentTransaction = SentTransaction(
+                        txId: txId,
+                        amountSompi: amountSompi,
+                        // A compound is a self-send: naming this address as the recipient reads
+                        // as a mistake, so it just says how much moved.
+                        recipient: isCompoundMode ? nil : recipient
+                    )
                 }
             } catch {
                 await MainActor.run {

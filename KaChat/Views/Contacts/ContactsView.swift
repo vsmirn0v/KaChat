@@ -3477,23 +3477,17 @@ struct KNSDomainSendView: View {
             )) {
                 domainTransferProgressSheet
             }
-            .overlay {
-                if let result {
-                    ZStack {
-                        Color.black.opacity(0.45)
-                            .ignoresSafeArea()
-                        WithdrawalSuccessCard(
-                            txId: result.revealTxId,
-                            explorerURL: settingsViewModel.settings.kaspaExplorer.txURL(for: result.revealTxId)
-                        ) {
-                            onComplete(result)
-                            dismiss()
-                        }
-                    }
-                    .transition(.opacity)
+            .sheet(item: Binding(
+                get: { result.map { SentTransaction(txId: $0.revealTxId) } },
+                set: { if $0 == nil { result = nil } }
+            )) { sent in
+                SentConfirmationSheet(transaction: sent) {
+                    if let result { onComplete(result) }
+                    dismiss()
                 }
+                .presentationDetents([.height(sent.sheetHeight)])
+                .presentationDragIndicator(.visible)
             }
-            .animation(.easeInOut(duration: 0.2), value: result)
         }
     }
 
@@ -4470,57 +4464,6 @@ enum WithdrawFeeTier: String, CaseIterable, Identifiable, Hashable {
 /// Custom success card replacing a plain alert so the transaction id can be a real tappable
 /// link (native SwiftUI alerts can't embed interactive text in their message) - shared by every
 /// "you just sent Kaspa" flow (chatting-address withdraw, Manage Addresses' per-address send).
-struct WithdrawalSuccessCard: View {
-    let txId: String
-    let explorerURL: URL?
-    let onDismiss: () -> Void
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 44))
-                .foregroundColor(.green)
-
-            Text("Sent")
-                .font(.headline)
-                .fontWeight(.bold)
-
-            if let explorerURL {
-                Link(destination: explorerURL) {
-                    Text(txId)
-                        .font(.system(.footnote, design: .monospaced))
-                        .foregroundColor(.accentColor)
-                        .underline()
-                        .multilineTextAlignment(.center)
-                }
-            } else {
-                Text(txId)
-                    .font(.system(.footnote, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            Button {
-                onDismiss()
-            } label: {
-                Text("OK")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.accentColor)
-        }
-        .padding(24)
-        .frame(maxWidth: 300)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(.regularMaterial)
-        )
-        .shadow(color: Color.black.opacity(0.2), radius: 20, x: 0, y: 10)
-    }
-}
-
 /// Sends a plain KAS transfer from the wallet's chatting (identity) address to an arbitrary
 /// recipient address. Reuses AddContactView's address-entry conventions (paste/QR scan,
 /// live validation) but with an amount field instead of a contact-name field, since this
@@ -4548,7 +4491,8 @@ struct WithdrawKaspaView: View {
     @State private var showQRScanner = false
     @State private var isSending = false
     @State private var errorMessage: String?
-    @State private var successTxId: String?
+    /// The completed send, driving the sent-confirmation half sheet.
+    @State private var sentTransaction: SentTransaction?
 
     @State private var isResolvingKNS = false
     @State private var resolvedAddress: String?
@@ -4873,24 +4817,17 @@ struct WithdrawKaspaView: View {
                     manualUtxos = selection
                 }
             }
-            .overlay {
-                if let successTxId {
-                    ZStack {
-                        Color.black.opacity(0.45)
-                            .ignoresSafeArea()
-                            .onTapGesture { dismiss() }
-                        WithdrawalSuccessCard(
-                            txId: successTxId,
-                            explorerURL: settingsViewModel.settings.kaspaExplorer.txURL(for: successTxId)
-                        ) {
-                            dismiss()
-                            onComplete?()
-                        }
-                    }
-                    .transition(.opacity)
+            // A half sheet rather than the dimmed overlay card this used to be, so every send in
+            // the app finishes the same way - see `SentConfirmationSheet`.
+            .sheet(item: $sentTransaction) { sent in
+                SentConfirmationSheet(transaction: sent) {
+                    sentTransaction = nil
+                    dismiss()
+                    onComplete?()
                 }
+                .presentationDetents([.height(sent.sheetHeight)])
+                .presentationDragIndicator(.visible)
             }
-            .animation(.easeInOut(duration: 0.2), value: successTxId)
             .task(id: feeEstimationKey) {
                 guard hasValidRecipient, let amountSompi else {
                     normalFeeSompi = nil
@@ -5036,7 +4973,12 @@ struct WithdrawKaspaView: View {
                 let txId = try await chatService.sendWithdrawal(toAddress: recipient, amountSompi: amountSompi, manualUtxos: manualUtxos, extraFeeSompi: tipSompi)
                 await MainActor.run {
                     isSending = false
-                    successTxId = txId
+                    sentTransaction = SentTransaction(
+                        txId: txId,
+                        amountSompi: amountSompi,
+                        // The domain when one was resolved, otherwise the address itself.
+                        recipient: resolvedDomain ?? recipient
+                    )
                 }
             } catch {
                 await MainActor.run {

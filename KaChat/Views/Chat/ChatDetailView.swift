@@ -95,6 +95,8 @@ struct ChatDetailView: View {
     /// True while "jump to the first message" is pulling the rest of the stored history in, so a
     /// second tap on the header cannot start the sweep again underneath the first.
     @State private var isJumpingToChatStart = false
+    /// The completed payment, driving the sent-confirmation half sheet.
+    @State private var sentTransaction: SentTransaction?
     /// The oldest message in the data model as of the last count change, so the window
     /// re-derivation below can tell HEAD growth (a background prefetch of older history, which
     /// must stay hidden) from TAIL growth (a message arriving, which must be rendered). nil means
@@ -840,6 +842,11 @@ struct ChatDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This only deletes the message from this device - the recipient still has their own copy, and the encrypted transaction remains permanently on the Kaspa blockchain, visible to anyone but unreadable without your keys. This cannot be undone.")
+        }
+        .sheet(item: $sentTransaction) { sent in
+            SentConfirmationSheet(transaction: sent) { sentTransaction = nil }
+                .presentationDetents([.height(sent.sheetHeight)])
+                .presentationDragIndicator(.visible)
         }
         .sheet(item: $reactionsSheetTarget) { target in
             // In a 1:1 chat there are only ever two people, so the name is either yours or
@@ -2851,7 +2858,7 @@ struct ChatDetailView: View {
         isSending = true
         Task {
             do {
-                try await chatService.sendPayment(to: contact, amountSompi: amountSompi, note: "")
+                let txId = try await chatService.sendPayment(to: contact, amountSompi: amountSompi, note: "")
                 await MainActor.run {
                     amountText = ""
                     fiatAmountState.reset()
@@ -2859,6 +2866,15 @@ struct ChatDetailView: View {
                     isEstimatingFee = false
                     // The send may have consumed the contact's last unused pool address.
                     paysToFreshPoolAddress = chatService.willPayViaFreshPoolAddress(contactAddress: contact.address)
+                    // nil means DEFERRED, not sent (no confirmed inputs yet) - the retry timer
+                    // owns it, and there is no transaction to confirm.
+                    if let txId {
+                        sentTransaction = SentTransaction(
+                            txId: txId,
+                            amountSompi: amountSompi,
+                            recipient: contactsManager.displayName(for: contact)
+                        )
+                    }
                 }
                 // The active spending address rotates to a fresh one after a successful send -
                 // refresh so "Available" reflects that new address, not the one just spent from.

@@ -483,3 +483,138 @@ struct ConfirmActionSheet: View {
 struct IdentifiedTxId: Identifiable {
     let id: String
 }
+
+// MARK: - Sent confirmation
+
+/// A completed Kaspa send, for `SentConfirmationSheet`. Identifiable on the txid so it can drive
+/// a `.sheet(item:)` directly.
+struct SentTransaction: Identifiable, Equatable {
+    let txId: String
+    /// Amount in sompi. nil omits the amount line - a consolidation has no meaningful "to whom"
+    /// or "how much" to report.
+    var amountSompi: UInt64?
+    /// Who it went to: a contact's name, a KNS domain, an address. nil omits the line.
+    var recipient: String?
+
+    var id: String { txId }
+}
+
+/// The half sheet every successful Kaspa send ends on: a checkmark, what was sent, and the
+/// transaction id as a live link to whichever block explorer Settings names.
+///
+/// This used to be `WithdrawalSuccessCard`, a dimmed full-screen overlay, and only the two
+/// withdraw screens had it - a tip on KaPosts or a payment in a chat just closed the sheet and
+/// left you with nothing to check. A send is the one moment where the txid is worth handing over,
+/// so it is a link rather than text: tapping it opens the explorer.
+///
+/// The explorer URL is resolved here rather than passed in, so a call site only needs the txid.
+struct SentConfirmationSheet: View {
+    let transaction: SentTransaction
+    let onDone: () -> Void
+
+    private var explorerURL: URL? {
+        AppSettings.load().kaspaExplorer.txURL(for: transaction.txId)
+    }
+
+    /// Trailing zeros trimmed - "1.5 KAS", not "1.50000000 KAS".
+    private var amountText: String? {
+        guard let sompi = transaction.amountSompi else { return nil }
+        var text = String(format: "%.8f", Double(sompi) / 100_000_000.0)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return "\(text) KAS"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 52))
+                .foregroundColor(.green)
+                .padding(.top, 28)
+
+            Text("Sent")
+                .font(.title3.weight(.bold))
+                .padding(.top, 12)
+
+            if let amountText {
+                Text(amountText)
+                    .font(.headline)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 2)
+            }
+
+            if let recipient = transaction.recipient, !recipient.isEmpty {
+                Text("to \(recipient)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 32)
+                    .padding(.top, 2)
+            }
+
+            // The txid, as the link. Middle truncation because both ends identify it and the
+            // middle does not - a leading-truncated hash is unrecognisable.
+            if let explorerURL {
+                Link(destination: explorerURL) {
+                    HStack(spacing: 6) {
+                        Text(transaction.txId)
+                            .font(.system(.footnote, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Image(systemName: "arrow.up.right.square")
+                            .font(.footnote)
+                    }
+                    .foregroundColor(.accentColor)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity)
+                    .background(glassBackground(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+            } else {
+                // No explorer configured: the id is still worth showing, just not as a link.
+                Text(transaction.txId)
+                    .font(.system(.footnote, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+            }
+
+            Text("Tap the transaction to open it in the explorer.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+                .padding(.top, 8)
+
+            Spacer(minLength: 0)
+
+            Button(action: onDone) {
+                Text("Done")
+                    .font(.subheadline.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .foregroundColor(.black)
+                    .background(Capsule().fill(Color.accentColor))
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
+
+/// The detent every `SentConfirmationSheet` uses, so the sheet is the same size wherever a send
+/// finishes. Taller when there is a recipient line to show.
+extension SentTransaction {
+    var sheetHeight: CGFloat {
+        let hasRecipient = !(recipient ?? "").isEmpty
+        return hasRecipient ? 420 : 390
+    }
+}

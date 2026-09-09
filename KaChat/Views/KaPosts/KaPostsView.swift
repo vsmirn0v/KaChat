@@ -4817,6 +4817,9 @@ private struct KaPostTipSheet: View {
     @State private var isEstimatingFee = false
     @State private var isEstimatingMax = false
     @State private var isSending = false
+    /// The completed tip, driving the sent-confirmation half sheet. Set instead of dismissing, so
+    /// the transaction id is handed over rather than the sheet just closing on nothing.
+    @State private var sentTransaction: SentTransaction?
     @State private var errorMessage: String?
 
     // Fee tiers, mirroring WithdrawKaspaView: Normal/Fast/Priority multiply the estimated base
@@ -5054,6 +5057,14 @@ private struct KaPostTipSheet: View {
             }
         }
         .interactiveDismissDisabled(isSending)
+        .sheet(item: $sentTransaction) { sent in
+            SentConfirmationSheet(transaction: sent) {
+                sentTransaction = nil
+                dismiss()
+            }
+            .presentationDetents([.height(sent.sheetHeight)])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     /// Estimation-only stand-in when the poster isn't a contact yet: fee/max sizing needs a
@@ -5114,10 +5125,23 @@ private struct KaPostTipSheet: View {
         let tipExtraFee = extraFeeSompi
         Task {
             do {
-                try await ChatService.shared.sendPayment(to: recipient, amountSompi: amountSompi, extraFeeSompi: tipExtraFee)
+                let txId = try await ChatService.shared.sendPayment(
+                    to: recipient, amountSompi: amountSompi, extraFeeSompi: tipExtraFee
+                )
                 await MainActor.run {
                     Haptics.success()
-                    dismiss()
+                    guard let txId else {
+                        // Deferred rather than broadcast (no confirmed inputs yet) - there is no
+                        // transaction to show, and the retry timer owns it from here.
+                        dismiss()
+                        return
+                    }
+                    isSending = false
+                    sentTransaction = SentTransaction(
+                        txId: txId,
+                        amountSompi: amountSompi,
+                        recipient: displayName
+                    )
                 }
             } catch {
                 await MainActor.run {

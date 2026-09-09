@@ -2116,13 +2116,17 @@ extension ChatService {
         }
     }
 
+    /// Returns the submitted transaction id, or nil when the send was DEFERRED rather than
+    /// broadcast (no confirmed inputs yet - it is retried on a timer). Discardable, since most
+    /// callers only care that it did not throw; the ones that show a sent confirmation use it.
+    @discardableResult
     func sendPayment(
         to contact: Contact,
         amountSompi: UInt64,
         note: String = "",
         pendingTxId: String? = nil,
         extraFeeSompi: UInt64 = 0
-    ) async throws {
+    ) async throws -> String? {
         try await enqueueOutgoingTxOperation {
             try await self.sendPaymentInternal(
                 to: contact,
@@ -2134,6 +2138,7 @@ extension ChatService {
         }
     }
 
+    @discardableResult
     func sendPaymentInternal(
         to contact: Contact,
         amountSompi: UInt64,
@@ -2141,7 +2146,7 @@ extension ChatService {
         pendingTxId: String? = nil,
         /// Extra priority fee (Fast/Priority tiers) on top of the computed base fee.
         extraFeeSompi: UInt64 = 0
-    ) async throws {
+    ) async throws -> String? {
         guard amountSompi > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
         }
@@ -2327,6 +2332,7 @@ extension ChatService {
                 destinationAddress: destinationAddress,
                 pendingTxId: activePendingTxId
             )
+            return txId
         } catch {
             if let acceptedTxId = acceptedTransactionId(from: error) {
                 AppLog.log("[ChatService] Payment already accepted by consensus for %@ -> promoting pending to %@",
@@ -2352,7 +2358,7 @@ extension ChatService {
                     destinationAddress: destinationAddress,
                     pendingTxId: activePendingTxId
                 )
-                return
+                return acceptedTxId
             }
 
             if isNoConfirmedInputsError(error) {
@@ -2371,7 +2377,8 @@ extension ChatService {
                     paymentAmountSompi: amountSompi,
                     paymentNote: note
                 )
-                return
+                // Deferred, not sent - nothing to confirm yet.
+                return nil
             }
 
             markOutgoingAttemptFailed(messageId: pendingMessageId, pendingTxId: activePendingTxId)
