@@ -1,6 +1,5 @@
 import Foundation
 import DeviceCheck
-import CryptoKit
 
 enum GiftClaimState: Equatable {
     case checking
@@ -39,9 +38,12 @@ final class GiftService: NSObject, ObservableObject {
         claimState = .eligible
         AppLog.log("%@", "[GiftService] Simulator: eligible for gift")
         #else
-        if !DCDevice.current.isSupported || !DCAppAttestService.shared.isSupported {
+        // DeviceCheck only. App Attest used to gate this too, and it no longer takes any part in
+        // the claim - a device that supports DeviceCheck but not App Attest was being turned away
+        // from a gift it is perfectly able to claim.
+        if !DCDevice.current.isSupported {
             claimState = .unavailable("Not available on this device")
-            AppLog.log("%@", "[GiftService] DeviceCheck/AppAttest not supported")
+            AppLog.log("%@", "[GiftService] DeviceCheck not supported")
             return
         }
         claimState = .eligible
@@ -61,7 +63,7 @@ final class GiftService: NSObject, ObservableObject {
         }
         claimState = .eligible
         #else
-        if !DCDevice.current.isSupported || !DCAppAttestService.shared.isSupported {
+        if !DCDevice.current.isSupported {
             claimState = .unavailable("Not available on this device")
             return
         }
@@ -92,45 +94,30 @@ final class GiftService: NSObject, ObservableObject {
         claimState = .claiming
 
         do {
-            // 1. Get challenge from server
-            let challenge = try await fetchChallenge()
-            AppLog.log("%@", "[GiftService] Got challenge: \(challenge)")
-
+            // A DeviceCheck token is the whole of what the server verifies for Apple. There is no
+            // challenge round trip and no App Attest attestation any more: the server exposes
+            // neither, and generating an attestation nothing checks was work that could fail and
+            // block a claim for no gain.
             let deviceToken: Data
-            let attestation: Data
-            let keyId: String
-
             #if targetEnvironment(simulator)
-            // Simulator: send dummy data — backend will reject
+            // Simulator has no DeviceCheck. Send something shaped right and let the server say no.
             deviceToken = Data("simulator-test-token".utf8)
-            attestation = Data("simulator-test-attestation".utf8)
-            keyId = "simulator-key-id"
             #else
-            // 2. Generate App Attest key
-            keyId = try await DCAppAttestService.shared.generateKey()
-
-            // 3. Hash challenge for attestation
-            let challengeData = Data(challenge.utf8)
-            let clientDataHash = Data(SHA256.hash(data: challengeData))
-
-            // 4. Attest the key
-            attestation = try await DCAppAttestService.shared.attestKey(keyId, clientDataHash: clientDataHash)
-
-            // 5. Generate DeviceCheck token
             deviceToken = try await DCDevice.current.generateToken()
             #endif
 
-            // 6. Submit claim
             AppLog.log("%@", "[GiftService] Submitting claim to server...")
-            let txId = try await submitClaim(
-                deviceToken: deviceToken,
-                walletAddress: walletAddress,
-                attestation: attestation,
-                keyId: keyId,
-                challenge: challenge
-            )
+            let result = try await submitClaim(deviceToken: deviceToken, address: walletAddress)
 
-            // 7. Cache claimed status
+            guard let txId = result.txId, result.sent else {
+                // Accepted, but nothing was paid - the service is in record-only mode. Saying
+                // "claimed" here would be a lie, and marking it claimed locally would burn the
+                // one attempt this device gets for a gift it never received.
+                AppLog.log("%@", "[GiftService] Claim accepted but not paid (record-only)")
+                claimState = .unavailable("The gift service isn't paying out right now. Try again later.")
+                return
+            }
+
             UserDefaults.standard.set(true, forKey: Self.claimedKey)
             claimState = .claimed(txId: txId)
             AppLog.log("%@", "[GiftService] Gift claimed successfully, txId: \(txId)")
@@ -168,41 +155,17 @@ final class GiftService: NSObject, ObservableObject {
         "https://gift.kachat.duckdns.org"
     }
 
-    private func fetchChallenge() async throws -> String {
+    /// The claim. `POST /v1/claim` with the platform, the destination address and the platform's
+    /// one attestation token - that is the entire contract.
+    ///
+    /// It was `POST /gift/claim` with a challenge, an App Attest attestation and a key id, under
+    /// the field name `walletAddress`. None of that exists on this server: `/gift/claim` and
+    /// `/gift/challenge` are not routes it serves, and it wants `address`.
+    private func submitClaim(deviceToken: Data, address: String) async throws -> ClaimResult {
         guard var components = URLComponents(string: baseURL) else {
             throw GiftError.networkError("Invalid server URL")
         }
-        components.path = (components.path == "/" ? "" : components.path) + "/gift/challenge"
-        guard let url = components.url else {
-            throw GiftError.networkError("Invalid challenge URL")
-        }
-
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw GiftError.networkError("Invalid response")
-        }
-        guard httpResponse.statusCode == 200 else {
-            throw GiftError.serverError("Challenge request failed (HTTP \(httpResponse.statusCode))")
-        }
-
-        struct ChallengeResponse: Decodable {
-            let challenge: String
-        }
-        let decoded = try JSONDecoder().decode(ChallengeResponse.self, from: data)
-        return decoded.challenge
-    }
-
-    private func submitClaim(
-        deviceToken: Data,
-        walletAddress: String,
-        attestation: Data,
-        keyId: String,
-        challenge: String
-    ) async throws -> String {
-        guard var components = URLComponents(string: baseURL) else {
-            throw GiftError.networkError("Invalid server URL")
-        }
-        components.path = (components.path == "/" ? "" : components.path) + "/gift/claim"
+        components.path = (components.path == "/" ? "" : components.path) + "/v1/claim"
         guard let url = components.url else {
             throw GiftError.networkError("Invalid claim URL")
         }
@@ -210,36 +173,47 @@ final class GiftService: NSObject, ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
         let body: [String: String] = [
-            "deviceToken": deviceToken.base64EncodedString(),
-            "walletAddress": walletAddress,
-            "attestation": attestation.base64EncodedString(),
-            "keyId": keyId,
-            "challenge": challenge
+            "platform": "apple",
+            "address": address,
+            "deviceToken": deviceToken.base64EncodedString()
         ]
         request.httpBody = try JSONEncoder().encode(body)
+        request.timeoutInterval = 30
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw GiftError.networkError("Invalid response")
         }
 
-        switch httpResponse.statusCode {
-        case 200:
-            struct ClaimResponse: Decodable {
-                let txId: String
-            }
-            let decoded = try JSONDecoder().decode(ClaimResponse.self, from: data)
-            return decoded.txId
-        case 409:
-            throw GiftError.alreadyClaimed
-        default:
-            if let errorBody = try? JSONDecoder().decode([String: String].self, from: data),
-               let message = errorBody["error"] {
-                throw GiftError.serverError(message)
-            }
-            throw GiftError.serverError("Claim failed (HTTP \(httpResponse.statusCode))")
+        let decoded = try? JSONDecoder().decode(ClaimResponse.self, from: data)
+
+        if httpResponse.statusCode == 409 { throw GiftError.alreadyClaimed }
+        guard httpResponse.statusCode == 200, decoded?.ok == true else {
+            // The server says why in `reason`; every failure shape it returns carries one.
+            throw GiftError.serverError(decoded?.reason ?? "Claim failed (HTTP \(httpResponse.statusCode))")
+        }
+        return ClaimResult(sent: decoded?.sent ?? false, txId: decoded?.resolvedTxId)
+    }
+
+    private struct ClaimResult {
+        let sent: Bool
+        let txId: String?
+    }
+
+    /// `{"ok":true,"sent":false}` in record-only mode; `sent` flips true and a transaction id
+    /// appears once the service is paying out. The id's field name is read tolerantly because the
+    /// live-mode shape has not been observed from here - only record-only has.
+    private struct ClaimResponse: Decodable {
+        let ok: Bool
+        let sent: Bool?
+        let reason: String?
+        let txId: String?
+        let txid: String?
+        let transactionId: String?
+
+        var resolvedTxId: String? {
+            [txId, txid, transactionId].compactMap { $0 }.first { !$0.isEmpty }
         }
     }
 }
