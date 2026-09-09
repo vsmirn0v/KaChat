@@ -181,10 +181,19 @@ final class ColdStorageManager: ObservableObject {
         let foundCount: Int
     }
 
+    /// Swept whatever the gaps, so a run of empty addresses can never end the scan early.
+    static let deepScanFloor: UInt32 = 1000
+    /// Hard stop, so the scan always terminates.
+    static let maxScanIndex: UInt32 = 5000
+    /// Addresses per bulk UTXO request.
+    static let scanBatchSize: UInt32 = 100
+    /// KNS has no bulk endpoint, so domain ownership is only probed this far in.
+    static let knsProbeDepth: UInt32 = 200
+
     @discardableResult
     func discoverAddresses(
         for account: ColdStorageAccount,
-        gapLimit: Int = 20,
+        gapLimit: Int = 60,
         onProgress: (@MainActor (DiscoveryProgress) -> Void)? = nil
     ) async -> Int {
         guard let extendedKey = KaspaExtendedPublicKey(kpubString: account.kpubString) else {
@@ -196,6 +205,7 @@ final class ColdStorageManager: ObservableObject {
         var matchCount = 0
         var consecutiveMisses = 0
         var index: UInt32 = 0
+        var matchedIndices: Set<Int> = []
 
         // An address is worth surfacing when it HOLDS SOMETHING: a balance, or a KNS domain.
         //
@@ -206,32 +216,64 @@ final class ColdStorageManager: ObservableObject {
         //
         // Always from index 0, never from a stored high-water mark: the answer CHANGES over time.
         // An address that was empty last month can hold a balance today, and a scan that starts
-        // past it would never look again - which is exactly why Android found nothing on a rescan
-        // while iOS found the same 49 every time.
-        while consecutiveMisses < gapLimit {
+        // past it would never look again.
+        //
+        // ## Why this is no longer a per-address gap-limit walk
+        //
+        // It was: one UTXO request per address, stop after 20 consecutive empties. That cannot
+        // find what it is asked to find. Any run of 20 empty addresses ends the scan, and a
+        // funded account can easily have one, so anything past the first gap was unreachable with
+        // no way for the reader to make it look further. The spending-address scan had the
+        // identical bug and was reported for exactly that: a balance at index 291 discovery would
+        // never see.
+        //
+        // It sweeps a floor of `deepScanFloor` indices whatever the gaps now, in batches.
+        // `getUtxosByAddresses` has always taken an array; asking it for one address at a time is
+        // what made this hundreds of round trips.
+        while index < Self.maxScanIndex {
+            if index >= Self.deepScanFloor && consecutiveMisses >= gapLimit { break }
+
+            let upper = min(index + Self.scanBatchSize, Self.maxScanIndex)
             if let onProgress {
                 let snapshot = DiscoveryProgress(checkingIndex: Int(index), foundCount: matchCount)
                 await MainActor.run { onProgress(snapshot) }
             }
-            guard let address = try? extendedKey.receiveAddress(at: index, network: network) else { break }
 
-            // Balance first: a gRPC call, and it short-circuits the KNS lookup for the common case.
-            let hasBalance = !((try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []).isEmpty
-            let matches: Bool
-            if hasBalance {
-                matches = true
-            } else {
-                matches = await KNSService.shared.ownsAnyDomain(address)
+            var derived: [(UInt32, String)] = []
+            for i in index..<upper {
+                guard let address = try? extendedKey.receiveAddress(at: i, network: network) else { break }
+                derived.append((i, address))
             }
+            if derived.isEmpty { break }
 
-            if matches {
-                lastMatchIndex = Int(index)
-                matchCount += 1
-                consecutiveMisses = 0
-            } else {
-                consecutiveMisses += 1
+            // ONE call for the whole batch. A batch that cannot be read stops the scan rather
+            // than reporting an emptiness it never confirmed - a throttled request is not
+            // evidence of an empty address.
+            guard let utxos = try? await NodePoolService.shared.getUtxosByAddresses(derived.map { $0.1 }) else {
+                AppLog.log("[ColdStorage] Discovery: balances unavailable at %d, stopping", Int(index))
+                break
             }
-            index += 1
+            let funded = Set(utxos.map { $0.address })
+
+            for (i, address) in derived {
+                let matches: Bool
+                if funded.contains(address) {
+                    matches = true
+                } else if i < Self.knsProbeDepth {
+                    matches = await KNSService.shared.ownsAnyDomain(address)
+                } else {
+                    matches = false
+                }
+                if matches {
+                    lastMatchIndex = Int(i)
+                    matchCount += 1
+                    matchedIndices.insert(Int(i))
+                    consecutiveMisses = 0
+                } else {
+                    consecutiveMisses += 1
+                }
+            }
+            index += UInt32(derived.count)
         }
 
         // The stored bound has to cover the highest MATCH so those rows can be derived and shown.
@@ -239,8 +281,26 @@ final class ColdStorageManager: ObservableObject {
         // vanish from the list.
         let bound = lastMatchIndex + 1
         if bound > account.maxAddressIndex, let idx = accounts.firstIndex(where: { $0.id == account.id }) {
+            let previousMax = accounts[idx].maxAddressIndex
             accounts[idx].maxAddressIndex = bound
             saveAccounts()
+            // Rows default to VISIBLE unless explicitly hidden, so hide the empty indices the new
+            // bound sweeps in - exactly as `revealAddress` already does. The scan reaches a
+            // thousand addresses deep now, and a match at index 291 would otherwise fill this
+            // account's list with 290 empty rows. Anything the scan MATCHED is un-hidden instead:
+            // a previously-hidden address that now holds a balance would otherwise be found and
+            // dropped straight back out of the list, which reads as not finding it at all.
+            var hiddenSet = loadHiddenIndices(accountId: account.id)
+            for i in (previousMax + 1)...lastMatchIndex where !matchedIndices.contains(i) {
+                hiddenSet.insert(i)
+            }
+            hiddenSet.subtract(matchedIndices)
+            saveHiddenIndices(hiddenSet, accountId: account.id)
+        } else if !matchedIndices.isEmpty {
+            var hiddenSet = loadHiddenIndices(accountId: account.id)
+            let before = hiddenSet
+            hiddenSet.subtract(matchedIndices)
+            if hiddenSet != before { saveHiddenIndices(hiddenSet, accountId: account.id) }
         }
         // The COUNT of addresses worth showing - not the bound. "Found 49" for six funded
         // addresses was the old return value leaking a high-water mark into a user-facing number.

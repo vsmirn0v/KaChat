@@ -730,7 +730,7 @@ struct ColdStorageDetailView: View {
                          : "\(progress.foundCount) found so far")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text("Scanning stops after 20 unused addresses in a row.")
+                    Text("Checks the first thousand addresses whatever the gaps, then keeps going while it keeps finding.")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
