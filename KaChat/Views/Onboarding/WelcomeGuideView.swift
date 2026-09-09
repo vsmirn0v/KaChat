@@ -716,7 +716,7 @@ struct WelcomeGuideView: View {
         scaffold(
             icon: "qrcode",
             title: "Fund Your Chatting Address",
-            body: "50 Kaspa is recommended to get started to be able to create a KNS profile and chat for a while. 5 Kaspa is enough for about 1500 messages",
+            body: "50 Kaspa is recommended to get started to be able to create a KNS profile and chat for a while. 5 Kaspa is enough for about 2500 messages",
             buttonTitle: "Next",
             extra: {
                 VStack(spacing: 12) {
