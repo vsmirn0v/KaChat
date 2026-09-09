@@ -2555,7 +2555,7 @@ struct KaPostsView: View {
             return
         }
         if let parent = findPost(byRemoteId: parentId) {
-            openDetail(parent, scrollToCommentRemoteId: post.remoteId)
+            openDetail(parent, scrollToCommentRemoteId: post.remoteId, ensureComment: post)
             return
         }
         if let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() {
@@ -2563,13 +2563,13 @@ struct KaPostsView: View {
             await loadMyProfileReplies(pubkey: pubkey, reset: true)
         }
         if let parent = findPost(byRemoteId: parentId) {
-            openDetail(parent, scrollToCommentRemoteId: post.remoteId)
+            openDetail(parent, scrollToCommentRemoteId: post.remoteId, ensureComment: post)
             return
         }
         // The parent is as unfindable through the indexer as the reply was - read it off its own
         // transaction rather than presenting the reply as a context-free thread root.
         if let parent = await chainPost(txId: parentId) {
-            openDetail(parent, scrollToCommentRemoteId: post.remoteId)
+            openDetail(parent, scrollToCommentRemoteId: post.remoteId, ensureComment: post)
             return
         }
         openDetail(post)
@@ -2796,7 +2796,17 @@ struct KaPostsView: View {
         Task { await loadThreadReplies(for: comment, reset: true) }
     }
 
-    private func openDetail(_ post: DraftPost, scrollToCommentRemoteId: String? = nil) {
+    /// `ensureComment` is the reply a notification was tapped FOR. The thread's replies come from
+    /// the indexer, which can lag the push by seconds, so opening a brand-new reply's thread
+    /// routinely rendered without the reply in it - you tapped "someone replied" and landed on
+    /// your own post with nothing new on it. It is spliced in when the fetch comes back without
+    /// it, which needs no waiting and no retry: the reply is already resolved by the time we get
+    /// here, so the indexer catching up is not something this has to depend on.
+    private func openDetail(
+        _ post: DraftPost,
+        scrollToCommentRemoteId: String? = nil,
+        ensureComment: DraftPost? = nil
+    ) {
         replyText = ""
         // nil on every normal open, so a stale pending scroll target from an earlier
         // notification landing can never yank a later thread around.
@@ -2813,6 +2823,13 @@ struct KaPostsView: View {
         // then walk the author's own continuation so the Thread section can render.
         Task {
             await loadThreadReplies(for: post, reset: true)
+            if let ensureComment, let ensuredId = ensureComment.remoteId, !ensuredId.isEmpty {
+                mutatePost(id: post.id) { target in
+                    guard !target.comments.contains(where: { $0.remoteId == ensuredId }) else { return }
+                    target.comments.append(ensureComment)
+                }
+                resolveIdentities(for: [ensureComment])
+            }
             await loadSelfThreadChain(rootId: post.id)
         }
     }
@@ -6611,6 +6628,9 @@ struct KaPostsNotificationsView: View {
     @State private var loadFailed = false
     /// Endless-scroll state for the notification stream (cursor-paginated by the indexer).
     @State private var page = KaPostsPageState()
+    /// The notification whose action sheet is up. Tapping a row asks what to do with it rather
+    /// than committing to one of the two answers.
+    @State private var actionTarget: Item?
 
     var body: some View {
         NavigationStack {
@@ -6659,6 +6679,56 @@ struct KaPostsNotificationsView: View {
             .onAppear { KaPostsNotificationService.shared.isNotificationsScreenVisible = true }
             .onDisappear { KaPostsNotificationService.shared.isNotificationsScreenVisible = false }
         }
+        .sheet(item: $actionTarget) { item in
+            notificationActionsSheet(item)
+                .presentationDetents([.height(item.targetTxId == nil ? 250 : 320)])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// The half sheet behind a tapped notification. Same shape as Address Actions and the other
+    /// half-sheet menus, so a menu is a menu wherever it appears.
+    @ViewBuilder
+    private func notificationActionsSheet(_ item: Item) -> some View {
+        VStack(spacing: 0) {
+            Text(displayName(for: item.actorAddress))
+                .font(.headline)
+                .padding(.top, 20)
+                .padding(.bottom, 16)
+
+            VStack(spacing: 12) {
+                if item.targetTxId != nil {
+                    ActionSheetRow(
+                        title: "Open in KaPosts",
+                        subtitle: "Goes to the post this is about, in the app.",
+                        systemImage: "bubble.left.and.bubble.right"
+                    ) {
+                        guard let target = item.targetTxId else { return }
+                        actionTarget = nil
+                        KaPostsDeepLink.pendingPostTxId = target
+                        dismiss()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            NotificationCenter.default.post(name: .openKaPost, object: nil, userInfo: [:])
+                        }
+                    }
+                }
+                if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: item.id) {
+                    ActionSheetRow(
+                        title: "View in Explorer",
+                        subtitle: "Opens the transaction on your chosen block explorer.",
+                        systemImage: "globe"
+                    ) {
+                        actionTarget = nil
+                        openURL(url)
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.bottom, 20)
     }
 
     private func itemRow(_ item: Item) -> some View {
@@ -6693,30 +6763,18 @@ struct KaPostsNotificationsView: View {
                     .foregroundColor(.secondary)
             }
             Spacer()
-            Button {
-                if let url = settingsViewModel.settings.kaspaExplorer.txURL(for: item.id) {
-                    openURL(url)
-                }
-            } label: {
-                Text("View")
-                    .font(.caption.weight(.bold))
-                    .foregroundColor(.accentColor)
-                    .underline()
-            }
-            .buttonStyle(.plain)
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.bold))
+                .foregroundColor(.secondary)
         }
         .contentShape(Rectangle())
-        // Tap the row -> the relevant post opens in-app (the inner explorer View button still
-        // wins its own taps). Rides the shared deep-link plumbing: close this sheet, let
-        // KaPostsView pick up the pending id and open the thread.
+        // The whole row asks what to do with this notification. There used to be a "View" button
+        // wired straight to the explorer sitting next to a row tap that opened the post in-app -
+        // two different destinations, one of them unlabelled, and the button quietly ate taps
+        // meant for the row.
         .onTapGesture {
-            guard let target = item.targetTxId else { return }
             Haptics.impact(.light)
-            KaPostsDeepLink.pendingPostTxId = target
-            dismiss()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                NotificationCenter.default.post(name: .openKaPost, object: nil, userInfo: [:])
-            }
+            actionTarget = item
         }
         .task(id: item.actorAddress) {
             guard !item.actorAddress.isEmpty,
