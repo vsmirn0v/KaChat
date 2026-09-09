@@ -631,26 +631,48 @@ extension WalletManager {
         let foundCount: Int
     }
 
-    /// Gap-limit scan for spending addresses worth surfacing, matching Cold Storage's discovery
-    /// exactly (`ColdStorageManager.discoverAddresses`). Extends `maxSpendingAddressIndex` to
-    /// cover the highest match. Returns how many addresses were FOUND, not the new bound.
-    ///
-    /// Two deliberate differences from what this used to do:
+    /// Swept whatever the gaps, so a run of empty addresses can never end the scan early.
+    static let spendingDeepScanFloor = 1000
+    /// Hard stop, so the scan always terminates.
+    static let maxSpendingScanIndex = 5000
+    /// Addresses per bulk UTXO request.
+    static let spendingScanBatchSize = 100
+    /// KNS has no bulk endpoint, so domain ownership is only probed this far in.
+    static let spendingKnsProbeDepth = 200
+
+    /// Scan for spending addresses worth surfacing. Extends `maxSpendingAddressIndex` to cover
+    /// the highest match. Returns how many addresses were FOUND, not the new bound.
     ///
     /// An address is worth surfacing when it HOLDS SOMETHING - a balance, or a KNS domain - not
     /// when it has transaction history. History still decides the "Unused" badge on a row (address
     /// reuse is a privacy problem), but every address ever touched and emptied is not what this
     /// list is for.
     ///
-    /// And the walk starts at index 0, never at the stored high-water mark, because the answer
+    /// The walk starts at index 0, never at the stored high-water mark, because the answer
     /// CHANGES: an address that was empty last month can hold a balance today, and a scan starting
     /// past it would never look again.
+    ///
+    /// ## Why this is not a gap-limit walk any more
+    ///
+    /// It was: one UTXO request per address, stop after 20 consecutive empties. That design
+    /// cannot find what it is asked to find. A wallet with a balance at index 291 and any run of
+    /// 20 empty addresses before it - which is ordinary, since a spending chain reveals addresses
+    /// it never funds - ended the scan in the twenties and reported nothing, every time, with no
+    /// way for the reader to make it look further.
+    ///
+    /// So it sweeps a floor of `spendingDeepScanFloor` indices whatever the gaps, in batches of
+    /// `spendingScanBatchSize`. `getUtxosByAddresses` has always taken an array; asking it for
+    /// one address at a time is what made this hundreds of round trips. Batched, it is both
+    /// thorough and far faster than the walk it replaces. Past the floor it keeps going while
+    /// something is still turning up, and stops for good at `maxSpendingScanIndex`.
     @discardableResult
     func discoverSpendingAddresses(
-        gapLimit: Int = 20,
+        gapLimit: Int = 60,
         onProgress: (@MainActor (SpendingDiscoveryProgress) -> Void)? = nil
     ) async -> Int {
-        guard let changeKey = spendingChangeKey() else { return 0 }
+        // Readiness check only: `spendingAddresses(inRange:)` does its own derivation, through
+        // one shared change key per call rather than one per address.
+        guard spendingChangeKey() != nil else { return 0 }
 
         var lastMatchIndex = -1
         var matchCount = 0
@@ -658,40 +680,79 @@ extension WalletManager {
         var index = 0
         var matchedIndices: Set<Int> = []
 
-        while consecutiveMisses < gapLimit {
+        while index < Self.maxSpendingScanIndex {
+            // Past the floor, stop once nothing has turned up for a long stretch.
+            if index >= Self.spendingDeepScanFloor && consecutiveMisses >= gapLimit { break }
+
+            let upper = min(index + Self.spendingScanBatchSize, Self.maxSpendingScanIndex)
+            let batch = index..<upper
             if let onProgress {
                 let snapshot = SpendingDiscoveryProgress(checkingIndex: index, foundCount: matchCount)
                 await MainActor.run { onProgress(snapshot) }
             }
-            guard let address = spendingAddress(at: index, changeKey: changeKey) else { break }
 
-            // Balance first: it short-circuits the KNS lookup for the common case.
-            let hasBalance = !((try? await NodePoolService.shared.getUtxosByAddresses([address])) ?? []).isEmpty
-            let matches = hasBalance ? true : await KNSService.shared.ownsAnyDomain(address)
+            let derived = spendingAddresses(inRange: batch)
+            if derived.isEmpty { break }
 
-            if matches {
-                lastMatchIndex = index
-                matchCount += 1
-                matchedIndices.insert(index)
-                consecutiveMisses = 0
-            } else {
-                consecutiveMisses += 1
+            // ONE call for the whole batch: `getUtxosByAddresses` has always taken an array, and
+            // asking it for a single address at a time is what made this a hundreds-of-round-trip
+            // walk. A batch that cannot be read stops the scan rather than reporting an emptiness
+            // it never confirmed - a throttled request is not evidence of an empty address.
+            let addresses = batch.compactMap { derived[$0] }
+            guard let utxos = try? await NodePoolService.shared.getUtxosByAddresses(addresses) else {
+                AppLog.log("[WalletManager] Spending discovery: balances unavailable at %d, stopping", index)
+                break
             }
-            index += 1
+            let funded = Set(utxos.map { $0.address })
+
+            for i in batch {
+                guard let address = derived[i] else { continue }
+                let matches: Bool
+                if funded.contains(address) {
+                    matches = true
+                } else if i < Self.spendingKnsProbeDepth {
+                    matches = await KNSService.shared.ownsAnyDomain(address)
+                } else {
+                    matches = false
+                }
+                if matches {
+                    lastMatchIndex = i
+                    matchCount += 1
+                    matchedIndices.insert(i)
+                    consecutiveMisses = 0
+                } else {
+                    consecutiveMisses += 1
+                }
+            }
+            index = upper
         }
 
+        // One read-modify-write of the hidden set, not one per index: it is a computed property
+        // over UserDefaults, so an insert in a loop would read and rewrite the whole thing every
+        // time - and this loop can now be hundreds of indices long.
+        let previousMax = maxSpendingAddressIndex
+        var hidden = hiddenSpendingIndices
         // Anything the scan matched gets un-hidden. A previously-hidden address that now holds a
         // balance or a domain would otherwise be found and then dropped straight back out of the
         // list, which reads as the scan not finding it at all - and hiding is a tidying choice
         // about empty addresses, not a decision that should outrank a balance.
-        if !matchedIndices.isEmpty {
-            hiddenSpendingIndices.subtract(matchedIndices)
+        hidden.subtract(matchedIndices)
+        if lastMatchIndex > previousMax {
+            // Hide the empty indices the new bound sweeps in, exactly as `revealSpendingAddress`
+            // does. The scan reaches a thousand addresses deep now, so a match at index 291 would
+            // otherwise raise the bound and flood Manage Addresses with 290 empty rows.
+            for i in (previousMax + 1)..<lastMatchIndex where !matchedIndices.contains(i) {
+                hidden.insert(i)
+            }
+        }
+        if hidden != hiddenSpendingIndices {
+            hiddenSpendingIndices = hidden
         }
 
         // The stored bound has to cover the highest match so those rows can be derived and
         // shown, and it only ever grows: an address that held funds last month and is empty now
         // should not vanish from the list.
-        if lastMatchIndex > maxSpendingAddressIndex {
+        if lastMatchIndex > previousMax {
             await updateSpendingBounds(maxIndex: lastMatchIndex)
         }
 
