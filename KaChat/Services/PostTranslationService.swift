@@ -113,10 +113,78 @@ final class PostTranslationService: ObservableObject {
         guard stripped.filter(\.isLetter).count >= minimumLetters else { return nil }
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(stripped)
-        guard let (language, confidence) = recognizer.languageHypotheses(withMaximum: 1).first,
-              confidence >= minimumConfidence,
-              language != .undetermined else { return nil }
-        return Locale.Language(identifier: language.rawValue)
+        let hypotheses = recognizer.languageHypotheses(withMaximum: 8)
+            .filter { $0.key != .undetermined }
+            .sorted { $0.value > $1.value }
+        guard let best = hypotheses.first else { return nil }
+
+        // Script beats probability. `NLLanguageRecognizer` weights Latin words heavily, so a post
+        // in a non-Latin script that also carries brand names, tickers or a "GM" can come back as
+        // a Latin-script language outright - measured: Arabic text with one Latin word identifies
+        // as Urdu-in-Arabic-script, and worse, some mixed posts identify as Swedish. When the text
+        // is overwhelmingly written in one script, a language that is not written in that script
+        // is simply the wrong answer, whatever probability was attached to it, so the best
+        // hypothesis that IS written in that script wins instead.
+        //
+        // No confidence floor on that branch. The floor exists to stop a coin-flip between two
+        // Latin-script languages putting "Translate from Portuguese" under readable English; it is
+        // not needed to know that Cyrillic text is not Swedish - the script already said so.
+        if let script = dominantScript(of: stripped),
+           script != Self.latinScript,
+           scriptCode(of: best.key) != script,
+           let sameScript = hypotheses.first(where: { scriptCode(of: $0.key) == script }) {
+            return Locale.Language(identifier: sameScript.key.rawValue)
+        }
+
+        guard best.value >= minimumConfidence else { return nil }
+        return Locale.Language(identifier: best.key.rawValue)
+    }
+
+    private static let latinScript = "Latn"
+
+    /// The ISO 15924 script a language is normally written in, from CLDR's own likely-subtags data
+    /// ("ru" -> "ru-Cyrl-RU"), so there is no hand-maintained language-to-script table to fall out
+    /// of date.
+    private static func scriptCode(of language: NLLanguage) -> String? {
+        Locale.Language(identifier: language.rawValue)
+            .maximalIdentifier
+            .split(separator: "-")
+            .dropFirst()
+            .first
+            .map(String.init)
+    }
+
+    /// The script at least half the letters are written in, or nil when the text is genuinely
+    /// mixed. Deliberately coarse: it only has to separate "this is Cyrillic/Arabic/Han/..." from
+    /// "this is Latin", which is the call the recognizer gets wrong.
+    private static func dominantScript(of text: String) -> String? {
+        var counts: [String: Int] = [:]
+        var total = 0
+        for character in text where character.isLetter {
+            guard let scalar = character.unicodeScalars.first else { continue }
+            counts[scriptName(for: scalar.value), default: 0] += 1
+            total += 1
+        }
+        guard total > 0, let winner = counts.max(by: { $0.value < $1.value }) else { return nil }
+        return Double(winner.value) / Double(total) >= 0.5 ? winner.key : nil
+    }
+
+    /// Unicode block to script code. Only the blocks that matter for the languages a translation
+    /// service serves; everything else counts as Latin, which is the conservative answer because
+    /// the Latin branch is the one that keeps the confidence floor.
+    private static func scriptName(for value: UInt32) -> String {
+        switch value {
+        case 0x0370...0x03FF, 0x1F00...0x1FFF: return "Grek"
+        case 0x0400...0x052F, 0x2DE0...0x2DFF, 0xA640...0xA69F: return "Cyrl"
+        case 0x0590...0x05FF, 0xFB1D...0xFB4F: return "Hebr"
+        case 0x0600...0x06FF, 0x0750...0x077F, 0x08A0...0x08FF, 0xFB50...0xFDFF, 0xFE70...0xFEFF: return "Arab"
+        case 0x0900...0x097F: return "Deva"
+        case 0x0E00...0x0E7F: return "Thai"
+        case 0x1100...0x11FF, 0x3130...0x318F, 0xA960...0xA97F, 0xAC00...0xD7AF: return "Hang"
+        case 0x3040...0x30FF, 0x31F0...0x31FF: return "Jpan"
+        case 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF: return "Hani"
+        default: return latinScript
+        }
     }
 
     private static func strippedForDetection(_ text: String) -> String {
