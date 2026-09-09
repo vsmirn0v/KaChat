@@ -17,6 +17,9 @@ final class GiftService: NSObject, ObservableObject {
     @Published private(set) var claimState: GiftClaimState = .checking
 
     private static let claimedKey = "kachat_gift_claimed"
+    private static let lastAttemptKey = "kachat_gift_last_attempt_at"
+    /// Minimum gap between claim attempts, across relaunches.
+    private static let claimCooldown: TimeInterval = 60
 
     private override init() {
         super.init()
@@ -90,6 +93,22 @@ final class GiftService: NSObject, ObservableObject {
             AppLog.log("%@", "[GiftService] claimGift called but state is \(claimState), skipping")
             return
         }
+
+        // Attempt cooldown, persisted. The in-memory state machine alone bounds nothing across a
+        // relaunch: a failed attempt leaves `.unavailable`, but `checkInitialState` puts a fresh
+        // launch back to `.eligible`, so the gift server could be hit as fast as the app can be
+        // restarted - and every attempt costs it a real DeviceCheck verification. Persisting the
+        // timestamp is what makes the limit survive that.
+        let lastAttempt = UserDefaults.standard.double(forKey: Self.lastAttemptKey)
+        let sinceLast = Date().timeIntervalSince1970 - lastAttempt
+        if lastAttempt > 0, sinceLast >= 0, sinceLast < Self.claimCooldown {
+            let wait = Int(Self.claimCooldown - sinceLast) + 1
+            AppLog.log("%@", "[GiftService] Claim refused locally: \(wait)s of cooldown left")
+            claimState = .unavailable("Just tried that. Give it \(wait)s.")
+            return
+        }
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastAttemptKey)
+
         AppLog.log("%@", "[GiftService] Starting gift claim for \(walletAddress)")
         claimState = .claiming
 
