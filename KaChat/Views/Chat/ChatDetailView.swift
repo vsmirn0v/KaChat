@@ -95,6 +95,11 @@ struct ChatDetailView: View {
     /// True while "jump to the first message" is pulling the rest of the stored history in, so a
     /// second tap on the header cannot start the sweep again underneath the first.
     @State private var isJumpingToChatStart = false
+    /// The oldest message in the data model as of the last count change, so the window
+    /// re-derivation below can tell HEAD growth (a background prefetch of older history, which
+    /// must stay hidden) from TAIL growth (a message arriving, which must be rendered). nil means
+    /// "not established yet" and is treated as tail growth, matching the old behaviour.
+    @State private var previousFirstMessageId: UUID?
     @State private var lastOlderPageRequestAt: Date = .distantPast
     @State private var topVisibleMessageId: UUID?
     @State private var isBottomAnchorVisible = false
@@ -1096,6 +1101,7 @@ struct ChatDetailView: View {
             rebuildMessageSnapshotIfNeeded(force: true)
             configureInitialMessageWindow()
             previousMessagesCount = messages.count
+            previousFirstMessageId = messages.first?.id
             chatService.enterConversation(for: newContact.address)
             messageText = chatService.draft(for: newContact.address)
             attachPendingShareImageIfAvailable(for: newContact.address)
@@ -1112,6 +1118,9 @@ struct ChatDetailView: View {
         .onChange(of: messages.count) { newCount in
             let oldCount = previousMessagesCount
             previousMessagesCount = newCount
+            let newFirstId = messages.first?.id
+            let headGrew = previousFirstMessageId != nil && newFirstId != previousFirstMessageId
+            previousFirstMessageId = newFirstId
             // A delete shrinks the array without moving the tail id; clamp the tail-change
             // handler's growth tracker so the NEXT genuine arrival still registers as growth.
             if newCount < lastHandledTailCount {
@@ -1134,7 +1143,7 @@ struct ChatDetailView: View {
                         max(messages.count - startIndex, messagePageSize),
                         messages.count
                     )
-                } else {
+                } else if !headGrew {
                     // Start id unknown or replaced by dedup - fall back to grow-by-delta so the
                     // tail stays covered, then re-pin below.
                     loadedMessageCount = min(
@@ -1142,6 +1151,18 @@ struct ChatDetailView: View {
                         max(newCount, messagePageSize)
                     )
                 }
+                // else: the growth was at the HEAD and the pin is gone, so there is nothing to
+                // derive a window from. Leaving `loadedMessageCount` alone keeps the prefetched
+                // page as hidden backlog, which is what it is for.
+                //
+                // Growing by the delta here instead - which is what this did - prepended a whole
+                // page of older history into the RENDERED window, with no viewport snapshot and
+                // no `armHistoryGrowthAnchor()`. Every other head growth in this file arms that
+                // anchor first (scroll-up pagination, jump-to-reply) precisely because the inert
+                // `.top` default anchor holds the top of the content still, so an unarmed prepend
+                // pushes the rows being read downward and throws the viewport toward the start of
+                // the conversation. That is the "scrolling history randomly jumps to the top"
+                // report: not one jump, but one per prefetched page while reading upward.
             }
             if loadedMessageCount == 0 {
                 configureInitialMessageWindow()
@@ -3009,6 +3030,13 @@ struct ChatDetailView: View {
     private func jumpToChatStart(using proxy: ScrollViewProxy) {
         guard !isJumpingToChatStart else { return }
         guard !messages.isEmpty else { return }
+        // Not while the list is moving. The header band sits over the top of the scrolling
+        // content, and tapping the screen to arrest a fling is an ordinary reflex - that tap
+        // must not be read as "take me to the beginning of the conversation".
+        if let scrollView = scrollViewReference.scrollView,
+           scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating {
+            return
+        }
         isJumpingToChatStart = true
         Haptics.impact(.light)
         Task { @MainActor in
