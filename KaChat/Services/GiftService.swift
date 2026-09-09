@@ -156,8 +156,16 @@ final class GiftService: NSObject, ObservableObject {
 
     // MARK: - Network
 
+    /// The gift server. Hardcoded rather than a Settings entry, unlike the indexer/KNS/explorer
+    /// endpoints: a claim is attested against THIS server's challenge, so pointing it elsewhere
+    /// cannot work, it can only be used to aim an attestation somewhere it does not belong.
+    ///
+    /// Android sets the same host in `AppModule.provideGiftApi`. Keep the two in step - they
+    /// drifted apart once (iOS on api.kachat.app, Android left on a host that had stopped
+    /// serving the endpoints entirely) and nothing caught it, because each platform only ever
+    /// reads its own copy.
     private var baseURL: String {
-        "https://api.kachat.app"
+        "https://gift.kachat.duckdns.org"
     }
 
     private func fetchChallenge() async throws -> String {
