@@ -215,7 +215,27 @@ class NotificationService: UNNotificationServiceExtension {
                     ?? chessPreviewText(for: decrypted)
                     ?? unwrapReplyText(decrypted)
             } else {
+                // No payload on the push. Anything over 3.5KB is sent txId-only (see
+                // PUSH_NOTIFICATIONS.md), and a photo compresses to 10-50KB, so EVERY photo and
+                // voice message lands here - which is why they all read "New message" however
+                // good the preview sniffs below are. The message is on chain and this extension
+                // holds the key, so read it and say what it actually is.
                 content.body = NSLocalizedString("New message", comment: "Fallback body for contextual push notification")
+                fetchChainPreview(txId: txId) { [weak self] preview in
+                    guard let self else { return }
+                    if let preview, !preview.isEmpty {
+                        content.body = preview
+                    }
+                    self.finishContextual(
+                        content: content,
+                        txId: txId,
+                        senderAddress: senderAddress,
+                        messageType: messageType,
+                        shouldIncrementUnread: shouldIncrementUnread,
+                        contentHandler: contentHandler
+                    )
+                }
+                return
             }
         case "payment":
             handlePayment(content: content, userInfo: userInfo)
@@ -227,6 +247,26 @@ class NotificationService: UNNotificationServiceExtension {
             content.body = NSLocalizedString("New message", comment: "Generic push body")
         }
 
+        finishContextual(
+            content: content,
+            txId: txId,
+            senderAddress: senderAddress,
+            messageType: messageType,
+            shouldIncrementUnread: shouldIncrementUnread,
+            contentHandler: contentHandler
+        )
+    }
+
+    /// The tail every 1:1 path ends on. Factored out because the off-chain read above finishes
+    /// asynchronously and has to run exactly the same bookkeeping.
+    private func finishContextual(
+        content: UNMutableNotificationContent,
+        txId: String,
+        senderAddress: String,
+        messageType: String,
+        shouldIncrementUnread: Bool,
+        contentHandler: @escaping (UNNotificationContent) -> Void
+    ) {
         if content.body == NSLocalizedString("New message", comment: "Generic push body") || messageType != "contextual" {
             addPendingMessage(txId: txId, sender: senderAddress, type: messageType)
         }
@@ -278,6 +318,17 @@ class NotificationService: UNNotificationServiceExtension {
         userInfo: [AnyHashable: Any],
         txId: String
     ) {
+        handleGroupPushResolved(messageType: messageType, content: content, userInfo: userInfo, txId: txId)
+    }
+
+    /// The real body. Re-entered once, with `payload` filled in, when the push arrived without
+    /// one and the message was read off chain instead - see the branch below.
+    private func handleGroupPushResolved(
+        messageType: String,
+        content: UNMutableNotificationContent,
+        userInfo: [AnyHashable: Any],
+        txId: String
+    ) {
         let defaults = UserDefaults(suiteName: appGroupIdentifier)
         let defaultSoundEnabled = (defaults?.object(forKey: incomingNotificationSoundEnabledKey) as? Bool) ?? true
         let shouldIncrementUnread = defaults.map { !hasStoredTxId(txId: txId, defaults: $0) } ?? false
@@ -292,6 +343,25 @@ class NotificationService: UNNotificationServiceExtension {
         content.threadIdentifier = "group"
 
         if messageType == "group_message" {
+            // A group photo hits the same wall a 1:1 photo does: over 3.5KB, so the push carries
+            // no payload and there is nothing to decrypt. Read it off chain first, exactly as the
+            // 1:1 path does, so a group photo says what it is instead of "New group message".
+            if userInfo["payload"] == nil,
+               let blindedGroupIdHex = userInfo["blinded_group_id"] as? String {
+                fetchGroupChainPayload(txId: txId) { [weak self] chainPayloadHex in
+                    guard let self else { return }
+                    var enriched = userInfo
+                    if let chainPayloadHex { enriched["payload"] = chainPayloadHex }
+                    _ = blindedGroupIdHex
+                    self.handleGroupPushResolved(
+                        messageType: messageType,
+                        content: content,
+                        userInfo: enriched,
+                        txId: txId
+                    )
+                }
+                return
+            }
             guard let blindedGroupIdHex = userInfo["blinded_group_id"] as? String,
                   let payloadHex = userInfo["payload"] as? String,
                   let match = decryptGroupMessage(blindedGroupIdHex: blindedGroupIdHex, payloadHex: payloadHex) else {
@@ -996,6 +1066,80 @@ class NotificationService: UNNotificationServiceExtension {
             return timestamp.int64Value
         }
         return Int64(Date().timeIntervalSince1970 * 1000)
+    }
+
+    // MARK: - Off-chain read for payload-less pushes
+
+    /// Reads a message straight off the chain and returns the preview it deserves, or nil.
+    ///
+    /// A push only carries its encrypted payload when that payload is at most 3.5KB
+    /// (PUSH_NOTIFICATIONS.md); anything larger arrives as a bare txId. Photos compress to
+    /// 10-50KB and voice messages are similar, so the ONE case where a preview matters most is
+    /// exactly the case with nothing to preview. The message is public on the blockDAG and this
+    /// extension already holds the key that opens it, so it fetches the transaction and runs the
+    /// same preview chain the payload-carrying path uses.
+    ///
+    /// Deliberately tight: a notification extension has about thirty seconds and it is sharing
+    /// them with everything else here, so a slow or unreachable API just leaves the generic body
+    /// rather than holding the banner. 10-50KB is a small read even on a poor connection.
+    private func fetchChainPreview(txId: String, completion: @escaping (String?) -> Void) {
+        guard let url = kaspaTransactionURL(txId: txId) else {
+            completion(nil)
+            return
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            guard let self,
+                  let data,
+                  let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let payloadHex = json["payload"] as? String, !payloadHex.isEmpty,
+                  let decrypted = self.decryptContextualMessage(payloadHex: payloadHex) else {
+                completion(nil)
+                return
+            }
+            // Same chain the payload-carrying path uses, so the wording matches exactly.
+            let preview = self.paymentNoticePreviewText(for: decrypted)
+                ?? self.reactionPreviewText(for: decrypted)
+                ?? self.chessPreviewText(for: decrypted)
+                ?? self.unwrapReplyText(decrypted)
+            completion(preview)
+        }.resume()
+    }
+
+    /// The raw on-chain payload hex for a transaction, for the group path - which needs to run
+    /// its own blinded-id match and decryption rather than the 1:1 preview chain.
+    private func fetchGroupChainPayload(txId: String, completion: @escaping (String?) -> Void) {
+        guard let url = kaspaTransactionURL(txId: txId) else {
+            completion(nil)
+            return
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            guard let data,
+                  let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let payloadHex = json["payload"] as? String, !payloadHex.isEmpty else {
+                completion(nil)
+                return
+            }
+            completion(payloadHex)
+        }.resume()
+    }
+
+    /// The configured explorer API's transaction endpoint. Mirrored into the app group by
+    /// `SharedDataManager.syncNotificationSettingsForExtension`, so testnet and custom hosts are
+    /// honoured here too rather than hardcoding mainnet.
+    private func kaspaTransactionURL(txId: String) -> URL? {
+        let defaults = UserDefaults(suiteName: appGroupIdentifier)
+        let configured = (defaults?.string(forKey: "shared_kaspa_rest_api_url") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = configured.isEmpty ? "https://api.kaspa.org" : configured
+        return URL(string: base.hasSuffix("/") ? "\(base)transactions/\(txId)" : "\(base)/transactions/\(txId)")
     }
 
     private func decryptContextualMessage(payloadHex: String) -> String? {

@@ -42,6 +42,11 @@ final class SharedDataManager {
         static let groupMentionsOnlyNotifications = "shared_group_mentions_only"
         static let groupSilentNotifications = "shared_group_silent"
         static let kaPostsNotificationKinds = "shared_kaposts_notify_kinds"
+        /// Mirror of `AppSettings.kaspaRestAPIURL` for the Notification Service Extension. A
+        /// push for anything over 3.5KB carries no encrypted payload (see PUSH_NOTIFICATIONS.md),
+        /// so the extension reads the message off chain itself to say what it is - and it needs
+        /// to know which explorer API to ask, including on testnet or a custom host.
+        static let kaspaRestAPIURL = "shared_kaspa_rest_api_url"
         static let groupOwnTxIds = "shared_group_own_txids"
         static let ownPrimaryKNSDomain = "shared_own_kns_domain"
     }
@@ -212,6 +217,7 @@ final class SharedDataManager {
         sharedDefaults?.set(settings.incomingNotificationSoundEnabled, forKey: Keys.incomingNotificationSoundEnabled)
         sharedDefaults?.set(settings.incomingNotificationVibrationEnabled, forKey: Keys.incomingNotificationVibrationEnabled)
         sharedDefaults?.set(settings.verboseAPILogging, forKey: Keys.verboseAPILogging)
+        sharedDefaults?.set(settings.kaspaRestAPIURL, forKey: Keys.kaspaRestAPIURL)
         if !settings.verboseAPILogging {
             // Turning verbose logging off also clears the last captured push payload, so no
             // encrypted-payload residue outlives the diagnostics session that recorded it.
