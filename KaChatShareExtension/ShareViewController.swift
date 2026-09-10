@@ -55,6 +55,11 @@ private struct SharePayload {
 private enum ShareStore {
     static let appGroupIdentifier = "group.com.kachat.app"
     static let contactsKey = "shared_contacts"
+    /// The wallet `contactsKey` was written for, and the wallet signed in now. The contact blob is
+    /// a single key holding whichever account synced last, so without comparing these the share
+    /// sheet could offer another account's contacts as targets for THIS account's message.
+    static let contactsWalletKey = "shared_contacts_wallet"
+    static let walletAddressKey = "wallet_address"
     static let recentsKey = "kachat_recent_conversations"
     static let outboundSharesKey = "outbound_shares"
     static let maxQueuedShares = 50
@@ -71,6 +76,13 @@ private enum ShareStore {
     static func loadContacts() -> [ShareContact] {
         guard let data = sharedDefaults?.data(forKey: contactsKey),
               let decoded = try? JSONDecoder().decode([SharedContactRecord].self, from: data) else {
+            return []
+        }
+
+        // Both absent is the signed-out case and matches; one absent does not. A mismatch means
+        // the list belongs to an account other than the one signed in, and offering it would send
+        // this share to a contact of a different account.
+        guard sharedDefaults?.string(forKey: contactsWalletKey) == sharedDefaults?.string(forKey: walletAddressKey) else {
             return []
         }
 

@@ -24,6 +24,11 @@ final class SharedDataManager {
 
     private enum Keys {
         static let contacts = "shared_contacts"
+        /// The wallet `contacts` was written for. The blob itself is a single key holding
+        /// whichever account synced last, so without a stamp the extension has no way to tell
+        /// that the list in front of it belongs to a different account than the one now signed
+        /// in - and would name a push using an alias from the wrong account.
+        static let contactsWallet = "shared_contacts_wallet"
         static let groups = "shared_groups"
         static let sharedSecrets = "shared_secrets"
         static let pendingMessages = "pending_messages"
@@ -70,6 +75,9 @@ final class SharedDataManager {
         }
 
         sharedDefaults?.set(data, forKey: Keys.contacts)
+        // Stamped with the wallet these belong to, written AFTER the list so a reader can never
+        // see a new stamp over an old list.
+        sharedDefaults?.set(WalletManager.shared.currentWallet?.publicAddress, forKey: Keys.contactsWallet)
         AppLog.log("[SharedData] Synced %d contacts to shared container", contacts.count)
     }
 
@@ -238,19 +246,32 @@ final class SharedDataManager {
 
     /// Get contact by address (called from notification extension)
     static func getContact(address: String) -> SharedContact? {
-        guard let data = sharedDefaults?.data(forKey: Keys.contacts),
-              let contacts = try? JSONDecoder().decode([SharedContact].self, from: data) else {
-            return nil
-        }
-        return contacts.first { $0.address == address }
+        return sharedContactsForCurrentWallet().first { $0.address == address }
     }
 
     /// Get all contacts from shared container
     static func getAllContacts() -> [SharedContact] {
+        return sharedContactsForCurrentWallet()
+    }
+
+    /// The shared contact list, but ONLY when it belongs to the wallet currently signed in.
+    ///
+    /// `shared_contacts` is one key holding whichever account synced last. That is fine while the
+    /// two stay in step, and wrong the moment they do not: an account switch that has not yet
+    /// re-synced, or a push arriving during one, leaves the extension naming a notification with
+    /// an alias from a DIFFERENT account - someone else's name on a stranger's message. Comparing
+    /// the stamp to the shared wallet address makes that impossible; a mismatch reads as "no
+    /// contacts", so the push falls back to the address, which is merely less friendly rather
+    /// than wrong.
+    private static func sharedContactsForCurrentWallet() -> [SharedContact] {
         guard let data = sharedDefaults?.data(forKey: Keys.contacts),
               let contacts = try? JSONDecoder().decode([SharedContact].self, from: data) else {
             return []
         }
+        let stamp = sharedDefaults?.string(forKey: Keys.contactsWallet)
+        let current = sharedDefaults?.string(forKey: Keys.walletAddress)
+        // Both absent is the signed-out case and matches; one absent does not.
+        guard stamp == current else { return [] }
         return contacts
     }
 
@@ -540,6 +561,7 @@ final class SharedDataManager {
     /// Clear all shared data (call on wallet delete)
     static func clearAllSharedData() {
         sharedDefaults?.removeObject(forKey: Keys.contacts)
+        sharedDefaults?.removeObject(forKey: Keys.contactsWallet)
         sharedDefaults?.removeObject(forKey: Keys.sharedSecrets)
         sharedDefaults?.removeObject(forKey: Keys.pendingMessages)
         sharedDefaults?.removeObject(forKey: Keys.storedMessages)

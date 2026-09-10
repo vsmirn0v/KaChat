@@ -629,9 +629,21 @@ class NotificationService: UNNotificationServiceExtension {
 
     // MARK: - Shared Data Access
 
+    /// The shared contact list, but ONLY when it belongs to the wallet currently signed in.
+    ///
+    /// `shared_contacts` is one key holding whichever account synced last, so an account switch
+    /// that has not re-synced yet would have this naming a push with an alias from a DIFFERENT
+    /// account - someone else's name on a stranger's message. The app stamps the blob with the
+    /// wallet it wrote it for; a mismatch reads as "no contacts", so the push falls back to the
+    /// address, which is less friendly rather than wrong.
     private func getSharedContact(address: String) -> SharedContact? {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
               let data = defaults.data(forKey: "shared_contacts") else {
+            return nil
+        }
+
+        // Both absent is the signed-out case and matches; one absent does not.
+        guard defaults.string(forKey: "shared_contacts_wallet") == defaults.string(forKey: "wallet_address") else {
             return nil
         }
 
