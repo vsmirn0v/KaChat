@@ -2531,6 +2531,8 @@ enum KasiaError: LocalizedError {
     case seedPhraseParsingFailed(wordCount: Int)
     case mnemonicValidationFailed(reason: String)
     case invalidAddress
+    /// The address belongs to one of the user's own accounts on this device.
+    case ownAccountAddress
     case networkError(String)
     case keychainError(String)
     case encryptionError(String)
@@ -2549,6 +2551,8 @@ enum KasiaError: LocalizedError {
             return "Mnemonic validation failed: \(reason)"
         case .invalidAddress:
             return "Invalid Kaspa address format."
+        case .ownAccountAddress:
+            return "That address is one of your own accounts, so it cannot be added as a contact."
         case .networkError(let message):
             return "Network error: \(message)"
         case .keychainError(let message):

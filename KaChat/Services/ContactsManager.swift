@@ -345,7 +345,27 @@ final class ContactsManager: ObservableObject {
             return
         }
 
-        // One-time migration from legacy single-account key to active wallet-scoped key.
+        // One-time migration from the legacy single-account key to the active wallet-scoped key.
+        //
+        // ONLY when no wallet-scoped key exists yet. The legacy blob predates per-wallet scoping,
+        // so it belongs to whichever account was in use before the upgrade - and nothing in the
+        // blob says which one that was. Handing it to "whichever account happens to load first"
+        // is a coin flip, and on a device with more than one account it is a cross-account leak:
+        // load an empty account first and it absorbs the other account's contacts, which is
+        // exactly the symptom reported after a rebuild.
+        //
+        // With exactly one account on the device, that account IS the owner and the migration is
+        // safe. With more than one it is unassignable, so the blob is left alone - untouched
+        // rather than given to the wrong account.
+        //
+        // The test is the ACCOUNT COUNT, not "has any wallet written contacts yet". The latter
+        // reads the same most of the time and is wrong in one case that matters: a second account
+        // that saves an empty list writes a scoped key of its own, which would then block the
+        // first account from ever collecting the contacts that are genuinely its.
+        guard WalletManager.shared.savedAccounts.count <= 1 else {
+            contacts = []
+            return
+        }
         if let legacyData = userDefaults.data(forKey: legacyContactsKey),
            let decodedLegacy = try? JSONDecoder().decode([Contact].self, from: legacyData) {
             let migrated = migrateLegacyDefaultAliases(decodedLegacy, contactsKey: nil)
@@ -386,6 +406,18 @@ final class ContactsManager: ObservableObject {
         // Validate address format
         guard isValidKaspaAddress(address) else {
             throw KasiaError.invalidAddress
+        }
+
+        // Never one of the user's OWN accounts. Nothing stopped this before, so an address the
+        // user owns on another account could land in this account's contact list and read as a
+        // stranger - which is how a blank account turned up among the contacts of a real one.
+        // The auto-add paths make it easy to hit without noticing: tipping or opening a KaPost
+        // written from your own second account adds its author silently.
+        guard !isOwnAccountAddress(address) else {
+            // Its own error, not `invalidAddress`: the address is perfectly valid, and telling
+            // someone their own address is malformed sends them looking for a typo that is not
+            // there. The auto-add callers use `try?`, so for them this is simply a silent skip.
+            throw KasiaError.ownAccountAddress
         }
 
         // A deliberate (non-auto) add explicitly un-does a prior permanent delete's tombstone -
@@ -1055,6 +1087,21 @@ final class ContactsManager: ObservableObject {
         // Update push notification watched addresses
         if updatePush {
             schedulePushUpdate()
+        }
+    }
+
+    /// True when this address belongs to the user themselves: the wallet in use, or any account
+    /// saved on this device.
+    ///
+    /// Both halves matter. The active wallet is the obvious one; the saved list is the one that
+    /// was missing, and it is the one that leaks - a second account is still "you", and adding it
+    /// as a contact both clutters the list and invites messaging yourself by a route the app does
+    /// not otherwise offer.
+    private func isOwnAccountAddress(_ address: String) -> Bool {
+        guard let normalized = normalizeWalletAddress(address) else { return false }
+        if let activeWalletAddress, activeWalletAddress == normalized { return true }
+        return WalletManager.shared.savedAccounts.contains {
+            normalizeWalletAddress($0.publicAddress) == normalized
         }
     }
 
