@@ -353,7 +353,14 @@ final class ColdStorageSendEngine {
             utxosToUse = manualUtxos.compactMap { freshByOutpoint["\($0.outpoint.transactionId):\($0.outpoint.index)"] }
             guard !utxosToUse.isEmpty else { return 0 }
         } else {
-            utxosToUse = spendable
+            // Only as much as ONE transaction can actually spend. `selectUtxos` takes UTXOs
+            // largest-first and stops when the amount is covered, so the most a single send can
+            // move is the largest `KsptCodec.maxInputs` of them. Summing all of them, which is
+            // what this used to do, offered a Max that could not be built: the build needs every
+            // UTXO to reach it, trips `tooManyInputs`, and refuses - and the reader only finds
+            // that out after pressing Build. Compound is the way to spend the rest, and it is a
+            // tap away in the same menu.
+            utxosToUse = Array(spendable.sorted { $0.amount > $1.amount }.prefix(KsptCodec.maxInputs))
         }
 
         let totalBalance = utxosToUse.reduce(UInt64(0)) { $0 + $1.amount }
