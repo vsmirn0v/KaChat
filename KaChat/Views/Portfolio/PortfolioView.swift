@@ -944,7 +944,7 @@ private struct HashrateChartScreen: View {
             )
             Divider()
             rewardRow(
-                "Next Reward Date",
+                "Next Block Reward Reduction",
                 networkStats.nextHalvingDate.map {
                     $0.formatted(.dateTime.month(.abbreviated).day().year())
                 } ?? "—"
