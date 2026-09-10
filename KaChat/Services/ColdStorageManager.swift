@@ -342,7 +342,19 @@ final class ColdStorageManager: ObservableObject {
         // It only ever grows: an address that held funds last month and is empty now should not
         // vanish from the list.
         let bound = lastMatchIndex + 1
-        if bound > account.maxAddressIndex, let idx = accounts.firstIndex(where: { $0.id == account.id }) {
+        // Tested against the STORED bound, not the snapshot this scan was handed. The two are the
+        // same value most of the time and diverge exactly when it matters: the account can grow
+        // mid-scan (Generate More Addresses, or revealing a row in Address Visibility), and the
+        // range below is built from the stored one. Guarding on the snapshot while indexing from
+        // the stored value is what let `previousMax` overtake `lastMatchIndex`.
+        //
+        // Strict `>`, and a HALF-OPEN range below - the same shape
+        // `WalletManager.discoverSpendingAddresses` uses, which is correct. With `>=` and a closed
+        // range, a scan whose highest match sat exactly ON the current bound passed the guard and
+        // then built `(max + 1)...max`, whose lowerBound is greater than its upperBound: a fatal
+        // error, not an empty loop. Reported from a real Discover Addresses run.
+        let storedMax = accounts.first(where: { $0.id == account.id })?.maxAddressIndex ?? account.maxAddressIndex
+        if lastMatchIndex > storedMax, let idx = accounts.firstIndex(where: { $0.id == account.id }) {
             let previousMax = accounts[idx].maxAddressIndex
             accounts[idx].maxAddressIndex = bound
             saveAccounts()
@@ -353,7 +365,10 @@ final class ColdStorageManager: ObservableObject {
             // a previously-hidden address that now holds a balance would otherwise be found and
             // dropped straight back out of the list, which reads as not finding it at all.
             var hiddenSet = loadHiddenIndices(accountId: account.id)
-            for i in (previousMax + 1)...lastMatchIndex where !matchedIndices.contains(i) {
+            // Half-open: `lastMatchIndex` is itself a match, and matches are un-hidden on the
+            // next line anyway, so including it only to subtract it again bought nothing and cost
+            // the crash.
+            for i in (previousMax + 1)..<lastMatchIndex where !matchedIndices.contains(i) {
                 hiddenSet.insert(i)
             }
             hiddenSet.subtract(matchedIndices)
