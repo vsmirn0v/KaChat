@@ -462,7 +462,18 @@ struct GroupChatDetailView: View {
                     jumpToReplyOriginal(txId: txId, using: proxy)
                     pendingJumpToTxId = nil
                 }
-                .scrollDismissesKeyboard(.interactively)
+                // `.immediately` rather than `.interactively`. An interactive dismissal drives the
+                    // keyboard frame from the drag, so SwiftUI's keyboard safe-area inset is mid-
+                    // animation for as long as the finger is down. Every one of these screens
+                    // scrolls itself programmatically while that is happening - a poll delivering a
+                    // message, the live mirror, the bottom-pin - and an interrupted interactive
+                    // dismissal can leave the inset believing the keyboard is still partly up. The
+                    // composer is a bottom `safeAreaInset`, so a stale inset parks it a keyboard's
+                    // height above the bottom of the screen with the message list, which is NOT
+                    // clipped to the safe area, still drawing underneath it. That is the broken
+                    // layout reported on iPhone Pro Max, where the keyboard is tallest and the
+                    // misplacement is largest.
+                    .scrollDismissesKeyboard(.immediately)
                 .simultaneousGesture(
                     // Swipe-left-to-reveal-timestamps, matching 1:1 chat exactly: dragging left
                     // shifts every message row left together, uncovering each message's time.
@@ -1815,6 +1826,12 @@ struct GroupChatDetailView: View {
         // `ChatDetailView`'s fix - see there for the full rationale.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             guard let scrollView = scrollViewReference.scrollView else { return }
+            // Never jam contentOffset while the finger owns the scroll or a fling is live. The
+            // keyboard-raise window is exactly when a reader may be flicking the list, and a
+            // programmatic scroll into a live gesture is what leaves the keyboard transition
+            // half-finished - the state that strands the safe-area inset and parks the composer
+            // mid-screen. The other offset writers on this screen already carry this check.
+            guard !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating else { return }
             let minOffsetY = -scrollView.adjustedContentInset.top
             let maxOffsetY = max(
                 minOffsetY,

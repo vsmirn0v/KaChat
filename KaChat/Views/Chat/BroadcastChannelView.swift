@@ -387,7 +387,18 @@ struct BroadcastChannelView: View {
                         }
                         // Same interactive drag-down keyboard dismissal as ChatDetailView - the
                         // room's keyboard had no way down other than sending a message.
-                        .scrollDismissesKeyboard(.interactively)
+                        // `.immediately` rather than `.interactively`. An interactive dismissal drives the
+                    // keyboard frame from the drag, so SwiftUI's keyboard safe-area inset is mid-
+                    // animation for as long as the finger is down. Every one of these screens
+                    // scrolls itself programmatically while that is happening - a poll delivering a
+                    // message, the live mirror, the bottom-pin - and an interrupted interactive
+                    // dismissal can leave the inset believing the keyboard is still partly up. The
+                    // composer is a bottom `safeAreaInset`, so a stale inset parks it a keyboard's
+                    // height above the bottom of the screen with the message list, which is NOT
+                    // clipped to the safe area, still drawing underneath it. That is the broken
+                    // layout reported on iPhone Pro Max, where the keyboard is tallest and the
+                    // misplacement is largest.
+                    .scrollDismissesKeyboard(.immediately)
                         .simultaneousGesture(
                             // Swipe-left-to-reveal-timestamps (iMessage-style), matching Android:
                             // dragging left across the message list shifts every row left by the
