@@ -676,55 +676,104 @@ extension WalletManager {
 
         var lastMatchIndex = -1
         var matchCount = 0
-        var consecutiveMisses = 0
-        var index = 0
         var matchedIndices: Set<Int> = []
 
-        while index < Self.maxSpendingScanIndex {
-            // Past the floor, stop once nothing has turned up for a long stretch.
-            if index >= Self.spendingDeepScanFloor && consecutiveMisses >= gapLimit { break }
+        // The balances were already batched; KNS was not. It was asked about the first two hundred
+        // addresses ONE AT A TIME, and a KNS lookup measures a third to two thirds of a second -
+        // a minute or two of sequential HTTP that no amount of batching the balances touches.
+        //
+        // `AddressActivityService` answers "was this address ever used" for the whole window in a
+        // handful of requests, so balances and KNS are both asked only about the addresses the
+        // chain says were actually touched. Neither a balance nor a domain can sit on an address
+        // that has never been touched, so the filter loses nothing.
+        let window = 0..<Self.spendingDeepScanFloor
+        let derivedWindow = spendingAddresses(inRange: window)
+        let orderedWindow = window.compactMap { index in derivedWindow[index].map { (index, $0) } }
+        if let onProgress {
+            let snapshot = SpendingDiscoveryProgress(checkingIndex: 0, foundCount: 0)
+            await MainActor.run { onProgress(snapshot) }
+        }
 
-            let upper = min(index + Self.spendingScanBatchSize, Self.maxSpendingScanIndex)
-            let batch = index..<upper
+        if !orderedWindow.isEmpty,
+           let activity = await AddressActivityService.lastActivity(for: orderedWindow.map { $0.1 }) {
+            let touched = orderedWindow.filter { activity[$0.1] != nil }
+
+            var funded: Set<String> = []
+            if !touched.isEmpty,
+               let utxos = try? await NodePoolService.shared.getUtxosByAddresses(touched.map { $0.1 }) {
+                funded = Set(utxos.map { $0.address })
+            }
             if let onProgress {
-                let snapshot = SpendingDiscoveryProgress(checkingIndex: index, foundCount: matchCount)
+                let snapshot = SpendingDiscoveryProgress(checkingIndex: touched.last?.0 ?? 0, foundCount: funded.count)
                 await MainActor.run { onProgress(snapshot) }
             }
 
-            let derived = spendingAddresses(inRange: batch)
-            if derived.isEmpty { break }
-
-            // ONE call for the whole batch: `getUtxosByAddresses` has always taken an array, and
-            // asking it for a single address at a time is what made this a hundreds-of-round-trip
-            // walk. A batch that cannot be read stops the scan rather than reporting an emptiness
-            // it never confirmed - a throttled request is not evidence of an empty address.
-            let addresses = batch.compactMap { derived[$0] }
-            guard let utxos = try? await NodePoolService.shared.getUtxosByAddresses(addresses) else {
-                AppLog.log("[WalletManager] Spending discovery: balances unavailable at %d, stopping", index)
-                break
-            }
-            let funded = Set(utxos.map { $0.address })
-
-            for i in batch {
-                guard let address = derived[i] else { continue }
-                let matches: Bool
-                if funded.contains(address) {
-                    matches = true
-                } else if i < Self.spendingKnsProbeDepth {
-                    matches = await KNSService.shared.ownsAnyDomain(address)
-                } else {
-                    matches = false
-                }
-                if matches {
-                    lastMatchIndex = i
-                    matchCount += 1
-                    matchedIndices.insert(i)
-                    consecutiveMisses = 0
-                } else {
-                    consecutiveMisses += 1
+            let knsCandidates = touched.filter { $0.0 < Self.spendingKnsProbeDepth && !funded.contains($0.1) }
+            var domainOwners: Set<String> = []
+            if !knsCandidates.isEmpty {
+                domainOwners = await withTaskGroup(of: String?.self) { group -> Set<String> in
+                    for (_, address) in knsCandidates {
+                        group.addTask { await KNSService.shared.ownsAnyDomain(address) ? address : nil }
+                    }
+                    var owners: Set<String> = []
+                    for await owner in group { if let owner { owners.insert(owner) } }
+                    return owners
                 }
             }
-            index = upper
+
+            for (i, address) in touched where funded.contains(address) || domainOwners.contains(address) {
+                lastMatchIndex = max(lastMatchIndex, i)
+                matchCount += 1
+                matchedIndices.insert(i)
+            }
+        } else {
+            // The configured REST server does not serve /addresses/active, or could not be
+            // reached. Fall back to the batched sweep this replaced.
+            AppLog.log("%@", "[WalletManager] Spending discovery: bulk activity unavailable, using the batched sweep")
+            var consecutiveMisses = 0
+            var index = 0
+            while index < Self.maxSpendingScanIndex {
+                // Past the floor, stop once nothing has turned up for a long stretch.
+                if index >= Self.spendingDeepScanFloor && consecutiveMisses >= gapLimit { break }
+
+                let upper = min(index + Self.spendingScanBatchSize, Self.maxSpendingScanIndex)
+                let batch = index..<upper
+                if let onProgress {
+                    let snapshot = SpendingDiscoveryProgress(checkingIndex: index, foundCount: matchCount)
+                    await MainActor.run { onProgress(snapshot) }
+                }
+
+                let derived = spendingAddresses(inRange: batch)
+                if derived.isEmpty { break }
+
+                let addresses = batch.compactMap { derived[$0] }
+                guard let utxos = try? await NodePoolService.shared.getUtxosByAddresses(addresses) else {
+                    AppLog.log("[WalletManager] Spending discovery: balances unavailable at %d, stopping", index)
+                    break
+                }
+                let funded = Set(utxos.map { $0.address })
+
+                for i in batch {
+                    guard let address = derived[i] else { continue }
+                    let matches: Bool
+                    if funded.contains(address) {
+                        matches = true
+                    } else if i < Self.spendingKnsProbeDepth {
+                        matches = await KNSService.shared.ownsAnyDomain(address)
+                    } else {
+                        matches = false
+                    }
+                    if matches {
+                        lastMatchIndex = i
+                        matchCount += 1
+                        matchedIndices.insert(i)
+                        consecutiveMisses = 0
+                    } else {
+                        consecutiveMisses += 1
+                    }
+                }
+                index = upper
+            }
         }
 
         // One read-modify-write of the hidden set, not one per index: it is a computed property

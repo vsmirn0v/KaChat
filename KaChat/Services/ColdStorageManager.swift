@@ -203,8 +203,6 @@ final class ColdStorageManager: ObservableObject {
 
         var lastMatchIndex = -1
         var matchCount = 0
-        var consecutiveMisses = 0
-        var index: UInt32 = 0
         var matchedIndices: Set<Int> = []
 
         // An address is worth surfacing when it HOLDS SOMETHING: a balance, or a KNS domain.
@@ -230,50 +228,114 @@ final class ColdStorageManager: ObservableObject {
         // It sweeps a floor of `deepScanFloor` indices whatever the gaps now, in batches.
         // `getUtxosByAddresses` has always taken an array; asking it for one address at a time is
         // what made this hundreds of round trips.
-        while index < Self.maxScanIndex {
-            if index >= Self.deepScanFloor && consecutiveMisses >= gapLimit { break }
+        // ## Why the batched UTXO sweep is not the shape of this any more
+        //
+        // The sweep itself was already batched and already fast: ten `getUtxosByAddresses` calls
+        // covered a thousand addresses. What made a discover take the better part of two minutes
+        // was the line under it - KNS was asked about the first two hundred addresses ONE AT A
+        // TIME, and a KNS lookup measures between a third of a second and two thirds. That is
+        // sixty to a hundred and thirty seconds of sequential HTTP, and no amount of batching the
+        // balances touches it.
+        //
+        // `AddressActivityService` answers "was this address ever used" for the whole window in a
+        // handful of requests. That turns the expensive steps into cheap ones: balances are asked
+        // only about addresses the chain says were touched, and so is KNS. A balance or a domain
+        // cannot sit on an address that has never been touched, so the filter loses nothing, and
+        // the ~200 sequential lookups become a handful of concurrent ones.
+        var derivedWindow: [(UInt32, String)] = []
+        for i in 0..<Self.maxScanIndex {
+            guard let address = try? extendedKey.receiveAddress(at: i, network: network) else { break }
+            derivedWindow.append((i, address))
+            if derivedWindow.count >= Int(Self.deepScanFloor) { break }
+        }
+        if let onProgress {
+            let snapshot = DiscoveryProgress(checkingIndex: 0, foundCount: 0)
+            await MainActor.run { onProgress(snapshot) }
+        }
 
-            let upper = min(index + Self.scanBatchSize, Self.maxScanIndex)
+        if let activity = await AddressActivityService.lastActivity(for: derivedWindow.map { $0.1 }) {
+            let touched = derivedWindow.filter { activity[$0.1] != nil }
+
+            var funded: Set<String> = []
+            if !touched.isEmpty,
+               let utxos = try? await NodePoolService.shared.getUtxosByAddresses(touched.map { $0.1 }) {
+                funded = Set(utxos.map { $0.address })
+            }
             if let onProgress {
-                let snapshot = DiscoveryProgress(checkingIndex: Int(index), foundCount: matchCount)
+                let snapshot = DiscoveryProgress(checkingIndex: touched.last.map { Int($0.0) } ?? 0, foundCount: funded.count)
                 await MainActor.run { onProgress(snapshot) }
             }
 
-            var derived: [(UInt32, String)] = []
-            for i in index..<upper {
-                guard let address = try? extendedKey.receiveAddress(at: i, network: network) else { break }
-                derived.append((i, address))
-            }
-            if derived.isEmpty { break }
-
-            // ONE call for the whole batch. A batch that cannot be read stops the scan rather
-            // than reporting an emptiness it never confirmed - a throttled request is not
-            // evidence of an empty address.
-            guard let utxos = try? await NodePoolService.shared.getUtxosByAddresses(derived.map { $0.1 }) else {
-                AppLog.log("[ColdStorage] Discovery: balances unavailable at %d, stopping", Int(index))
-                break
-            }
-            let funded = Set(utxos.map { $0.address })
-
-            for (i, address) in derived {
-                let matches: Bool
-                if funded.contains(address) {
-                    matches = true
-                } else if i < Self.knsProbeDepth {
-                    matches = await KNSService.shared.ownsAnyDomain(address)
-                } else {
-                    matches = false
-                }
-                if matches {
-                    lastMatchIndex = Int(i)
-                    matchCount += 1
-                    matchedIndices.insert(Int(i))
-                    consecutiveMisses = 0
-                } else {
-                    consecutiveMisses += 1
+            // KNS only for touched, unfunded addresses inside the probe depth - typically none,
+            // and never the two hundred sequential lookups this used to be. Concurrent, because
+            // there is no longer any reason for them to wait on each other.
+            let knsCandidates = touched.filter { Int($0.0) < Int(Self.knsProbeDepth) && !funded.contains($0.1) }
+            var domainOwners: Set<String> = []
+            if !knsCandidates.isEmpty {
+                domainOwners = await withTaskGroup(of: String?.self) { group -> Set<String> in
+                    for (_, address) in knsCandidates {
+                        group.addTask { await KNSService.shared.ownsAnyDomain(address) ? address : nil }
+                    }
+                    var owners: Set<String> = []
+                    for await owner in group { if let owner { owners.insert(owner) } }
+                    return owners
                 }
             }
-            index += UInt32(derived.count)
+
+            for (i, address) in touched where funded.contains(address) || domainOwners.contains(address) {
+                lastMatchIndex = max(lastMatchIndex, Int(i))
+                matchCount += 1
+                matchedIndices.insert(Int(i))
+            }
+        } else {
+            // The configured REST server does not serve /addresses/active, or could not be
+            // reached. Fall back to the batched sweep this replaced - slower, and it still pays
+            // for the sequential KNS probes, but a slow answer beats none.
+            AppLog.log("%@", "[ColdStorage] Discovery: bulk activity unavailable, using the batched sweep")
+            var consecutiveMisses = 0
+            var index: UInt32 = 0
+            while index < Self.maxScanIndex {
+                if index >= Self.deepScanFloor && consecutiveMisses >= gapLimit { break }
+
+                let upper = min(index + Self.scanBatchSize, Self.maxScanIndex)
+                if let onProgress {
+                    let snapshot = DiscoveryProgress(checkingIndex: Int(index), foundCount: matchCount)
+                    await MainActor.run { onProgress(snapshot) }
+                }
+
+                var derived: [(UInt32, String)] = []
+                for i in index..<upper {
+                    guard let address = try? extendedKey.receiveAddress(at: i, network: network) else { break }
+                    derived.append((i, address))
+                }
+                if derived.isEmpty { break }
+
+                guard let utxos = try? await NodePoolService.shared.getUtxosByAddresses(derived.map { $0.1 }) else {
+                    AppLog.log("[ColdStorage] Discovery: balances unavailable at %d, stopping", Int(index))
+                    break
+                }
+                let funded = Set(utxos.map { $0.address })
+
+                for (i, address) in derived {
+                    let matches: Bool
+                    if funded.contains(address) {
+                        matches = true
+                    } else if i < Self.knsProbeDepth {
+                        matches = await KNSService.shared.ownsAnyDomain(address)
+                    } else {
+                        matches = false
+                    }
+                    if matches {
+                        lastMatchIndex = Int(i)
+                        matchCount += 1
+                        matchedIndices.insert(Int(i))
+                        consecutiveMisses = 0
+                    } else {
+                        consecutiveMisses += 1
+                    }
+                }
+                index += UInt32(derived.count)
+            }
         }
 
         // The stored bound has to cover the highest MATCH so those rows can be derived and shown.
