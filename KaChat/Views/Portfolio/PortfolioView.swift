@@ -124,8 +124,7 @@ struct PortfolioView: View {
             showHashrateChart = true
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "hammer.fill")
-                    .font(.title3)
+                PickaxeIcon(size: 20)
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 30)
                 VStack(alignment: .leading, spacing: 2) {
@@ -884,8 +883,7 @@ private struct HashrateChartScreen: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Image(systemName: "hammer.fill")
-                    .font(.title3)
+                PickaxeIcon(size: 20)
                     .foregroundStyle(Color.accentColor)
                 Text("Kaspa Network").font(.title3).fontWeight(.semibold)
                 Spacer()
@@ -1115,5 +1113,40 @@ private struct MiningEstimateCard: View {
         return "At \(HashrateFormat.display(networkHashratePHs)) network hashrate and a "
             + "\(String(format: "%.4f", blockRewardKas)) KAS block reward. Before pool fees, "
             + "power and luck, and both figures move."
+    }
+}
+
+/// A pickaxe, drawn rather than borrowed.
+///
+/// The nearest system symbol for mining is `hammer.fill`, but a hammer is a carpenter's tool, and
+/// the figure this sits beside is network hashrate - the shorthand every miner already reads is a
+/// pick. SF Symbols has no pickaxe, so it is two strokes: the curved head, and the handle passing
+/// through it. Same geometry as the desktop and Android marks, so all three agree.
+struct PickaxeIcon: View {
+    var size: CGFloat = 20
+
+    var body: some View {
+        PickaxeShape()
+            .stroke(style: StrokeStyle(lineWidth: size * (2.0 / 24), lineCap: .round, lineJoin: .round))
+            .frame(width: size, height: size)
+    }
+}
+
+private struct PickaxeShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        // Laid out on the same 24x24 grid the desktop SVG uses, scaled to whatever we are handed.
+        let unit = min(rect.width, rect.height) / 24
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * unit, y: rect.minY + y * unit)
+        }
+        var path = Path()
+        // The head, arcing up and to the right, then the handle running down through it. Both are
+        // drawn on the diagonal: upright, a curved head over a straight shaft is an anchor, and it
+        // is the tilt that makes a reader see a pick.
+        path.move(to: point(6.37, 17.9))
+        path.addCurve(to: point(18.78, 7.48), control1: point(1.86, 11.11), control2: point(12.89, 1.86))
+        path.move(to: point(8.3, 7.59))
+        path.addLine(to: point(17.21, 18.2))
+        return path
     }
 }
