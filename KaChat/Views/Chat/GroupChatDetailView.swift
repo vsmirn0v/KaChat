@@ -129,12 +129,6 @@ struct GroupChatDetailView: View {
     /// Swipe-left-to-reveal-timestamps, matching 1:1 chat's `ChatDetailView`/broadcast rooms'
     /// identical gesture.
     @State private var revealOffset: CGFloat = 0
-    /// Swipe-right-to-reply, matching 1:1 chat's. One row at a time, so the offset lives here
-    /// rather than per bubble; the left-swipe above only ever takes negative translations, so the
-    /// two share the axis without fighting.
-    @State private var swipeReplyTxId: String?
-    @State private var swipeReplyOffset: CGFloat = 0
-    private let swipeReplyThreshold: CGFloat = 56
     /// Ticks once a minute while the thread is open, purely so expiring system lines disappear
     /// on their own rather than on the next unrelated redraw.
     @State private var systemLineClock = Date()
@@ -2046,53 +2040,10 @@ struct GroupChatDetailView: View {
         .allowsHitTesting(!isSelectingMessages)
         .padding(.leading, isSelectingMessages ? 28 : 0)
 
-        let swiping = swipeReplyTxId == message.txId
         return ZStack(alignment: .leading) {
             bubble
             groupSelectionOverlay(for: message.txId)
         }
-        .offset(x: swiping ? swipeReplyOffset : 0)
-        .overlay(alignment: .leading) {
-            if swiping, swipeReplyOffset > 4 {
-                Image(systemName: "arrowshape.turn.up.left.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(swipeReplyOffset >= swipeReplyThreshold ? .accentColor : .secondary)
-                    .opacity(min(1, swipeReplyOffset / swipeReplyThreshold))
-                    .scaleEffect(0.8 + 0.2 * min(1, swipeReplyOffset / swipeReplyThreshold))
-                    .padding(.leading, 10)
-                    .allowsHitTesting(false)
-            }
-        }
-        .simultaneousGesture(swipeReplyGesture(for: message))
-    }
-
-    /// Drag a bubble to the right to reply to it, the same gesture 1:1 chat has.
-    ///
-    /// Deliberately narrow about what counts, because this shares the message list with a vertical
-    /// scroll and with the thread-wide left-swipe that reveals timestamps: rightward only, and only
-    /// when the drag is clearly more horizontal than vertical.
-    private func swipeReplyGesture(for message: GroupMessage) -> some Gesture {
-        DragGesture(minimumDistance: 12)
-            .onChanged { value in
-                guard !isSelectingMessages else { return }
-                // A system line ("X was added") is not something anyone replies to.
-                guard message.senderAddress != GroupChatService.systemSender else { return }
-                guard value.translation.width > 0 else { return }
-                guard value.translation.width > abs(value.translation.height) * 1.5 else { return }
-                if swipeReplyTxId != message.txId { swipeReplyTxId = message.txId }
-                swipeReplyOffset = min(value.translation.width * 0.55, swipeReplyThreshold + 10)
-            }
-            .onEnded { _ in
-                let reached = swipeReplyTxId == message.txId && swipeReplyOffset >= swipeReplyThreshold
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                    swipeReplyOffset = 0
-                }
-                swipeReplyTxId = nil
-                if reached {
-                    Haptics.impact(.light)
-                    groupChatService.startReplyTo(message)
-                }
-            }
     }
 
     /// Entry point into select mode - triggered from a message's long-press "Select" menu item

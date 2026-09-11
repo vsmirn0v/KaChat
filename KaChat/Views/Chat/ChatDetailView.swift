@@ -157,12 +157,6 @@ struct ChatDetailView: View {
     @State private var feeEditorText = ""
     @State private var revealOffset: CGFloat = 0
     private let maxRevealOffset: CGFloat = 64
-    /// Swipe-right-to-reply. One row at a time, so the offset lives here rather than per bubble -
-    /// and the left-swipe above, which reveals timestamps across the whole thread, only ever takes
-    /// negative translations, so the two share the axis without fighting.
-    @State private var swipeReplyTxId: String?
-    @State private var swipeReplyOffset: CGFloat = 0
-    private let swipeReplyThreshold: CGFloat = 56
     /// Tap-a-reply-quote-to-jump-to-original - mirrors `GroupChatDetailView`/
     /// `BroadcastChannelView`'s identical pair. `pendingJumpToTxId` is set from inside a message
     /// row (no `ScrollViewProxy` in scope there) and consumed by an `.onChange` inside the
@@ -3173,55 +3167,10 @@ struct ChatDetailView: View {
             .allowsHitTesting(!isSelectingMessages)
             .padding(.leading, isSelectingMessages ? 28 : 0)
 
-        let swiping = swipeReplyTxId == message.txId
         ZStack(alignment: .leading) {
             bubble
             selectionOverlay(for: message.txId)
         }
-        .offset(x: swiping ? swipeReplyOffset : 0)
-        .overlay(alignment: .leading) {
-            if swiping, swipeReplyOffset > 4 {
-                Image(systemName: "arrowshape.turn.up.left.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(swipeReplyOffset >= swipeReplyThreshold ? .accentColor : .secondary)
-                    .opacity(min(1, swipeReplyOffset / swipeReplyThreshold))
-                    .scaleEffect(0.8 + 0.2 * min(1, swipeReplyOffset / swipeReplyThreshold))
-                    .padding(.leading, 10)
-                    .allowsHitTesting(false)
-            }
-        }
-        .simultaneousGesture(swipeReplyGesture(for: message))
-    }
-
-    /// Drag a bubble to the right to reply to it, the way every other messenger does it.
-    ///
-    /// Deliberately narrow about what counts, because this shares the message list with a vertical
-    /// scroll and with the thread-wide left-swipe that reveals timestamps: rightward only, and only
-    /// when the drag is clearly more horizontal than vertical. The offset is damped and capped, so
-    /// the bubble follows your finger without sliding off.
-    private func swipeReplyGesture(for message: ChatMessage) -> some Gesture {
-        DragGesture(minimumDistance: 12)
-            .onChanged { value in
-                guard !isSelectingMessages else { return }
-                // A handshake is an accept/decline card, not something there is anything to say
-                // back to in a quote.
-                guard message.messageType != .handshake else { return }
-                guard value.translation.width > 0 else { return }
-                guard value.translation.width > abs(value.translation.height) * 1.5 else { return }
-                if swipeReplyTxId != message.txId { swipeReplyTxId = message.txId }
-                swipeReplyOffset = min(value.translation.width * 0.55, swipeReplyThreshold + 10)
-            }
-            .onEnded { _ in
-                let reached = swipeReplyTxId == message.txId && swipeReplyOffset >= swipeReplyThreshold
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                    swipeReplyOffset = 0
-                }
-                swipeReplyTxId = nil
-                if reached {
-                    Haptics.impact(.light)
-                    chatService.startReplyTo(message)
-                }
-            }
     }
 
     /// Selection-mode tap catcher + indicator, split out of `messageRow` (see its own comment) -
