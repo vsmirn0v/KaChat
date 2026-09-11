@@ -7,6 +7,141 @@ import CoreImage.CIFilterBuiltins
 import YbridOpus
 #endif
 
+// MARK: - Swipe-right-to-reply
+
+/// Which message row is where, so a swipe can tell what it is swiping.
+///
+/// Rows register their own backing view rather than publishing frames through SwiftUI preferences.
+/// Preferences would recompute on every scroll tick for every visible row; this costs nothing until
+/// a swipe actually starts, at which point a dozen or so frame conversions answer the question.
+final class MessageRowRegistry {
+    private var views: [String: Weak] = [:]
+    private struct Weak { weak var view: UIView? }
+
+    func register(_ view: UIView, for txId: String) { views[txId] = Weak(view: view) }
+    func unregister(_ txId: String) { views.removeValue(forKey: txId) }
+
+    /// The registered row containing `point`, expressed in `space`'s coordinates.
+    func txId(at point: CGPoint, in space: UIView) -> String? {
+        for (txId, box) in views {
+            guard let view = box.view, view.window != nil else { continue }
+            if view.convert(view.bounds, to: space).contains(point) { return txId }
+        }
+        return nil
+    }
+}
+
+/// Registers a row's backing view with the registry for as long as it is on screen.
+struct MessageRowMarker: UIViewRepresentable {
+    let txId: String
+    let registry: MessageRowRegistry
+
+    func makeUIView(context: Context) -> MarkerView {
+        let view = MarkerView()
+        view.isUserInteractionEnabled = false
+        view.txId = txId
+        view.registry = registry
+        return view
+    }
+
+    func updateUIView(_ uiView: MarkerView, context: Context) {
+        uiView.txId = txId
+        uiView.registry = registry
+    }
+
+    final class MarkerView: UIView {
+        var txId: String = ""
+        var registry: MessageRowRegistry?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window == nil { registry?.unregister(txId) } else { registry?.register(self, for: txId) }
+        }
+    }
+}
+
+/// A rightward pan on the message list that coexists with the list's own scrolling.
+///
+/// This is the part the first attempt got wrong. A SwiftUI DragGesture on every row put a third
+/// recogniser on the same touch, alongside the thread-wide reveal drag and the scroll view's own
+/// pan, and a child gesture inside a ScrollView claims the touch often enough to swallow the
+/// scroll. Checking the direction inside onChanged is too late: by then the touch is already
+/// spoken for.
+///
+/// A UIKit recogniser can answer the question at the only moment it matters. It declines to BEGIN
+/// unless the translation is rightward and clearly more horizontal than vertical, so a vertical
+/// drag never involves it at all, and it declares itself simultaneous with every other recogniser,
+/// so the scroll view keeps its pan when it does begin. One recogniser on the scroll view, not one
+/// per row - the registry above works out which row it started on.
+final class SwipeToReplyCoordinator: NSObject, UIGestureRecognizerDelegate {
+    static let threshold: CGFloat = 56
+    private weak var scrollView: UIScrollView?
+    private let registry: MessageRowRegistry
+    private let onChange: (String?, CGFloat) -> Void
+    private let onCommit: (String) -> Void
+    private var activeTxId: String?
+
+    init(registry: MessageRowRegistry,
+         onChange: @escaping (String?, CGFloat) -> Void,
+         onCommit: @escaping (String) -> Void) {
+        self.registry = registry
+        self.onChange = onChange
+        self.onCommit = onCommit
+    }
+
+    func attach(to scrollView: UIScrollView) {
+        guard self.scrollView !== scrollView else { return }
+        self.scrollView = scrollView
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handle(_:)))
+        pan.delegate = self
+        // Never blocks anything: if this one begins, the others carry on too.
+        pan.cancelsTouchesInView = false
+        pan.delaysTouchesBegan = false
+        pan.delaysTouchesEnded = false
+        scrollView.addGestureRecognizer(pan)
+    }
+
+    @objc private func handle(_ pan: UIPanGestureRecognizer) {
+        guard let scrollView else { return }
+        let translation = pan.translation(in: scrollView)
+        switch pan.state {
+        case .began:
+            activeTxId = registry.txId(at: pan.location(in: scrollView), in: scrollView)
+            onChange(activeTxId, 0)
+        case .changed:
+            guard let activeTxId else { return }
+            // Damped and capped, so the row follows the finger without sliding off.
+            let travel = min(max(0, translation.x) * 0.55, Self.threshold + 10)
+            onChange(activeTxId, travel)
+        case .ended, .cancelled, .failed:
+            guard let activeTxId else { return }
+            let travel = min(max(0, translation.x) * 0.55, Self.threshold + 10)
+            onChange(nil, 0)
+            if pan.state == .ended, travel >= Self.threshold { onCommit(activeTxId) }
+            self.activeTxId = nil
+        default:
+            break
+        }
+    }
+
+    // The whole fix, in two methods.
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let scrollView else { return false }
+        let translation = pan.translation(in: scrollView)
+        // Rightward, and clearly more sideways than up-and-down. A vertical drag never gets past
+        // here, so scrolling is untouched by this recogniser existing.
+        guard translation.x > 0, translation.x > abs(translation.y) * 1.5 else { return false }
+        // And only over a row that is willing to be replied to.
+        return registry.txId(at: pan.location(in: scrollView), in: scrollView) != nil
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
+    }
+}
+
 /// Holds a weak reference to the raw `UIScrollView` backing a SwiftUI `ScrollView`, resolved via
 /// `ScrollViewIntrospector` below - shared by `ChatDetailView` and `GroupChatDetailView` (each
 /// keeps its own instance) since both need to drive the real scroll view directly during a
@@ -157,6 +292,12 @@ struct ChatDetailView: View {
     @State private var feeEditorText = ""
     @State private var revealOffset: CGFloat = 0
     private let maxRevealOffset: CGFloat = 64
+    /// Swipe-right-to-reply. One row at a time, driven by a UIKit recogniser on the scroll view
+    /// itself - see SwipeToReplyCoordinator for why it is not a SwiftUI gesture per row.
+    @State private var swipeReplyTxId: String?
+    @State private var swipeReplyOffset: CGFloat = 0
+    @State private var swipeRegistry = MessageRowRegistry()
+    @State private var swipeCoordinator: SwipeToReplyCoordinator?
     /// Tap-a-reply-quote-to-jump-to-original - mirrors `GroupChatDetailView`/
     /// `BroadcastChannelView`'s identical pair. `pendingJumpToTxId` is set from inside a message
     /// row (no `ScrollViewProxy` in scope there) and consumed by an `.onChange` inside the
@@ -438,6 +579,29 @@ struct ChatDetailView: View {
                             if scrollViewReference.scrollView !== scrollView {
                                 scrollViewReference.scrollView = scrollView
                             }
+                            if swipeCoordinator == nil {
+                                swipeCoordinator = SwipeToReplyCoordinator(
+                                    registry: swipeRegistry,
+                                    onChange: { txId, offset in
+                                        swipeReplyTxId = txId
+                                        if txId == nil {
+                                            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                                                swipeReplyOffset = 0
+                                            }
+                                        } else {
+                                            swipeReplyOffset = offset
+                                        }
+                                    },
+                                    onCommit: { txId in
+                                        guard let message = chatService.conversations
+                                            .first(where: { $0.contact.address == contact.address })?
+                                            .messages.first(where: { $0.txId == txId }) else { return }
+                                        Haptics.impact(.light)
+                                        chatService.startReplyTo(message)
+                                    }
+                                )
+                            }
+                            swipeCoordinator?.attach(to: scrollView)
                         }
                         .frame(height: 0)
                         .allowsHitTesting(false)
@@ -3167,10 +3331,27 @@ struct ChatDetailView: View {
             .allowsHitTesting(!isSelectingMessages)
             .padding(.leading, isSelectingMessages ? 28 : 0)
 
-        ZStack(alignment: .leading) {
+        let swiping = swipeReplyTxId == message.txId
+        // A handshake is an accept/decline card, not something there is anything to say back to in
+        // a quote - leaving it out of the registry is what makes the swipe decline to begin on it.
+        let replyable = message.messageType != .handshake && !isSelectingMessages
+        return ZStack(alignment: .leading) {
             bubble
             selectionOverlay(for: message.txId)
         }
+        .offset(x: swiping ? swipeReplyOffset : 0)
+        .overlay(alignment: .leading) {
+            if swiping, swipeReplyOffset > 4 {
+                Image(systemName: "arrowshape.turn.up.left.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(swipeReplyOffset >= SwipeToReplyCoordinator.threshold ? .accentColor : .secondary)
+                    .opacity(min(1, swipeReplyOffset / SwipeToReplyCoordinator.threshold))
+                    .scaleEffect(0.8 + 0.2 * min(1, swipeReplyOffset / SwipeToReplyCoordinator.threshold))
+                    .padding(.leading, 10)
+                    .allowsHitTesting(false)
+            }
+        }
+        .background(replyable ? MessageRowMarker(txId: message.txId, registry: swipeRegistry) : nil)
     }
 
     /// Selection-mode tap catcher + indicator, split out of `messageRow` (see its own comment) -
