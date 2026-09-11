@@ -528,7 +528,7 @@ extension ChatService {
             // not silently recreate the conversation. A handshake they sent AFTER the deletion
             // is a new request, though, and dropping those meant deleting a chat quietly made
             // you unreachable to that person forever. See `isDeletedAsOf(_:blockTime:)`.
-            if !isOutgoing, contactsManager.isDeletedAsOf(contactAddress, blockTime: handshake.blockTime.map(Int64.init)) {
+            if !isOutgoing, contactsManager.isDeletedAsOf(contactAddress, txId: handshake.txId, blockTime: handshake.blockTime.map(Int64.init)) {
                 continue
             }
             // Past the gate on a post-deletion handshake: the other side has re-initiated and we
@@ -2844,7 +2844,7 @@ extension ChatService {
         // `getOrCreateContact`, which would otherwise silently resurrect it. Time-aware for the
         // same reason the handshake gate is: a message mined AFTER the deletion is new traffic,
         // not the indexer re-serving history.
-        if contactsManager.isDeletedAsOf(contactAddress, blockTime: Int64(message.blockTime)) {
+        if contactsManager.isDeletedAsOf(contactAddress, txId: message.txId, blockTime: Int64(message.blockTime)) {
             return
         }
 
