@@ -860,6 +860,8 @@ struct AddContactView: View {
                                 Image(systemName: "xmark")
                                     .font(.caption.weight(.bold))
                                     .foregroundColor(.secondary)
+                                    .frame(width: 34, height: 34)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Remove from group")
@@ -911,6 +913,10 @@ struct AddContactView: View {
                                         .foregroundColor(.accentColor)
                                 }
                             }
+                            // A plain Button hit-tests its rendered content, so the gap between
+                            // the name and the checkmark was dead space - the row looked tappable
+                            // along its whole width but only the text actually was.
+                            .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                     }
