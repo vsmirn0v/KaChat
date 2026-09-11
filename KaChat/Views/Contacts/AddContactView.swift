@@ -42,6 +42,8 @@ struct AddContactView: View {
     // New group flow: members are picked from existing contacts (searchable), not typed.
     @State private var selectedMemberAddresses: Set<String> = []
     @State private var memberSearchText = ""
+    @State private var membersExpanded = false
+    @State private var contactsExpanded = false
     // Group photo picked at creation time. The group does not exist yet, so the compressed JPEG
     // is held here and pushed with `setGroupPhoto` once `createGroup` returns an id.
     @State private var groupPhotoPickerItem: PhotosPickerItem?
@@ -744,8 +746,10 @@ struct AddContactView: View {
             .padding(.vertical, 6)
         }
 
-        // Add someone who is not in your contacts, by raw address or KNS domain. Reuses the
-        // existing resolve / Import / Paste / Scan machinery on a single entry.
+        groupMemberPickerSection
+
+        // Last, under the people you can add in one tap: the fallback for everyone else. Reuses
+        // the existing resolve / Import / Paste / Scan machinery on a single entry.
         Section {
             ForEach($groupAddressEntries) { $entry in
                 VStack(alignment: .leading, spacing: 10) {
@@ -807,10 +811,10 @@ struct AddContactView: View {
                 .padding(.vertical, 4)
             }
         } header: {
-            Text("Add by Address")
+            Text("Not in your contacts?")
+        } footer: {
+            Text("Add anyone by Kaspa address or KNS domain.")
         }
-
-        groupMemberPickerSection
     }
 
     /// Everyone you could add in one tap: your existing chats plus both directions of your
@@ -819,61 +823,101 @@ struct AddContactView: View {
     @ViewBuilder
     private var groupMemberPickerSection: some View {
         Section {
-            TextField("Search name or address", text: $memberSearchText)
-                .autocapitalization(.none)
-                .autocorrectionDisabled()
+            Text("Add contacts to the group. You control the membership as the group admin.")
+                .font(.caption)
+                .foregroundColor(.secondary)
 
-            if !selectedMemberAddresses.isEmpty {
-                GroupMemberChipsRow(
-                    addresses: Array(selectedMemberAddresses).sorted {
-                        memberDisplayName($0).localizedCaseInsensitiveCompare(memberDisplayName($1)) == .orderedAscending
-                    },
-                    displayName: memberDisplayName,
-                    onRemove: { selectedMemberAddresses.remove($0) }
-                )
-            }
-
-            // Computed once per body, not once per use.
-            let candidates = groupCandidates
-            if candidates.isEmpty {
-                Text(memberSearchText.isEmpty
-                     ? "Nobody to suggest yet. Add someone by address above."
-                     : "No matches.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            } else {
-                ForEach(candidates) { candidate in
-                    Button {
-                        toggleGroupMember(candidate.address)
-                    } label: {
+            // Two collapsed drawers rather than a chips row over an open list. Either one can run
+            // to dozens of rows, and with both showing at once the address field below them was
+            // somewhere you had to go looking for. Same shape and wording as the desktop client.
+            DisclosureGroup(isExpanded: $membersExpanded) {
+                if selectedMemberAddresses.isEmpty {
+                    Text("No members added yet. Open Contacts below to add people.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(sortedSelectedMembers, id: \.self) { address in
                         HStack(spacing: 12) {
                             KNSAvatarView(
-                                avatarURLString: knsService.profileCache[candidate.address]?.avatarURL,
-                                fallbackText: candidate.name,
+                                avatarURLString: knsService.profileCache[address]?.avatarURL,
+                                fallbackText: memberDisplayName(address),
                                 size: 40,
-                                contactAddress: candidate.address
+                                contactAddress: address
                             )
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(candidate.name)
+                                Text(memberDisplayName(address))
                                     .foregroundColor(.primary)
                                     .lineLimit(1)
-                                Text(Contact.generateDefaultAlias(from: candidate.address))
+                                Text(Contact.generateDefaultAlias(from: address))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
                             }
                             Spacer(minLength: 0)
-                            if selectedMemberAddresses.contains(candidate.address) {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(.accentColor)
+                            Button {
+                                selectedMemberAddresses.remove(address)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundColor(.secondary)
                             }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Remove from group")
                         }
                     }
-                    .buttonStyle(.plain)
                 }
+            } label: {
+                Text(selectedMemberAddresses.isEmpty ? "Members" : "Members (\(selectedMemberAddresses.count))")
+                    .font(.headline)
             }
-        } header: {
-            Text(selectedMemberAddresses.isEmpty ? "Add People" : "Add People (\(selectedMemberAddresses.count))")
+
+            DisclosureGroup(isExpanded: $contactsExpanded) {
+                TextField("Search name or address", text: $memberSearchText)
+                    .autocapitalization(.none)
+                    .autocorrectionDisabled()
+
+                // Computed once per body, not once per use.
+                let candidates = groupCandidates
+                if candidates.isEmpty {
+                    Text(memberSearchText.isEmpty
+                         ? "Nobody to suggest yet. Add someone by address below."
+                         : "No matches.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    ForEach(candidates) { candidate in
+                        Button {
+                            toggleGroupMember(candidate.address)
+                        } label: {
+                            HStack(spacing: 12) {
+                                KNSAvatarView(
+                                    avatarURLString: knsService.profileCache[candidate.address]?.avatarURL,
+                                    fallbackText: candidate.name,
+                                    size: 40,
+                                    contactAddress: candidate.address
+                                )
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(candidate.name)
+                                        .foregroundColor(.primary)
+                                        .lineLimit(1)
+                                    Text(Contact.generateDefaultAlias(from: candidate.address))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                                if selectedMemberAddresses.contains(candidate.address) {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            } label: {
+                Text("Contacts").font(.headline)
+            }
         }
         // The 1:1 screen's loader only runs in its own section, which never renders in group
         // mode - without this the follow graph would be missing here. Guarded internally, so
@@ -888,6 +932,16 @@ struct AddContactView: View {
         // skip delivery: the subscription, push and the catch-up sync all still run.
         .onAppear { chatService.stopForegroundContactSweep() }
         .onDisappear { chatService.startForegroundContactSweep() }
+    }
+
+    /// The roster, sorted by name: the selection itself, not a filtered view of the candidates.
+    ///
+    /// Reading it off `groupCandidates` would make members disappear from Members while the search
+    /// box is narrowing that list, and anyone added by raw address or KNS domain was never in it.
+    private var sortedSelectedMembers: [String] {
+        selectedMemberAddresses.sorted {
+            memberDisplayName($0).localizedCaseInsensitiveCompare(memberDisplayName($1)) == .orderedAscending
+        }
     }
 
     /// One candidate row, with its name resolved ONCE.
@@ -1257,43 +1311,3 @@ struct AddContactView: View {
 }
 
 
-/// Selected group members as removable chips above the picker list, so a long candidate list
-/// never hides who is already in the group.
-private struct GroupMemberChipsRow: View {
-    let addresses: [String]
-    let displayName: (String) -> String
-    let onRemove: (String) -> Void
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(addresses, id: \.self) { address in
-                    HStack(spacing: 6) {
-                        KNSAvatarView(
-                            avatarURLString: nil,
-                            fallbackText: displayName(address),
-                            size: 22,
-                            contactAddress: address
-                        )
-                        Text(displayName(address))
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                        Button {
-                            onRemove(address)
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.caption2.weight(.bold))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.leading, 6)
-                    .padding(.trailing, 10)
-                    .padding(.vertical, 5)
-                    .background(Capsule().fill(Color.primary.opacity(0.06)))
-                }
-            }
-            .padding(.vertical, 2)
-        }
-    }
-}
