@@ -83,6 +83,7 @@ enum NextcloudError: LocalizedError {
     case badCredentials
     case httpError(Int)
     case malformedResponse
+    case truncatedDownload(received: Int64, expected: Int64)
     case backupNotFound
     case noActiveWallet
 
@@ -100,6 +101,12 @@ enum NextcloudError: LocalizedError {
             return "Nextcloud returned HTTP \(code)."
         case .malformedResponse:
             return "Unexpected response from the Nextcloud server."
+        case .truncatedDownload(let received, let expected):
+            // Worth its own case rather than folding into malformedResponse: an incomplete
+            // transfer and a file that is not a KaChat backup need opposite advice - one is
+            // "try again", the other is "your backup is gone".
+            return "The backup download stopped early (\(received) of \(expected) bytes). "
+                + "Nothing on the server was changed, so trying again is safe."
         case .backupNotFound:
             return "No KaChat backup was found on this Nextcloud server."
         }
@@ -1366,6 +1373,13 @@ final class NextcloudService: ObservableObject {
             }
         }
         guard !data.isEmpty else { throw NextcloudError.httpError(http.statusCode) }
+        // A stream that ends early does not always throw - a connection closed gracefully
+        // mid-body just ends the sequence - so short of the advertised length has to be caught
+        // here. Silently accepting it hands megabytes of half an archive to the merge parser,
+        // which reports it as a corrupt or foreign backup.
+        if let expected, Int64(data.count) < expected {
+            throw NextcloudError.truncatedDownload(received: Int64(data.count), expected: expected)
+        }
         progress?(Int64(data.count), expected)
         return data
     }
