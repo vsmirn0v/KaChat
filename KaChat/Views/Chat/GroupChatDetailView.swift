@@ -129,12 +129,6 @@ struct GroupChatDetailView: View {
     /// Swipe-left-to-reveal-timestamps, matching 1:1 chat's `ChatDetailView`/broadcast rooms'
     /// identical gesture.
     @State private var revealOffset: CGFloat = 0
-    /// Swipe-right-to-reply, driven by the same UIKit recogniser 1:1 chat uses - see
-    /// SwipeToReplyCoordinator for why it is not a SwiftUI gesture per row.
-    @State private var swipeReplyTxId: String?
-    @State private var swipeReplyOffset: CGFloat = 0
-    @State private var swipeRegistry = MessageRowRegistry()
-    @State private var swipeCoordinator: SwipeToReplyCoordinator?
     /// Ticks once a minute while the thread is open, purely so expiring system lines disappear
     /// on their own rather than on the next unrelated redraw.
     @State private var systemLineClock = Date()
@@ -376,28 +370,6 @@ struct GroupChatDetailView: View {
                         if scrollViewReference.scrollView !== scrollView {
                             scrollViewReference.scrollView = scrollView
                         }
-                        if swipeCoordinator == nil {
-                            swipeCoordinator = SwipeToReplyCoordinator(
-                                registry: swipeRegistry,
-                                onChange: { txId, offset in
-                                    swipeReplyTxId = txId
-                                    if txId == nil {
-                                        withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                                            swipeReplyOffset = 0
-                                        }
-                                    } else {
-                                        swipeReplyOffset = offset
-                                    }
-                                },
-                                onCommit: { txId in
-                                    guard let message = groupChatService.groupMessages[group.id]?
-                                        .first(where: { $0.txId == txId }) else { return }
-                                    Haptics.impact(.light)
-                                    groupChatService.startReplyTo(message)
-                                }
-                            )
-                        }
-                        swipeCoordinator?.attach(to: scrollView)
                     }
                     .frame(height: 0)
                     .allowsHitTesting(false)
@@ -2068,27 +2040,10 @@ struct GroupChatDetailView: View {
         .allowsHitTesting(!isSelectingMessages)
         .padding(.leading, isSelectingMessages ? 28 : 0)
 
-        let swiping = swipeReplyTxId == message.txId
-        // A system line ("X was added") is not something anyone replies to - leaving it out of the
-        // registry is what makes the swipe decline to begin on it.
-        let replyable = message.senderAddress != GroupChatService.systemSender && !isSelectingMessages
         return ZStack(alignment: .leading) {
             bubble
             groupSelectionOverlay(for: message.txId)
         }
-        .offset(x: swiping ? swipeReplyOffset : 0)
-        .overlay(alignment: .leading) {
-            if swiping, swipeReplyOffset > 4 {
-                Image(systemName: "arrowshape.turn.up.left.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(swipeReplyOffset >= SwipeToReplyCoordinator.threshold ? .accentColor : .secondary)
-                    .opacity(min(1, swipeReplyOffset / SwipeToReplyCoordinator.threshold))
-                    .scaleEffect(0.8 + 0.2 * min(1, swipeReplyOffset / SwipeToReplyCoordinator.threshold))
-                    .padding(.leading, 10)
-                    .allowsHitTesting(false)
-            }
-        }
-        .background(replyable ? MessageRowMarker(txId: message.txId, registry: swipeRegistry) : nil)
     }
 
     /// Entry point into select mode - triggered from a message's long-press "Select" menu item
