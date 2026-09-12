@@ -1,5 +1,15 @@
 # KaPosts: make reply threads complete
 
+> **STATUS: DELIVERED.** Both endpoints are live on `kachat.duckdns.org` and verified against a
+> real reply: `get-post?id=<txid>` returns `{post: KPost}`, and `get-thread?id=<txid>` returns
+> `{ancestors: [KPost], post: KPost}` with the chain root-first and the requested post carrying
+> its `parentPostId`.
+>
+> The client side had NOT been updated to match — every platform still assumed "the indexer has
+> no single-post lookup", which is what made a reply opened from a profile a dead end. iOS now
+> calls both (`KaPostsAPIClient.fetchPost` / `fetchThread`); desktop and Android are to follow.
+> Everything below is kept as the contract those calls are written against.
+
 **Ask:** two read endpoints on the KaChat KaPosts indexer. Everything else already works.
 No protocol change, no schema change, no app release needed — the apps call these the moment
 they answer, and fall back to today's partial behaviour when they don't.

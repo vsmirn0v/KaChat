@@ -217,12 +217,12 @@ enum KaChatInternalLink: Equatable {
 /// The author and text behind a `kachat://kapost/<txid>` link, so a shared post previews in a
 /// chat as the post itself rather than as a URL.
 ///
-/// Resolved from the transaction the post IS. The K indexer has no single-post lookup
-/// (`get-post?id=` is still listed as NEEDED in KAPOSTS_INDEXER.md), and a post someone shares
-/// is usually outside the feed window, so the API cannot answer for it at all. The chain always
-/// can: the post id is the transaction id, and the payload holds the same bytes the indexer
-/// read. See `KaPostsProtocol.parseChainPayload`. The author's name then comes from the KNS
-/// profile cache every other KaPosts surface fills.
+/// Resolved from the transaction the post IS, and deliberately still so now that the indexer
+/// answers single ids (`get-post?id=`, see `KaPostsAPIClient.fetchPost`): a preview card needs the
+/// author and the text, nothing viewer-specific, and the chain answers for a post of any age
+/// without depending on the indexer having caught up. The post id is the transaction id, and the
+/// payload holds the same bytes the indexer read. See `KaPostsProtocol.parseChainPayload`. The
+/// author's name then comes from the KNS profile cache every other KaPosts surface fills.
 ///
 /// An earlier version of this type was a cache with a `record` hand-off for posts already on
 /// screen, and nothing ever called it - so every one of these cards read "KaPosts post / Tap to

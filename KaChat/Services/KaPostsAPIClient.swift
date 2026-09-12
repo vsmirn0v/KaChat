@@ -113,6 +113,17 @@ final class KaPostsAPIClient: ObservableObject {
         let pagination: KPagination?
     }
 
+    /// `get-post?id=` - one post, any age, any author.
+    private struct PostResponse: Decodable {
+        let post: KPost
+    }
+
+    /// `get-thread?id=` - the post plus its ancestor chain, ROOT FIRST, excluding the post itself.
+    private struct ThreadResponse: Decodable {
+        let ancestors: [KPost]?
+        let post: KPost
+    }
+
     private struct RepliesResponse: Decodable {
         let replies: [KPost]
         let pagination: KPagination?
@@ -304,6 +315,37 @@ final class KaPostsAPIClient: ObservableObject {
         return (Self.filterKaChat(response.replies), response.pagination)
     }
 
+    /// One post by id, any age, any author (`get-post?id=`).
+    ///
+    /// This is what makes a reply thread complete. A reply's parent is on chain, but every other
+    /// read endpoint is a feed or a list, so an ancestor chain could only ever show the levels
+    /// that happened to be loaded - which is none of them for a reply opened from a profile.
+    ///
+    /// Deliberately NOT run through `filterKaChat`: the feeds drop posts without the KaChat
+    /// marker because they are someone else's client's content, but a parent IS the context the
+    /// reader asked for, and a hole in a thread is worse than a Kasia-origin post in it.
+    /// An unknown id throws `.api` carrying the indexer's 404, so callers can `try?` and fall back.
+    func fetchPost(id: String) async throws -> KPost {
+        let response: PostResponse = try await get("get-post", query: [
+            "id": id,
+            "requesterPubkey": try requesterPubkey(),
+        ])
+        return response.post
+    }
+
+    /// One post plus its whole ancestor chain, root first (`get-thread?id=`).
+    ///
+    /// Preferred over walking `parentPostId` upward with `fetchPost`: that is a round trip per
+    /// level, and the chain renders above the post the reader is already reading, so five levels
+    /// deep on a slow connection is a visible stall.
+    func fetchThread(id: String) async throws -> (ancestors: [KPost], post: KPost) {
+        let response: ThreadResponse = try await get("get-thread", query: [
+            "id": id,
+            "requesterPubkey": try requesterPubkey(),
+        ])
+        return (response.ancestors ?? [], response.post)
+    }
+
     /// The requester's notification stream - votes/replies/quotes on OUR content. This is the
     /// only documented source of per-action actor identity + action txid (the notification id),
     /// which is why the engagement screen can list actors for your own posts only.
@@ -472,11 +514,11 @@ enum KaPostsProtocol {
 
     /// The on-chain record behind one post id, read straight off the transaction payload.
     ///
-    /// The K indexer has no single-post lookup (`get-post?id=` is still a NEEDED item in
-    /// KAPOSTS_INDEXER.md), so a post outside the feed window - which is most posts someone
-    /// shares into a chat - cannot be fetched from the API at all. The chain always has it: a
-    /// post IS a transaction, and its id IS the transaction id, so the Kaspa REST API returns
-    /// the same bytes the indexer itself read.
+    /// `get-post?id=` exists on the indexer now and is tried first (see `fetchPost`), so this is
+    /// the LAST resort rather than the only one. It still earns its place: a post published
+    /// seconds ago is not indexed yet, and the chain has every post that has ever existed,
+    /// because a post IS a transaction and its id IS the transaction id - the Kaspa REST API
+    /// returns the same bytes the indexer itself read.
     struct ChainPost: Equatable {
         /// "post", "reply" or "quote" - the three actions that carry a message.
         let action: String
@@ -549,12 +591,11 @@ enum KaPostsProtocol {
 
 /// Reads a KaPost straight off the transaction it was published as.
 ///
-/// The K indexer has no single-post lookup (`get-post?id=` is still a NEEDED item in
-/// KAPOSTS_INDEXER.md), so any post outside the feed window is unanswerable by the API - which is
-/// why opening a shared or notified post used to fail with "Post not found - it may be older than
-/// the current feed" whenever the search through feed + own profile + the notification author's
-/// posts came up empty. The chain has every post that has ever existed: the post id IS the
-/// transaction id.
+/// The indexer answers single ids now (`get-post?id=`, see `fetchPost`), which is what "Post not
+/// found - it may be older than the current feed" used to be: a post outside the feed window and
+/// outside the fetched profiles was unanswerable by the API. This remains the fallback behind that
+/// lookup, for the window where a post exists on chain but the indexer has not caught up yet. The
+/// chain has every post that has ever existed: the post id IS the transaction id.
 ///
 /// Deliberately nonisolated - the callers are a chat bubble and a feed, and none of this touches
 /// actor state.

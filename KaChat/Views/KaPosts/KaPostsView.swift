@@ -283,6 +283,10 @@ struct KaPostsView: View {
     /// Set when a reply notification opens the PARENT post's thread: once the thread's
     /// comment list contains this reply txid, the list scrolls it into view.
     @State private var pendingThreadScrollRemoteId: String?
+    /// Ancestor chains from `get-thread`, keyed by the post's txid and held root-first. What the
+    /// in-memory walk cannot know: for a reply opened from a profile, nothing above it was ever
+    /// loaded, so there was no chain to walk at all.
+    @State private var fetchedAncestors: [String: [DraftPost]] = [:]
     @State private var profileFollowListKind: KaPostsFollowListView.Kind?
     @State private var myFollowersCount: Int?
     /// Your on-chain posts fetched from the indexer for the profile feed - local session posts
@@ -2449,11 +2453,16 @@ struct KaPostsView: View {
                 return
             }
         }
+        // The indexer answers a single id now, which is what every search above was working
+        // around: one request, instead of re-fetching feeds and profiles hoping the post falls
+        // inside one of them.
+        if let post = await indexerPost(txId: txId) {
+            await openResolvedPost(post)
+            return
+        }
         // Last resort, and the one that always works: read the post off the transaction it was
-        // published as. Everything above searches the indexer, which has no single-post lookup
-        // (`get-post?id=` is still a NEEDED item in KAPOSTS_INDEXER.md), so a post outside the
-        // feed window and outside the fetched profiles simply could not be found - that is what
-        // "Post not found" always was. The chain has every post that ever existed.
+        // published as. Still needed for the window where a post exists on chain but the indexer
+        // has not caught up - the chain has every post that ever existed.
         if let post = await chainPost(txId: txId) {
             await openResolvedPost(post)
             return
@@ -2467,6 +2476,39 @@ struct KaPostsView: View {
     /// the transaction carries the time. Engagement counts are then filled from
     /// `get-post-engagement`, which works for ANY post id, so a post opened this way still shows
     /// real like/dislike/repost numbers and your own vote state rather than a row of zeros.
+    /// One post from the indexer by txid, mapped and cached exactly like a chain-resolved one.
+    ///
+    /// Tried before `chainPost`: one request returns the post with its engagement counts AND this
+    /// viewer's own vote flags, where a chain read needs a second request for engagement and
+    /// cannot know what the viewer voted.
+    private func indexerPost(txId: String) async -> DraftPost? {
+        guard let fetched = try? await KaPostsAPIClient.shared.fetchPost(id: txId),
+              let mapped = Self.mapRemotePost(fetched) else { return nil }
+        // Same cache and the same replace-don't-duplicate rule as chainPost, so findPost(id:) and
+        // findPost(byRemoteId:) both resolve it afterwards and a like lands on one node.
+        chainResolvedPosts.removeAll { $0.remoteId == txId }
+        chainResolvedPosts.append(mapped)
+        return mapped
+    }
+
+    /// The complete ancestor chain for a post, root first, from `get-thread`.
+    ///
+    /// One request for every level, fetched once per post. Cached into `chainResolvedPosts` too,
+    /// so tapping a rung opens a post the rest of the view can already find.
+    private func loadAncestors(for post: DraftPost) async {
+        guard let remoteId = post.remoteId, !remoteId.isEmpty,
+              post.parentRemoteId != nil,
+              fetchedAncestors[remoteId] == nil else { return }
+        guard let thread = try? await KaPostsAPIClient.shared.fetchThread(id: remoteId) else { return }
+        let mapped = thread.ancestors.compactMap { Self.mapRemotePost($0) }
+        guard !mapped.isEmpty else { return }
+        for ancestor in mapped where !chainResolvedPosts.contains(where: { $0.remoteId == ancestor.remoteId }) {
+            chainResolvedPosts.append(ancestor)
+        }
+        fetchedAncestors[remoteId] = mapped
+        resolveIdentities(for: mapped)
+    }
+
     private func chainPost(txId: String) async -> DraftPost? {
         guard let record = await KaPostChainReader.fetch(txId: txId),
               let address = KaPostsAPIClient.kaspaAddress(fromPubkey: record.authorPubkey) else { return nil }
@@ -2566,8 +2608,13 @@ struct KaPostsView: View {
             openDetail(parent, scrollToCommentRemoteId: post.remoteId, ensureComment: post)
             return
         }
-        // The parent is as unfindable through the indexer as the reply was - read it off its own
-        // transaction rather than presenting the reply as a context-free thread root.
+        // Ask the indexer for the parent directly rather than hoping a feed contains it.
+        if let parent = await indexerPost(txId: parentId) {
+            openDetail(parent, scrollToCommentRemoteId: post.remoteId, ensureComment: post)
+            return
+        }
+        // Not indexed yet - read it off its own transaction rather than presenting the reply as a
+        // context-free thread root.
         if let parent = await chainPost(txId: parentId) {
             openDetail(parent, scrollToCommentRemoteId: post.remoteId, ensureComment: post)
             return
@@ -2690,11 +2737,16 @@ struct KaPostsView: View {
     ///   a thread opened from a notification or a shared link starts mid-chain with nothing
     ///   beneath it.
     ///
-    /// PARTIAL, and knowingly so: findParent searches the loaded trees, so it stops at the first
-    /// ancestor that is not in memory. A `get-post?id=` endpoint on the indexer is what would
-    /// make it exact (flagged in KAPOSTS_INDEXER.md); until then a short chain is the honest
-    /// answer, and it is still strictly more than the one step this replaces.
+    /// Exact when `get-thread` has answered for this post (see `loadAncestors`), and the
+    /// in-memory walk below otherwise - which is all a local session post has, and all there is
+    /// for the moment before the fetch lands.
     private func ancestorChain(for post: DraftPost) -> [DraftPost] {
+        // The fetched chain is every level the indexer knows, root first, so there is nothing
+        // left to infer. The walk that follows stops at the first ancestor not in memory, which
+        // for a reply opened from a profile was immediately.
+        if let remoteId = post.remoteId, let fetched = fetchedAncestors[remoteId], !fetched.isEmpty {
+            return fetched
+        }
         var walked = threadStack.dropLast().compactMap { findPost(id: $0) }
         // Guard against a stack that has drifted from the post actually on screen (a deep link
         // landing mid-thread): only trust it when its tail really is this post's ancestor.
@@ -2840,9 +2892,43 @@ struct KaPostsView: View {
     private func openProfileDetail(_ post: DraftPost) {
         replyText = ""
         pendingThreadScrollRemoteId = nil
+        // A REPLY tapped on a profile opens the post it REPLIES TO, with the reply itself in the
+        // comments below and scrolled into view - the rule notifications and shared links already
+        // follow. Opening the bare reply was this screen's whole problem: no original above it,
+        // and no way to reach one.
+        if let parentId = post.parentRemoteId, !parentId.isEmpty, parentId != post.remoteId {
+            Task {
+                let parent = findPost(byRemoteId: parentId)
+                    ?? await indexerPost(txId: parentId)
+                    ?? await chainPost(txId: parentId)
+                guard let parent else {
+                    // Unresolvable through the indexer AND off chain: the reply on its own still
+                    // beats a tap that does nothing.
+                    presentProfileDetail(post)
+                    return
+                }
+                pendingThreadScrollRemoteId = post.remoteId
+                presentProfileDetail(parent, ensureComment: post)
+            }
+            return
+        }
+        presentProfileDetail(post)
+    }
+
+    /// Presents a post in the profile's own thread cover and loads its thread. `ensureComment`
+    /// puts a known reply into the comments immediately, so the scroll target exists even before
+    /// the reply page that contains it has loaded (same trick as `openDetail`).
+    private func presentProfileDetail(_ post: DraftPost, ensureComment: DraftPost? = nil) {
         profileDetailTarget = PostDetailTarget(id: post.id)
         Task {
             await loadThreadReplies(for: post, reset: true)
+            if let ensureComment, let ensuredId = ensureComment.remoteId, !ensuredId.isEmpty {
+                mutatePost(id: post.id) { target in
+                    guard !target.comments.contains(where: { $0.remoteId == ensuredId }) else { return }
+                    target.comments.append(ensureComment)
+                }
+                resolveIdentities(for: [ensureComment])
+            }
             await loadSelfThreadChain(rootId: post.id)
         }
     }
@@ -3766,6 +3852,10 @@ struct KaPostsView: View {
                             }
                         }
                     }
+                    // The exact chain above this post, fetched once: get-thread returns every
+                    // level, so the rungs at the top of the sheet are the whole thread rather
+                    // than however much of it happened to be in memory.
+                    .task(id: post.remoteId) { await loadAncestors(for: post) }
                     // Reply-notification landing: this thread is the PARENT of the reply that
                     // was tapped - once the comment list actually contains that reply, bring
                     // it into view (openDetail's reset fetch changes the id list, firing this).

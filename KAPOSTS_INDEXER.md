@@ -91,9 +91,9 @@ Errors: JSON `{"error": "...", "code": "..."}`. Public indexer rate limit is 100
 | `get-replies?postId=` | replies to a post | |
 | `get-user-details?user=` | `followersCount`, `followingCount`, `followedUser` | |
 | `get-users-following` / `get-users-followers` | follow lists | takes `userPubkey`; items `{id, userPublicKey, timestamp, followedUser, ...}` wrapped under the key `posts` (yes, really - the app also tolerates `users`/`following`/`followers`) |
-| `get-post?id=<txid>` | **NEEDED — see §5.5** single-post lookup by txid, any post, same `KPost` shape |
+| `get-post?id=<txid>` | **SHIPPED** single-post lookup by txid, any post, same `KPost` shape. Returns `{post: KPost}` |
 | `search?q=<text>&type=posts\|users` | **NEEDED — see §5.6** content and people search |
-| `get-thread?id=<txid>` | **OPTIONAL — see `KAPOSTS_REPLIES_FIX.md`** the ancestor walk done server-side in one request |
+| `get-thread?id=<txid>` | **SHIPPED** the ancestor walk done server-side in one request. Returns `{ancestors: [KPost], post: KPost}`, ancestors ROOT FIRST and excluding the requested post |
 | `get-notifications` | actions on MY content | `{id, userPublicKey, postContent, timestamp, contentType, voteType, contentId}` — `id` is the **action's** txid |
 
 Post objects (see `KPost` in the client): `id, userPublicKey, postContent, signature,
@@ -148,19 +148,16 @@ These are confirmed product decisions; the iOS UI is already shaped for them.
    unfollow nets to zero).
 4. **Two-way exclusivity** (§3).
 
-5. **Single-post lookup — `GET /get-post?id=<txid>`.** Returns one post object, same `KPost`
-   shape as the feeds, for ANY post regardless of age or author. Two features need it:
-   - **Shared links and notification taps.** Today the app resolves a txid by searching the
-     loaded feed, then re-fetching the feed, then fetching its own posts and replies — and
-     still misses other people's older content. See `openSharedPost` in the client.
-   - **Thread ancestor chains.** Both apps now stack the chain of parent posts above the one
-     you are reading (X-style), so you can jump up several levels at once. That chain is
-     currently built from posts already in memory, so it stops at the first ancestor that was
-     never loaded. With this endpoint the client can walk `parentPostId` to the root by txid
-     and the chain becomes complete.
+5. ~~**Single-post lookup — `GET /get-post?id=<txid>`.**~~ **SHIPPED**, along with the
+   `get-thread?id=` optimisation described in `KAPOSTS_REPLIES_FIX.md`. Both verified live:
+   `get-post?id=` returns `{post: KPost}`, and `get-thread?id=` returns
+   `{ancestors: [KPost], post: KPost}` with ancestors root-first.
 
-   Being able to fetch by id is the single highest-value addition for the client; both
-   features degrade to partial behaviour without it, and neither needs a schema change.
+   The client uses them in `KaPostsAPIClient.fetchPost` / `fetchThread`: shared links and
+   notification taps resolve a txid in one request instead of re-fetching feeds and profiles,
+   and thread ancestor chains are complete rather than limited to whatever was in memory. The
+   chain reader (`KaPostChainReader`) remains the fallback behind both, for the window where a
+   post exists on chain but the indexer has not indexed it yet.
 
 6. **Search — `GET /search?q=<text>&type=posts|users`.** Same pagination envelope as the
    feeds.
