@@ -2624,16 +2624,27 @@ struct KaPostsView: View {
 
     /// One place for the thread view's cells (root, comments, inline replies) - identical
     /// wiring everywhere; non-root cells navigate deeper on tap.
-    private func threadCell(_ item: DraftPost, isRoot: Bool = false) -> some View {
+    /// `onOpen` replaces where this cell navigates to. Ancestors pass `jumpToAncestor`, which
+    /// unwinds to a level already on the path instead of pushing a second copy of it; everything
+    /// else dives deeper into its own thread. `truncates` clamps a long post to a few lines with
+    /// the cell's own Show more, so a 25,000-character parent cannot bury the post you opened.
+    private func threadCell(
+        _ item: DraftPost,
+        isRoot: Bool = false,
+        truncates: Bool = false,
+        onOpen: (() -> Void)? = nil
+    ) -> some View {
         KaPostCellView(
             post: item,
             displayName: posterDisplayName(item.posterAddress),
             avatarURLString: knsService.profileCache[item.posterAddress]?.avatarURL,
             isFollowing: followStore.isFollowing(item.posterAddress),
             commentCount: commentCount(of: item),
+            truncatesLongText: truncates,
+            emphasizes: isRoot,
             quotedDisplayName: item.quoted.map { posterDisplayName($0.posterAddress) },
             quotedAvatarURLString: quotedAvatarURL(item),
-            onComment: isRoot ? nil : { openDetail(item) },
+            onComment: isRoot ? nil : (onOpen ?? { openDetail(item) }),
             onMute: { moderationStore.mute(item.posterAddress) },
             onBlock: { moderationStore.block(item.posterAddress) },
             onBookmark: { toggleBookmark(item) },
@@ -2765,39 +2776,6 @@ struct KaPostsView: View {
             hops += 1
         }
         return above.reversed() + walked
-    }
-
-    /// One rung of the chain: who said it and what, tappable to jump straight there.
-    private func ancestorRow(_ ancestor: DraftPost) -> some View {
-        Button {
-            jumpToAncestor(ancestor)
-        } label: {
-            HStack(alignment: .top, spacing: 8) {
-                KNSAvatarView(
-                    avatarURLString: knsService.profileCache[ancestor.posterAddress]?.avatarURL,
-                    fallbackText: posterDisplayName(ancestor.posterAddress),
-                    size: 26,
-                    contactAddress: ancestor.posterAddress
-                )
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(posterDisplayName(ancestor.posterAddress))
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(.primary)
-                    Text(ancestor.text)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.up")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     /// Jump to a post in the chain: unwind the stack to it when it is on the path already,
@@ -3781,8 +3759,30 @@ struct KaPostsView: View {
                             // first, each one tappable to jump straight to that level. Replaces
                             // the single "Replying to X" link, which only ever showed one step
                             // and left you tapping Back repeatedly to climb a deep thread.
+                            //
+                            // Full post cells, not summaries. The two-line rungs this replaces
+                            // read as a separate block of older content stapled above the thread,
+                            // and they could not be liked, reposted or replied to - the parents
+                            // are posts, so they behave like posts, and the whole screen reads as
+                            // one feed. Long ones truncate so the post you actually opened still
+                            // owns the screen.
                             ForEach(ancestorChain(for: post)) { ancestor in
-                                ancestorRow(ancestor)
+                                threadCell(ancestor, truncates: true, onOpen: { jumpToAncestor(ancestor) })
+                                    // X's thread line, and no divider: a rule between two posts
+                                    // separates them, while the line running down the avatar
+                                    // column from one into the next is what makes the chain read
+                                    // as one conversation. Drawn BEHIND the cell rather than
+                                    // beside it, so the post keeps the same full width as every
+                                    // other cell. The geometry follows the cell's own: 16pt
+                                    // leading plus a 40pt avatar puts its centre at 36, and 12pt
+                                    // top padding plus that avatar ends it at 52.
+                                    .background(alignment: .topLeading) {
+                                        RoundedRectangle(cornerRadius: 1)
+                                            .fill(Color.secondary.opacity(0.3))
+                                            .frame(width: 2)
+                                            .padding(.leading, 35)
+                                            .padding(.top, 52)
+                                    }
                             }
                             threadCell(post, isRoot: true)
                             Divider()
@@ -4076,6 +4076,10 @@ private struct KaPostCellView: View {
     /// Feed cells truncate very long posts behind "Show more" (which opens the full thread view);
     /// detail/comment/bookmark cells show everything.
     var truncatesLongText: Bool = false
+    /// The post a thread is FOCUSED on renders larger than the posts around it, the way X sizes
+    /// the tweet you opened against its ancestors and its replies. Everything else about the cell
+    /// is identical, so the chain still reads as one feed.
+    var emphasizes: Bool = false
     /// Resolved display bits for the QUOTED post's author, passed in by the parent (which
     /// observes KNSService) instead of observed here - see the observation note on `body`.
     var quotedDisplayName: String? = nil
@@ -4229,7 +4233,7 @@ private struct KaPostCellView: View {
                 // option menu (never auto-opens - OpenURLAction intercepts). No previews, no
                 // photos, no markdown - just detected links styled accent+underline.
                 Text(Self.linkified(displayedText))
-                    .font(.body)
+                    .font(emphasizes ? .title3 : .body)
                     .foregroundColor(.primary)
                     .tint(.accentColor)
                     .environment(\.openURL, OpenURLAction { url in
