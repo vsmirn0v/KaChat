@@ -1913,21 +1913,34 @@ struct KaPostsView: View {
     private func loadSelfThreadChain(rootId: UUID) async {
         guard let root = findPost(id: rootId), root.remoteId != nil else { return }
         var chain: [DraftPost] = []
-        var current = root.comments
-            .filter { $0.posterAddress == root.posterAddress && $0.remoteId != nil }
-            .sorted { $0.timestamp < $1.timestamp }
-            .first
+        var candidates = visibleComments(of: root).filter { $0.remoteId != nil }
         var hops = 0
-        while let segment = current, hops < 25 {
+        while hops < 25 {
+            // An UNBRANCHED continuation is the conversation, whoever wrote it. A back-and-forth
+            // between two people is one thread to read, and following only the root author's own
+            // replies left every other message behind a tap - which is what made reading a long
+            // exchange cost one tap down per message and the same number of Backs to leave.
+            //
+            // Where the post has SEVERAL replies there is a real branch, and picking one would
+            // hide the others; that case keeps the old rule - the author's own continuation, which
+            // is a thread they wrote deliberately - and everything else stays in Comments below.
+            let next: DraftPost?
+            if candidates.count == 1 {
+                next = candidates.first
+            } else {
+                next = candidates
+                    .filter { $0.posterAddress == root.posterAddress }
+                    .sorted { $0.timestamp < $1.timestamp }
+                    .first
+            }
+            guard let segment = next, let segmentRemoteId = segment.remoteId else { break }
             chain.append(segment)
             hops += 1
-            guard let segmentRemoteId = segment.remoteId,
-                  let page = try? await KaPostsAPIClient.shared.fetchReplies(postId: segmentRemoteId, limit: 25, before: nil) else { break }
-            current = page.posts
+            guard let page = try? await KaPostsAPIClient.shared.fetchReplies(postId: segmentRemoteId, limit: 25, before: nil) else { break }
+            candidates = page.posts
                 .compactMap { Self.mapRemotePost($0) }
-                .filter { $0.posterAddress == root.posterAddress }
+                .filter { !moderationStore.isHidden($0.posterAddress) && $0.remoteId != nil }
                 .sorted { $0.timestamp < $1.timestamp }
-                .first
         }
         threadChains[rootId] = chain
         if let remoteId = root.remoteId, !chain.isEmpty {
@@ -2688,12 +2701,35 @@ struct KaPostsView: View {
                         .padding(.leading, 35)
                     VStack(alignment: .leading, spacing: 0) {
                         let replies = visibleComments(of: comment)
+                        let page = threadPages[comment.id] ?? KaPostsPageState()
                         if replies.isEmpty {
+                            // Emptiness alone used to mean "loading", so a comment whose
+                            // repliesCount is a SUBTREE count while get-replies returns its direct
+                            // replies (none) span forever. The page state knows the difference
+                            // between still fetching, failed, and answered with nothing.
                             HStack(spacing: 8) {
-                                ProgressView().scaleEffect(0.8)
-                                Text("Loading replies...")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                if page.isLoading {
+                                    ProgressView().scaleEffect(0.8)
+                                    Text("Loading replies...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                } else if let errorMessage = page.errorMessage {
+                                    Text(errorMessage)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(2)
+                                    Button("Retry") {
+                                        threadPages[comment.id, default: KaPostsPageState()].prepareManualRetry()
+                                        Task { await loadThreadReplies(for: comment, reset: true) }
+                                    }
+                                    .font(.caption.weight(.semibold))
+                                    .buttonStyle(.plain)
+                                    .foregroundColor(.accentColor)
+                                } else {
+                                    Text("No replies")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
                             }
                             .padding(.vertical, 12)
                             .padding(.leading, 16)
@@ -3828,10 +3864,14 @@ struct KaPostsView: View {
                             // a connected, ordered section right under the root - separate from
                             // other people's comments below.
                             if let chain = threadChains[post.id], !chain.isEmpty {
+                                // "Thread" is what an author calls their OWN continuation. When
+                                // the chain carries other people's replies it is a conversation,
+                                // and calling that a thread would credit them to the root author.
+                                let isSelfThread = chain.allSatisfy { $0.posterAddress == post.posterAddress }
                                 HStack(spacing: 6) {
                                     Image(systemName: "text.append")
                                         .font(.caption.weight(.semibold))
-                                    Text("Thread · \(chain.count + 1) posts")
+                                    Text("\(isSelfThread ? "Thread" : "Conversation") · \(chain.count + 1) posts")
                                         .font(.subheadline.weight(.bold))
                                     Spacer()
                                 }
@@ -3864,7 +3904,12 @@ struct KaPostsView: View {
                             .padding(.vertical, 10)
 
                             if comments.isEmpty {
-                                Text("No comments yet - be the first to reply.")
+                                // An unbranched exchange is rendered in full ABOVE, and its
+                                // members are filtered out of this list - so "no comments yet"
+                                // would contradict the replies the reader can already see.
+                                Text((threadChains[post.id] ?? []).isEmpty
+                                     ? "No comments yet - be the first to reply."
+                                     : "Every reply is in the conversation above.")
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
                                     .padding(.horizontal, 16)
