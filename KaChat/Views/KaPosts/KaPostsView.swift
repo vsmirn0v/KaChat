@@ -350,11 +350,15 @@ struct KaPostsView: View {
     /// Quote tapped inside the side-menu sheet (Bookmarks / my Profile), which is presented by
     /// `body`'s ZStack - a level above `feedLayer`, so it needs its own composer too.
     @State private var menuQuoteComposerTarget: DraftPost?
-    @State private var replyText = ""
+    /// Reply composer targets, one per presentation level - the same rule the quote composers
+    /// above follow: only the hierarchy already on screen can present over what the user is
+    /// looking at, so each surface owns its own.
+    @State private var replyComposerTarget: DraftPost?
+    @State private var profileReplyComposerTarget: DraftPost?
+    @State private var threadReplyComposerTarget: DraftPost?
+    @State private var menuReplyComposerTarget: DraftPost?
     /// Caret / highlighted range in the thread's reply bar, in character offsets - what its
     /// formatting toolbar acts on.
-    @State private var replySelection: ClosedRange<Int> = 0...0
-    @State private var isReplyFocused = false
 
     /// Which presentation level a quote action came from - i.e. which view has to own the
     /// composer sheet so it can actually appear over what the user is looking at.
@@ -396,6 +400,8 @@ struct KaPostsView: View {
     @State private var menuSheet: SideMenuItem?
     /// The draft currently open in the composer, presented from the drafts sheet.
     @State private var editingDraft: KaPostSavedDraft?
+    /// The post a reopened draft was replying to or quoting, once resolved from its stored id.
+    @State private var draftSourcePost: DraftPost?
     @ObservedObject private var draftStore = KaPostsDraftStore.shared
     @ObservedObject private var knsService = KNSService.shared
     @ObservedObject private var followStore = KaPostsFollowStore.shared
@@ -492,6 +498,9 @@ struct KaPostsView: View {
             .fullScreenCover(item: $menuQuoteComposerTarget) { target in
                 quoteComposerSheet(for: target)
             }
+            .fullScreenCover(item: $menuReplyComposerTarget) { target in
+                replyComposerSheet(for: target)
+            }
         }
     }
 
@@ -573,6 +582,9 @@ struct KaPostsView: View {
         }
         .fullScreenCover(item: $quoteComposerTarget, onDismiss: { clearRestoredComposerDraft() }) { target in
             quoteComposerSheet(for: target)
+        }
+        .fullScreenCover(item: $replyComposerTarget, onDismiss: { clearRestoredComposerDraft() }) { target in
+            replyComposerSheet(for: target)
         }
         // Tapping an @mention anywhere in KaPosts (feed, thread detail, profiles - sheets
         // inherit this environment) resolves the KNS domain and opens that user's profile.
@@ -804,7 +816,8 @@ struct KaPostsView: View {
                             truncatesLongText: true,
                             quotedDisplayName: post.quoted.map { posterDisplayName($0.posterAddress) },
                             quotedAvatarURLString: quotedAvatarURL(post),
-                            onComment: { openDetail(post) },
+                            onComment: { replyComposerTarget = post },
+                            onOpenThread: { openDetail(post) },
                             onMute: { moderationStore.mute(post.posterAddress) },
                             onBlock: { moderationStore.block(post.posterAddress) },
                             onBookmark: { toggleBookmark(post) },
@@ -1713,12 +1726,20 @@ struct KaPostsView: View {
             let pubkey = KaPostsAPIClient.kapostPubkey(fromAddress: resolution.ownerAddress)
             let hadSheetUp = detailTarget != nil || quoteComposerTarget != nil
                 || threadQuoteComposerTarget != nil || profileQuoteComposerTarget != nil
-                || menuQuoteComposerTarget != nil || showComposer
+                || menuQuoteComposerTarget != nil || replyComposerTarget != nil
+                || threadReplyComposerTarget != nil || profileReplyComposerTarget != nil
+                || menuReplyComposerTarget != nil || showComposer
             closeThread()
             quoteComposerTarget = nil
             threadQuoteComposerTarget = nil
             profileQuoteComposerTarget = nil
             menuQuoteComposerTarget = nil
+            // The reply composers dismiss with the rest: only one sheet can present at a time, so
+            // one left up would swallow the profile this is opening.
+            replyComposerTarget = nil
+            threadReplyComposerTarget = nil
+            profileReplyComposerTarget = nil
+            menuReplyComposerTarget = nil
             showComposer = false
             DispatchQueue.main.asyncAfter(deadline: .now() + (hadSheetUp ? 0.4 : 0)) {
                 profileTarget = PosterProfileTarget(address: resolution.ownerAddress, pubkey: pubkey)
@@ -2005,6 +2026,49 @@ struct KaPostsView: View {
 
     /// Same 5s undo window for quotes: the optimistic quote card is in the feed but the quote
     /// tx (and the target's repost bump) wait for the countdown.
+    /// Posts a reply to `post`, behind the same 5s undo window as every other action.
+    ///
+    /// ONE implementation for both entry points - the thread's Reply button and the reply
+    /// composer - because this owns the optimistic comment, the undo toast and the on-chain
+    /// send, and two copies of that would drift apart the first time one of them changed.
+    private func scheduleReply(to post: DraftPost, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
+        var reply = DraftPost(text: trimmed, timestamp: Date(), posterAddress: myAddress)
+        reply.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
+        reply.deliveryStatus = post.remoteId != nil ? .pending : .sent
+        let localReplyId = reply.id
+        mutatePost(id: post.id) { target in
+            target.comments.append(reply)
+        }
+        // A parent that is not on chain yet has nothing to reply TO on the network; the comment
+        // still shows locally, exactly as it did before.
+        guard let parentRemoteId = post.remoteId else { return }
+        let parentAuthor = post.posterPubkey
+        let key = "comment:\(localReplyId)"
+        showUndoToast(key: key, postId: localReplyId, label: "Posting comment", draftText: trimmed)
+        scheduler.schedule(key: key) {
+            clearUndoToast(key: key)
+            Task {
+                do {
+                    // @mentions work in replies exactly as in posts: resolved client-side.
+                    let txId = try await KaPostsAPIClient.shared.submitReply(
+                        text: trimmed, postId: parentRemoteId, parentAuthorPubkey: parentAuthor,
+                        mentionedPubkeys: await mentionedPubkeys(in: trimmed)
+                    )
+                    mutatePost(id: localReplyId) {
+                        $0.remoteId = txId
+                        $0.deliveryStatus = .sent
+                    }
+                } catch {
+                    mutatePost(id: localReplyId) { $0.deliveryStatus = .failed }
+                    AppLog.log("[KaPosts] Reply submit failed: %@", error.localizedDescription)
+                }
+            }
+        }
+    }
+
     private func scheduleQuote(target: DraftPost, text: String) {
         let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
         var quotePost = DraftPost(text: text, timestamp: Date(), posterAddress: myAddress)
@@ -2076,13 +2140,18 @@ struct KaPostsView: View {
     /// Puts an undone draft back where it was written, so the five seconds are a chance to fix
     /// something rather than a chance to lose it.
     ///
-    /// A comment goes straight back into the reply bar, which is still on screen. A post or a
-    /// quote reopens its composer - deferred a beat, because the toast's own dismissal animation
-    /// is running and presenting a sheet into that lands on nothing.
+    /// Every kind reopens its composer - deferred a beat, because the toast's own dismissal
+    /// animation is running and presenting a sheet into that lands on nothing.
     private func restoreDraft(from toast: UndoPostToast) {
         guard let text = toast.draftText, !text.isEmpty else { return }
         if toast.key.hasPrefix("comment:") {
-            replyText = text
+            // An undone reply reopens the reply composer with its parent attached. It used to go
+            // back into the thread's reply bar, which no longer exists.
+            guard let parent = findParent(ofCommentId: toast.postId) else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                restoredComposerText = text
+                threadReplyComposerTarget = parent
+            }
             return
         }
         guard toast.key.hasPrefix("post:") else { return }
@@ -2103,24 +2172,6 @@ struct KaPostsView: View {
 
     /// Removes an optimistic comment from whichever post's comment tree holds it —
     /// the same collections mutatePost() searches.
-    /// The thread reply bar's formatting buttons. Same rules as the post composer's - see
-    /// `KaPostComposerView.applyFormatting`.
-    private func applyReplyFormatting(_ action: KaPostsMarkdown.ToolbarAction) {
-        let edit = KaPostsMarkdown.apply(
-            action,
-            to: replyText,
-            selectionStart: replySelection.lowerBound,
-            selectionEnd: replySelection.upperBound
-        )
-        guard edit.text.count <= KaPostsView.postCharacterLimit else { return }
-        replyText = edit.text
-        // Deferred one runloop turn: the text has to reach the text view before a selection into
-        // it means anything, otherwise this lands on the pre-edit string and is clamped away.
-        DispatchQueue.main.async {
-            replySelection = edit.selectionStart...edit.selectionEnd
-        }
-    }
-
     private func removeReply(withId id: UUID) {
         func strip(_ list: inout [DraftPost]) -> Bool {
             for index in list.indices {
@@ -2280,6 +2331,67 @@ struct KaPostsView: View {
             case .menu: menuQuoteComposerTarget = post
             }
         }
+    }
+
+    /// A saved draft, reopened as whatever it was written as.
+    ///
+    /// A reply or quote draft stores only the ID of the post it was about (a draft must never
+    /// carry a stale copy of someone else's post), so that post is resolved here - from memory
+    /// first, then the indexer, then the chain - and handed to the composer. Until this, the
+    /// stored id was never read at all: a quote draft reopened as a plain post and quietly lost
+    /// what it was quoting.
+    @ViewBuilder
+    private func draftComposer(for draft: KaPostSavedDraft) -> some View {
+        let sourceId = draft.replyRemoteId ?? draft.quotedRemoteId
+        let isReplyDraft = draft.replyRemoteId != nil
+        KaPostComposerView(
+            quotedPost: isReplyDraft ? nil : draftSourcePost,
+            quotedDisplayName: draftSourcePost.map { posterDisplayName($0.posterAddress) } ?? "",
+            quotedAvatarURL: draftSourcePost.flatMap { knsService.profileCache[$0.posterAddress]?.avatarURL },
+            replyTarget: isReplyDraft ? draftSourcePost : nil,
+            onPost: { text in
+                draftStore.delete(draft.id)
+                if let source = draftSourcePost, isReplyDraft {
+                    scheduleReply(to: source, text: text)
+                } else if let source = draftSourcePost, draft.quotedRemoteId != nil {
+                    scheduleQuote(target: source, text: text)
+                } else {
+                    // The post it referred to could not be resolved - post the text rather than
+                    // discard what was written.
+                    schedulePost(text: text)
+                }
+            },
+            onPostThread: { segments in
+                draftStore.delete(draft.id)
+                scheduleThread(segments)
+            },
+            editingDraftId: draft.id,
+            initialText: draft.text,
+            initialThreadSegments: draft.threadSegments
+        )
+        .task(id: sourceId) {
+            draftSourcePost = nil
+            guard let sourceId, !sourceId.isEmpty else { return }
+            // Stepwise, not a `??` chain: the right-hand side of `??` is an autoclosure and
+            // cannot contain `await`.
+            var resolved = findPost(byRemoteId: sourceId)
+            if resolved == nil { resolved = await indexerPost(txId: sourceId) }
+            if resolved == nil { resolved = await chainPost(txId: sourceId) }
+            draftSourcePost = resolved
+        }
+    }
+
+    /// The one reply composer, hung off whichever hierarchy is on screen - same rule as quotes.
+    /// Replying is a composer now rather than a bar at the bottom of the thread: you get the
+    /// whole screen to write in, with the post you are answering rendered underneath.
+    private func replyComposerSheet(for target: DraftPost) -> some View {
+        KaPostComposerView(
+            quotedDisplayName: posterDisplayName(target.posterAddress),
+            quotedAvatarURL: knsService.profileCache[target.posterAddress]?.avatarURL,
+            replyTarget: target,
+            onPost: { text in scheduleReply(to: target, text: text) },
+            initialText: restoredComposerText ?? ""
+        )
     }
 
     /// The one quote composer, built once and hung off whichever hierarchy is on screen.
@@ -2660,10 +2772,13 @@ struct KaPostsView: View {
             isFollowing: followStore.isFollowing(item.posterAddress),
             commentCount: commentCount(of: item),
             truncatesLongText: truncates,
-            emphasizes: isRoot,
+            isFocused: isRoot,
             quotedDisplayName: item.quoted.map { posterDisplayName($0.posterAddress) },
             quotedAvatarURLString: quotedAvatarURL(item),
-            onComment: isRoot ? nil : (onOpen ?? { openDetail(item) }),
+            // Reply opens the composer from the THREAD's own hierarchy. The focused post has no
+            // reply button of its own - its Reply sits below the thread (see postDetailSheet).
+            onComment: isRoot ? nil : { threadReplyComposerTarget = item },
+            onOpenThread: onOpen ?? { openDetail(item) },
             onMute: { moderationStore.mute(item.posterAddress) },
             onBlock: { moderationStore.block(item.posterAddress) },
             onBookmark: { toggleBookmark(item) },
@@ -2824,7 +2939,6 @@ struct KaPostsView: View {
     /// otherwise start a fresh stack there - the rungs above what you walked were resolved from
     /// the loaded tree, not navigated to.
     private func jumpToAncestor(_ ancestor: DraftPost) {
-        replyText = ""
         pendingThreadScrollRemoteId = nil
         // Same surface rule as openDetail: unwind the stack the visible cover actually reads.
         if profileDetailTarget != nil {
@@ -2852,7 +2966,6 @@ struct KaPostsView: View {
                 closeThread()
                 return
             }
-            replyText = ""
             pendingThreadScrollRemoteId = nil
             profileThreadStack.removeLast()
             return
@@ -2861,7 +2974,6 @@ struct KaPostsView: View {
             closeThread()
             return
         }
-        replyText = ""
         pendingThreadScrollRemoteId = nil
         // Deliberately does NOT touch detailTarget. fullScreenCover(item:) re-presents whenever
         // that item's id changes, so reassigning it would dismiss and re-present the whole cover
@@ -2898,7 +3010,6 @@ struct KaPostsView: View {
         scrollToCommentRemoteId: String? = nil,
         ensureComment: DraftPost? = nil
     ) {
-        replyText = ""
         // nil on every normal open, so a stale pending scroll target from an earlier
         // notification landing can never yank a later thread around.
         pendingThreadScrollRemoteId = scrollToCommentRemoteId
@@ -2936,7 +3047,6 @@ struct KaPostsView: View {
     /// `profileDetailTarget`, presented by the profile's own NavigationStack). Lets you comment on
     /// a person's posts/replies straight from their profile.
     private func openProfileDetail(_ post: DraftPost) {
-        replyText = ""
         pendingThreadScrollRemoteId = nil
         // A REPLY tapped on a profile opens the post it REPLIES TO, with the reply itself in the
         // comments below and scrolled into view - the rule notifications and shared links already
@@ -3151,6 +3261,9 @@ struct KaPostsView: View {
             }
             .fullScreenCover(item: $profileQuoteComposerTarget) { target in
                 quoteComposerSheet(for: target)
+            }
+            .fullScreenCover(item: $profileReplyComposerTarget) { target in
+                replyComposerSheet(for: target)
             }
             .task(id: myAddress) {
                 guard knsService.profileCache[myAddress] == nil, !myAddress.isEmpty else { return }
@@ -3371,6 +3484,9 @@ struct KaPostsView: View {
             .fullScreenCover(item: $profileQuoteComposerTarget) { target in
                 quoteComposerSheet(for: target)
             }
+            .fullScreenCover(item: $profileReplyComposerTarget) { target in
+                replyComposerSheet(for: target)
+            }
             .task(id: target.id) {
                 posterProfilePosts = []
                 posterProfileReplies = []
@@ -3541,7 +3657,8 @@ struct KaPostsView: View {
             // Was nil, which made every post and reply on your OWN profile the one place you
             // could not open its thread - tapping did nothing while the same card is fully
             // interactive on the feed and on other people's profiles.
-            onComment: { openProfileDetail(post) },
+            onComment: { profileReplyComposerTarget = post },
+            onOpenThread: { openProfileDetail(post) },
             onMute: { moderationStore.mute(post.posterAddress) },
             onBlock: { moderationStore.block(post.posterAddress) },
             onBookmark: { toggleBookmark(post) },
@@ -3571,7 +3688,8 @@ struct KaPostsView: View {
             commentCount: commentCount(of: post),
             quotedDisplayName: post.quoted.map { posterDisplayName($0.posterAddress) },
             quotedAvatarURLString: quotedAvatarURL(post),
-            onComment: { openProfileDetail(post) },
+            onComment: { profileReplyComposerTarget = post },
+            onOpenThread: { openProfileDetail(post) },
             onMute: { moderationStore.mute(post.posterAddress) },
             onBlock: { moderationStore.block(post.posterAddress) },
             onBookmark: { toggleBookmark(post) },
@@ -3736,19 +3854,7 @@ struct KaPostsView: View {
             // Presented from this sheet's own stack, like the profile's thread sheet - a
             // top-level presenter cannot open while this one is on screen.
             .fullScreenCover(item: $editingDraft) { draft in
-                KaPostComposerView(
-                    onPost: { text in
-                        draftStore.delete(draft.id)
-                        schedulePost(text: text)
-                    },
-                    onPostThread: { segments in
-                        draftStore.delete(draft.id)
-                        scheduleThread(segments)
-                    },
-                    editingDraftId: draft.id,
-                    initialText: draft.text,
-                    initialThreadSegments: draft.threadSegments
-                )
+                draftComposer(for: draft)
             }
             .onAppear { draftStore.reloadForCurrentWallet() }
         }
@@ -3783,7 +3889,9 @@ struct KaPostsView: View {
                                     commentCount: commentCount(of: post),
                                     quotedDisplayName: post.quoted.map { posterDisplayName($0.posterAddress) },
                                     quotedAvatarURLString: quotedAvatarURL(post),
-                                    onComment: nil,
+                                    // Bookmarks can reply; it has no thread surface of its own in
+                                    // the side-menu sheet, so the card tap stays inert as before.
+                                    onComment: { menuReplyComposerTarget = post },
                                     onMute: { moderationStore.mute(post.posterAddress) },
                                     onBlock: { moderationStore.block(post.posterAddress) },
                                     onBookmark: { toggleBookmark(post) },
@@ -3966,107 +4074,39 @@ struct KaPostsView: View {
                     }
                     }
                     Divider()
-                    // @mention autocomplete for COMMENTS - the same suggestion list as the post
-                    // composer, rendered above the input so the keyboard can never hide it.
-                    KaPostMentionSuggestionBar(text: $replyText, selection: $replySelection)
-                    // Replies are posts, so they get the same formatting bar - only while the
-                    // reply bar has focus, since with the keyboard down it would be a row of
-                    // icons with nothing to act on.
-                    if isReplyFocused {
-                        MarkdownFormattingToolbar(onAction: applyReplyFormatting)
-                        Divider().opacity(0.4)
-                    }
-                    // X's "Post your reply" bar - text only, same rule as posts.
-                    HStack(spacing: 10) {
-                        MarkdownComposerField(
-                            text: $replyText,
-                            selection: $replySelection,
-                            isFocused: $isReplyFocused,
-                            placeholder: "Post your reply",
-                            // Roughly four lines, matching the lineLimit(1...4) this replaced: past
-                            // that the field scrolls instead of pushing the thread off screen.
-                            maxHeight: 92
-                        )
-                            .onChange(of: replyText) { newValue in
-                                if newValue.count > KaPostsView.postCharacterLimit {
-                                    replyText = String(newValue.prefix(KaPostsView.postCharacterLimit))
-                                }
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            // Fixed-radius rectangle, NOT a Capsule: a capsule's corner radius is
-                            // half its height, so on a grown multi-line field the end-caps curve
-                            // into the text area and the outer lines escape the bubble.
-                            .background(RoundedRectangle(cornerRadius: 18).fill(Color.secondary.opacity(0.12)))
-                        KaPostCharacterMeter(count: replyText.count)
-                        Button {
-                            let trimmed = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !trimmed.isEmpty else { return }
-                            Haptics.impact(.light)
-                            let myAddress = WalletManager.shared.currentWallet?.publicAddress ?? ""
-                            var reply = DraftPost(text: trimmed, timestamp: Date(), posterAddress: myAddress)
-                            reply.posterPubkey = try? KaPostsAPIClient.shared.requesterPubkey()
-                            let isRemoteParent = post.remoteId != nil
-                            reply.deliveryStatus = isRemoteParent ? .pending : .sent
-                            let localReplyId = reply.id
-                            mutatePost(id: postId) { target in
-                                target.comments.append(reply)
-                            }
-                            replyText = ""
-                            // On-chain reply when the parent post lives on K — behind the same
-                            // 5s undo TOAST as every other interaction: the optimistic comment
-                            // shows immediately, the submit fires when the countdown ends, and
-                            // Undo removes it before anything hits the network.
-                            if let parentRemoteId = post.remoteId {
-                                let parentAuthor = post.posterPubkey
-                                let key = "comment:\(localReplyId)"
-                                showUndoToast(key: key, postId: localReplyId, label: "Posting comment", draftText: trimmed)
-                                scheduler.schedule(key: key) {
-                                    clearUndoToast(key: key)
-                                    Task {
-                                        do {
-                                            // @mentions work in comments exactly like in posts:
-                                            // resolved client-side to pubkeys.
-                                            let txId = try await KaPostsAPIClient.shared.submitReply(
-                                                text: trimmed, postId: parentRemoteId, parentAuthorPubkey: parentAuthor,
-                                                mentionedPubkeys: await mentionedPubkeys(in: trimmed)
-                                            )
-                                            mutatePost(id: localReplyId) {
-                                                $0.remoteId = txId
-                                                $0.deliveryStatus = .sent
-                                            }
-                                        } catch {
-                                            mutatePost(id: localReplyId) { $0.deliveryStatus = .failed }
-                                            AppLog.log("[KaPosts] Reply submit failed: %@", error.localizedDescription)
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundColor(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .accentColor)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    // Zero-balance gate: with a confirmed 0 KAS chatting balance the reply
-                    // bar dims and any tap on it presents the shared funding card instead of
-                    // focusing the composer (reading the thread stays fully usable). The
-                    // overlay swallows the tap before the TextField/send button can react.
-                    .grayscale(walletManager.hasConfirmedZeroChattingBalance ? 1 : 0)
-                    .opacity(walletManager.hasConfirmedZeroChattingBalance ? 0.45 : 1)
-                    .overlay {
+                    // Replying opens the composer, where the post being answered renders under
+                    // the editor - instead of a bar pinned below the thread with the post it
+                    // answers scrolled off behind the keyboard.
+                    //
+                    // The zero-balance gate the bar carried comes with it: a reply costs KAS, so
+                    // with a confirmed 0 balance this presents the funding card rather than a
+                    // composer that could not submit. Reading the thread stays fully usable.
+                    Button {
+                        Haptics.impact(.light)
                         if walletManager.hasConfirmedZeroChattingBalance {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    Haptics.impact(.light)
-                                    showReplyFundingSheet = true
-                                }
+                            showReplyFundingSheet = true
+                        } else {
+                            threadReplyComposerTarget = post
                         }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "bubble.left")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Reply")
+                                .font(.subheadline.weight(.bold))
+                        }
+                        .foregroundColor(walletManager.hasConfirmedZeroChattingBalance ? .secondary : Color.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            Capsule().fill(walletManager.hasConfirmedZeroChattingBalance
+                                           ? Color.primary.opacity(0.08)
+                                           : Color.accentColor)
+                        )
                     }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
                     .animation(.easeInOut(duration: 0.25), value: walletManager.hasConfirmedZeroChattingBalance)
                 }
                 .navigationTitle("Post")
@@ -4097,6 +4137,11 @@ struct KaPostsView: View {
                     // up while this thread sheet is, which is why the composer used to appear
                     // only after the post was dismissed.
                     quoteComposerSheet(for: target)
+                }
+                .fullScreenCover(item: $threadReplyComposerTarget) { target in
+                    // Reply from inside the open thread - the Reply button on this post, or on
+                    // any comment in it. Same nested-sheet rule as the quote composer above.
+                    replyComposerSheet(for: target)
                 }
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
@@ -4148,16 +4193,24 @@ private struct KaPostCellView: View {
     /// Feed cells truncate very long posts behind "Show more" (which opens the full thread view);
     /// detail/comment/bookmark cells show everything.
     var truncatesLongText: Bool = false
-    /// The post a thread is FOCUSED on renders larger than the posts around it, the way X sizes
-    /// the tweet you opened against its ancestors and its replies. Everything else about the cell
-    /// is identical, so the chain still reads as one feed.
-    var emphasizes: Bool = false
+    /// The post a thread is FOCUSED on: the one you tapped into.
+    ///
+    /// It renders larger than the posts around it, the way X sizes the tweet you opened against
+    /// its ancestors and replies, and it is the only cell whose text can be selected. Those go
+    /// together on purpose - selection needs the long press and the drag, and every other cell
+    /// spends both on opening the post. The focused cell has no card tap at all (`onComment` is
+    /// nil for the root), so there is nothing to compete with.
+    var isFocused: Bool = false
     /// Resolved display bits for the QUOTED post's author, passed in by the parent (which
     /// observes KNSService) instead of observed here - see the observation note on `body`.
     var quotedDisplayName: String? = nil
     var quotedAvatarURLString: String? = nil
     /// nil hides the comment affordance entirely (comment cells - no nested threads).
+    /// The REPLY action: opens the reply composer for this post. nil hides the affordance.
     let onComment: (() -> Void)?
+    /// Tapping the card itself, which OPENS the post. Separate from `onComment` because replying
+    /// and reading are now different destinations - one control cannot mean both.
+    var onOpenThread: (() -> Void)? = nil
     let onMute: () -> Void
     let onBlock: () -> Void
     let onBookmark: () -> Void
@@ -4310,7 +4363,7 @@ private struct KaPostCellView: View {
                 // option menu (never auto-opens - OpenURLAction intercepts). No previews, no
                 // photos, no markdown - just detected links styled accent+underline.
                 Text(Self.linkified(displayedText))
-                    .font(emphasizes ? .title3 : .body)
+                    .font(isFocused ? .title3 : .body)
                     .foregroundColor(.primary)
                     .tint(.accentColor)
                     .environment(\.openURL, OpenURLAction { url in
@@ -4325,9 +4378,11 @@ private struct KaPostCellView: View {
                     })
                     .lineLimit(truncatesLongText && isLongPost && !isExpandedInline ? 8 : nil)
                     .fixedSize(horizontal: false, vertical: true)
-                    // Long-press to select and copy, the way text behaves everywhere else. The
-                    // card's own tap still opens the thread; selection is a press-and-hold.
-                    .textSelection(.enabled)
+                    // Selectable ONLY in the post you tapped into. Anywhere else the long press
+                    // and the drag belong to opening the post, and a card that both navigates and
+                    // selects does neither reliably - which is why holding a feed post offered
+                    // copy-the-whole-thing instead of letting you highlight part of it.
+                    .selectableText(isFocused)
                     // Half sheet rather than a confirmation dialog - see LinkActionsSheet.
                     .sheet(item: Binding(
                         get: { tappedLinkURL.map(IdentifiedURL.init) },
@@ -4508,7 +4563,7 @@ private struct KaPostCellView: View {
         .contentShape(Rectangle())
         // Tap anywhere on the card (outside a button) to open the post's comment thread.
         .onTapGesture {
-            onComment?()
+            onOpenThread?()
         }
         // The Kaspa-logo burst plays when the like actually lands - i.e. after the 5s
         // countdown fires, not on the tap that armed it.
@@ -4974,6 +5029,7 @@ extension KaPostCellView: Equatable {
         lhs.quotedDisplayName == rhs.quotedDisplayName &&
         lhs.quotedAvatarURLString == rhs.quotedAvatarURLString &&
         (lhs.onComment == nil) == (rhs.onComment == nil) &&
+        (lhs.onOpenThread == nil) == (rhs.onOpenThread == nil) &&
         (lhs.onRetry == nil) == (rhs.onRetry == nil) &&
         (lhs.onViewEngagement == nil) == (rhs.onViewEngagement == nil) &&
         (lhs.onTip == nil) == (rhs.onTip == nil) &&
@@ -5478,6 +5534,13 @@ private struct KaPostComposerView: View {
     var quotedPost: KaPostsView.DraftPost? = nil
     var quotedDisplayName: String = ""
     var quotedAvatarURL: String? = nil
+    /// When replying: the post being replied to, rendered below the editor exactly as a quote is.
+    /// You write above it and can see what you are answering, instead of typing into a bar with
+    /// the post scrolled off somewhere behind the keyboard.
+    var replyTarget: KaPostsView.DraftPost? = nil
+
+    /// The post shown beneath the editor, whichever kind of composer this is.
+    private var sourcePost: KaPostsView.DraftPost? { replyTarget ?? quotedPost }
     let onPost: (String) -> Void
     /// Thread posting (X-style): when set (and not quoting), a + button appears once you start
     /// typing - each tap stacks the current text as a thread segment. "Post All" hands every
@@ -5526,12 +5589,15 @@ private struct KaPostComposerView: View {
             id: editingDraftId,
             text: text,
             threadSegments: threadSegments,
-            quotedRemoteId: quotedPost?.remoteId
+            quotedRemoteId: quotedPost?.remoteId,
+            replyRemoteId: replyTarget?.remoteId
         )
     }
 
     private var threadingEnabled: Bool {
-        onPostThread != nil && quotedPost == nil
+        // A reply is one post to one parent, and a quote is one post about one source: neither
+        // stacks into a thread.
+        onPostThread != nil && quotedPost == nil && replyTarget == nil
     }
 
     /// Everything that would be posted right now: stacked segments plus the in-progress text.
@@ -5577,16 +5643,20 @@ private struct KaPostComposerView: View {
                         .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.08)))
                 }
                 .buttonStyle(.plain)
-                Text(quotedPost == nil
-                     ? (threadSegments.isEmpty ? "New Post" : "New Thread")
-                     : "Quote Post")
+                Text(replyTarget != nil
+                     ? "Reply to Post"
+                     : (quotedPost == nil
+                        ? (threadSegments.isEmpty ? "New Post" : "New Thread")
+                        : "Quote Post"))
                     .font(.title3.weight(.bold))
                 Spacer()
                 characterMeter
                 Button {
                     postAll()
                 } label: {
-                    Text(allSegments.count > 1 ? "Post All (\(allSegments.count))" : "Post")
+                    Text(replyTarget != nil
+                         ? "Reply"
+                         : (allSegments.count > 1 ? "Post All (\(allSegments.count))" : "Post"))
                         .font(.subheadline.weight(.bold))
                         .foregroundColor(canPost ? Color.black : Color.secondary)
                         .padding(.horizontal, 16)
@@ -5633,8 +5703,11 @@ private struct KaPostComposerView: View {
                         composerEditor
                             .id(Self.composerEditorAnchor)
                         threadAppendButton
-                        if let quotedPost {
-                            quotedPostCard(quotedPost)
+                        // The post this composer is ABOUT - quoted or replied to. Both render the
+                        // same card in the same place: you write above it and can see what you
+                        // are answering.
+                        if let sourcePost {
+                            quotedPostCard(sourcePost)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 10)
                         }
@@ -5787,9 +5860,11 @@ private struct KaPostComposerView: View {
             text: $text,
             selection: $selection,
             isFocused: $isFocused,
-            placeholder: quotedPost == nil
-                ? (threadSegments.isEmpty ? "What's happening on Kaspa?" : "Add another post")
-                : "Add a comment"
+            placeholder: replyTarget != nil
+                ? "Post your reply"
+                : (quotedPost == nil
+                   ? (threadSegments.isEmpty ? "What's happening on Kaspa?" : "Add another post")
+                   : "Add a comment")
         )
         .padding(12)
         .frame(minHeight: 120, alignment: .topLeading)
@@ -7253,6 +7328,17 @@ private extension View {
     /// The balance takes the inline title's slot deliberately. "Post" and "Profile" restate what
     /// is plainly on screen; the connection state and the balance are not visible anywhere else
     /// once a sheet covers the feed.
+    /// `.textSelection(.enabled)` and `.disabled` are different concrete types, so the choice
+    /// cannot be a ternary. Non-selectable is the default, hence the plain `self`.
+    @ViewBuilder
+    func selectableText(_ enabled: Bool) -> some View {
+        if enabled {
+            self.textSelection(.enabled)
+        } else {
+            self
+        }
+    }
+
     func kaPostsStatusChrome() -> some View {
         toolbar {
             // Leading is the dot's alone - Done sits trailing on these screens so the two are

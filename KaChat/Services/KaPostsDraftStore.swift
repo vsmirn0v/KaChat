@@ -13,6 +13,11 @@ struct KaPostSavedDraft: Codable, Identifiable, Equatable {
     /// The post being quoted, if the draft was written as a quote. Only the remote id is kept -
     /// the quoted post itself is re-fetched on open, so a draft never carries a stale copy.
     var quotedRemoteId: String?
+    /// The post being REPLIED to, if the draft was written as a reply. Kept separate from
+    /// `quotedRemoteId` rather than as one id plus a kind, so drafts saved before replies had a
+    /// composer of their own still decode as the quotes they were - and a missing key decodes to
+    /// nil, so nothing stored earlier is disturbed.
+    var replyRemoteId: String?
     var savedAt: Date
 
     /// One line for the drafts list: the first segment that has anything in it.
@@ -72,7 +77,8 @@ final class KaPostsDraftStore: ObservableObject {
         id: UUID? = nil,
         text: String,
         threadSegments: [String],
-        quotedRemoteId: String?
+        quotedRemoteId: String?,
+        replyRemoteId: String? = nil
     ) -> KaPostSavedDraft? {
         let hasContent = !([text] + threadSegments)
             .allSatisfy { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -83,6 +89,7 @@ final class KaPostsDraftStore: ObservableObject {
             text: text,
             threadSegments: threadSegments,
             quotedRemoteId: quotedRemoteId,
+            replyRemoteId: replyRemoteId,
             savedAt: Date()
         )
         drafts.removeAll { $0.id == draft.id }
