@@ -271,6 +271,12 @@ struct KaPostsView: View {
     /// because the profile is itself a sheet: the thread must present from inside the profile's
     /// own NavigationStack (a view can only present one sheet at a time), not the top-level presenter.
     @State private var profileDetailTarget: PostDetailTarget?
+    /// The profile thread cover's OWN navigation stack.
+    ///
+    /// `threadStack` cannot serve it: that cover is presented by the profile sheet's own
+    /// NavigationStack and drew a fixed id, so every deeper tap inside a profile thread - a
+    /// comment, an ancestor, Show more - mutated state the view never read, and nothing happened.
+    @State private var profileThreadStack: [UUID] = []
     /// "Post Activity" tapped from a feed/profile/bookmark cell: engagement screen first
     /// (likes/dislikes/reposts/quotes).
     @State private var engagementTarget: DraftPost?
@@ -2784,7 +2790,14 @@ struct KaPostsView: View {
     private func jumpToAncestor(_ ancestor: DraftPost) {
         replyText = ""
         pendingThreadScrollRemoteId = nil
-        if let index = threadStack.firstIndex(of: ancestor.id) {
+        // Same surface rule as openDetail: unwind the stack the visible cover actually reads.
+        if profileDetailTarget != nil {
+            if let index = profileThreadStack.firstIndex(of: ancestor.id) {
+                profileThreadStack = Array(profileThreadStack.prefix(index + 1))
+            } else {
+                profileThreadStack = [ancestor.id]
+            }
+        } else if let index = threadStack.firstIndex(of: ancestor.id) {
             threadStack = Array(threadStack.prefix(index + 1))
         } else {
             threadStack = [ancestor.id]
@@ -2795,8 +2808,19 @@ struct KaPostsView: View {
         }
     }
 
-    /// One level back up the thread, to the post you came from.
+    /// One level back up the thread, or out of it once there is nothing above.
     private func popThread() {
+        // The profile surface keeps its own stack, for the reason on `profileThreadStack`.
+        if profileDetailTarget != nil {
+            guard profileThreadStack.count > 1 else {
+                closeThread()
+                return
+            }
+            replyText = ""
+            pendingThreadScrollRemoteId = nil
+            profileThreadStack.removeLast()
+            return
+        }
         guard threadStack.count > 1 else {
             closeThread()
             return
@@ -2813,6 +2837,7 @@ struct KaPostsView: View {
     /// Out of the thread entirely, however deep it went.
     private func closeThread() {
         threadStack = []
+        profileThreadStack = []
         detailTarget = nil
         profileDetailTarget = nil
     }
@@ -2843,7 +2868,14 @@ struct KaPostsView: View {
         pendingThreadScrollRemoteId = scrollToCommentRemoteId
         // Already reading a thread: push, so Back returns here rather than closing everything.
         // Re-opening the post already on top is a no-op, so a double tap cannot stack it twice.
-        if detailTarget != nil {
+        //
+        // WHICH stack depends on which surface is presenting. A thread opened from a profile is
+        // presented by that profile's NavigationStack, and the top-level $detailTarget cannot
+        // present from inside it - so the old branch set a target that presented nothing, which is
+        // why tapping a comment or an ancestor inside a profile thread did nothing at all.
+        if profileDetailTarget != nil {
+            if profileThreadStack.last != post.id { profileThreadStack.append(post.id) }
+        } else if detailTarget != nil {
             if threadStack.last != post.id { threadStack.append(post.id) }
         } else {
             threadStack = [post.id]
@@ -2899,6 +2931,8 @@ struct KaPostsView: View {
     /// puts a known reply into the comments immediately, so the scroll target exists even before
     /// the reply page that contains it has loaded (same trick as `openDetail`).
     private func presentProfileDetail(_ post: DraftPost, ensureComment: DraftPost? = nil) {
+        // Seeds this surface's stack; everything deeper pushes onto it (see openDetail).
+        profileThreadStack = [post.id]
         profileDetailTarget = PostDetailTarget(id: post.id)
         Task {
             await loadThreadReplies(for: post, reset: true)
@@ -3068,14 +3102,16 @@ struct KaPostsView: View {
             .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { menuSheet = nil }
+                    Button("Back") { menuSheet = nil }
                 }
             }
             // Comment thread for a post tapped here - presented from this profile's OWN
             // NavigationStack so it stacks above the profile sheet, exactly as the poster
             // profile does it (the top-level $detailTarget cannot present from inside a sheet).
             .fullScreenCover(item: $profileDetailTarget) { target in
-                postDetailSheet(postId: target.id)
+                // The TOP of this surface's stack, not the item that presented it - pushing a
+                // comment or jumping to an ancestor swaps what is drawn without re-presenting.
+                postDetailSheet(postId: profileThreadStack.last ?? target.id)
             }
             .fullScreenCover(item: $profileQuoteComposerTarget) { target in
                 quoteComposerSheet(for: target)
@@ -3270,7 +3306,7 @@ struct KaPostsView: View {
             .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { profileTarget = nil }
+                    Button("Back") { profileTarget = nil }
                 }
             }
             .navigationDestination(isPresented: Binding(
@@ -3291,7 +3327,8 @@ struct KaPostsView: View {
             // Comment thread for a post tapped on this profile — presented from the profile's OWN
             // NavigationStack so it stacks above the profile sheet (top-level $detailTarget can't).
             .fullScreenCover(item: $profileDetailTarget) { target in
-                postDetailSheet(postId: target.id)
+                // The TOP of this surface's stack - see the matching note on the own-profile sheet.
+                postDetailSheet(postId: profileThreadStack.last ?? target.id)
             }
             // Quote tapped on a post in this profile - presented from the profile's OWN
             // NavigationStack for the same reason as the thread sheet above it.
@@ -3595,7 +3632,7 @@ struct KaPostsView: View {
             .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { menuSheet = nil }
+                    Button("Back") { menuSheet = nil }
                 }
             }
         }
@@ -3657,7 +3694,7 @@ struct KaPostsView: View {
             .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { menuSheet = nil }
+                    Button("Back") { menuSheet = nil }
                 }
             }
             // Presented from this sheet's own stack, like the profile's thread sheet - a
@@ -3739,7 +3776,7 @@ struct KaPostsView: View {
             .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { menuSheet = nil }
+                    Button("Back") { menuSheet = nil }
                 }
             }
         }
@@ -4017,23 +4054,13 @@ struct KaPostsView: View {
                     quoteComposerSheet(for: target)
                 }
                 .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        // Only once there is somewhere to go back TO. Done still closes the lot.
-                        if threadStack.count > 1 {
-                            Button {
-                                popThread()
-                            } label: {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "chevron.left")
-                                    Text("Back")
-                                }
-                            }
-                        }
-                    }
                     ToolbarItem(placement: .navigationBarTrailing) {
-                        // Clear whichever target presented this thread (feed = detailTarget,
-                        // profile = profileDetailTarget); nil-ing the other is a harmless no-op.
-                        Button("Done") { closeThread() }
+                        // ONE control, and it always means back: up a level while the thread has
+                        // history, out of it at the root. There used to be two - a chevron here
+                        // and Done there - which made the common action, one step up, the one
+                        // that looked secondary, and hid it entirely on the profile surface where
+                        // the stack it was gated on was never pushed.
+                        Button("Back") { popThread() }
                     }
                 }
             } else {
@@ -4056,7 +4083,7 @@ struct KaPostsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarTrailing) {
-                        Button("Done") { closeThread() }
+                        Button("Back") { closeThread() }
                     }
                 }
                 .kaPostsStatusChrome()
@@ -4144,6 +4171,11 @@ private struct KaPostCellView: View {
     /// The sent-checkmark auto-hides 60s after the post's timestamp (mirrors the reaction
     /// checkmark's timed window); pending/failed always show.
     @State private var sentCheckExpired = false
+
+    /// "Show more" expands a long post IN PLACE. It used to open the post's thread, which meant
+    /// the only way to read a long post in a feed was to leave the feed - and on an ancestor it
+    /// did nothing at all. Opening the thread is what tapping the post itself is for.
+    @State private var isExpandedInline = false
 
     /// URL tapped in the post text - drives the Copy / Open option menu.
     @State private var tappedLinkURL: URL?
@@ -4246,8 +4278,11 @@ private struct KaPostCellView: View {
                         tappedLinkURL = url
                         return .handled
                     })
-                    .lineLimit(truncatesLongText && isLongPost ? 8 : nil)
+                    .lineLimit(truncatesLongText && isLongPost && !isExpandedInline ? 8 : nil)
                     .fixedSize(horizontal: false, vertical: true)
+                    // Long-press to select and copy, the way text behaves everywhere else. The
+                    // card's own tap still opens the thread; selection is a press-and-hold.
+                    .textSelection(.enabled)
                     // Half sheet rather than a confirmation dialog - see LinkActionsSheet.
                     .sheet(item: Binding(
                         get: { tappedLinkURL.map(IdentifiedURL.init) },
@@ -4264,9 +4299,9 @@ private struct KaPostCellView: View {
                     }
                 if truncatesLongText && isLongPost {
                     Button {
-                        onComment?()
+                        withAnimation(.easeInOut(duration: 0.2)) { isExpandedInline.toggle() }
                     } label: {
-                        Text("Show more")
+                        Text(isExpandedInline ? "Show less" : "Show more")
                             .font(.subheadline.weight(.semibold))
                             .foregroundColor(.accentColor)
                     }
@@ -6202,7 +6237,7 @@ struct KaPostEngagementView: View {
             .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button("Back") { dismiss() }
                 }
             }
             .task { await load() }
@@ -6766,7 +6801,7 @@ struct KaPostsNotificationsView: View {
             .kaPostsStatusChrome()
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button("Back") { dismiss() }
                 }
             }
             .task { await load() }
