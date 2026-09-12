@@ -2898,10 +2898,12 @@ struct KaPostsView: View {
         // and no way to reach one.
         if let parentId = post.parentRemoteId, !parentId.isEmpty, parentId != post.remoteId {
             Task {
-                let parent = findPost(byRemoteId: parentId)
-                    ?? await indexerPost(txId: parentId)
-                    ?? await chainPost(txId: parentId)
-                guard let parent else {
+                // Stepwise rather than a `??` chain: the right-hand side of `??` is an
+                // autoclosure, which cannot contain `await`.
+                var resolved = findPost(byRemoteId: parentId)
+                if resolved == nil { resolved = await indexerPost(txId: parentId) }
+                if resolved == nil { resolved = await chainPost(txId: parentId) }
+                guard let parent = resolved else {
                     // Unresolvable through the indexer AND off chain: the reply on its own still
                     // beats a tap that does nothing.
                     presentProfileDetail(post)
