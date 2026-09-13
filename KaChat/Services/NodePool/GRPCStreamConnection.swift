@@ -41,7 +41,10 @@ enum KaspaRequestType: Hashable {
 struct PendingRequest {
     let id: UInt64
     let type: KaspaRequestType
-    let continuation: CheckedContinuation<Protowire_KaspadMessage, Error>
+    /// Nil once the caller has been resumed by cancellation (`abandonRequest`). The request
+    /// itself stays registered until its response or timeout, so the FIFO-by-type matching in
+    /// `handleResponse` is undisturbed; only the waiting caller is gone.
+    var continuation: CheckedContinuation<Protowire_KaspadMessage, Error>?
     let sentAt: Date
     let timeout: TimeInterval
     let timeoutTask: Task<Void, Never>
@@ -440,7 +443,7 @@ actor GRPCStreamConnection {
         // Cancel all pending requests
         for (_, pending) in pendingRequests {
             pending.timeoutTask.cancel()
-            pending.continuation.resume(throwing: KasiaError.networkError("Connection closed"))
+            pending.continuation?.resume(throwing: KasiaError.networkError("Connection closed"))
         }
         pendingRequests.removeAll()
         requestQueues.removeAll()
@@ -495,49 +498,86 @@ actor GRPCStreamConnection {
         // At most one request of this type in flight - see `awaitTypeSlot`.
         await awaitTypeSlot(type)
 
+        // A caller cancelled while waiting for the slot must not go on to send the request it
+        // was cancelled out of. The reservation `awaitTypeSlot` just took is handed back so the
+        // next waiter gets through.
+        if Task.isCancelled {
+            reservedTypes.remove(type)
+            releaseTypeSlot(type)
+            throw CancellationError()
+        }
+
         // Generate request ID
         requestIdCounter += 1
         let requestId = requestIdCounter
 
         let startTime = Date()
 
-        return try await withCheckedThrowingContinuation { continuation in
-            // Create timeout task
-            let timeoutTask = Task {
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                if !Task.isCancelled {
-                    self.handleTimeout(requestId: requestId)
+        // Cancellation stops the CALLER waiting; it does not touch the wire. Responses are
+        // matched FIFO by type (see `awaitTypeSlot`), so pulling a cancelled request out of its
+        // queue would hand the node's eventual reply to the next request of that type. The entry
+        // stays registered and its response or timeout cleans it up exactly as before; only the
+        // continuation is resumed early, and only once.
+        //
+        // Without this a hedged request that lost the race sat here until its own timeout, and
+        // `sendHedged` awaits its losers, so a payment ACKed by one node in 300ms still spun for
+        // the slowest node's full 20s - the failure hedging exists to mask, turned into a
+        // worst-case-latency guarantee.
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                // Create timeout task
+                let timeoutTask = Task {
+                    try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                    if !Task.isCancelled {
+                        self.handleTimeout(requestId: requestId)
+                    }
+                }
+
+                // Store pending request
+                let pending = PendingRequest(
+                    id: requestId,
+                    type: type,
+                    continuation: continuation,
+                    sentAt: startTime,
+                    timeout: timeout,
+                    timeoutTask: timeoutTask
+                )
+                pendingRequests[requestId] = pending
+
+                // Add to type queue, handing the reservation over to the queue entry itself.
+                if requestQueues[type] == nil {
+                    requestQueues[type] = []
+                }
+                requestQueues[type]?.append(requestId)
+                reservedTypes.remove(type)
+
+                // Send message
+                let promise = stream.eventLoop.makePromise(of: Void.self)
+                stream.sendMessage(message, promise: promise)
+
+                promise.futureResult.whenFailure { [weak self] error in
+                    Task {
+                        await self?.handleSendFailure(requestId: requestId, error: error)
+                    }
+                }
+
+                // The cancellation handler fires immediately when the task was already cancelled
+                // as it was installed - before this entry existed for it to find.
+                if Task.isCancelled {
+                    abandonRequest(requestId: requestId)
                 }
             }
-
-            // Store pending request
-            let pending = PendingRequest(
-                id: requestId,
-                type: type,
-                continuation: continuation,
-                sentAt: startTime,
-                timeout: timeout,
-                timeoutTask: timeoutTask
-            )
-            pendingRequests[requestId] = pending
-
-            // Add to type queue, handing the reservation over to the queue entry itself.
-            if requestQueues[type] == nil {
-                requestQueues[type] = []
-            }
-            requestQueues[type]?.append(requestId)
-            reservedTypes.remove(type)
-
-            // Send message
-            let promise = stream.eventLoop.makePromise(of: Void.self)
-            stream.sendMessage(message, promise: promise)
-
-            promise.futureResult.whenFailure { [weak self] error in
-                Task {
-                    await self?.handleSendFailure(requestId: requestId, error: error)
-                }
-            }
+        } onCancel: {
+            Task { await self.abandonRequest(requestId: requestId) }
         }
+    }
+
+    /// Resumes a pending request's caller with `CancellationError`, once, leaving the request
+    /// registered so its eventual response or timeout still runs the normal cleanup.
+    private func abandonRequest(requestId: UInt64) {
+        guard let continuation = pendingRequests[requestId]?.continuation else { return }
+        pendingRequests[requestId]?.continuation = nil
+        continuation.resume(throwing: CancellationError())
     }
 
     /// Handle incoming response
@@ -614,7 +654,7 @@ actor GRPCStreamConnection {
         lastActivityAt = Date()
 
         // Resume continuation
-        pending.continuation.resume(returning: message)
+        pending.continuation?.resume(returning: message)
     }
 
     /// Handle request timeout
@@ -648,7 +688,7 @@ actor GRPCStreamConnection {
         consecutiveFailures += 1
         circuitBreaker.recordFailure()
 
-        pending.continuation.resume(throwing: KasiaError.networkError("Request timeout"))
+        pending.continuation?.resume(throwing: KasiaError.networkError("Request timeout"))
 
         AppLog.log("[GRPCStream] Request timeout on %@ (type: %@)",
               endpoint.key, String(describing: pending.type))
@@ -690,7 +730,7 @@ actor GRPCStreamConnection {
             markDisconnected()
         }
 
-        pending.continuation.resume(throwing: error)
+        pending.continuation?.resume(throwing: error)
     }
 
     /// Mark connection as disconnected and clean up stream resources
@@ -713,7 +753,7 @@ actor GRPCStreamConnection {
         // Cancel any remaining pending requests
         for (_, pending) in pendingRequests {
             pending.timeoutTask.cancel()
-            pending.continuation.resume(throwing: KasiaError.networkError("Connection lost"))
+            pending.continuation?.resume(throwing: KasiaError.networkError("Connection lost"))
         }
         pendingRequests.removeAll()
         requestQueues.removeAll()
