@@ -1166,13 +1166,21 @@ struct KaPostsView: View {
             // deep in the window) keep a stable, sensible order instead of the sort's whim.
             // Scored once per post up front: the score walks the post's comments, and scoring
             // inside the comparator did that for both operands on every compare.
-            return visible
-                .map { (score: popularityScore(of: $0), post: $0) }
-                .sorted { lhs, rhs in
-                    lhs.score == rhs.score ? lhs.post.timestamp > rhs.post.timestamp : lhs.score > rhs.score
-                }
-                .map(\.post)
+            // A named struct rather than a labelled tuple, and a comparator in two statements
+            // rather than a ternary over two comparisons: the tuple shape made the type-checker
+            // give up on this expression ("unable to type-check in reasonable time").
+            let scored = visible.map { ScoredPost(score: popularityScore(of: $0), post: $0) }
+            let ranked = scored.sorted { lhs, rhs in
+                if lhs.score != rhs.score { return lhs.score > rhs.score }
+                return lhs.post.timestamp > rhs.post.timestamp
+            }
+            return ranked.map(\.post)
         }
+    }
+
+    private struct ScoredPost {
+        let score: Int
+        let post: DraftPost
     }
 
     /// A post's comments minus muted/blocked authors - used for both display and counts.
@@ -2142,7 +2150,10 @@ struct KaPostsView: View {
         }
         threadChains[rootId] = chain
         if let remoteId = root.remoteId, !chain.isEmpty {
-            threadProbeClaims.claimed.insert(remoteId)
+            // Walking the chain answered the probe's question for this post, so it is claimed
+            // and recorded as a root the same way a positive probe result is.
+            threadProbeClaims.claim(remoteId)
+            threadProbeClaims.markRoot(remoteId)
             threadRootIds.insert(remoteId)
         }
     }
