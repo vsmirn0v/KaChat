@@ -692,19 +692,6 @@ final class GroupChatService: ObservableObject {
         return false
     }
 
-    /// The wallet's own outgoing group-message txIds (newest first, bounded). Shared with the
-    /// notification extension (see `SharedDataManager.syncOwnGroupTxIdsForExtension`) so it can
-    /// tell a reaction to MY message - personal, notifies even in a mentions-only group - from a
-    /// reaction to someone else's message, which stays silent there.
-    func ownOutgoingGroupTxIds(limit: Int = 500) -> [String] {
-        groupMessages.values
-            .flatMap { $0 }
-            .filter { $0.isOutgoing && !$0.txId.hasPrefix("pending_") }
-            .sorted { $0.blockTime > $1.blockTime }
-            .prefix(limit)
-            .map { $0.txId }
-    }
-
     /// App Group ledger of group txIds the MAIN APP posted a local banner for. Counterpart of the
     /// extension's `group_push_handled_txids`: together they guarantee ONE banner per group txId
     /// no matter which path (local block-scan/catch-up ingest vs remote push) runs first.
@@ -764,7 +751,11 @@ final class GroupChatService: ObservableObject {
             guard let self else { return }
             for group in self.groups {
                 guard self.currentWalletAddress == targetWallet else { return }
-                self.loadMessages(for: group.id)
+                // The same window the 1:1 side trims to. Every group used to be loaded in full
+                // here and stay resident for the process lifetime - ten busy groups was hundreds
+                // of MB. The chat list needs only the newest messages from a group that is not
+                // open; opening one loads its whole history.
+                self.loadMessages(for: group.id, newestLimit: ChatService.inMemoryConversationWindowSize)
                 // Reactions too: the chat list's reaction preview and the incoming-reaction
                 // replay check both need every group's index warm, not just opened groups'.
                 self.loadGroupReactions(for: group.id)
@@ -809,12 +800,18 @@ final class GroupChatService: ObservableObject {
     /// Full group key material for the shared backup archive - including the admin's groupSeed,
     /// which lives ONLY on the creating device and has no on-chain invite for other devices of
     /// the same account to recover from. deviceId/msgCounter are per-device and omitted.
-    func archiveGroups() -> [ChatHistoryArchiveGroup] {
-        groups.compactMap { group in
+    func archiveGroups() async -> [ChatHistoryArchiveGroup] {
+        // Every group's rows first, off the main queue (see `GroupStore.messageRows`); the
+        // per-group assembly below is unchanged.
+        var rowsByGroup: [String: [CDGroupMessageSnapshot]] = [:]
+        for group in groups {
+            rowsByGroup[group.id] = await store.messageRows(forGroup: group.id)
+        }
+        return groups.compactMap { group in
             guard let bag = try? keychain.loadGroupBag(groupId: group.id) else { return nil }
             // Decrypt each group's stored history so it can be restored even if the indexer prunes.
             let archivedMessages: [ChatHistoryArchiveGroupMessage] = Data(hexString: group.id).map { gid in
-                Self.decryptGroupRows(store.messageRows(forGroup: group.id), groupId: group.id, gid: gid, bag: bag).compactMap { m in
+                Self.decryptGroupRows(rowsByGroup[group.id] ?? [], groupId: group.id, gid: gid, bag: bag).compactMap { m in
                     guard !m.txId.hasPrefix("pending_") else { return nil }
                     // Membership system lines are re-derived from roster changes on each device —
                     // don't ship them in the backup (they'd re-appear out of context on restore).
@@ -1837,18 +1834,22 @@ final class GroupChatService: ObservableObject {
 
     // MARK: - Message loading (decrypt-on-read from stored ciphertext)
 
-    func loadMessages(for groupId: String) {
-        // Non-blocking: fetch the ciphertext rows on the main actor (fast Core Data read), then
-        // decrypt OFF the main actor and publish the result back on main. Decrypting inline froze
-        // the UI - especially in `setCurrentWallet`, which loads every group on login/launch.
+    /// `newestLimit` is the login loop's memory window; a thread opening passes nil for the full
+    /// history. See `GroupStore.messageRows(forGroup:newestLimit:)` for why the two differ.
+    func loadMessages(for groupId: String, newestLimit: Int? = nil) {
+        // Non-blocking: the ciphertext rows are fetched on a background context, decrypted OFF
+        // the main actor, and the result published back on main. Decrypting inline froze the UI -
+        // especially in `setCurrentWallet`, which loads every group on login/launch - and the
+        // fetch itself was a main-queue read of the group's whole history for the same reason.
         let targetWallet = currentWalletAddress
         guard let bag = try? keychain.loadGroupBag(groupId: groupId),
               let gid = Data(hexString: groupId) else {
             groupMessages[groupId] = []
             return
         }
-        let rows = store.messageRows(forGroup: groupId)
+        let store = self.store
         Task { [weak self] in
+            let rows = await store.messageRows(forGroup: groupId, newestLimit: newestLimit)
             let decoded = await Task.detached(priority: .userInitiated) {
                 Self.decryptGroupRows(rows, groupId: groupId, gid: gid, bag: bag)
             }.value
@@ -1862,9 +1863,19 @@ final class GroupChatService: ObservableObject {
             // relaunch - the "reopening the app doesn't reload missed group messages" bug. Keep any
             // in-memory message whose txId isn't in the decoded set (the newest, caught-up ones),
             // appended after the store history so chronological order is preserved.
+            //
+            // For a WINDOWED load that rule needs a floor. Everything older than the window is
+            // also "not in the decoded set", and re-appending it would rebuild the full history
+            // the window exists to avoid - so only messages at or after the window's oldest row
+            // count as caught-up ones.
             let existing = self.groupMessages[groupId] ?? []
             let decodedTxIds = Set(decoded.map { $0.txId })
-            let inMemoryOnly = existing.filter { !decodedTxIds.contains($0.txId) }
+            let floor = newestLimit == nil ? nil : decoded.first?.timestamp
+            let inMemoryOnly = existing.filter { message in
+                guard !decodedTxIds.contains(message.txId) else { return false }
+                if let floor { return message.timestamp >= floor }
+                return true
+            }
             self.groupMessages[groupId] = inMemoryOnly.isEmpty ? decoded : decoded + inMemoryOnly
         }
     }

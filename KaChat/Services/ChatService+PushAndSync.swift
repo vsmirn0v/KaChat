@@ -135,7 +135,7 @@ extension ChatService {
         // Groups ARE backed up again - now including decrypted message history (not just keys),
         // so group messages survive even if the indexer has pruned them. Import skips tombstoned
         // (deleted) groups so a restore never resurrects one.
-        let archivedGroups = await MainActor.run { GroupChatService.shared.archiveGroups() }
+        let archivedGroups = await GroupChatService.shared.archiveGroups()
         let archive = ChatHistoryArchive(
             schemaVersion: chatHistoryArchiveVersion,
             exportedAt: Date(),

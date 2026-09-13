@@ -186,7 +186,14 @@ final class SharedDataManager {
     /// its real txId.
     @MainActor
     static func syncOwnGroupTxIdsForExtension() {
-        sharedDefaults?.set(GroupChatService.shared.ownOutgoingGroupTxIds(), forKey: Keys.groupOwnTxIds)
+        // From the store, not from memory: every group's full history is no longer resident (see
+        // `GroupStore.messageRows(forGroup:newestLimit:)`), and a list built from the windowed
+        // arrays would drop older own messages - a reaction to one would then stop being flagged
+        // as personal in the push path. Fire-and-forget so the call sites stay synchronous.
+        Task {
+            let txIds = await GroupStore.shared.ownOutgoingTxIds(limit: 500)
+            sharedDefaults?.set(txIds, forKey: Keys.groupOwnTxIds)
+        }
     }
 
     /// The wallet's own primary KNS domain (bare, lowercased) for the extension's mentions-only

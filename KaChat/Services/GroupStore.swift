@@ -274,32 +274,71 @@ final class GroupStore {
 
     /// Raw rows for a group, oldest first - callers decrypt via GroupCipher using the group's
     /// per-epoch root key(s) held in Keychain.
-    func messageRows(forGroup groupId: String) -> [CDGroupMessageSnapshot] {
+    ///
+    /// Runs on a background context. This used to be `performAndWait` on the view context - the
+    /// main queue - and it fetches a group's ENTIRE history: `loadMessages` calls it for every
+    /// group at login and again whenever a thread opens, so that was a full-table read on the
+    /// main thread per group. The comment there called it a fast read; the decrypt had been moved
+    /// off-main, the fetch had not.
+    ///
+    /// `newestLimit` keeps only the newest N rows (still returned oldest first). The login loop
+    /// passes the same window the 1:1 side trims to, so every group is no longer resident in
+    /// full for the process lifetime. Opening a thread passes nil: the group thread has no
+    /// "load older" paging to fall back on, so a cap there would simply lose history from the
+    /// screen rather than defer it.
+    func messageRows(forGroup groupId: String, newestLimit: Int? = nil) async -> [CDGroupMessageSnapshot] {
         guard isLoaded else { return [] }
-        var result: [CDGroupMessageSnapshot] = []
-        let context = viewContext
-        context.performAndWait {
-            let request = NSFetchRequest<CDGroupMessage>(entityName: CDGroupMessage.entityName)
-            request.predicate = NSPredicate(format: "groupId == %@", groupId)
-            request.sortDescriptors = [NSSortDescriptor(key: "blockTime", ascending: true)]
-            let rows = (try? context.fetch(request)) ?? []
-            result = rows.map { row in
-                CDGroupMessageSnapshot(
-                    txId: row.txId,
-                    groupId: row.groupId,
-                    senderAddress: row.senderAddress,
-                    senderIdHex: row.senderIdHex,
-                    epoch: row.epoch < 0 ? 0 : UInt64(row.epoch),
-                    msgIdHex: row.msgIdHex,
-                    contentEncrypted: row.contentEncrypted ?? Data(),
-                    blockTime: row.blockTime,
-                    isOutgoing: row.isOutgoing,
-                    deliveryStatus: ChatMessage.DeliveryStatus(rawValue: row.deliveryStatus ?? "") ?? .sent,
-                    isImportedPlaintext: row.epoch < 0
-                )
+        let context = container.newBackgroundContext()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<[CDGroupMessageSnapshot], Never>) in
+            context.perform {
+                let request = NSFetchRequest<CDGroupMessage>(entityName: CDGroupMessage.entityName)
+                request.predicate = NSPredicate(format: "groupId == %@", groupId)
+                // A window is expressed to SQLite as newest-first with a limit, then flipped back
+                // to the oldest-first order every caller expects.
+                let newestFirst = newestLimit != nil
+                request.sortDescriptors = [NSSortDescriptor(key: "blockTime", ascending: !newestFirst)]
+                if let newestLimit { request.fetchLimit = newestLimit }
+                let rows = (try? context.fetch(request)) ?? []
+                var result = rows.map { row in
+                    CDGroupMessageSnapshot(
+                        txId: row.txId,
+                        groupId: row.groupId,
+                        senderAddress: row.senderAddress,
+                        senderIdHex: row.senderIdHex,
+                        epoch: row.epoch < 0 ? 0 : UInt64(row.epoch),
+                        msgIdHex: row.msgIdHex,
+                        contentEncrypted: row.contentEncrypted ?? Data(),
+                        blockTime: row.blockTime,
+                        isOutgoing: row.isOutgoing,
+                        deliveryStatus: ChatMessage.DeliveryStatus(rawValue: row.deliveryStatus ?? "") ?? .sent,
+                        isImportedPlaintext: row.epoch < 0
+                    )
+                }
+                if newestFirst { result.reverse() }
+                continuation.resume(returning: result)
             }
         }
-        return result
+    }
+
+    /// The newest `limit` txIds of messages this wallet sent, across every group, read straight
+    /// from the store. The extension's "is this reaction to one of mine" list used to be built
+    /// from the in-memory arrays, which only works while every group's full history is resident -
+    /// and after the window above, it is not. A single indexed fetch of one column, off-main.
+    func ownOutgoingTxIds(limit: Int) async -> [String] {
+        guard isLoaded else { return [] }
+        let context = container.newBackgroundContext()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<[String], Never>) in
+            context.perform {
+                let request = NSFetchRequest<NSDictionary>(entityName: CDGroupMessage.entityName)
+                request.resultType = .dictionaryResultType
+                request.propertiesToFetch = ["txId"]
+                request.predicate = NSPredicate(format: "isOutgoing == YES AND NOT (txId BEGINSWITH %@)", "pending_")
+                request.sortDescriptors = [NSSortDescriptor(key: "blockTime", ascending: false)]
+                request.fetchLimit = limit
+                let rows = (try? context.fetch(request)) ?? []
+                continuation.resume(returning: rows.compactMap { $0["txId"] as? String })
+            }
+        }
     }
 
     // MARK: - Reactions (CDGroupReaction)
