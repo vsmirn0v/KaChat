@@ -455,18 +455,37 @@ struct ChatMessage: Codable, Identifiable, Equatable {
 struct Conversation: Identifiable, Equatable {
     let id: UUID
     let contact: Contact
-    var messages: [ChatMessage]
+    var messages: [ChatMessage] {
+        didSet { lastMessage = Self.newestRealMessage(in: messages) }
+    }
     var unreadCount: Int
 
-    var lastMessage: ChatMessage? {
-        // Cross-device placeholders are hidden everywhere (see ChatMessage.isSentPlaceholder),
-        // so the chat-list preview shows the newest REAL message. A conversation whose only
-        // messages are placeholders reports nil, exactly like a conversation with no messages,
-        // so the row renders its normal empty state instead of leaking the placeholder.
-        return messages.filter { !$0.isSentPlaceholder }.max { $0.timestamp < $1.timestamp }
+    /// The newest real message, cached.
+    ///
+    /// This was a computed property that filtered the whole thread into a fresh array and then
+    /// scanned it - O(n) with an allocation - and it is read from every chat-list row body (twice),
+    /// from the list sort for every conversation, and from the chat-list snapshot on every persist.
+    /// Ten visible rows over 5,000-message chats meant twenty allocations and a hundred thousand
+    /// element visits per render pass. Messages change rarely next to how often they are read, so
+    /// the value is computed once per write to `messages` and is free thereafter. Same result as
+    /// before: the maximum-timestamp non-placeholder, first among equals.
+    private(set) var lastMessage: ChatMessage?
+
+    /// Cross-device placeholders are hidden everywhere (see ChatMessage.isSentPlaceholder), so
+    /// the chat-list preview shows the newest REAL message. A conversation whose only messages
+    /// are placeholders reports nil, exactly like a conversation with no messages, so the row
+    /// renders its normal empty state instead of leaking the placeholder.
+    private static func newestRealMessage(in messages: [ChatMessage]) -> ChatMessage? {
+        var newest: ChatMessage?
+        for message in messages where !message.isSentPlaceholder {
+            if let current = newest, message.timestamp <= current.timestamp { continue }
+            newest = message
+        }
+        return newest
     }
 
     init(id: UUID = UUID(), contact: Contact, messages: [ChatMessage] = [], unreadCount: Int = 0) {
+        self.lastMessage = Self.newestRealMessage(in: messages)
         self.id = id
         self.contact = contact
         self.messages = messages

@@ -480,6 +480,86 @@ final class MessageStore {
         }
     }
 
+    /// The messages the conversation list actually keeps in memory, fetched as that set instead
+    /// of as everything.
+    ///
+    /// `_loadMessagesFromStoreIfNeeded` runs on every debounced CloudKit remote-change tick and
+    /// on a five-minute timer, and it called `fetchAllMessages` - every row for the wallet,
+    /// decrypted, photos and voice notes inline as base64 - only for `buildMergedConversations`
+    /// to trim each conversation down to `inMemoryConversationWindowSize` plus its sticky
+    /// messages afterwards. A two-year wallet decrypted tens of MB of history to keep 160
+    /// messages per chat, repeatedly, while the user was texting.
+    ///
+    /// This produces the same set directly: per contact the newest `window` rows, plus every
+    /// handshake and every message not marked sent - the exact `trimMessagesForMemory`
+    /// exemption - so the trim afterwards has nothing left to drop. Order is unspecified; the
+    /// caller groups by contact and sorts. The backup and import paths still use
+    /// `fetchAllMessages`, because they genuinely need everything.
+    func fetchConversationWindows(decryptionKey: SymmetricKey, window: Int) async -> [StoredMessage] {
+        guard ensureStoreLoaded() else { return [] }
+        let walletAddress = currentWalletAddress
+        return await withCheckedContinuation { (continuation: CheckedContinuation<[StoredMessage], Never>) in
+            container.performBackgroundTask { context in
+                var results: [StoredMessage] = []
+                do {
+                    let walletPredicate: NSPredicate? = walletAddress.map {
+                        NSPredicate(format: "walletAddress == %@ OR walletAddress == nil", $0)
+                    }
+                    func scoped(_ predicate: NSPredicate) -> NSPredicate {
+                        guard let walletPredicate else { return predicate }
+                        return NSCompoundPredicate(andPredicateWithSubpredicates: [walletPredicate, predicate])
+                    }
+
+                    // Which conversations exist: one column, distinct.
+                    let addressRequest = NSFetchRequest<NSDictionary>(entityName: CDMessage.entityName)
+                    addressRequest.resultType = .dictionaryResultType
+                    addressRequest.propertiesToFetch = ["contactAddress"]
+                    addressRequest.returnsDistinctResults = true
+                    if let walletPredicate { addressRequest.predicate = walletPredicate }
+                    let addresses = try context.fetch(addressRequest).compactMap { $0["contactAddress"] as? String }
+
+                    // Sticky rows for the whole wallet in one query: handshakes, anything not marked
+                    // sent, and pending sends - a nil status decodes as pending when the txId says
+                    // so (see `ChatMessage.init(from:)`), so the txId prefix is matched too.
+                    var seen = Set<NSManagedObjectID>()
+                    let stickyRequest = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+                    stickyRequest.predicate = scoped(NSPredicate(
+                        format: "messageType == %@ OR (deliveryStatus != nil AND deliveryStatus != %@) OR txId BEGINSWITH %@",
+                        ChatMessage.MessageType.handshake.rawValue,
+                        ChatMessage.DeliveryStatus.sent.rawValue,
+                        "pending_"
+                    ))
+                    stickyRequest.includesPendingChanges = true
+                    for record in try context.fetch(stickyRequest) {
+                        seen.insert(record.objectID)
+                        if let message = self.decodeMessage(record, key: decryptionKey) {
+                            results.append(StoredMessage(contactAddress: record.contactAddress, message: message))
+                        }
+                    }
+
+                    // The newest `window` rows of each conversation. Duplicate txIds across rows
+                    // still come through, as before; the caller's `preferMessage` settles them.
+                    for address in addresses {
+                        let request = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+                        request.predicate = scoped(NSPredicate(format: "contactAddress == %@", address))
+                        request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+                        request.fetchLimit = window
+                        request.includesPendingChanges = true
+                        for record in try context.fetch(request) where !seen.contains(record.objectID) {
+                            seen.insert(record.objectID)
+                            if let message = self.decodeMessage(record, key: decryptionKey) {
+                                results.append(StoredMessage(contactAddress: record.contactAddress, message: message))
+                            }
+                        }
+                    }
+                } catch {
+                    self.logInfo("[MessageStore] Failed to fetch conversation windows: \(error)")
+                }
+                continuation.resume(returning: results)
+            }
+        }
+    }
+
     struct MessagePageCursor: Equatable {
         let blockTime: Int64
         let timestamp: Date
@@ -1192,14 +1272,24 @@ final class MessageStore {
     /// history and never mirrors it to CloudKit - the "deleted" chat would silently reappear via
     /// iCloud sync on this or other devices. A normal delete+save is what lets deletions propagate
     /// to iCloud (same pattern already used by `dedupeMessagesIfNeeded`).
-    func deleteConversation(contactAddress: String) {
+    func deleteConversation(contactAddress: String) async {
         guard ensureStoreLoaded() else { return }
         let walletAddr = currentWalletAddress
         let context = container.newBackgroundContext()
-        context.performAndWait {
+        // `perform`, not `performAndWait`: the only caller is `ContactsManager.deleteContact` on
+        // the main actor, and `performAndWait` blocks the CALLING thread for the whole delete -
+        // an unbounded fetch of every message for the contact, deleted one by one so CloudKit
+        // sees each deletion. A chat with 20k messages froze the UI for the duration. The
+        // sibling paths in this file already had this fixed; this one was missed.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+          context.perform {
+            defer { continuation.resume() }
             guard !self.container.persistentStoreCoordinator.persistentStores.isEmpty else { return }
 
             let messageFetch = NSFetchRequest<CDMessage>(entityName: CDMessage.entityName)
+            // Rows are only being deleted, so their (possibly multi-MB, base64 media) content
+            // never needs faulting in.
+            messageFetch.includesPropertyValues = false
             let conversationFetch = NSFetchRequest<CDConversation>(entityName: CDConversation.entityName)
             if let walletAddr = walletAddr {
                 messageFetch.predicate = NSPredicate(
@@ -1231,6 +1321,7 @@ final class MessageStore {
             } catch {
                 self.logInfo("[MessageStore] Failed to delete conversation for \(contactAddress): \(error)")
             }
+          }
         }
     }
 

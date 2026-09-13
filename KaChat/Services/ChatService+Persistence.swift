@@ -6,6 +6,10 @@ import CryptoKit
 
 // MARK: - Data persistence, UI helpers, aliases, CloudKit, badges
 
+/// Serial on purpose: chat-list snapshot writes must land in the order they were requested, and
+/// a multi-MB encode for one can outlive the debounce that requests the next.
+private let chatListSnapshotQueue = DispatchQueue(label: "com.kachat.chat-list-snapshot", qos: .utility)
+
 extension ChatService {
     nonisolated static func hexStringToData(_ hex: String) -> Data? {
         var data = Data()
@@ -88,14 +92,30 @@ extension ChatService {
         chatListSnapshotPersistTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
-            persistChatListSnapshotIfPossible()
+            persistChatListSnapshotIfPossible(offMain: true)
         }
     }
 
-    func persistChatListSnapshotIfPossible() {
+    /// `offMain` moves the encode and the defaults write onto `chatListSnapshotQueue`. The
+    /// debounce above bounds how OFTEN this runs, not what each run costs: a photo or voice
+    /// last-message is its whole base64 payload, so one save can be a multi-MB `JSONEncoder`
+    /// pass, and during a sync that landed on the main actor every 300ms. The queue is serial,
+    /// so a slow encode can never be overtaken by a newer one and written stale on top of it.
+    ///
+    /// The scene-phase flush in `KaChatApp` keeps the default (synchronous): it runs as the app
+    /// backgrounds precisely so the write lands before iOS can suspend the process, and a
+    /// queued write would defeat that.
+    func persistChatListSnapshotIfPossible(offMain: Bool = false) {
         guard !suppressChatListSnapshotPersistence else { return }
         guard let walletAddress = WalletManager.shared.currentWallet?.publicAddress else { return }
-        ChatListSnapshotStore.save(conversations, walletAddress: walletAddress)
+        if offMain {
+            let snapshot = conversations
+            chatListSnapshotQueue.async {
+                ChatListSnapshotStore.save(snapshot, walletAddress: walletAddress)
+            }
+        } else {
+            ChatListSnapshotStore.save(conversations, walletAddress: walletAddress)
+        }
     }
 
     // `async` because the actual fetch+decrypt in `_loadMessagesFromStoreIfNeeded` now runs on a
@@ -141,7 +161,13 @@ extension ChatService {
             return
         }
         guard let key = messageEncryptionKey() else { return }
-        let messages = await messageStore.fetchAllMessages(decryptionKey: key)
+        // Only what the merge below keeps anyway (see `fetchConversationWindows`): this runs on
+        // every debounced CloudKit tick, and fetching the wallet's whole history to trim it to
+        // a window per chat was a recurring multi-second spike while texting, not a launch cost.
+        let messages = await messageStore.fetchConversationWindows(
+            decryptionKey: key,
+            window: Self.inMemoryConversationWindowSize
+        )
         let meta = await messageStore.fetchConversationMeta()
         guard !messages.isEmpty || !meta.isEmpty else { return }
 

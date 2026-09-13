@@ -6,7 +6,28 @@ import UIKit
 final class ContactsManager: ObservableObject {
     static let shared = ContactsManager()
 
-    @Published var contacts: [Contact] = []
+    @Published var contacts: [Contact] = [] {
+        didSet { rebuildAddressIndex() }
+    }
+
+    /// Address -> contact, rebuilt whenever `contacts` changes.
+    ///
+    /// `getContact(byAddress:)` used to be a linear scan of `contacts`, and it is called from 27
+    /// view bodies - three times per avatar per render pass - and once per ingested message. With
+    /// a few hundred contacts that was tens of thousands of string compares on every publish
+    /// burst, multiplying the cost of everything that renders a person. Contacts change rarely
+    /// and are looked up constantly, so the index is rebuilt on write and free on read. Keeps the
+    /// first occurrence of an address, matching what `first(where:)` returned.
+    private var contactsByAddress: [String: Contact] = [:]
+
+    private func rebuildAddressIndex() {
+        var index: [String: Contact] = [:]
+        index.reserveCapacity(contacts.count)
+        for contact in contacts where index[contact.address] == nil {
+            index[contact.address] = contact
+        }
+        contactsByAddress = index
+    }
     @Published var isLoading = false
     @Published var error: KasiaError?
     @Published var isFetchingKNS = false
@@ -527,7 +548,11 @@ final class ContactsManager: ObservableObject {
             conversationMessages.filter { Int64($0.blockTime) == deletedAt }.map(\.txId).filter { !$0.isEmpty }
         )
         saveDeletedAddresses()
-        MessageStore.shared.deleteConversation(contactAddress: contact.address)
+        // The contact leaves the list immediately; the store delete runs off the main thread. The
+        // `deletedAtByAddress` marker above is what keeps the old history from being re-fetched
+        // in the meantime, so nothing depends on the delete having finished first.
+        let address = contact.address
+        Task { await MessageStore.shared.deleteConversation(contactAddress: address) }
         contacts.removeAll { $0.id == contact.id }
         saveContacts()
     }
@@ -543,7 +568,7 @@ final class ContactsManager: ObservableObject {
     }
 
     func getContact(byAddress address: String) -> Contact? {
-        return contacts.first { $0.address == address }
+        contactsByAddress[address]
     }
 
     /// The one display-name rule for any Kaspa address, used everywhere a person is named:
