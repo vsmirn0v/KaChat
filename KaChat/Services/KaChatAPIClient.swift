@@ -891,7 +891,14 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
         config.httpMaximumConnectionsPerHost = 5
         config.httpShouldUsePipelining = false
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
-        config.httpAdditionalHeaders = ["Connection": "close", "Accept-Encoding": "identity"]
+        // No `Accept-Encoding: identity` / `Connection: close` here. Those belong to the DPI
+        // workaround, which lives on the fallback session and the hand-rolled HTTP/1.1 path, but
+        // they were applied to this session too - the normal HTTP/2 path that carries the
+        // foreground sweep, ~81 requests a pass of hex-encoded JSON that compresses several
+        // times over. Every one of them was downloaded uncompressed for no DPI benefit: HTTP/2
+        // drops `Connection: close` as hop-by-hop anyway, so only the gzip refusal ever took
+        // effect. Content is still decoded transparently, so byte counts recorded by the DPI
+        // detector are unchanged.
         return config
     }
 
