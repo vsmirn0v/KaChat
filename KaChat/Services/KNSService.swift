@@ -34,6 +34,19 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     /// not changed. Anything the user edits themselves goes through `fetchProfile` directly and
     /// is not affected by this.
     private let bulkRefreshInterval: TimeInterval = 6 * 60 * 60
+    /// How stale an EMPTY cached entry ("no domains", "no profile") has to be before it is
+    /// re-asked.
+    ///
+    /// These used to share `minRefreshInterval`, so that an address book of a few hundred
+    /// domainless contacts re-confirmed "still no domain" with two GETs each every ten minutes -
+    /// the single largest source of KNS traffic, for answers that essentially never change. The
+    /// short window only ever existed to heal poisoned negatives persisted by an older build;
+    /// `healPoisonedNegativeEntriesOnce` now does that in one pass, so a genuine negative can
+    /// rest as long as a good entry does.
+    private let negativeRefreshInterval: TimeInterval = 6 * 60 * 60
+    /// Set once the persisted negative entries have been dropped (see
+    /// `healPoisonedNegativeEntriesOnce`).
+    private let negativeCacheHealKey = "kachat_kns_negative_cache_healed_v1"
     private let maxBackoffInterval: TimeInterval = 6 * 60 * 60
     private let maxConcurrentRefreshes = 4
     private let maxConcurrentProfileRefreshes = 3
@@ -64,6 +77,7 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         super.init()
         loadCache()
         loadProfileCache()
+        healPoisonedNegativeEntriesOnce()
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 10
         config.timeoutIntervalForResource = 20
@@ -198,13 +212,23 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         return raw.hasSuffix(".kas") ? String(raw.dropLast(4)) : raw
     }
 
-    /// Fetch KNS info for an address (always fetches fresh data).
+    /// Fetch KNS info for an address.
+    ///
+    /// Cache-first, on the same terms as `getInfo`: a good cached entry is returned as is, and
+    /// an empty one until it is `negativeRefreshInterval` old. This used to always go to the
+    /// network, which made "fetch" and "get" differ only in name at most call sites - rows and
+    /// screens that had just read the cache into their state fetched anyway. Pass `force` when
+    /// the cached answer is known to be stale, i.e. right after the user's own write.
+    ///
     /// Concurrent callers for the same address share one in-flight request; failed lookups are
     /// throttled by a short exponential cooldown rather than refetched on every call.
-    func fetchInfo(for address: String, network: NetworkType = .mainnet) async -> KNSAddressInfo? {
+    func fetchInfo(for address: String, network: NetworkType = .mainnet, force: Bool = false) async -> KNSAddressInfo? {
         guard !address.isEmpty else { return nil }
         if let existing = inFlightInfoFetches[address] {
             return await existing.value
+        }
+        if !force, let cached = domainCache[address], !shouldRefetchEmptyInfo(cached) {
+            return cached
         }
         if isInFailureCooldown(lastAttempt: lastAttemptAt[address], failures: failureCounts[address, default: 0]) {
             return domainCache[address]
@@ -261,8 +285,15 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
             let failures = failureCounts[address, default: 0]
             // An entry that resolved to "no domains" may be a poisoned negative, so it keeps the
             // short window; a good one is left alone for far longer.
-            let isEmpty = cached.map { $0.allDomains.isEmpty && $0.primaryDomain == nil } ?? true
-            let base = isEmpty ? minRefreshInterval : bulkRefreshInterval
+            let base: TimeInterval
+            if let cached {
+                let isEmpty = cached.allDomains.isEmpty && cached.primaryDomain == nil
+                base = isEmpty ? negativeRefreshInterval : bulkRefreshInterval
+            } else {
+                // Nothing cached but an attempt on record: a failed lookup, kept on the short
+                // failure-backoff window.
+                base = minRefreshInterval
+            }
             let backoff = min(maxBackoffInterval, base * pow(2.0, Double(failures)))
             return now.timeIntervalSince(last) >= backoff
         }
@@ -420,12 +451,19 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     }
 
     /// Fetch KNS profile for an address.
+    ///
+    /// Cache-first on the same terms as `getProfile` - see `fetchInfo(for:network:force:)` for
+    /// why, and for when to pass `force`.
+    ///
     /// Concurrent callers for the same address share one in-flight request; failed lookups are
     /// throttled by a short exponential cooldown rather than refetched on every call.
-    func fetchProfile(for address: String, network: NetworkType = .mainnet) async -> KNSAddressProfileInfo? {
+    func fetchProfile(for address: String, network: NetworkType = .mainnet, force: Bool = false) async -> KNSAddressProfileInfo? {
         guard !address.isEmpty else { return nil }
         if let existing = inFlightProfileFetches[address] {
             return await existing.value
+        }
+        if !force, let cached = profileCache[address], !shouldRefetchEmptyProfile(cached) {
+            return cached
         }
         if isInFailureCooldown(lastAttempt: lastProfileAttemptAt[address], failures: profileFailureCounts[address, default: 0]) {
             return profileCache[address]
@@ -461,8 +499,13 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
             let cached = profileCache[address]
             guard let last = lastProfileAttemptAt[address] ?? cached?.fetchedAt else { return true }
             let failures = profileFailureCounts[address, default: 0]
-            let isEmpty = cached.map { $0.assetId == nil && $0.profile == nil } ?? true
-            let base = isEmpty ? minRefreshInterval : bulkRefreshInterval
+            let base: TimeInterval
+            if let cached {
+                let isEmpty = cached.assetId == nil && cached.profile == nil
+                base = isEmpty ? negativeRefreshInterval : bulkRefreshInterval
+            } else {
+                base = minRefreshInterval
+            }
             let backoff = min(maxBackoffInterval, base * pow(2.0, Double(failures)))
             return now.timeIntervalSince(last) >= backoff
         }
@@ -606,6 +649,13 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         let decoded = try JSONDecoder().decode(KNSBasicAPIResponse.self, from: data)
         guard decoded.success else {
             throw KasiaError.apiError(decoded.error ?? decoded.message ?? "KNS set primary failed")
+        }
+        // The signer is always the wallet's own identity address, and its cached primary (and
+        // the profile keyed off it) is now known-stale. Dropping both means the callers' plain
+        // `fetchInfo`/`fetchProfile` refresh after this write goes to the network instead of
+        // handing back the entry they are trying to replace.
+        if let ownAddress = WalletManager.shared.currentWallet?.publicAddress {
+            clearCache(for: ownAddress)
         }
         return true
     }
@@ -1125,21 +1175,22 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
         return Date().timeIntervalSince(lastAttempt) < cooldown
     }
 
-    /// An empty (no domains, no primary) cached info entry older than the refresh interval is
-    /// worth refetching: it may be a permanently-cached failed lookup written before errors
-    /// stopped being cached (poisoned entries persisted in UserDefaults on devices in the
-    /// field), and genuine no-KNS addresses can also inscribe a domain at any time.
+    /// An empty (no domains, no primary) cached info entry older than `negativeRefreshInterval`
+    /// is worth refetching: a genuine no-KNS address can inscribe a domain at any time. (The
+    /// other reason this check used to run every ten minutes - poisoned negatives written
+    /// before errors stopped being cached - is handled once, at launch, by
+    /// `healPoisonedNegativeEntriesOnce`.)
     private func shouldRefetchEmptyInfo(_ info: KNSAddressInfo) -> Bool {
         info.allDomains.isEmpty
             && info.primaryDomain == nil
-            && Date().timeIntervalSince(info.fetchedAt) >= minRefreshInterval
+            && Date().timeIntervalSince(info.fetchedAt) >= negativeRefreshInterval
     }
 
     /// Same idea for cached profile entries that resolved to "no domain / no profile".
     private func shouldRefetchEmptyProfile(_ info: KNSAddressProfileInfo) -> Bool {
         info.assetId == nil
             && info.profile == nil
-            && Date().timeIntervalSince(info.fetchedAt) >= minRefreshInterval
+            && Date().timeIntervalSince(info.fetchedAt) >= negativeRefreshInterval
     }
 
     /// Bounded FIFO-by-fetch-date eviction so the persisted caches can't grow without limit.
@@ -1321,6 +1372,33 @@ final class KNSService: NSObject, ObservableObject, URLSessionTaskDelegate {
     private func persistCache() {
         guard let data = try? JSONEncoder().encode(domainCache) else { return }
         UserDefaults.standard.set(data, forKey: cacheKey)
+    }
+
+    /// One-time repair for negative entries written by builds that cached a failed lookup as
+    /// "this address has no KNS". Dropping every empty info and profile entry makes each of
+    /// them refetch exactly once (the next screen that needs it asks the network, and a real
+    /// negative is then written with a fresh `fetchedAt`); after that they rest on
+    /// `negativeRefreshInterval` like everything else. Runs once per install, gated by
+    /// `negativeCacheHealKey`.
+    private func healPoisonedNegativeEntriesOnce() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: negativeCacheHealKey) else { return }
+        defer { defaults.set(true, forKey: negativeCacheHealKey) }
+
+        let emptyInfoKeys = domainCache
+            .filter { $0.value.allDomains.isEmpty && $0.value.primaryDomain == nil }
+            .map(\.key)
+        let emptyProfileKeys = profileCache
+            .filter { $0.value.assetId == nil && $0.value.profile == nil }
+            .map(\.key)
+        guard !emptyInfoKeys.isEmpty || !emptyProfileKeys.isEmpty else { return }
+
+        for key in emptyInfoKeys { domainCache.removeValue(forKey: key) }
+        for key in emptyProfileKeys { profileCache.removeValue(forKey: key) }
+        persistCache()
+        persistProfileCache()
+        AppLog.log("[KNS] Dropped %d empty info / %d empty profile cache entries for a one-time refetch",
+                   emptyInfoKeys.count, emptyProfileKeys.count)
     }
 
     private func loadProfileCache() {
@@ -1650,8 +1728,9 @@ final class KNSDomainInscribeService: ObservableObject {
         )
         log("VERIFY domain=\(fullDomain) verified=\(verified)")
 
-        _ = await knsService.fetchInfo(for: wallet.publicAddress)
-        _ = await knsService.fetchProfile(for: wallet.publicAddress)
+        // Forced: the cache holds the pre-inscribe answer by definition.
+        _ = await knsService.fetchInfo(for: wallet.publicAddress, force: true)
+        _ = await knsService.fetchProfile(for: wallet.publicAddress, force: true)
 
         return KNSDomainInscribeResult(
             domain: fullDomain,
@@ -1956,9 +2035,10 @@ final class KNSDomainTransferService: ObservableObject {
         )
         log("VERIFY domain=\(domain) verified=\(verified)")
 
-        _ = await knsService.fetchInfo(for: sourceAddress)
-        _ = await knsService.fetchProfile(for: sourceAddress)
-        _ = await knsService.fetchInfo(for: recipientAddress)
+        // Forced: both sides' cached domain lists are the pre-transfer ones.
+        _ = await knsService.fetchInfo(for: sourceAddress, force: true)
+        _ = await knsService.fetchProfile(for: sourceAddress, force: true)
+        _ = await knsService.fetchInfo(for: recipientAddress, force: true)
 
         return KNSDomainTransferResult(
             domain: domain,

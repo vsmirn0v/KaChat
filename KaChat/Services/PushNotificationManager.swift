@@ -357,7 +357,10 @@ final class PushNotificationManager: ObservableObject {
         aliases: [String],
         primaryAddress: String?
     ) async throws -> (Int, String?) {
-        let url = URL(string: "\(settings.pushIndexerURL)\(registrationEndpoint)")!
+        guard let url = URL(string: "\(settings.pushIndexerURL)\(registrationEndpoint)") else {
+            AppLog.log("[Push] Invalid push service URL: %@", settings.pushIndexerURL)
+            throw PushError.invalidResponse
+        }
         let auth = try await buildPushAuth(
             method: "POST",
             path: registrationEndpoint,
@@ -669,7 +672,11 @@ final class PushNotificationManager: ObservableObject {
             auth: auth
         )
 
-        let url = URL(string: "\(settings.pushIndexerURL)\(updateEndpoint)")!
+        guard let url = URL(string: "\(settings.pushIndexerURL)\(updateEndpoint)") else {
+            AppLog.log("[Push] Invalid push service URL: %@", settings.pushIndexerURL)
+            inFlightWatchedSignature = nil
+            return
+        }
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "PUT"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -813,8 +820,12 @@ final class PushNotificationManager: ObservableObject {
 
         let settings = AppSettings.load()
 
+        guard let url = URL(string: "\(settings.pushIndexerURL)\(unregisterEndpoint)") else {
+            AppLog.log("[Push] Invalid push service URL: %@", settings.pushIndexerURL)
+            return
+        }
+
         do {
-            let url = URL(string: "\(settings.pushIndexerURL)\(unregisterEndpoint)")!
             let auth: PushAuthRequest?
             do {
                 auth = try await buildPushAuth(
@@ -1463,7 +1474,10 @@ final class PushNotificationManager: ObservableObject {
     }
 
     private func fetchPushChallenge(baseURL: String) async throws -> PushChallengeResponse {
-        let url = URL(string: "\(baseURL)\(challengeEndpoint)")!
+        guard let url = URL(string: "\(baseURL)\(challengeEndpoint)") else {
+            AppLog.log("[Push] Invalid push service URL: %@", baseURL)
+            throw PushError.invalidResponse
+        }
         for attempt in 0..<3 {
             var request = URLRequest(url: url)
             request.httpMethod = "POST"

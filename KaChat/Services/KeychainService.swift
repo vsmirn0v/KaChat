@@ -124,11 +124,41 @@ final class KeychainService {
     /// The pre-4.0 single global entry every account shared. Kept only so NextcloudService can
     /// migrate it into the active wallet's scoped entry once, then delete it.
     func loadLegacyNextcloudCredentials() throws -> Data? {
-        try load(forKey: .nextcloudCredentials)
+        let data = try load(forKey: .nextcloudCredentials)
+        scrubSyncedNextcloudCredentialsIfNeeded()
+        return data
     }
 
     func deleteLegacyNextcloudCredentials() throws {
         try delete(forKey: .nextcloudCredentials)
+    }
+
+    private static let syncedNextcloudScrubDoneKey = "kachat_nextcloud_icloud_keychain_scrub_done"
+
+    /// Before this fix, `save(data:forKey:)` passed the `kSecAttrSynchronizable` constant itself
+    /// as that attribute's VALUE, which Security reads as "true" - so the global Nextcloud login
+    /// (server + app password) went into the iCloud-synced keychain and replicated to every
+    /// device on the account. The save paths are device-only now, but a copy already pushed to
+    /// iCloud stays there until something deletes it explicitly, so this removes any
+    /// synchronizable item for that key once (deletions propagate through iCloud Keychain). It
+    /// runs from the legacy load path AFTER the read, so a login that only survives in the
+    /// synced copy still gets migrated into the device-only scoped entry first.
+    private func scrubSyncedNextcloudCredentialsIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.syncedNextcloudScrubDoneKey) else { return }
+        for includeAccessGroup in [true, false] {
+            var query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: serviceName,
+                kSecAttrAccount as String: KeychainKey.nextcloudCredentials.rawValue,
+            ]
+            query[kSecAttrSynchronizable as String] = kCFBooleanTrue
+            if includeAccessGroup, let accessGroup = keychainAccessGroup {
+                query[kSecAttrAccessGroup as String] = accessGroup
+            }
+            SecItemDelete(query as CFDictionary)
+        }
+        defaults.set(true, forKey: Self.syncedNextcloudScrubDoneKey)
     }
 
     /// "kachat_nextcloud_credentials_<hash>" - see `walletHashSuffix`.
@@ -585,8 +615,8 @@ final class KeychainService {
         // Add new item
         var newQuery = query
         newQuery[kSecValueData as String] = data
-        newQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        newQuery[kSecAttrSynchronizable as String] = kSecAttrSynchronizable
+        newQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        newQuery[kSecAttrSynchronizable as String] = kCFBooleanFalse
 
         let status = SecItemAdd(newQuery as CFDictionary, nil)
         if status == errSecMissingEntitlement {
@@ -864,8 +894,8 @@ final class KeychainService {
 
         var newQuery = query
         newQuery[kSecValueData as String] = data
-        newQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        newQuery[kSecAttrSynchronizable as String] = kSecAttrSynchronizable
+        newQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        newQuery[kSecAttrSynchronizable as String] = kCFBooleanFalse
 
         let status = SecItemAdd(newQuery as CFDictionary, nil)
         guard status == errSecSuccess else {

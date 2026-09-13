@@ -1160,7 +1160,6 @@ class NotificationService: UNNotificationServiceExtension {
             storeLastPushDecryptStatus("missing_private_key")
             return nil
         }
-        NSLog("[NotificationService] decrypt: private key len=%d", privateKey.count)
         let (message, error) = NotificationCipher.decryptContextualPayloadDebug(
             payloadHex,
             privateKey: privateKey
@@ -1341,11 +1340,13 @@ private struct NotificationCipher {
         init?(fromBytes bytes: Data) {
             guard bytes.count > 45 else { return nil }
             let nonce = bytes.prefix(12)
-            let keyStart = 12
+            // Offsets are relative to startIndex: a Data slice keeps its parent's indices, so
+            // absolute `bytes[12]` would read the wrong byte (or trap) when handed a slice.
+            let keyStart = bytes.startIndex + 12
             let isSec1Compressed = bytes[keyStart] == 0x02 || bytes[keyStart] == 0x03
             let keySize = isSec1Compressed ? 33 : 32
             let keyEnd = keyStart + keySize
-            guard bytes.count >= keyEnd else { return nil }
+            guard bytes.endIndex >= keyEnd else { return nil }
 
             let ephemeralPublicKey = bytes[keyStart..<keyEnd]
             let ciphertext = bytes[keyEnd...]

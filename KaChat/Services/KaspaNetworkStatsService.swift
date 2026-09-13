@@ -34,6 +34,14 @@ final class KaspaNetworkStatsService: ObservableObject {
     /// pixels wide.
     private static let resolution = "1d"
 
+    /// Explicit 20s cap (the session default is 60s): a stalled explorer would otherwise keep
+    /// `isLoading` - and the Portfolio card's spinner - up for a full minute per endpoint.
+    private static func timedRequest(_ url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        return request
+    }
+
     func refreshIfNeeded(force: Bool = false) async {
         if !force, let lastFetchedAt, Date().timeIntervalSince(lastFetchedAt) < minimumRefetchInterval {
             return
@@ -48,7 +56,7 @@ final class KaspaNetworkStatsService: ObservableObject {
         guard let url = components.url else { return }
 
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: Self.timedRequest(url))
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
             let samples = try JSONDecoder().decode([HashrateSample].self, from: data)
             let points = Self.series(from: samples)
@@ -74,7 +82,7 @@ final class KaspaNetworkStatsService: ObservableObject {
         components.path += "/info/blockreward"
         guard let url = components.url else { return }
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: Self.timedRequest(url))
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
             let decoded = try JSONDecoder().decode(BlockRewardResponse.self, from: data)
             if decoded.blockreward > 0 { blockRewardKas = decoded.blockreward }
@@ -97,7 +105,7 @@ final class KaspaNetworkStatsService: ObservableObject {
         components.path += "/info/halving"
         guard let url = components.url else { return }
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: Self.timedRequest(url))
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
             let decoded = try JSONDecoder().decode(HalvingResponse.self, from: data)
             if decoded.nextHalvingAmount > 0 { nextBlockRewardKas = decoded.nextHalvingAmount }

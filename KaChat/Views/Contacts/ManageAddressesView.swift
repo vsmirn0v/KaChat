@@ -2611,7 +2611,10 @@ private struct SpendingAddressTransactionHistoryView: View {
         // fetchInfo works for any address (assets-by-owner endpoint), shares in-flight requests,
         // and returns the cached value while a failure cooldown is active - nil means we have
         // nothing at all for this address, which we surface as the error state.
-        if let info = await KNSService.shared.fetchInfo(for: entry.address) {
+        // Forced: this is a pull-to-refresh, the one gesture that means "ask again". fetchInfo
+        // is cache-first now, and a pull that returned the cached list would look like nothing
+        // happened.
+        if let info = await KNSService.shared.fetchInfo(for: entry.address, force: true) {
             knsDomains = info.allDomains
             domainsLoadFailed = false
         } else {

@@ -389,11 +389,13 @@ struct ChatInfoView: View {
             .task {
                 // Always force-refresh selected contact KNS info and profile when opening chat info.
                 // This ensures profile selection is anchored to the latest primary domain metadata.
-                _ = await contactsManager.fetchKNSInfo(for: contact)
+                // ONE forced round per open: `fetchInfo` is the forced call, and the profile
+                // fetch after it reuses the info it just landed rather than asking again.
+                _ = await KNSService.shared.fetchInfo(for: contact.address, force: true)
                 // The Domains section stops showing its loading row once the lookup has
                 // answered, whether or not it found anything.
                 knsDomainsLoaded = true
-                _ = await contactsManager.fetchKNSProfile(for: contact)
+                _ = await KNSService.shared.fetchProfile(for: contact.address, force: true)
 
                 let stats = await MessageStore.shared.messageStats(contactAddress: contact.address)
                 messageSent = stats.sent

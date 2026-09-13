@@ -318,13 +318,16 @@ final class KasiaAPIClient: NSObject, URLSessionTaskDelegate {
 
     // MARK: - Self Stash
 
-    func getSelfStash(owner: String, scope: String, limit: Int = 50) async throws -> [SelfStashResponse] {
+    /// `startBlockTime` 0 reads the whole stash. A caller that keeps a high-water mark passes
+    /// it (rewound for reorg safety) to read only what landed since - see
+    /// `ChatService.fetchSavedHandshakes`.
+    func getSelfStash(owner: String, scope: String, limit: Int = 50, startBlockTime: UInt64 = 0) async throws -> [SelfStashResponse] {
         let scopeHex = scope.data(using: .utf8)?.map { String(format: "%02x", $0) }.joined() ?? ""
         return try await getPaginated(
             endpoint: "/self-stash/by-owner",
             params: ["owner": owner, "scope": scopeHex],
             limit: limit,
-            startBlockTime: 0,
+            startBlockTime: startBlockTime,
             getBlockTime: { $0.blockTime }
         )
     }
@@ -1089,7 +1092,9 @@ private actor HTTP1Client {
             throw HTTP1ClientError.invalidResponse
         }
         let parts = statusLine.split(separator: " ")
-        guard parts.count >= 2, let statusCode = Int(parts[1]) else {
+        // The status comes straight off the wire; anything outside the HTTP range is a broken
+        // (or hostile) peer, and HTTPURLResponse would reject it anyway.
+        guard parts.count >= 2, let statusCode = Int(parts[1]), (100...599).contains(statusCode) else {
             throw HTTP1ClientError.invalidResponse
         }
 
@@ -1110,12 +1115,14 @@ private actor HTTP1Client {
             body = Data(bodyData)
         }
 
-        let response = HTTPURLResponse(
+        guard let response = HTTPURLResponse(
             url: url,
             statusCode: statusCode,
             httpVersion: "HTTP/1.1",
             headerFields: headers
-        ) ?? HTTPURLResponse(url: url, statusCode: statusCode, httpVersion: "HTTP/1.1", headerFields: nil)!
+        ) ?? HTTPURLResponse(url: url, statusCode: statusCode, httpVersion: "HTTP/1.1", headerFields: nil) else {
+            throw HTTP1ClientError.invalidResponse
+        }
 
         return (body, response)
     }

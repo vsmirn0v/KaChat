@@ -30,6 +30,7 @@ final class ReadStatusSyncManager: ObservableObject {
     /// Whether CloudKit sync is enabled
     private var isCloudKitEnabled = AppSettings.load().storeMessagesInICloud
     private var settingsObserver: NSObjectProtocol?
+    private var readStatusObserver: NSObjectProtocol?
 
     /// Current wallet address (for zone partitioning)
     private var currentWalletAddress: String? {
@@ -42,8 +43,9 @@ final class ReadStatusSyncManager: ObservableObject {
     }
 
     private init() {
-        // Observe read status changes from remote (CloudKit)
-        NotificationCenter.default.addObserver(
+        // Observe read status changes from remote (CloudKit). Block observers are released only
+        // by removing their token (`removeObserver(self)` in deinit does not reach them), so keep it.
+        readStatusObserver = NotificationCenter.default.addObserver(
             forName: MessageStore.readStatusDidChangeNotification,
             object: nil,
             queue: .main
@@ -81,6 +83,9 @@ final class ReadStatusSyncManager: ObservableObject {
         NotificationCenter.default.removeObserver(self)
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
+        }
+        if let readStatusObserver {
+            NotificationCenter.default.removeObserver(readStatusObserver)
         }
     }
 

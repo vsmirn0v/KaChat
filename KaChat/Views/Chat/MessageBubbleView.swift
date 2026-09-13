@@ -1378,11 +1378,16 @@ struct LinkifiedMessageTextView: UIViewRepresentable {
 
     func updateUIView(_ uiView: UITextView, context: Context) {
         context.coordinator.parent = self
-        uiView.attributedText = context.coordinator.makeAttributedText(
+        let newValue = context.coordinator.makeAttributedText(
             text: text,
             isOutgoing: isOutgoing,
             isSingleEmojiOnly: isSingleEmojiOnly
         )
+        // SwiftUI re-runs this on every parent render (typing indicator, status tick, scroll),
+        // and assigning `attributedText` invalidates TextKit's layout even when the string is
+        // identical, so skip the assignment unless the content or attributes actually changed.
+        guard !(uiView.attributedText?.isEqual(to: newValue) ?? false) else { return }
+        uiView.attributedText = newValue
     }
 
     func makeCoordinator() -> Coordinator {
@@ -1639,10 +1644,20 @@ private enum PhotoRevealStore {
         guard !set.contains(txId) else { return }
         set.insert(txId)
         UserDefaults.standard.set(Array(set), forKey: key)
+        cachedSet = set
     }
 
+    /// Decoded once and kept: `isRevealed` runs in `LazyImageBubble.init`, i.e. for every photo
+    /// bubble on every render, and rebuilding a Set from UserDefaults there was a hidden
+    /// per-row allocation that scaled with the number of photos ever revealed. This store is
+    /// the only writer of the key, so the copy can't go stale.
+    private static var cachedSet: Set<String>?
+
     private static var revealedSet: Set<String> {
-        Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+        if let cachedSet { return cachedSet }
+        let loaded = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+        cachedSet = loaded
+        return loaded
     }
 }
 
@@ -2146,6 +2161,21 @@ private final class AudioPlaybackHelper: NSObject, ObservableObject, AVAudioPlay
     private var dataHash: Int?
     private var progressTimer: Timer?
 
+    /// Every helper that has started playback, weakly. Each bubble owns its own helper (a per-row
+    /// `@StateObject`), so the thread view has no handle on the one that is playing; it stops
+    /// them all through here when the thread closes - see `stopAllPlayback()`. Main-thread only.
+    private static let playingHelpers = NSHashTable<AudioPlaybackHelper>.weakObjects()
+
+    /// Stop playback in every bubble. Called from the thread view's `onDisappear`, which is where
+    /// "the user left the chat" is actually known - the row's own `onDisappear` also fires when a
+    /// `LazyVStack` scrolls the bubble out of view, which used to cut the voice note off mid-play.
+    static func stopAllPlayback() {
+        for helper in playingHelpers.allObjects {
+            helper.stop()
+        }
+        playingHelpers.removeAllObjects()
+    }
+
     func preloadDuration(data: Data, mimeType: String) {
         let newHash = data.hashValue
         if dataHash == newHash, cachedDuration != nil {
@@ -2247,6 +2277,7 @@ private final class AudioPlaybackHelper: NSObject, ObservableObject, AVAudioPlay
             }
             isPlaying = true
             progress = 0
+            Self.playingHelpers.add(self)
             startProgressTimer()
             if let duration = cachedDuration {
                 durationText = formattedDuration(duration)
@@ -2347,6 +2378,13 @@ struct LazyAudioBubble: View {
     let onReply: (() -> Void)?
     var onSelect: (() -> Void)? = nil
     @StateObject private var helper = AudioPlaybackHelper()
+
+    /// Stop every voice note that is playing. The thread views (`ChatDetailView`,
+    /// `GroupChatDetailView`) call this from their `onDisappear`; the bubble itself no longer stops
+    /// on its own `onDisappear`, which the `LazyVStack` also fires on plain scroll-out.
+    static func stopAllPlayback() {
+        AudioPlaybackHelper.stopAllPlayback()
+    }
 
     var body: some View {
         AudioBubble(
@@ -2455,9 +2493,9 @@ private struct AudioBubble: View {
         .onAppear {
             helper.preloadDuration(data: data, mimeType: mimeType)
         }
-        .onDisappear {
-            helper.stop()
-        }
+        // No `onDisappear { helper.stop() }` here: inside the thread's `LazyVStack` that fires
+        // whenever the bubble scrolls out of view, which killed the voice note mid-play the moment
+        // the user scrolled. Leaving the thread stops playback via `LazyAudioBubble.stopAllPlayback()`.
     }
 }
 

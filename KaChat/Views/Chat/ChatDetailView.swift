@@ -1045,6 +1045,8 @@ struct ChatDetailView: View {
             chatService.leaveConversation()
             chatService.cancelReply()
             cancelRecording()
+            // Voice-note playback is owned per bubble; the thread going away is what ends it.
+            LazyAudioBubble.stopAllPlayback()
             snapshotRebuildTask?.cancel()
             storedCountTask?.cancel()
             scrollInteractionResetWorkItem?.cancel()

@@ -381,10 +381,14 @@ actor LinkPreviewService {
 
     /// `nil` value = "fetched, but no preview data found" (still worth caching so a bad/plain link
     /// isn't refetched on every scroll). Bounded FIFO eviction, not LRU - simplicity over
-    /// optimality for a cosmetic, cheap-to-refetch-on-relaunch cache.
+    /// optimality for a cosmetic, cheap-to-refetch-on-relaunch cache. Entries also expire after
+    /// `cacheTTL`: a link whose page changed (or whose preview image URL was a short-lived
+    /// signed one) would otherwise stay stale for the whole process lifetime.
     private var cache: [String: LinkPreviewData?] = [:]
+    private var cacheStoredAt: [String: Date] = [:]
     private var cacheOrder: [String] = []
     private let cacheLimit = 2_048
+    static let cacheTTL: TimeInterval = 24 * 60 * 60
 
     /// In-flight fetches keyed by URL, so concurrent callers for the same not-yet-cached link
     /// (e.g. the message row and a re-render both mounting a `LinkPreviewCardView` for the same
@@ -392,6 +396,19 @@ actor LinkPreviewService {
     /// hammering a link's host with duplicate requests, which is a plausible way to trip a site's
     /// rate limiting.
     private var inFlight: [String: Task<LinkPreviewData?, Never>] = [:]
+
+    /// Same two mechanisms for image bytes as `preview(for:)` has for metadata. Without them
+    /// every card remount re-downloaded its image and N rows sharing one image fired N
+    /// requests. `NSCache` (cost = byte count) so the bytes are bounded and shed under memory
+    /// pressure; a `Data` body is only kept below the cost limit, an oversized one is served
+    /// once and not retained.
+    private let imageCache: NSCache<NSString, NSData> = {
+        let cache = NSCache<NSString, NSData>()
+        cache.countLimit = 256
+        cache.totalCostLimit = 16 * 1024 * 1024
+        return cache
+    }()
+    private var imageInFlight: [String: Task<Data?, Never>] = [:]
 
     private let fetchTimeout: TimeInterval = 8
     private let maxBodyBytes = 1_000_000
@@ -404,10 +421,31 @@ actor LinkPreviewService {
     /// `maxBytes` overrides the default 5 MB cap — the Nextcloud full-quality photo viewer
     /// passes a much higher limit since it deliberately fetches the original file.
     func imageData(_ url: URL, referer: URL, maxBytes: Int? = nil) async -> Data? {
-        // First: browser UA (session default) + Referer. Fallback: Meta's crawler UA with no Referer -
-        // some cdninstagram/fbcdn image URLs 403 the browser-UA/Referer combo but serve that crawler.
-        if let data = await fetchImageBytes(url, userAgentOverride: nil, referer: referer, maxBytes: maxBytes) { return data }
-        return await fetchImageBytes(url, userAgentOverride: Self.facebookExternalHitUserAgent, referer: nil, maxBytes: maxBytes)
+        // Keyed by URL and cap: the full-quality Nextcloud fetch must not be answered from a
+        // capped request's bytes (or vice versa).
+        let key = "\(url.absoluteString)|\(maxBytes ?? maxImageBytes)"
+        if let cached = imageCache.object(forKey: key as NSString) {
+            return cached as Data
+        }
+        if let existing = imageInFlight[key] {
+            return await existing.value
+        }
+
+        let task = Task<Data?, Never> { [weak self] in
+            guard let self else { return nil }
+            // First: browser UA (session default) + Referer. Fallback: Meta's crawler UA with no Referer -
+            // some cdninstagram/fbcdn image URLs 403 the browser-UA/Referer combo but serve that crawler.
+            if let data = await self.fetchImageBytes(url, userAgentOverride: nil, referer: referer, maxBytes: maxBytes) { return data }
+            return await self.fetchImageBytes(url, userAgentOverride: Self.facebookExternalHitUserAgent, referer: nil, maxBytes: maxBytes)
+        }
+        imageInFlight[key] = task
+        let data = await task.value
+        imageInFlight.removeValue(forKey: key)
+
+        if let data, data.count <= imageCache.totalCostLimit {
+            imageCache.setObject(data as NSData, forKey: key as NSString, cost: data.count)
+        }
+        return data
     }
 
     private func fetchImageBytes(_ url: URL, userAgentOverride: String?, referer: URL?, maxBytes: Int? = nil) async -> Data? {
@@ -476,8 +514,14 @@ actor LinkPreviewService {
     func preview(for url: URL) async -> LinkPreviewData? {
         let key = url.absoluteString
         if let cached = cache[key] {
-            AppLog.log("[LinkPreview] cache hit for %@ -> %@", key, cached == nil ? "no data" : "has data")
-            return cached
+            if let storedAt = cacheStoredAt[key], Date().timeIntervalSince(storedAt) >= Self.cacheTTL {
+                // Expired: drop it entirely and fall through to a fresh fetch, which re-stores
+                // it at the back of the FIFO like any new entry.
+                evict(key)
+            } else {
+                AppLog.log("[LinkPreview] cache hit for %@ -> %@", key, cached == nil ? "no data" : "has data")
+                return cached
+            }
         }
         // Failed share probes wait out the cooldown before re-hitting the server.
         if let failedAt = nextcloudFailureAt[key], Date().timeIntervalSince(failedAt) < nextcloudRetryCooldown {
@@ -520,11 +564,25 @@ actor LinkPreviewService {
             cacheOrder.append(key)
         }
         cache[key] = value
+        cacheStoredAt[key] = Date()
         if cacheOrder.count > cacheLimit, !cacheOrder.isEmpty {
             let oldest = cacheOrder.removeFirst()
             cache.removeValue(forKey: oldest)
+            cacheStoredAt.removeValue(forKey: oldest)
+            // The mirror has to follow, or it grows past the limit the main cache enforces
+            // (it was only ever written, never evicted from).
+            Self.syncCache.remove(for: oldest)
         }
         Self.syncCache.set(value, for: key)
+    }
+
+    /// Removes one key from the main cache, its FIFO position, and the mirror; used for TTL
+    /// expiry (the FIFO overflow path in `store` does its own removal from the front).
+    private func evict(_ key: String) {
+        cache.removeValue(forKey: key)
+        cacheStoredAt.removeValue(forKey: key)
+        cacheOrder.removeAll { $0 == key }
+        Self.syncCache.remove(for: key)
     }
 
     private static let youTubeHosts: Set<String> = ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"]
@@ -853,20 +911,30 @@ actor LinkPreviewService {
 /// check for an already-known result before the view's first render, without needing `await`.
 private final class SyncCacheMirror: @unchecked Sendable {
     private let lock = NSLock()
-    private var storage: [String: LinkPreviewData?] = [:]
+    private var storage: [String: (value: LinkPreviewData?, storedAt: Date)] = [:]
 
     /// Returns `nil` (outer) if the URL has never been resolved; `.some(nil)` if it resolved to
-    /// "no preview data"; `.some(.some(data))` if it resolved to real preview data.
+    /// "no preview data"; `.some(.some(data))` if it resolved to real preview data. An entry
+    /// past `LinkPreviewService.cacheTTL` reads as never-resolved so the view goes through
+    /// `preview(for:)`, which is where the expired entry actually gets dropped and refetched.
     func value(for key: String) -> LinkPreviewData?? {
         lock.lock()
         defer { lock.unlock() }
-        return storage[key]
+        guard let entry = storage[key] else { return nil }
+        guard Date().timeIntervalSince(entry.storedAt) < LinkPreviewService.cacheTTL else { return nil }
+        return .some(entry.value)
     }
 
     func set(_ value: LinkPreviewData?, for key: String) {
         lock.lock()
         defer { lock.unlock() }
-        storage[key] = value
+        storage[key] = (value, Date())
+    }
+
+    func remove(for key: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        storage.removeValue(forKey: key)
     }
 }
 

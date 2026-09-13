@@ -440,13 +440,14 @@ extension ChatService {
             // This page, retried on a backoff. Nil means every attempt failed, which is a
             // genuinely incomplete fetch rather than the end of the list.
             var pageTransactions: [KaspaFullTransactionResponse]?
+            let pageRequest = Self.timedRequest(url)
             for (attempt, delay) in Self.historyPageRetryDelaysSeconds.enumerated() {
                 if delay > 0 {
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
                 if Task.isCancelled { return HistoryFetchResult(transactions: allTransactions, complete: false) }
                 do {
-                    let (data, response) = try await URLSession.shared.data(from: url)
+                    let (data, response) = try await URLSession.shared.data(for: pageRequest)
                     guard let httpResponse = response as? HTTPURLResponse else { continue }
                     guard (200...299).contains(httpResponse.statusCode) else {
                         // 4xx other than 429 will not improve by asking again.
@@ -456,7 +457,8 @@ extension ChatService {
                         if !worthRetrying { break }
                         continue
                     }
-                    pageTransactions = try JSONDecoder().decode([KaspaFullTransactionResponse].self, from: data)
+                    // Up to 200 full transactions per page - decoded off the main actor.
+                    pageTransactions = try await Self.decodeOffMain([KaspaFullTransactionResponse].self, from: data)
                     break
                 } catch {
                     AppLog.log("[ChatService] History page %d attempt %d failed: %@",
@@ -1187,7 +1189,7 @@ extension ChatService {
             queryItems: [URLQueryItem(name: "resolve_previous_outpoints", value: "light")]
         ) else { return nil }
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: Self.timedRequest(url))
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
                 return nil
@@ -1321,12 +1323,13 @@ extension ChatService {
 
             let maxAttempts = 8
             let pollIntervalNs: UInt64 = 700_000_000  // 700ms
+            let request = Self.timedRequest(url)
 
             for attempt in 1...maxAttempts {
                 if await state.checkResolved() { return }
 
                 do {
-                    let (data, response) = try await URLSession.shared.data(from: url)
+                    let (data, response) = try await URLSession.shared.data(for: request)
 
                     guard let httpResponse = response as? HTTPURLResponse else {
                         try? await Task.sleep(nanoseconds: pollIntervalNs)
@@ -1338,7 +1341,14 @@ extension ChatService {
                         continue
                     }
 
-                    guard (200...299).contains(httpResponse.statusCode) else { continue }
+                    guard (200...299).contains(httpResponse.statusCode) else {
+                        // Any other 4xx - a 429 above all - used to `continue` straight into the
+                        // next attempt, so a rate-limited explorer was hit eight times back to
+                        // back with no pause at all. Same pause as the 5xx path, stretched to
+                        // the server's Retry-After when it names one.
+                        try? await Task.sleep(nanoseconds: Self.retryDelayNs(for: httpResponse, fallback: pollIntervalNs))
+                        continue
+                    }
 
                     let fullTx = try JSONDecoder().decode(KaspaFullTransactionResponse.self, from: data)
 
@@ -1407,9 +1417,10 @@ extension ChatService {
         ) else { return nil }
         AppLog.log("[ChatService] Kaspa REST full tx request: %@", url.absoluteString)
 
+        let request = Self.timedRequest(url)
         for attempt in 1...max(1, retries) {
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
+                let (data, response) = try await URLSession.shared.data(for: request)
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200...299).contains(httpResponse.statusCode) else {
                     try? await Task.sleep(nanoseconds: delayNs)
@@ -1448,7 +1459,7 @@ extension ChatService {
 
         do {
             AppLog.log("[ChatService] Kaspa REST fetchAnyInputAddress: %@", url.absoluteString)
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: Self.timedRequest(url))
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
                 return nil
@@ -1474,22 +1485,61 @@ extension ChatService {
         }
     }
 
+    /// Self-stash cursor bookkeeping for `fetchSavedHandshakes`, keyed per wallet address.
+    ///
+    /// The saved-handshake scan used to re-read the whole stash from block_time 0 on EVERY
+    /// sync cycle - one page for a new wallet, a 20-page re-download of the same old rows for
+    /// one with hundreds of contacts. It is still the self-healing recovery scan the sync
+    /// comment in `fetchNewMessages` describes, with nothing to corrupt: any failure DROPS the
+    /// mark so the next attempt is a from-zero scan again, and a from-zero scan runs once a day
+    /// regardless, so a mark that somehow ran ahead of the indexer can never hide a handshake
+    /// for good. Between those, the scan starts 10 minutes behind the newest row it has seen -
+    /// the same reorg rewind the per-object message cursors use.
+    private static let selfStashHighWaterKeyPrefix = "kachat_selfstash_saved_handshake_high_water_ms."
+    private static let selfStashFullScanKeyPrefix = "kachat_selfstash_saved_handshake_full_scan_at."
+    private static let selfStashFullScanInterval: TimeInterval = 24 * 60 * 60
+    private static let selfStashReorgRewindMs: UInt64 = 10 * 60 * 1000
+
     func fetchSavedHandshakes(myAddress: String, privateKey: Data?) async throws {
         guard let privKey = privateKey else {
             AppLog.log("[ChatService] Cannot fetch saved handshakes - no private key")
             return
         }
 
+        let defaults = UserDefaults.standard
+        let highWaterKey = Self.selfStashHighWaterKeyPrefix + myAddress
+        let fullScanKey = Self.selfStashFullScanKeyPrefix + myAddress
+        let highWater = UInt64(max(0, defaults.integer(forKey: highWaterKey)))
+        let lastFullScanAt = defaults.double(forKey: fullScanKey)
+        let fullScanDue = highWater == 0
+            || lastFullScanAt <= 0
+            || Date().timeIntervalSince1970 - lastFullScanAt >= Self.selfStashFullScanInterval
+        let startBlockTime: UInt64 = fullScanDue ? 0 : highWater - min(highWater, Self.selfStashReorgRewindMs)
+
         let savedHandshakes: [SelfStashResponse]
         do {
-            savedHandshakes = try await apiClient.getSelfStash(owner: myAddress, scope: "saved_handshake")
+            savedHandshakes = try await apiClient.getSelfStash(
+                owner: myAddress, scope: "saved_handshake", startBlockTime: startBlockTime
+            )
         } catch {
+            // Any failure - including the DPI path that returns quietly below - drops the mark:
+            // the next attempt is a from-zero scan, so a partial read can never leave a gap
+            // behind a cursor.
+            defaults.removeObject(forKey: highWaterKey)
             if ChatService.handleDpiPaginationFailure(error, context: "saved handshakes") {
                 return
             }
             throw error
         }
-        AppLog.log("[ChatService] Fetched %d saved handshakes from self-stash", savedHandshakes.count)
+        AppLog.log("[ChatService] Fetched %d saved handshakes from self-stash (from block_time %llu%@)",
+                   savedHandshakes.count, startBlockTime, fullScanDue ? ", full scan" : "")
+
+        if let newest = savedHandshakes.compactMap(\.blockTime).max(), newest > highWater {
+            defaults.set(Int(clamping: newest), forKey: highWaterKey)
+        }
+        if fullScanDue {
+            defaults.set(Date().timeIntervalSince1970, forKey: fullScanKey)
+        }
 
         for stash in savedHandshakes {
             guard let stashedData = stash.stashedData else { continue }
@@ -1575,6 +1625,20 @@ extension ChatService {
 
         AppLog.log("[ChatService] %@ cancelled", label)
         return nil
+    }
+
+    /// The pause before re-asking after a 4xx: the caller's normal poll interval, or the
+    /// server's `Retry-After` when it sends one (delta-seconds form; the HTTP-date form is
+    /// rare enough to fall back). Capped, since these polls sit inside a 12s overall resolve
+    /// budget and a header must not be able to park the whole attempt.
+    nonisolated static func retryDelayNs(for response: HTTPURLResponse, fallback: UInt64, capSeconds: Double = 5) -> UInt64 {
+        guard let raw = response.value(forHTTPHeaderField: "Retry-After")?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              let seconds = Double(raw), seconds > 0 else {
+            return fallback
+        }
+        let capped = min(seconds, capSeconds)
+        return max(fallback, UInt64(capped * 1_000_000_000))
     }
 
     static func handleDpiPaginationFailure(_ error: Error, context: String) -> Bool {
@@ -2170,46 +2234,6 @@ extension ChatService {
         }
 
         return contactSuccess
-    }
-
-    /// Fetch contextual messages with polling (triggered by UTXO notification)
-    /// Algorithm: wait 1500ms initial delay, then poll every 500ms until we get new messages (max 10 attempts)
-    func fetchContextualMessagesFromContactWithRetry(contactAddress: String, myAddress: String, privateKey: Data) async {
-        // Initial delay to give indexer time to process
-        try? await Task.sleep(nanoseconds: 1_500_000_000)  // 1500ms
-
-        let maxAttempts = 20
-        let pollIntervalNs: UInt64 = 500_000_000  // 500ms
-
-        beginChatFetch(contactAddress)
-        var completedSuccessfully = false
-        defer {
-            endChatFetch(contactAddress, success: completedSuccessfully)
-        }
-        for attempt in 1...maxAttempts {
-            let result = await fetchContextualMessagesFromContact(
-                contactAddress: contactAddress,
-                myAddress: myAddress,
-                privateKey: privateKey
-            )
-
-            switch result {
-            case .success(let added):
-                if added, attempt > 1 {
-                    AppLog.log("[ChatService] Found messages from %@ on attempt %d", String(contactAddress.suffix(10)), attempt)
-                }
-                completedSuccessfully = true
-                return
-            case .failure:
-                break
-            }
-
-            if attempt < maxAttempts {
-                try? await Task.sleep(nanoseconds: pollIntervalNs)
-            }
-        }
-
-        AppLog.log("[ChatService] No new messages from %@ after %d attempts", String(contactAddress.suffix(10)), maxAttempts)
     }
 
     /// Fetch contextual messages from a specific contact (triggered by UTXO notification)
@@ -2827,7 +2851,7 @@ extension ChatService {
             path: "/transactions/\(txId)",
             queryItems: [URLQueryItem(name: "resolve_previous_outpoints", value: "light")]
         ),
-           let (data, response) = try? await URLSession.shared.data(from: url),
+           let (data, response) = try? await URLSession.shared.data(for: Self.timedRequest(url)),
            let httpResponse = response as? HTTPURLResponse,
            (200...299).contains(httpResponse.statusCode),
            let fullTx = try? JSONDecoder().decode(KaspaFullTransactionResponse.self, from: data),
@@ -2927,9 +2951,13 @@ extension ChatService {
         // mail - it must land read and must not notify. 0 for pre-existing wallets (no gating).
         let importBaselineMs = walletImportBaselineMs(for: WalletManager.shared.currentWallet?.publicAddress)
 
-        if let index = conversations.firstIndex(where: { $0.contact.address == contactAddress }) {
+        if let index = conversationIndexForIngest(contactAddress: contactAddress) {
+            // Membership via the ingest txId index instead of a linear scan of the thread: a
+            // catch-up sync calls this once per fetched message, so scanning the whole thread
+            // each time made a sync quadratic in the conversation's length.
+            let alreadyPresent = ingestTxIds(for: conversations[index].messages).contains(message.txId)
             updateConversation(at: index) { conversation in
-                if !conversation.messages.contains(where: { $0.txId == message.txId }) {
+                if !alreadyPresent {
                     conversation.messages.append(message)
                     isNewMessage = true
                     if !message.isOutgoing {
@@ -2944,6 +2972,13 @@ extension ChatService {
                         }
                     }
                 }
+            }
+            if isNewMessage {
+                // Carry the index forward onto the array `updateConversation` just wrote back,
+                // so the next message in the batch hits it instead of rebuilding. In-place
+                // insert, not `union`: that would copy the whole set per message.
+                Self.ingestTxIdIndex.txIds.insert(message.txId)
+                Self.ingestTxIdIndex.messages = conversations[index].messages
             }
             // Mark for batched save if sync in progress
             if isSyncInProgress && isNewMessage {
@@ -2997,6 +3032,60 @@ extension ChatService {
         if isNewMessage && !message.isOutgoing && !isViewingConversation && !isBackfilledHistory {
             sendLocalNotification(for: message, from: contact)
         }
+    }
+
+    // MARK: - Ingest lookup indexes
+
+    /// The txIds of the message array most recently ingested into, plus a retained copy of that
+    /// array. Conversations are mutated from many places (pending-promotion rewrites, deletes,
+    /// CloudKit reconciliation swapping the whole array), none of which can be asked to
+    /// invalidate this, so it validates itself instead: the retained copy keeps the storage
+    /// buffer alive and shared, which forces every mutation anywhere - in place or by
+    /// replacement - to copy-on-write into a fresh buffer. Same buffer therefore means same
+    /// contents, and a mismatch just rebuilds. `addMessageToConversation` re-points it at the
+    /// array it wrote back after each append, so a batch for one contact rebuilds once.
+    private static var ingestTxIdIndex: (messages: [ChatMessage], txIds: Set<String>) = ([], [])
+
+    /// Address -> position in `conversations`, filled lazily. Every hit is spot-checked against
+    /// the live array before use, so a stale entry (conversation removed, list reordered) is
+    /// simply recomputed - the result is always an index whose conversation has this address.
+    private static var ingestConversationIndex: [String: Int] = [:]
+
+    private static func sameStorage(_ lhs: [ChatMessage], _ rhs: [ChatMessage]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        return lhs.withUnsafeBufferPointer { lhsBuffer in
+            rhs.withUnsafeBufferPointer { rhsBuffer in
+                lhsBuffer.baseAddress == rhsBuffer.baseAddress
+            }
+        }
+    }
+
+    private func ingestTxIds(for messages: [ChatMessage]) -> Set<String> {
+        if Self.sameStorage(Self.ingestTxIdIndex.messages, messages) {
+            return Self.ingestTxIdIndex.txIds
+        }
+        let txIds = Set(messages.map(\.txId))
+        Self.ingestTxIdIndex = (messages, txIds)
+        return txIds
+    }
+
+    private func conversationIndexForIngest(contactAddress: String) -> Int? {
+        if let cached = Self.ingestConversationIndex[contactAddress],
+           conversations.indices.contains(cached),
+           conversations[cached].contact.address == contactAddress {
+            return cached
+        }
+        guard let index = conversations.firstIndex(where: { $0.contact.address == contactAddress }) else {
+            Self.ingestConversationIndex[contactAddress] = nil
+            return nil
+        }
+        // Bounded: a wallet with thousands of contacts still only ever holds one entry each,
+        // but a runaway would otherwise grow forever, so start over past a generous cap.
+        if Self.ingestConversationIndex.count > 4096 {
+            Self.ingestConversationIndex.removeAll(keepingCapacity: true)
+        }
+        Self.ingestConversationIndex[contactAddress] = index
+        return index
     }
 
     func updateIncomingPaymentStatus(

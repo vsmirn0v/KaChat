@@ -507,6 +507,15 @@ actor GRPCStreamConnection {
             throw CancellationError()
         }
 
+        // The connection can drop while this caller sat in the slot queue: the `stream` the guard
+        // above captured is then a dead handle, and sending on it would register a request that
+        // only its timeout ever cleans up. Fail the same way as a never-connected call instead.
+        guard state == .connected, self.stream != nil else {
+            reservedTypes.remove(type)
+            releaseTypeSlot(type)
+            throw KasiaError.networkError("Not connected to \(endpoint.key)")
+        }
+
         // Generate request ID
         requestIdCounter += 1
         let requestId = requestIdCounter

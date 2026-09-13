@@ -63,7 +63,20 @@ extension ChatService {
     }
 
     func exportChatHistoryArchive() async throws -> URL {
-        let data = try await buildChatHistoryArchiveData()
+        let plaintext = try await buildChatHistoryArchiveData()
+        // Sealed with the same BackupEnvelope the Nextcloud upload uses: the archive carries the
+        // permanent group decryption keys and this file lands in the temp directory and then
+        // wherever the share sheet sends it, so plaintext must never touch disk. Both restore
+        // paths (local pick and Nextcloud) are envelope-aware, so the export still round-trips.
+        guard let identityKey = WalletManager.shared.getPrivateKey(),
+              let walletAddress = WalletManager.shared.currentWallet?.publicAddress else {
+            throw ChatHistoryArchiveError.encryptionKeyUnavailable
+        }
+        let data = try await BackupEnvelope.encryptDetached(
+            plaintext,
+            key: BackupEnvelope.key(identityPrivateKey: identityKey),
+            walletAddress: walletAddress
+        )
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let timestamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
@@ -432,6 +445,8 @@ extension ChatService {
         // if it already is). It self-gates on app-active and on the initial sync having finished,
         // so starting it here is safe on every startPolling() call, including tab re-entry.
         startForegroundContactSweep()
+        // Same for the 5-minute CloudKit store refresh: no-op if it is already running.
+        startCloudRefreshTimerIfNeeded()
 
         // If initial sync already completed (e.g. Mac Catalyst window reopen),
         // just ensure subscription/polling is running — skip the heavy 4-phase sync.
@@ -577,7 +592,10 @@ extension ChatService {
 
                 guard !Task.isCancelled else { break }
 
-                // Perform sync
+                // Perform sync - but not from the background. The loop stays alive so the next
+                // tick after returning to the foreground syncs promptly; it just does no
+                // network work while the app is not active (same gate as the open-chat poll).
+                guard UIApplication.shared.applicationState == .active else { continue }
                 await self.fetchNewMessages()
             }
         }
@@ -1176,7 +1194,7 @@ extension ChatService {
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: Self.timedRequest(url))
 
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else {
@@ -1259,6 +1277,25 @@ extension ChatService {
         return components.url
     }
 
+    /// A GET for one of the REST endpoints with a real timeout. `URLSession.shared.data(from:)`
+    /// takes the session default of 60s per request, so a stalled indexer or explorer held a
+    /// sync phase (and the flags it holds - see `retryUntilSuccess`) for a full minute per
+    /// attempt. 20s matches the other REST clients in the app.
+    nonisolated static func timedRequest(_ url: URL, timeout: TimeInterval = 20) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = timeout
+        return request
+    }
+
+    /// JSON decode off the main actor. ChatService is `@MainActor`, so a plain
+    /// `JSONDecoder().decode` inside it runs on the main thread - fine for one transaction, a
+    /// visible hitch for a 200-item history page.
+    nonisolated static func decodeOffMain<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {
+        try await Task.detached(priority: .userInitiated) {
+            try JSONDecoder().decode(T.self, from: data)
+        }.value
+    }
+
     func fetchKaspaTransaction(txId: String) async -> KaspaFullTransactionResponse? {
         guard let url = kaspaRestURL(
             path: "/transactions/\(txId)",
@@ -1269,7 +1306,7 @@ extension ChatService {
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: Self.timedRequest(url))
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
                 AppLog.log("[ChatService] Kaspa API failed to fetch tx: %@", txId)

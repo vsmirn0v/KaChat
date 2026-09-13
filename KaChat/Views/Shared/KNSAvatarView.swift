@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import ImageIO
 import SwiftUI
 import Contacts
 import UIKit
@@ -136,7 +137,12 @@ struct KNSAvatarView: View {
         }
 
         isLoading = true
-        let image = await KNSProfileImageCache.shared.image(for: descriptor)
+        // Rows only ever draw this at `size` points, so ask for a thumbnail-sized decode - a
+        // full-resolution avatar bitmap for a 32pt circle is where the memory went.
+        let image = await KNSProfileImageCache.shared.image(
+            for: descriptor,
+            maxPixelSize: KNSProfileImageCache.thumbnailPixelSize(forPointSize: size)
+        )
         guard !Task.isCancelled else { return }
 
         loadedImage = image
@@ -538,6 +544,23 @@ private actor KNSProfileImageCache {
         var contentDigest: String?
         var updatedAt: Date
         var lastValidatedAt: Date
+        /// Optional so manifests written before it existed still decode; those entries fall
+        /// back to `updatedAt` for eviction ordering until they are next read.
+        var lastAccessedAt: Date?
+    }
+
+    /// Row avatars (32-56pt) decode at this many pixels on the long edge; the on-disk file
+    /// stays full resolution for the banner and the fullscreen viewer, which pass `nil`.
+    static let rowThumbnailMaxPixelSize = 160
+    static let mediumThumbnailMaxPixelSize = 320
+
+    /// Bucketed rather than exact so a handful of memory-cache variants cover every row size
+    /// in the app instead of one per distinct point size. Above the medium bucket the caller
+    /// gets the full-resolution decode.
+    static func thumbnailPixelSize(forPointSize size: CGFloat) -> Int? {
+        if size <= 56 { return rowThumbnailMaxPixelSize }
+        if size <= 112 { return mediumThumbnailMaxPixelSize }
+        return nil
     }
 
     private let fileManager = FileManager.default
@@ -548,6 +571,21 @@ private actor KNSProfileImageCache {
     private let manifestEncoder = JSONEncoder()
     private let manifestDecoder = JSONDecoder()
     private let revalidationInterval: TimeInterval = 12 * 60 * 60
+
+    /// Disk budget: once the files described by the manifest pass the high-water mark, the
+    /// least-recently-read entries go until the total is back under the low-water mark. Two
+    /// marks so one oversized download doesn't trigger a prune on every subsequent write.
+    private let diskHighWaterBytes: Int64 = 64 * 1024 * 1024
+    private let diskLowWaterBytes: Int64 = 48 * 1024 * 1024
+    /// `lastAccessedAt` bumps are batched: rewriting the manifest on every disk read would
+    /// turn a scroll through the chat list into a stream of file writes, so a read only
+    /// persists when the last write is older than the interval (any other write picks up the
+    /// pending bumps for free).
+    private var manifestAccessPersistedAt = Date.distantPast
+    private let manifestAccessPersistInterval: TimeInterval = 60
+    /// The memory cache can't be enumerated, so pruning an identity from disk needs to know
+    /// which size variants it may have been cached under.
+    private var knownVariantSuffixes: Set<String> = [""]
 
     private var manifestLoaded = false
     private var manifest: [String: ManifestEntry] = [:]
@@ -579,8 +617,10 @@ private actor KNSProfileImageCache {
         memoryCache.countLimit = 256
     }
 
-    func image(for descriptor: KNSProfileImageDescriptor) async -> UIImage? {
-        let key = descriptor.cacheIdentity as NSString
+    /// `maxPixelSize` selects a decode variant, not a different file: the bytes on disk are
+    /// always the original, and each variant is memory-cached under its own key.
+    func image(for descriptor: KNSProfileImageDescriptor, maxPixelSize: Int? = nil) async -> UIImage? {
+        let key = memoryKey(for: descriptor.cacheIdentity, maxPixelSize: maxPixelSize)
         if let cached = memoryCache.object(forKey: key) {
             return cached
         }
@@ -588,11 +628,17 @@ private actor KNSProfileImageCache {
         await loadManifestIfNeeded()
 
         if let entry = manifest[descriptor.cacheIdentity],
-           let diskImage = imageFromDisk(fileName: entry.fileName) {
-            memoryCache.setObject(diskImage, forKey: key)
+           let diskImage = imageFromDisk(fileName: entry.fileName, maxPixelSize: maxPixelSize) {
+            memoryCache.setObject(diskImage, forKey: key, cost: Self.cacheCost(for: diskImage))
+            touchAccess(identity: descriptor.cacheIdentity)
 
             if shouldRevalidate(entry: entry, descriptor: descriptor) {
-                if let refreshed = await revalidate(entry: entry, descriptor: descriptor, cachedImage: diskImage) {
+                if let refreshed = await revalidate(
+                    entry: entry,
+                    descriptor: descriptor,
+                    cachedImage: diskImage,
+                    maxPixelSize: maxPixelSize
+                ) {
                     return refreshed
                 }
                 return diskImage
@@ -608,17 +654,61 @@ private actor KNSProfileImageCache {
             return diskImage
         }
 
-        return await coalescedDownload(descriptor: descriptor)
+        return await coalescedDownload(descriptor: descriptor, maxPixelSize: maxPixelSize)
+    }
+
+    private func memoryKey(for identity: String, maxPixelSize: Int?) -> NSString {
+        let suffix = maxPixelSize.map { "|thumb\($0)" } ?? ""
+        knownVariantSuffixes.insert(suffix)
+        return (identity + suffix) as NSString
+    }
+
+    private func removeMemoryVariants(for identity: String) {
+        for suffix in knownVariantSuffixes {
+            memoryCache.removeObject(forKey: (identity + suffix) as NSString)
+        }
+    }
+
+    /// Decoded bitmap bytes - what the image actually occupies - so `totalCostLimit` means
+    /// something. The old zero-cost inserts made the 48MB limit a no-op and left only the
+    /// count limit doing any work.
+    private static func cacheCost(for image: UIImage) -> Int {
+        if let cgImage = image.cgImage {
+            return cgImage.width * cgImage.height * 4
+        }
+        let scale = max(1, image.scale)
+        return Int(image.size.width * scale * image.size.height * scale * 4)
+    }
+
+    /// Records a disk read for LRU pruning; the write to disk is batched (see
+    /// `manifestAccessPersistedAt`).
+    private func touchAccess(identity: String) {
+        guard var entry = manifest[identity] else { return }
+        entry.lastAccessedAt = Date()
+        manifest[identity] = entry
+        if Date().timeIntervalSince(manifestAccessPersistedAt) >= manifestAccessPersistInterval {
+            persistManifest()
+        }
     }
 
     /// Cold download path: joins an in-flight download for the same identity when one exists,
     /// respects the failure cooldown, and runs the download detached from the caller's task so
     /// view cancellation (row scrolled offscreen) can't abort it mid-flight.
-    private func coalescedDownload(descriptor: KNSProfileImageDescriptor) async -> UIImage? {
+    private func coalescedDownload(descriptor: KNSProfileImageDescriptor, maxPixelSize: Int?) async -> UIImage? {
         let identity = descriptor.cacheIdentity
 
         if let existing = inFlightDownloads[identity] {
-            return await existing.value
+            // The in-flight task decoded at ITS caller's size; if ours differs, the file is on
+            // disk by now, so decode our variant from there rather than hand back the wrong one.
+            guard let image = await existing.value else { return nil }
+            let key = memoryKey(for: identity, maxPixelSize: maxPixelSize)
+            if let cached = memoryCache.object(forKey: key) { return cached }
+            if let entry = manifest[identity],
+               let variant = imageFromDisk(fileName: entry.fileName, maxPixelSize: maxPixelSize) {
+                memoryCache.setObject(variant, forKey: key, cost: Self.cacheCost(for: variant))
+                return variant
+            }
+            return image
         }
         if let failedAt = downloadFailureAt[identity],
            Date().timeIntervalSince(failedAt) < downloadFailureCooldown {
@@ -627,7 +717,7 @@ private actor KNSProfileImageCache {
 
         let existingEntry = manifest[identity]
         let task = Task<UIImage?, Never> {
-            await self.downloadAndStore(descriptor: descriptor, existingEntry: existingEntry)
+            await self.downloadAndStore(descriptor: descriptor, existingEntry: existingEntry, maxPixelSize: maxPixelSize)
         }
         inFlightDownloads[identity] = task
         let image = await task.value
@@ -671,7 +761,8 @@ private actor KNSProfileImageCache {
     private func revalidate(
         entry: ManifestEntry,
         descriptor: KNSProfileImageDescriptor,
-        cachedImage: UIImage
+        cachedImage: UIImage,
+        maxPixelSize: Int?
     ) async -> UIImage? {
         var request = URLRequest(url: descriptor.requestURL)
         request.httpMethod = "HEAD"
@@ -726,12 +817,13 @@ private actor KNSProfileImageCache {
             return cachedImage
         }
 
-        return await downloadAndStore(descriptor: descriptor, existingEntry: entry) ?? cachedImage
+        return await downloadAndStore(descriptor: descriptor, existingEntry: entry, maxPixelSize: maxPixelSize) ?? cachedImage
     }
 
     private func downloadAndStore(
         descriptor: KNSProfileImageDescriptor,
-        existingEntry: ManifestEntry?
+        existingEntry: ManifestEntry?,
+        maxPixelSize: Int?
     ) async -> UIImage? {
         var request = URLRequest(url: descriptor.requestURL)
         request.httpMethod = "GET"
@@ -752,18 +844,23 @@ private actor KNSProfileImageCache {
 
             if http.statusCode == 304,
                let existingEntry,
-               let cached = imageFromDisk(fileName: existingEntry.fileName) {
+               let cached = imageFromDisk(fileName: existingEntry.fileName, maxPixelSize: maxPixelSize) {
                 var updated = existingEntry
                 updated.requestURL = descriptor.requestURL.absoluteString
                 updated.lastValidatedAt = Date()
+                updated.lastAccessedAt = Date()
                 manifest[descriptor.cacheIdentity] = updated
                 persistManifest()
-                memoryCache.setObject(cached, forKey: descriptor.cacheIdentity as NSString)
+                memoryCache.setObject(
+                    cached,
+                    forKey: memoryKey(for: descriptor.cacheIdentity, maxPixelSize: maxPixelSize),
+                    cost: Self.cacheCost(for: cached)
+                )
                 return cached
             }
 
             guard (200...299).contains(http.statusCode),
-                  let image = UIImage(data: data) else {
+                  let image = Self.decodeImage(data, maxPixelSize: maxPixelSize) else {
                 return nil
             }
 
@@ -776,6 +873,10 @@ private actor KNSProfileImageCache {
                 try? fileManager.removeItem(at: oldFile)
             }
 
+            // A fresh download is the previous variants' expiry: they were decoded from the
+            // bytes just overwritten.
+            removeMemoryVariants(for: descriptor.cacheIdentity)
+
             let entry = ManifestEntry(
                 fileName: descriptor.fileName,
                 requestURL: descriptor.requestURL.absoluteString,
@@ -784,16 +885,74 @@ private actor KNSProfileImageCache {
                 contentLength: Int64(data.count),
                 contentDigest: sha256Hex(data),
                 updatedAt: Date(),
-                lastValidatedAt: Date()
+                lastValidatedAt: Date(),
+                lastAccessedAt: Date()
             )
             manifest[descriptor.cacheIdentity] = entry
+            pruneDiskIfNeeded()
             persistManifest()
 
-            memoryCache.setObject(image, forKey: descriptor.cacheIdentity as NSString, cost: data.count)
+            memoryCache.setObject(
+                image,
+                forKey: memoryKey(for: descriptor.cacheIdentity, maxPixelSize: maxPixelSize),
+                cost: Self.cacheCost(for: image)
+            )
             return image
         } catch {
             return nil
         }
+    }
+
+    /// LRU prune of the on-disk store, run after every write (on this actor, never the main
+    /// thread). Nothing pruned this directory before: every avatar ever shown stayed in Caches
+    /// until the user cleared it by hand in Settings > Storage.
+    private func pruneDiskIfNeeded() {
+        var total = manifest.values.reduce(Int64(0)) { $0 + diskSize(of: $1) }
+        guard total > diskHighWaterBytes else { return }
+
+        let leastRecentFirst = manifest.sorted { lhs, rhs in
+            (lhs.value.lastAccessedAt ?? lhs.value.updatedAt) < (rhs.value.lastAccessedAt ?? rhs.value.updatedAt)
+        }
+        for (identity, entry) in leastRecentFirst {
+            guard total > diskLowWaterBytes else { break }
+            // An identity mid-download is about to be rewritten; skipping it avoids deleting a
+            // file another caller is decoding from.
+            guard inFlightDownloads[identity] == nil else { continue }
+            let fileURL = imageDirectoryURL.appendingPathComponent(entry.fileName, isDirectory: false)
+            try? fileManager.removeItem(at: fileURL)
+            manifest.removeValue(forKey: identity)
+            removeMemoryVariants(for: identity)
+            total -= diskSize(of: entry)
+        }
+    }
+
+    private func diskSize(of entry: ManifestEntry) -> Int64 {
+        if let length = entry.contentLength { return length }
+        let fileURL = imageDirectoryURL.appendingPathComponent(entry.fileName, isDirectory: false)
+        let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path)
+        return (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+    }
+
+    /// Full decode when `maxPixelSize` is nil; otherwise an ImageIO thumbnail, which decodes
+    /// straight to the target size instead of materialising the full bitmap and scaling it
+    /// (same approach as `MessageBubbleView`'s photo thumbnails). Falls back to a plain decode
+    /// for formats ImageIO won't thumbnail.
+    private static func decodeImage(_ data: Data, maxPixelSize: Int?) -> UIImage? {
+        guard let maxPixelSize else { return UIImage(data: data) }
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
+            return UIImage(data: data)
+        }
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixelSize)
+        ] as CFDictionary
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
+            return UIImage(data: data)
+        }
+        return UIImage(cgImage: cgImage)
     }
 
     private func loadManifestIfNeeded() async {
@@ -826,15 +985,16 @@ private actor KNSProfileImageCache {
             try ensureDirectory()
             let data = try manifestEncoder.encode(manifest)
             try data.write(to: manifestURL, options: .atomic)
+            manifestAccessPersistedAt = Date()
         } catch {
             // Best-effort cache persistence.
         }
     }
 
-    private func imageFromDisk(fileName: String) -> UIImage? {
+    private func imageFromDisk(fileName: String, maxPixelSize: Int?) -> UIImage? {
         let fileURL = imageDirectoryURL.appendingPathComponent(fileName, isDirectory: false)
         guard let data = try? Data(contentsOf: fileURL),
-              let image = UIImage(data: data) else {
+              let image = Self.decodeImage(data, maxPixelSize: maxPixelSize) else {
             return nil
         }
         return image
@@ -903,15 +1063,27 @@ enum KNSProfileImagePrefetcher {
         }()
         guard !uniqueDescriptors.isEmpty else { return }
 
+        // A sliding window of `maxConcurrent` in-flight loads: one finishes, the next starts.
+        // The previous version sliced into batches and then awaited each item in turn, so it
+        // was fully sequential and `maxConcurrent` did nothing. Prefetch feeds the chat list,
+        // so it warms the row-sized variant.
         let concurrency = max(1, maxConcurrent)
-        var startIndex = 0
-        while startIndex < uniqueDescriptors.count {
-            let endIndex = min(startIndex + concurrency, uniqueDescriptors.count)
-            let batch = uniqueDescriptors[startIndex..<endIndex]
-            for descriptor in batch {
-                _ = await KNSProfileImageCache.shared.image(for: descriptor)
+        let thumbnailSize = KNSProfileImageCache.rowThumbnailMaxPixelSize
+        await withTaskGroup(of: Void.self) { group in
+            var iterator = uniqueDescriptors.makeIterator()
+            var running = 0
+            while running < concurrency, let descriptor = iterator.next() {
+                group.addTask {
+                    _ = await KNSProfileImageCache.shared.image(for: descriptor, maxPixelSize: thumbnailSize)
+                }
+                running += 1
             }
-            startIndex = endIndex
+            while await group.next() != nil {
+                guard let descriptor = iterator.next() else { continue }
+                group.addTask {
+                    _ = await KNSProfileImageCache.shared.image(for: descriptor, maxPixelSize: thumbnailSize)
+                }
+            }
         }
     }
 }

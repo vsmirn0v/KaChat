@@ -129,7 +129,14 @@ struct SettingsView: View {
             .sheet(isPresented: $showPhotoQualitySheet) {
                 PhotoQualitySettingsSheet(currentPreset: settingsViewModel.settings.chatPhotoQualityPreset)
             }
-            .sheet(isPresented: $showChatHistoryShareSheet) {
+            .sheet(isPresented: $showChatHistoryShareSheet, onDismiss: {
+                // The export is a temp file holding the whole chat history; once the share sheet
+                // is gone nothing needs it, so don't leave it sitting in the temp directory.
+                if let chatHistoryArchiveURL {
+                    try? FileManager.default.removeItem(at: chatHistoryArchiveURL)
+                }
+                chatHistoryArchiveURL = nil
+            }) {
                 if let chatHistoryArchiveURL {
                     DiagnosticsShareSheet(fileURL: chatHistoryArchiveURL)
                 }

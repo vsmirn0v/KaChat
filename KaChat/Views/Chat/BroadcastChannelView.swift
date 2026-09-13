@@ -131,6 +131,10 @@ struct BroadcastChannelView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
                 guard !Task.isCancelled else { return }
+                // Not while backgrounded: the view stays mounted, but those main-thread SQLite
+                // round trips buy nothing with nobody looking. The loop stays alive so the
+                // first tick after returning to the foreground prunes as before.
+                guard UIApplication.shared.applicationState == .active else { continue }
                 broadcastService.pruneNowAndRefresh(forChannel: channelName)
             }
         }

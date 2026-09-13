@@ -264,7 +264,16 @@ final class KaPostsAPIClient: ObservableObject {
             }
             throw KaPostsAPIError.badResponse
         }
-        return try JSONDecoder().decode(T.self, from: data)
+        return try await Self.decodeOffMain(T.self, from: data)
+    }
+
+    /// The feed decode, off the main actor. This client is `@MainActor`, so the plain
+    /// `JSONDecoder().decode` here ran on the main thread - a 50-post page with nested
+    /// profiles and pagination is enough to drop frames while the feed is scrolling.
+    nonisolated private static func decodeOffMain<T: Decodable>(_ type: T.Type, from data: Data) async throws -> T {
+        try await Task.detached(priority: .userInitiated) {
+            try JSONDecoder().decode(T.self, from: data)
+        }.value
     }
 
     // MARK: - Reads (KaChat-filtered)
@@ -624,7 +633,10 @@ enum KaPostChainReader {
         ]
         guard let url = components.url else { return nil }
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            // Same 20s cap as `get` above rather than the session's 60s default.
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 20
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
             let tx = try JSONDecoder().decode(ChainTx.self, from: data)
             guard let hex = tx.payload, !hex.isEmpty,

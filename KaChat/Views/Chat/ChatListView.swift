@@ -608,11 +608,15 @@ struct ChatListView: View {
     /// content): group name, each member's alias-or-address, and message content. Shared by
     /// groupsTabContent and the toolbar's Select All so both agree on what's "visible."
     private var displayedGroups: [GroupChat] {
-        let sorted = groupChatService.groups.sorted { g1, g2 in
-            let t1 = groupChatService.groupMessages[g1.id]?.map { $0.timestamp }.max() ?? g1.createdAt
-            let t2 = groupChatService.groupMessages[g2.id]?.map { $0.timestamp }.max() ?? g2.createdAt
-            return t1 > t2
-        }
+        // Decorate-sort-undecorate, like refreshFilteredConversations: the key is computed once
+        // per group rather than once per comparison (the old comparator mapped+maxed the whole
+        // message array for both operands on every compare). Group message arrays are kept in
+        // chronological order, so the last message carries the newest timestamp.
+        let groupMessages = groupChatService.groupMessages
+        let sorted = groupChatService.groups
+            .map { (key: groupMessages[$0.id]?.last?.timestamp ?? $0.createdAt, value: $0) }
+            .sorted { $0.key > $1.key }
+            .map(\.value)
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return sorted }
         return sorted.filter { group in
@@ -1615,9 +1619,27 @@ struct GroupChatRow: View {
         return Contact.generateDefaultAlias(from: address)
     }
 
+    /// Decoded group photos, keyed on the group id, the hex length and the payload's tail:
+    /// hex-decoding and then JPEG-decoding the photo on every body pass made each row pay for
+    /// the whole image on every list refresh. A photo change always changes the hex payload
+    /// (and almost always its length), so a stale entry could only survive a same-length
+    /// replacement whose final bytes also match - and hashing only the tail keeps the key
+    /// itself cheap for a payload that can run to hundreds of kilobytes.
+    private static let groupPhotoCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+
     private var groupPhotoImage: UIImage? {
-        guard let hex = groupChatService.groupPhotos[group.id], let data = Data(hexString: hex) else { return nil }
-        return UIImage(data: data)
+        guard let hex = groupChatService.groupPhotos[group.id] else { return nil }
+        let cacheKey = "\(group.id)|\(hex.count)|\(hex.suffix(256).hashValue)" as NSString
+        if let cached = Self.groupPhotoCache.object(forKey: cacheKey) {
+            return cached
+        }
+        guard let data = Data(hexString: hex), let image = UIImage(data: data) else { return nil }
+        Self.groupPhotoCache.setObject(image, forKey: cacheKey)
+        return image
     }
 
     var body: some View {

@@ -284,6 +284,12 @@ final class BroadcastService: ObservableObject {
     /// session — the deep backfill runs once per room per launch; the 8s poll then only needs
     /// the newest page to stay fresh.
     private var deepBackfilledChannels: Set<String> = []
+    /// Where an interrupted deep backfill picks up: the `before` cursor of the next page to
+    /// ask for, and how many pages of the safety valve are left. Session-only, like the
+    /// completed set above. Without this a single thrown page - one timeout on page 30 of a
+    /// busy room - restarted the whole pager from page 1 on the next 8s tick, and kept doing
+    /// so until every page happened to succeed in one go.
+    private var deepBackfillResume: [String: (before: Int64, pagesLeft: Int)] = [:]
     private static let indexerPollIntervalNanos: UInt64 = 8 * 1_000_000_000
 
     /// While a room is open, the KaChat broadcast indexer is polled every few seconds and new
@@ -297,7 +303,12 @@ final class BroadcastService: ObservableObject {
         guard !base.isEmpty else { return }
         indexerPollTasks[channel] = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.fetchFromIndexerAndMerge(baseURL: base, channel: channel)
+                // The room view stays mounted (and this loop alive) while the app is in the
+                // background, but there is nobody to show a fresh row to - skip the network
+                // work until the app is active again, the same gate the open-chat poll uses.
+                if UIApplication.shared.applicationState == .active {
+                    await self?.fetchFromIndexerAndMerge(baseURL: base, channel: channel)
+                }
                 try? await Task.sleep(nanoseconds: Self.indexerPollIntervalNanos)
             }
         }
@@ -326,22 +337,50 @@ final class BroadcastService: ObservableObject {
             // #kachat-bugs never loaded anywhere near the 30 days the indexer holds.
             if !deepBackfilledChannels.contains(channel) {
                 let cutoff = Int64(Date().timeIntervalSince1970 * 1000) - BroadcastStore.indexerRetentionMillis
-                var hasMore = messages.hasMore
-                var oldest = messages.messages.map(\.blockTime).min()
-                var pagesLeft = 50 // safety valve: 50 × 200 = 10k rows, far beyond any real room
+                var hasMore: Bool
+                var oldest: Int64?
+                var pagesLeft: Int
+                if let resume = deepBackfillResume[channel] {
+                    // Picking up an interrupted pager: everything newer than this cursor is
+                    // already in the store from the attempt that recorded it.
+                    hasMore = true
+                    oldest = resume.before
+                    pagesLeft = resume.pagesLeft
+                } else {
+                    hasMore = messages.hasMore
+                    oldest = messages.messages.map(\.blockTime).min()
+                    pagesLeft = 50 // safety valve: 50 × 200 = 10k rows, far beyond any real room
+                }
+                var interrupted = false
                 while hasMore, let before = oldest, before > cutoff, pagesLeft > 0 {
                     pagesLeft -= 1
-                    let page = try await BroadcastIndexerClient.fetchHistoryPage(
-                        baseURL: baseURL, channel: channel, before: before
-                    )
+                    let page: (messages: [BroadcastIndexerClient.IndexedBroadcast], hasMore: Bool)
+                    do {
+                        page = try await BroadcastIndexerClient.fetchHistoryPage(
+                            baseURL: baseURL, channel: channel, before: before
+                        )
+                    } catch {
+                        // Keep what this attempt did get: the pages already appended still
+                        // merge below, and the cursor recorded after each of them is where the
+                        // next 8s tick resumes - not page 1.
+                        AppLog.log("%@", "[Broadcast] Deep backfill for #\(channel) paused at before=\(before): \(error.localizedDescription)")
+                        interrupted = true
+                        break
+                    }
                     guard !page.messages.isEmpty else { break }
                     messages.messages.append(contentsOf: page.messages)
                     hasMore = page.hasMore
                     oldest = page.messages.map(\.blockTime).min()
+                    if hasMore, let next = oldest {
+                        deepBackfillResume[channel] = (before: next, pagesLeft: pagesLeft)
+                    }
                 }
-                // Marked done only after the pager finishes — a thrown page lands in the catch
-                // below and the next 8s poll retries the whole backfill.
-                deepBackfilledChannels.insert(channel)
+                // Marked done only once the pager actually finishes; a paused one keeps its
+                // resume cursor and the next poll continues from there.
+                if !interrupted {
+                    deepBackfilledChannels.insert(channel)
+                    deepBackfillResume[channel] = nil
+                }
             }
             let hidden = store.hiddenSenderAddresses(forChannel: channel)
             let visible = messages.messages.filter { !hidden.contains($0.senderAddress) }

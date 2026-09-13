@@ -2310,7 +2310,10 @@ private struct ColdStorageAddressTransactionHistoryView: View {
 
     private func loadDomains() async {
         isLoadingDomains = true
-        if let info = await KNSService.shared.fetchInfo(for: entry.address) {
+        // Forced: this is a pull-to-refresh, the one gesture that means "ask again". fetchInfo
+        // is cache-first now, and a pull that returned the cached list would look like nothing
+        // happened.
+        if let info = await KNSService.shared.fetchInfo(for: entry.address, force: true) {
             knsDomains = info.allDomains
             domainsLoadFailed = false
         } else {

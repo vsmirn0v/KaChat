@@ -1193,6 +1193,7 @@ struct AddContactView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color.primary.opacity(0.05))
             )
+            // Cache-first fetch: a row whose profile is already cached costs nothing here.
             .task(id: address) { _ = await KNSService.shared.fetchProfile(for: address) }
         }
     }

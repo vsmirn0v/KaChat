@@ -440,13 +440,29 @@ extension ChatService {
     }
 
     /// Reduce in-memory history while preserving protocol-critical/system-critical messages.
-    /// Keeps all handshakes and unsent messages, plus a rolling window of recent regular messages.
+    /// Keeps all handshakes, the newest unsent messages, plus a rolling window of recent regular
+    /// messages.
+    ///
+    /// Handshakes stay sticky without a cap: they are protocol state (the key exchange the whole
+    /// conversation decrypts against), there are only ever a handful per contact, and dropping one
+    /// from memory would make the conversation look un-established until the next full reload.
+    /// Unsent (pending/failed) messages are a different story - each failed photo send carries
+    /// ~20KB of base64 in `content`, and a conversation that keeps failing accumulates them
+    /// without bound, so the old "every unsent message is sticky" rule let exactly the messages
+    /// this trim exists to shed grow forever. They are capped at the newest
+    /// `inMemoryUnsentStickyLimit`; anything older than that is still on disk and still in the
+    /// pending queue, it just doesn't pin itself into memory.
+    nonisolated static let inMemoryUnsentStickyLimit = 50
+
     nonisolated static func trimMessagesForMemory(_ messages: [ChatMessage]) -> [ChatMessage] {
         guard messages.count > inMemoryConversationWindowSize else { return messages }
 
-        let sticky = messages.filter { message in
-            message.messageType == .handshake || message.deliveryStatus != .sent
-        }
+        let handshakes = messages.filter { $0.messageType == .handshake }
+        let unsent = messages
+            .filter { $0.messageType != .handshake && $0.deliveryStatus != .sent }
+            .sorted(by: isMessageOrderedBefore)
+            .suffix(inMemoryUnsentStickyLimit)
+        let sticky = handshakes + unsent
         let stickyIds = Set(sticky.map(\.id))
         let recent = messages
             .filter { !stickyIds.contains($0.id) }

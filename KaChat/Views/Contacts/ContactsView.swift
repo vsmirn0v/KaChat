@@ -15,7 +15,9 @@ struct ProfileView: View {
     // `conversations` mutations, per-RPC node-latency updates) for the first ~15s after login,
     // which was the scroll jank. The connection dot is its own small view with its own observation.
     @EnvironmentObject var giftService: GiftService
-    @EnvironmentObject var contactsManager: ContactsManager
+    // Same reasoning for ContactsManager: its only use here is one call inside `donate()`, via
+    // ContactsManager.shared, so observing it made every contact mutation (KNS sweeps, system
+    // contact imports, alias edits) rebuild this whole scroll for nothing.
     @EnvironmentObject var settingsViewModel: SettingsViewModel
 
     @State private var editedAlias = ""
@@ -365,6 +367,8 @@ struct ProfileView: View {
                 if kns.domainCache[address] == nil || kns.profileCache[address] == nil {
                     isLoadingKNS = true
                 }
+                // Cache-first: these only reach the network when the entries read above were
+                // missing or stale, so an app-open no longer costs two KNS round trips.
                 if let info = await kns.fetchInfo(for: address) {
                     knsDomains = info.allDomains
                     knsPrimaryDomain = info.primaryDomain
@@ -748,13 +752,17 @@ struct ProfileView: View {
         await MainActor.run {
             isLoadingKNS = true
         }
-        if let info = await KNSService.shared.fetchInfo(for: address) {
+        // Forced on purpose: every caller of this is a post-write refresh (inscribe, transfer,
+        // set-primary, the setup guide), and `refreshKNSUntilPrimarySettles` above relies on
+        // each round actually re-asking the indexer - a cache-first fetch would hand back the
+        // stale primary three times over and never settle.
+        if let info = await KNSService.shared.fetchInfo(for: address, force: true) {
             await MainActor.run {
                 knsDomains = info.allDomains
                 knsPrimaryDomain = info.primaryDomain
             }
         }
-        if let profileInfo = await KNSService.shared.fetchProfile(for: address) {
+        if let profileInfo = await KNSService.shared.fetchProfile(for: address, force: true) {
             await MainActor.run {
                 knsProfileInfo = profileInfo
             }
@@ -1493,7 +1501,7 @@ struct ProfileView: View {
             return
         }
 
-        let contact = contactsManager.getOrCreateContact(address: resolution.ownerAddress, alias: resolution.domain)
+        let contact = ContactsManager.shared.getOrCreateContact(address: resolution.ownerAddress, alias: resolution.domain)
         _ = ChatService.shared.getOrCreateConversation(for: contact)
         NotificationCenter.default.post(
             name: .openChat,
@@ -4080,7 +4088,7 @@ struct ChattingAddressManageView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let blockTime = tx.blockTime {
-                    Text(Date(timeIntervalSince1970: Double(blockTime) / 1000).formatted(date: .abbreviated, time: .shortened))
+                    Text(Date(timeIntervalSince1970: Double(blockTime) / 1000).formatted(Self.blockTimeFormat))
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
@@ -4100,6 +4108,10 @@ struct ChattingAddressManageView: View {
         }
         .padding(.vertical, 4)
     }
+
+    /// Built once: `Date.formatted(date:time:)` resolves a fresh style per call, and this runs
+    /// for every transaction row on every render of the list.
+    private static let blockTimeFormat = Date.FormatStyle(date: .abbreviated, time: .shortened)
 
     private func formatKasExact(_ sompi: UInt64) -> String {
         String(format: "%.8f", Double(sompi) / 100_000_000.0)

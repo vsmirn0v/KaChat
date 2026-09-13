@@ -419,8 +419,12 @@ final class ColdStorageSendEngine {
         components.path += "/info/fee-estimate"
         guard let url = components.url else { return nil }
 
+        // Explicit timeout: the session default is 60s, and a stalled explorer would otherwise
+        // hold the fee estimate (and the send flow waiting on it) for a full minute.
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
                 return nil
             }

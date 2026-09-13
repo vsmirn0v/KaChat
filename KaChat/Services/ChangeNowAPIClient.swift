@@ -77,6 +77,9 @@ final class ChangeNowAPIClient {
 
         var request = URLRequest(url: url)
         request.httpMethod = method
+        // Explicit cap rather than the session's 60s default - a quote that takes a minute to
+        // fail is worse than one that fails in 20s and lets the user retry.
+        request.timeoutInterval = 20
         request.setValue(apiKey, forHTTPHeaderField: "x-changenow-api-key")
         if let body {
             request.httpBody = body

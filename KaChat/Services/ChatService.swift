@@ -539,11 +539,30 @@ final class ChatService: ObservableObject {
         Task { @MainActor [weak self] in
             await self?.messageStore.applyRetentionInBackground(SettingsViewModel.loadSettings().messageRetention)
         }
+        // The periodic CloudKit store refresh (`cloudRefreshTimer`) is started by `startPolling()`
+        // alongside the other pollers, not here: created in init it ran for the process lifetime,
+        // firing full store reloads while logged out and while backgrounded.
+    }
+
+    /// Start the 5-minute CloudKit store refresh if it isn't already running. Picks up messages
+    /// other devices wrote to the shared store that no remote-change notification surfaced.
+    /// Runs only while a wallet is loaded (started from `startPolling()`, torn down by
+    /// `resetForNewWallet()`) and skips ticks that land while the app is not active.
+    func startCloudRefreshTimerIfNeeded() {
+        guard cloudRefreshTimer == nil else { return }
         cloudRefreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                await self?.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard WalletManager.shared.currentWallet != nil else { return }
+                guard UIApplication.shared.applicationState == .active else { return }
+                await self.loadMessagesFromStoreIfNeeded(onlyIfEmpty: false)
             }
         }
+    }
+
+    func stopCloudRefreshTimer() {
+        cloudRefreshTimer?.invalidate()
+        cloudRefreshTimer = nil
     }
 
     func startReplyTo(_ message: ChatMessage) {
@@ -667,9 +686,22 @@ final class ChatService: ObservableObject {
         conversationCountCancellable = nil
         pendingResubscriptionTask?.cancel()
         pendingResubscriptionTask = nil
+        // Block-based observers are only released by removing their token - `removeObserver(self)`
+        // does not reach them - so every token `init` registered is dropped here, not just the
+        // first. `resetForNewWallet()` deliberately keeps them: it is a data reset on wallet
+        // switch/logout, nothing re-registers them afterwards, and the handlers self-gate on
+        // the current wallet.
         if let observer = rpcReconnectObserver {
             NotificationCenter.default.removeObserver(observer)
             rpcReconnectObserver = nil
+        }
+        if let observer = rpcReconnectedObserver {
+            NotificationCenter.default.removeObserver(observer)
+            rpcReconnectedObserver = nil
+        }
+        if let observer = remoteChangeObserver {
+            NotificationCenter.default.removeObserver(observer)
+            remoteChangeObserver = nil
         }
     }
 
@@ -688,6 +720,9 @@ final class ChatService: ObservableObject {
         activeChatPollTask?.cancel()
         activeChatPollTask = nil
         stopForegroundContactSweep()
+        // The 5-minute store refresh belongs to the wallet being torn down; `startPolling()`
+        // brings it back for the next one. Without this it kept reloading the store after logout.
+        stopCloudRefreshTimer()
         initialSyncTask?.cancel()
         initialSyncTask = nil
         messageSyncTask?.cancel()

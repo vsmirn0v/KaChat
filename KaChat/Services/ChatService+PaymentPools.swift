@@ -770,7 +770,7 @@ extension ChatService {
         claimedAmount: UInt64
     ) async {
         guard let url = kaspaRestURL(path: "/transactions/\(txId)") else { return }
-        guard let (data, response) = try? await URLSession.shared.data(from: url),
+        guard let (data, response) = try? await URLSession.shared.data(for: Self.timedRequest(url)),
               let httpResponse = response as? HTTPURLResponse,
               (200...299).contains(httpResponse.statusCode),
               let fullTx = try? JSONDecoder().decode(KaspaFullTransactionResponse.self, from: data) else {

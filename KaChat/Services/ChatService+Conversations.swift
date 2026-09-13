@@ -122,6 +122,8 @@ extension ChatService {
     private func startActiveChatPoll(for address: String) {
         activeChatPollTask?.cancel()
         activeChatPollTask = Task { [weak self] in
+            AppLog.log("[ChatService] Active chat poll started")
+            defer { AppLog.log("[ChatService] Active chat poll stopped") }
             while !Task.isCancelled {
                 guard let self else { return }
                 if self.activeConversationAddress != address { return }
@@ -136,6 +138,25 @@ extension ChatService {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
+    }
+
+    /// Cancel the open-chat poll while the app is backgrounded. The loop already skips its fetch
+    /// when the app is not active, but it still woke every 2s to find that out; the scene-phase
+    /// handler stops it outright, the same way it stops the foreground contact sweep. The chat
+    /// stays "open" (`activeConversationAddress` is kept) so `resumeActiveChatPollIfNeeded()` can
+    /// bring the poll back on the next `.active`.
+    func stopActiveChatPollForBackground() {
+        guard let task = activeChatPollTask else { return }
+        task.cancel()
+        activeChatPollTask = nil
+    }
+
+    /// Restart the open-chat poll after `stopActiveChatPollForBackground()` if a conversation is
+    /// still open. No-op when no chat is open or the poll is already running.
+    func resumeActiveChatPollIfNeeded() {
+        guard let address = activeConversationAddress else { return }
+        if let task = activeChatPollTask, !task.isCancelled { return }
+        startActiveChatPoll(for: address)
     }
 
     // MARK: - Foreground contact sweep (defense-in-depth for live 1:1 delivery)

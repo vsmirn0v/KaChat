@@ -456,7 +456,21 @@ struct Conversation: Identifiable, Equatable {
     let id: UUID
     let contact: Contact
     var messages: [ChatMessage] {
-        didSet { lastMessage = Self.newestRealMessage(in: messages) }
+        didSet {
+            // Appends are the hot path - a catch-up sync writes one message at a time - and a
+            // single new tail decides in O(1): a placeholder never becomes the preview, an older
+            // or equal timestamp leaves the first-among-equals in place, and a newer one wins.
+            // Anything that is not a pure append (a replacement, a removal, an insert that left
+            // the tail unchanged) rescans, so the answer is identical to the full scan's.
+            if messages.count == oldValue.count + 1,
+               let tail = messages.last, tail.id != oldValue.last?.id {
+                if tail.isSentPlaceholder { return }
+                if let current = lastMessage, tail.timestamp <= current.timestamp { return }
+                lastMessage = tail
+                return
+            }
+            lastMessage = Self.newestRealMessage(in: messages)
+        }
     }
     var unreadCount: Int
 

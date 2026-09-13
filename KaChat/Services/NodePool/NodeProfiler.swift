@@ -176,6 +176,13 @@ actor NodeProfiler {
     private var discoveryTask: Task<Void, Never>?
     private var dnsRefreshTask: Task<Void, Never>?
 
+    /// The background work `quickBoot()` spins off (DNS resolution, peer discovery, the deferred
+    /// discovered-candidate probe wave). These are unstructured tasks, so cancelling the
+    /// `quickBoot()` caller's own handle (`NodePoolService.quickBootTask`) never reached them: each
+    /// pause/resume cycle started a fresh wave on top of the previous one, and the waves stacked.
+    /// Held here so `stop()` and the next `quickBoot()` can cancel them first.
+    private var quickBootChildTasks: [Task<Void, Never>] = []
+
     /// Network type for filtering
     private var networkType: NetworkType = .mainnet
 
@@ -259,7 +266,16 @@ actor NodeProfiler {
         maintenanceTask = nil
         tcpPingTask?.cancel()
         tcpPingTask = nil
+        cancelQuickBootChildTasks()
         AppLog.log("[NodeProfiler] Stopped")
+    }
+
+    /// Cancels the background tasks spawned by the last `quickBoot()` - see `quickBootChildTasks`.
+    private func cancelQuickBootChildTasks() {
+        for task in quickBootChildTasks {
+            task.cancel()
+        }
+        quickBootChildTasks = []
     }
 
     // MARK: - Maintenance Loop
@@ -2273,6 +2289,10 @@ actor NodeProfiler {
     /// 3. Call discovery to find more nodes
     /// Returns as soon as we have at least one active node
     func quickBoot() async {
+        // A previous boot's background wave must not keep running alongside this one - the same
+        // cancel-before-reassign rule the long-lived loops follow.
+        cancelQuickBootChildTasks()
+
         // Step 1: Check if we already have active nodes from persistence
         let persistedActive = await registry.records(inState: .active)
         let persistedVerified = await registry.records(inState: .verified)
@@ -2292,15 +2312,17 @@ actor NodeProfiler {
             if responders > 0 && stillActive > 0 {
                 AppLog.log("[NodeProfiler] Quick boot: persisted node verified, starting peer discovery")
                 // Discovery expands the pool in the background; the verified node serves now.
-                Task { [weak self] in
+                let discovery = Task { [weak self] in
                     guard let self else { return }
                     if let node = await self.registry.records(inState: .active).first {
                         _ = await self.discoverFromNode(node.endpoint)
                         await self.rebalanceActivePool(reason: "quick-boot-persisted-active")
                     }
+                    if Task.isCancelled { return }
                     // Start DNS refresh loop in background for pool expansion
                     await self.startDNSRefreshLoop()
                 }
+                quickBootChildTasks.append(discovery)
                 return
             }
         } else if !persistedVerified.isEmpty {
@@ -2317,14 +2339,16 @@ actor NodeProfiler {
             if responders > 0 && activeCount > 0 {
                 AppLog.log("[NodeProfiler] Quick boot: verified node promoted to active")
                 // Discovery expands the pool in the background; the promoted node serves now.
-                Task { [weak self] in
+                let discovery = Task { [weak self] in
                     guard let self else { return }
                     if let node = await self.registry.records(inState: .active).first {
                         _ = await self.discoverFromNode(node.endpoint)
                         await self.rebalanceActivePool(reason: "quick-boot-persisted-verified")
                     }
+                    if Task.isCancelled { return }
                     await self.startDNSRefreshLoop()
                 }
+                quickBootChildTasks.append(discovery)
                 return
             }
         }
@@ -2333,12 +2357,14 @@ actor NodeProfiler {
         AppLog.log("[NodeProfiler] Quick boot: no valid persisted nodes, starting DNS resolution")
 
         // Run DNS resolution in background
-        Task { [weak self] in
+        let dnsResolution = Task { [weak self] in
             guard let self = self else { return }
             await self.refreshDNSSeeds()
+            if Task.isCancelled { return }
             await self.startDNSRefreshLoop()
             AppLog.log("[NodeProfiler] DNS resolution complete, continuing in background")
         }
+        quickBootChildTasks.append(dnsResolution)
 
         // The bundled TCP-verified bootstrap IPs enter the FIRST wave unconditionally, not only
         // when DNS fails - on a fresh install they are the highest-probability-alive candidates
@@ -2362,6 +2388,8 @@ actor NodeProfiler {
         var racedKeys = Set<String>()
         var attemptCount = 0
         while attemptCount < 5 {  // Try for up to ~5 seconds of DNS arrival
+            // `NodePoolService.pauseDiscovery()` cancels the caller; stop racing seeds for it.
+            if Task.isCancelled { return }
             let unraced = await registry.records(inState: .candidate)
                 .filter { $0.origin == .seed && !racedKeys.contains($0.endpoint.key) }
                 .sorted { lhs, rhs in
@@ -2381,13 +2409,14 @@ actor NodeProfiler {
                     AppLog.log("[NodeProfiler] Quick boot complete - found active node")
                     // Peer discovery expands the pool in the background; the fresh active node
                     // starts serving (subscription, requests) without waiting on it.
-                    Task { [weak self] in
+                    let discovery = Task { [weak self] in
                         guard let self else { return }
                         if let node = await self.registry.records(inState: .active).first {
                             _ = await self.discoverFromNode(node.endpoint)
                             await self.rebalanceActivePool(reason: "quick-boot-seed-probes")
                         }
                     }
+                    quickBootChildTasks.append(discovery)
                     return
                 }
             }
@@ -2399,16 +2428,20 @@ actor NodeProfiler {
 
         AppLog.log("[NodeProfiler] Quick boot finished initial probes")
 
-        // Continue peer discovery in background
-        Task.detached { [weak self] in
+        // Continue peer discovery in background. This is the wave that used to survive a pause:
+        // up to 30s of waiting, then discovery and a 50-candidate probe run, none of it
+        // checking for cancellation - so it now bails between steps once its handle is cancelled.
+        let backgroundDiscovery = Task.detached { [weak self] in
             guard let self = self else { return }
 
             // Wait for at least one active node
             for _ in 0..<30 {
+                if Task.isCancelled { return }
                 let activeCount = await self.registry.stateCounts()[.active] ?? 0
                 if activeCount > 0 { break }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
+            if Task.isCancelled { return }
 
             // Discover peers from any working node
             let activeNodes = await self.registry.records(inState: .active)
@@ -2417,6 +2450,7 @@ actor NodeProfiler {
                 AppLog.log("[NodeProfiler] Calling discovery from %@", workingNode.endpoint.key)
                 _ = await self.discoverFromNode(workingNode.endpoint)
             }
+            if Task.isCancelled { return }
 
             // Probe discovered candidates with concurrency control
             let candidates = await self.registry.records(inState: .candidate)
@@ -2432,6 +2466,7 @@ actor NodeProfiler {
                 var activeProbes = 0
 
                 for candidate in candidates {
+                    if Task.isCancelled { break }
                     if activeProbes >= maxProbes {
                         _ = await group.next()
                         activeProbes -= 1
@@ -2445,11 +2480,13 @@ actor NodeProfiler {
 
                 for await _ in group {}
             }
+            if Task.isCancelled { return }
 
             await self.rebalanceActivePool(reason: "quick-boot-background")
 
             AppLog.log("[NodeProfiler] Background peer discovery complete")
         }
+        quickBootChildTasks.append(backgroundDiscovery)
     }
 }
 

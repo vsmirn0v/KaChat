@@ -663,6 +663,7 @@ struct KaPostsView: View {
             // are decorated per requesterPubkey), so drop the lot and start over. The epoch
             // bumps make any in-flight page drop its result instead of appending.
             PostTranslationService.shared.reset()
+            loadGates.reset()
             pendingNewPosts = []
             chainResolvedPosts = []
             feedPage.reset()
@@ -905,6 +906,10 @@ struct KaPostsView: View {
                 while !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: UInt64(Self.newPostsCheckInterval * 1_000_000_000))
                     guard !Task.isCancelled else { return }
+                    // The task survives backgrounding (the view is still "on screen" to SwiftUI),
+                    // so this is the foreground half of the promise above: no network from a
+                    // feed nobody is looking at. The next tick after resume picks it up.
+                    guard UIApplication.shared.applicationState == .active else { continue }
                     await checkForNewPosts()
                 }
             }
@@ -1035,12 +1040,45 @@ struct KaPostsView: View {
         post.likes + post.reposts + post.dislikes + commentCount(of: post)
     }
 
+    /// Session bookkeeping for the loads that are worth NOT repeating. A reference box rather
+    /// than @State: these are written from async load paths and read from other load paths,
+    /// never by body, so a change must not cost a render.
+    private final class FeedLoadGates {
+        /// Anything loaded from page one within this window is current enough to search in
+        /// place of re-fetching it - a reader's scrolled pages survive a shared link.
+        static let staleAfter: TimeInterval = 5 * 60
+        var feedLoadedAt: Date?
+        var popularSweptAt: Date?
+        var myProfileLoadedAt: Date?
+        var posterProfileLoaded: (pubkey: String, at: Date)?
+
+        /// Account switch: nothing loaded belongs to the new identity.
+        func reset() {
+            feedLoadedAt = nil
+            popularSweptAt = nil
+            myProfileLoadedAt = nil
+            posterProfileLoaded = nil
+        }
+
+        static func isFresh(_ date: Date?) -> Bool {
+            guard let date else { return false }
+            return Date().timeIntervalSince(date) < staleAfter
+        }
+    }
+    @State private var loadGates = FeedLoadGates()
+
     /// Pulls the global feed until Popular has `popularRankingDepth` posts to rank, so its top
     /// row is the most popular post in a real window of history rather than the most popular of
     /// whatever page one happened to contain. Runs only while Popular is on screen: switching
     /// tabs or accounts bumps the page epoch, which this checks between passes.
+    ///
+    /// At most once per `FeedLoadGates.staleAfter` unless the feed was refreshed from page one
+    /// in between: a heavily-filtered stretch of history never reaches the ranking depth, and
+    /// without this every return to the tab re-spent the full request budget chasing it.
     private func deepenPopularRanking() async {
         guard selectedFeed == .popular, !isDeepeningPopular else { return }
+        guard !FeedLoadGates.isFresh(loadGates.popularSweptAt) else { return }
+        loadGates.popularSweptAt = Date()
         isDeepeningPopular = true
         defer { isDeepeningPopular = false }
         var passes = 0
@@ -1061,13 +1099,58 @@ struct KaPostsView: View {
         }
     }
 
+    /// The last `posts(for:)` answer with the inputs it was computed from.
+    ///
+    /// A reference type held in @State: SwiftUI forbids writing @State from inside body, but
+    /// replacing the CONTENTS of a box it holds is invisible to it, which is exactly what a memo
+    /// needs. Validity is checked by comparing the inputs rather than by a version counter the
+    /// two dozen mutation sites would each have to remember to bump: `Array ==` short-circuits
+    /// on shared storage, so an untouched input costs one pointer compare, and a changed one
+    /// costs the compare we would have paid many times over in the rebuild anyway.
+    private final class FeedMemo {
+        var tab: FeedTab?
+        var posts: [DraftPost] = []
+        var remotePosts: [DraftPost] = []
+        var muted: Set<String> = []
+        var blocked: Set<String> = []
+        var following: Set<String> = []
+        var result: [DraftPost] = []
+    }
+    @State private var feedMemo = FeedMemo()
+
     /// Your own session posts show in Feed and Following; Popular ranks by engagement across the
     /// whole swept window (see `deepenPopularRanking`), newest first among equal scores.
+    ///
+    /// Memoised (see `FeedMemo`): body asks for this on every pass, and the old shape rescanned,
+    /// re-filtered and - on Popular - re-sorted the whole window each time.
     private func posts(for tab: FeedTab) -> [DraftPost] {
+        let memo = feedMemo
+        if memo.tab == tab,
+           memo.posts == posts,
+           memo.remotePosts == remotePosts,
+           memo.muted == moderationStore.muted,
+           memo.blocked == moderationStore.blocked,
+           tab != .following || memo.following == followStore.following {
+            return memo.result
+        }
+        let result = computePosts(for: tab)
+        memo.tab = tab
+        memo.posts = posts
+        memo.remotePosts = remotePosts
+        memo.muted = moderationStore.muted
+        memo.blocked = moderationStore.blocked
+        memo.following = followStore.following
+        memo.result = result
+        return result
+    }
+
+    private func computePosts(for tab: FeedTab) -> [DraftPost] {
         // Session posts first (newest local compose on top), then remote feed - deduped by
         // remote id once Phase B starts round-tripping our own posts.
+        let localRemoteIds = Set(posts.compactMap(\.remoteId))
         let combined = posts + remotePosts.filter { remote in
-            !posts.contains { $0.remoteId != nil && $0.remoteId == remote.remoteId }
+            guard let remoteId = remote.remoteId else { return true }
+            return !localRemoteIds.contains(remoteId)
         }
         // Muted and blocked authors' content is hidden EVERYWHERE (the difference between the
         // two is interaction rights, which only matters once real wiring lands).
@@ -1081,10 +1164,14 @@ struct KaPostsView: View {
         case .popular:
             // Ties broken by recency so equal-scoring posts (very common at 0-1 interactions,
             // deep in the window) keep a stable, sensible order instead of the sort's whim.
-            return visible.sorted {
-                let (a, b) = (popularityScore(of: $0), popularityScore(of: $1))
-                return a == b ? $0.timestamp > $1.timestamp : a > b
-            }
+            // Scored once per post up front: the score walks the post's comments, and scoring
+            // inside the comparator did that for both operands on every compare.
+            return visible
+                .map { (score: popularityScore(of: $0), post: $0) }
+                .sorted { lhs, rhs in
+                    lhs.score == rhs.score ? lhs.post.timestamp > rhs.post.timestamp : lhs.score > rhs.score
+                }
+                .map(\.post)
         }
     }
 
@@ -1239,6 +1326,10 @@ struct KaPostsView: View {
                 // A refresh just delivered whatever the pill was offering; leaving it up would
                 // promise posts that are already on screen.
                 pendingNewPosts = []
+                // Page one is fresh again, and a refresh re-arms Popular's deep sweep: the
+                // window it ranked was just thrown away.
+                loadGates.feedLoadedAt = Date()
+                loadGates.popularSweptAt = nil
             } else {
                 remotePosts.append(contentsOf: batch.items)
             }
@@ -1360,6 +1451,7 @@ struct KaPostsView: View {
             guard myPostsPage.epoch == epoch else { return }
             if reset {
                 myProfileRemotePosts = batch.items
+                loadGates.myProfileLoadedAt = Date()
             } else {
                 myProfileRemotePosts.append(contentsOf: batch.items)
             }
@@ -1416,6 +1508,7 @@ struct KaPostsView: View {
             guard posterPostsPage.epoch == epoch else { return }
             if reset {
                 posterProfilePosts = batch.items
+                loadGates.posterProfileLoaded = (pubkey, Date())
             } else {
                 posterProfilePosts.append(contentsOf: batch.items)
             }
@@ -1908,19 +2001,79 @@ struct KaPostsView: View {
     /// post (once for the claim, once for the - usually negative - result), which is exactly the
     /// scroll jank the Android port hit with its observable probe-claim maps. Only a POSITIVE
     /// "this is a thread root" changes pixels, so only that lands in @State below.
+    ///
+    /// Claims (and the roots they found) persist across launches: a probe answers a question
+    /// about history that does not change, so relaunching the app and re-asking it for every
+    /// commented post in the feed was pure waste. FIFO-capped so the store cannot grow without
+    /// bound; the oldest claims fall off and simply get probed again someday.
     private final class ThreadProbeClaims {
-        var claimed: Set<String> = []
+        private static let claimedKey = "kachat_kaposts_thread_probe_claimed"
+        private static let rootsKey = "kachat_kaposts_thread_probe_roots"
+        private static let capacity = 2048
+        /// How many probes may be on the wire at once. One flick through a fresh feed reveals
+        /// dozens of rows, and each used to fire its request immediately.
+        static let maxInFlight = 4
+
+        /// Loaded lazily, on first use: the `@State` initialiser expression that creates this
+        /// box runs every time the KaPostsView struct is built (SwiftUI keeps only the first),
+        /// and reading a couple of thousand ids out of UserDefaults per parent body pass would
+        /// be a cost of its own.
+        private lazy var order: [String] = UserDefaults.standard.stringArray(forKey: Self.claimedKey) ?? []
+        private lazy var claimedSet: Set<String> = Set(order)
+        private lazy var rootsSet: Set<String> = Set(UserDefaults.standard.stringArray(forKey: Self.rootsKey) ?? [])
+        var inFlight = 0
+        private var saveScheduled = false
+
+        var claimed: Set<String> { claimedSet }
+        /// Persisted positive results - the roots `threadRootIds` starts from.
+        var persistedRoots: Set<String> { rootsSet }
+
+        func claim(_ id: String) {
+            guard claimedSet.insert(id).inserted else { return }
+            order.append(id)
+            if order.count > Self.capacity {
+                let dropped = order.removeFirst()
+                claimedSet.remove(dropped)
+                rootsSet.remove(dropped)
+            }
+            scheduleSave()
+        }
+
+        /// A probe that was cancelled before it asked anything should be asked again later.
+        func unclaim(_ id: String) {
+            guard claimedSet.remove(id) != nil else { return }
+            order.removeAll { $0 == id }
+            scheduleSave()
+        }
+
+        func markRoot(_ id: String) {
+            rootsSet.insert(id)
+            scheduleSave()
+        }
+
+        /// One UserDefaults write per burst of claims, not one per revealed row.
+        private func scheduleSave() {
+            guard !saveScheduled else { return }
+            saveScheduled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self else { return }
+                self.saveScheduled = false
+                UserDefaults.standard.set(self.order, forKey: Self.claimedKey)
+                UserDefaults.standard.set(Array(self.rootsSet), forKey: Self.rootsKey)
+            }
+        }
     }
     /// @State holding a reference type: the box's identity is stable for the view's lifetime and
     /// mutating its contents never triggers a body pass.
     @State private var threadProbeClaims = ThreadProbeClaims()
-    /// Confirmed thread roots (post txids) - the only probe outcome the UI shows.
+    /// Confirmed thread roots (post txids) found THIS session - the only probe outcome the UI
+    /// shows. Earlier sessions' roots are read from the claims box.
     @State private var threadRootIds: Set<String> = []
 
     private func isThreadRoot(_ post: DraftPost) -> Bool {
         if post.isLocalThreadRoot { return true }
         guard let remoteId = post.remoteId else { return false }
-        return threadRootIds.contains(remoteId)
+        return threadRootIds.contains(remoteId) || threadProbeClaims.persistedRoots.contains(remoteId)
     }
 
     /// Cheap feed probe, run once per commented post as its cell appears: fetch the first reply
@@ -1930,12 +2083,25 @@ struct KaPostsView: View {
               !post.isLocalThreadRoot,
               commentCount(of: post) > 0,
               !threadProbeClaims.claimed.contains(remoteId) else { return }
-        threadProbeClaims.claimed.insert(remoteId) // claim, so one post never probes twice
+        threadProbeClaims.claim(remoteId) // claim, so one post never probes twice
+        // Wait for a slot rather than firing at once. Polling instead of a continuation queue
+        // so a row that scrolls back out while waiting (its `.task` is cancelled) just leaves,
+        // and gives its claim back so the next appearance asks the question it never got to.
+        while threadProbeClaims.inFlight >= ThreadProbeClaims.maxInFlight {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            if Task.isCancelled {
+                threadProbeClaims.unclaim(remoteId)
+                return
+            }
+        }
+        threadProbeClaims.inFlight += 1
+        defer { threadProbeClaims.inFlight -= 1 }
         guard let page = try? await KaPostsAPIClient.shared.fetchReplies(postId: remoteId, limit: 10, before: nil) else { return }
         if page.posts.contains(where: { reply in
             KaPostsAPIClient.kaspaAddress(fromPubkey: reply.userPublicKey) == post.posterAddress
         }) {
             threadRootIds.insert(remoteId)
+            threadProbeClaims.markRoot(remoteId)
         }
     }
 
@@ -2558,22 +2724,25 @@ struct KaPostsView: View {
             await openResolvedPost(post)
             return
         }
-        await loadFeed()
-        if let post = findPost(byRemoteId: txId) {
-            await openResolvedPost(post)
-            return
+        // Only re-pull page one when there is nothing loaded or it has gone stale: a reset
+        // throws away every page the reader has scrolled in, and a fresh window was already
+        // searched above. The single-id lookup further down covers what a re-fetch would.
+        if remotePosts.isEmpty || !FeedLoadGates.isFresh(loadGates.feedLoadedAt) {
+            await loadFeed()
+            if let post = findPost(byRemoteId: txId) {
+                await openResolvedPost(post)
+                return
+            }
         }
         // Notification/deep-link targets are usually YOUR OWN content, which lives outside
         // the feed window - pull own posts+replies from the indexer and look again. (A true
         // get-post endpoint on the fork would make this exact; flagged in the handoff doc.)
         // Replies come from get-replies?user= - the indexer's get-posts never returns them.
-        if let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() {
-            await loadMyProfilePosts(pubkey: pubkey, reset: true)
-            await loadMyProfileReplies(pubkey: pubkey, reset: true)
-        }
-        if let post = findPost(byRemoteId: txId) {
-            await openResolvedPost(post)
-            return
+        if await reloadMyProfileIfStale() {
+            if let post = findPost(byRemoteId: txId) {
+                await openResolvedPost(post)
+                return
+            }
         }
         // Still unresolved: the txid is usually a notification's ACTING content — someone
         // ELSE's reply/quote/mentioning post, which neither the feed window nor the own-
@@ -2582,8 +2751,7 @@ struct KaPostsView: View {
         // parent conversation when the acting content itself still can't be loaded).
         if let n = try? await KaPostsAPIClient.shared.fetchNotifications(limit: 100).notifications
             .first(where: { $0.id == txId }) {
-            await loadPosterProfilePosts(pubkey: n.userPublicKey, reset: true)
-            await loadPosterProfileReplies(pubkey: n.userPublicKey, reset: true)
+            await reloadPosterProfileIfStale(pubkey: n.userPublicKey)
             if let post = findPost(byRemoteId: txId) {
                 // For a reply notification the stream's contentId IS the parent - pass it
                 // through in case the fetched mapping lost parentPostId.
@@ -2610,6 +2778,31 @@ struct KaPostsView: View {
             return
         }
         showActionToast("Post not found - it may be older than the current feed", txId: txId)
+    }
+
+    /// Own posts+replies from page one, unless they were loaded that way within the last
+    /// `FeedLoadGates.staleAfter` - `findPost` has already searched a fresh set, and resetting
+    /// would discard whatever the profile screen has scrolled in. Returns whether it fetched.
+    @discardableResult
+    private func reloadMyProfileIfStale() async -> Bool {
+        guard let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() else { return false }
+        let hasContent = !myProfileRemotePosts.isEmpty || !myProfileRemoteReplies.isEmpty
+        guard !hasContent || !FeedLoadGates.isFresh(loadGates.myProfileLoadedAt) else { return false }
+        await loadMyProfilePosts(pubkey: pubkey, reset: true)
+        await loadMyProfileReplies(pubkey: pubkey, reset: true)
+        return true
+    }
+
+    /// Same for a poster's posts+replies: skipped only when what is loaded is THIS poster's and
+    /// still fresh - a different poster's pages are no help in finding their post.
+    private func reloadPosterProfileIfStale(pubkey: String) async {
+        if let loaded = loadGates.posterProfileLoaded, loaded.pubkey == pubkey,
+           FeedLoadGates.isFresh(loaded.at),
+           !posterProfilePosts.isEmpty || !posterProfileReplies.isEmpty {
+            return
+        }
+        await loadPosterProfilePosts(pubkey: pubkey, reset: true)
+        await loadPosterProfileReplies(pubkey: pubkey, reset: true)
     }
 
     /// Builds a post from its own transaction, for the cases the indexer cannot answer.
@@ -2742,11 +2935,7 @@ struct KaPostsView: View {
             openDetail(parent, scrollToCommentRemoteId: post.remoteId, ensureComment: post)
             return
         }
-        if let pubkey = try? KaPostsAPIClient.shared.requesterPubkey() {
-            await loadMyProfilePosts(pubkey: pubkey, reset: true)
-            await loadMyProfileReplies(pubkey: pubkey, reset: true)
-        }
-        if let parent = findPost(byRemoteId: parentId) {
+        if await reloadMyProfileIfStale(), let parent = findPost(byRemoteId: parentId) {
             openDetail(parent, scrollToCommentRemoteId: post.remoteId, ensureComment: post)
             return
         }
@@ -2926,6 +3115,40 @@ struct KaPostsView: View {
         if let remoteId = post.remoteId, let fetched = fetchedAncestors[remoteId], !fetched.isEmpty {
             return fetched
         }
+        // Memoised per focused post (see `AncestorChainMemo`): the walk below runs `findPost` /
+        // `findParent` - each a recursive search of every loaded collection - several times, and
+        // the thread sheet asked for it on every body pass.
+        let memo = ancestorChainMemo
+        let searched = [posts, remotePosts, posterProfilePosts, posterProfileReplies,
+                        myProfileRemotePosts, myProfileRemoteReplies, chainResolvedPosts]
+        if memo.post == post,
+           memo.threadStack == threadStack,
+           memo.searched == searched,
+           memo.threadChains == threadChains {
+            return memo.result
+        }
+        let result = walkAncestorChain(for: post)
+        memo.post = post
+        memo.threadStack = threadStack
+        memo.searched = searched
+        memo.threadChains = threadChains
+        memo.result = result
+        return result
+    }
+
+    /// The last in-memory ancestor walk with the inputs it read - same shape and reasoning as
+    /// `FeedMemo`: a box in @State, validated by comparing inputs (`==` on an untouched array
+    /// is a storage-identity check) rather than by a counter every mutation site must bump.
+    private final class AncestorChainMemo {
+        var post: DraftPost?
+        var threadStack: [UUID] = []
+        var searched: [[DraftPost]] = []
+        var threadChains: [UUID: [DraftPost]] = [:]
+        var result: [DraftPost] = []
+    }
+    @State private var ancestorChainMemo = AncestorChainMemo()
+
+    private func walkAncestorChain(for post: DraftPost) -> [DraftPost] {
         var walked = threadStack.dropLast().compactMap { findPost(id: $0) }
         // Guard against a stack that has drifted from the post actually on screen (a deep link
         // landing mid-thread): only trust it when its tail really is this post's ancestor.
@@ -4718,17 +4941,29 @@ private struct KaPostCellView: View {
     /// left inert - the card is itself a button through to the quoted post, and a tappable link
     /// inside it would compete with that.
     static func markdownPreview(_ text: String) -> AttributedString {
+        let key = text as NSString
+        if let cached = markdownPreviewCache.object(forKey: key) { return cached.value }
         let rendered = KaPostsMarkdown.render(text)
         var attributed = AttributedString(rendered.text)
-        guard rendered.hasFormatting else { return attributed }
-        applyMarkdownSpans(
-            rendered.spans,
-            to: &attributed,
-            includeLinks: false,
-            protecting: Self.mentionCharacterRanges(in: rendered.text)
-        )
+        if rendered.hasFormatting {
+            applyMarkdownSpans(
+                rendered.spans,
+                to: &attributed,
+                includeLinks: false,
+                protecting: Self.mentionCharacterRanges(in: rendered.text)
+            )
+        }
+        markdownPreviewCache.setObject(LinkifiedBox(attributed), forKey: key)
         return attributed
     }
+
+    /// Same reasoning as `linkifiedCache`: a quote card re-rendered the markdown of its quoted
+    /// post on every body pass. Keyed by source text.
+    private static let markdownPreviewCache: NSCache<NSString, LinkifiedBox> = {
+        let cache = NSCache<NSString, LinkifiedBox>()
+        cache.countLimit = 400
+        return cache
+    }()
 
     /// Layers markdown styling over the already-linkified string.
     ///
@@ -5473,16 +5708,25 @@ private struct KaPostMentionSuggestionBar: View {
     @ObservedObject private var knsService = KNSService.shared
     @State private var resolvedAnyDomain: String? = nil
 
+    /// Compiled once: `range(of:options: .regularExpression)` builds a fresh expression per
+    /// call, and this is read several times per keystroke.
+    private static let mentionQueryRegex = try? NSRegularExpression(
+        pattern: "(^|[\\s(\\[{<\"'])@([a-z0-9-]*)$",
+        options: [.caseInsensitive]
+    )
+
     private var mentionQuery: String? {
-        guard let range = text.range(
-            of: "(^|[\\s(\\[{<\"'])@([a-z0-9-]*)$",
-            options: [.regularExpression, .caseInsensitive]
-        ) else { return nil }
+        guard let regex = Self.mentionQueryRegex else { return nil }
+        let ns = text as NSString
+        guard let match = regex.firstMatch(in: text, options: [], range: NSRange(location: 0, length: ns.length)),
+              let range = Range(match.range, in: text) else { return nil }
         let token = text[range]
         guard let atIndex = token.firstIndex(of: "@") else { return nil }
         return String(token[token.index(after: atIndex)...]).lowercased()
     }
 
+    /// Computed once per body pass (body binds it to a local): it walks every contact, and the
+    /// old body read it four times, including once per row inside the ForEach.
     private var suggestions: [String] {
         guard let query = mentionQuery else { return [] }
         var seen = Set<String>()
@@ -5504,6 +5748,7 @@ private struct KaPostMentionSuggestionBar: View {
     }
 
     var body: some View {
+        let suggestions = self.suggestions
         VStack(alignment: .leading, spacing: 0) {
             if !suggestions.isEmpty {
                 let rows = VStack(alignment: .leading, spacing: 0) {
@@ -7019,6 +7264,10 @@ struct KaPostsNotificationsView: View {
         .padding(.bottom, 20)
     }
 
+    /// Built once, like KaPostCellView's relative formatter: `.relative(presentation:)` makes a
+    /// fresh style per call, and this runs for every notification row on every render.
+    private static let relativeTimeFormat = Date.RelativeFormatStyle(presentation: .named)
+
     private func itemRow(_ item: Item) -> some View {
         HStack(alignment: .top, spacing: 12) {
             KNSAvatarView(
@@ -7046,7 +7295,7 @@ struct KaPostsNotificationsView: View {
                         .foregroundColor(.secondary)
                         .lineLimit(3)
                 }
-                Text(item.timestamp.formatted(.relative(presentation: .named)))
+                Text(item.timestamp.formatted(Self.relativeTimeFormat))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

@@ -383,7 +383,11 @@ final class PostTranslationService: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Deliberately no identity header of any kind - see the note on this type.
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        // Encoded (and, below, decoded) off the main actor: this service is `@MainActor`, and
+        // a post's worth of JSON is small but the feed is scrolling while it happens.
+        request.httpBody = try await Task.detached(priority: .userInitiated) {
+            try JSONSerialization.data(withJSONObject: body)
+        }.value
         // Generous, because the FIRST request for a language pair can make the server load that
         // pair's model. Everyone after that is answered from its cache in well under a second, so
         // the only reader who ever waits this long is the one who asked first. A 20s cap here
@@ -396,7 +400,9 @@ final class PostTranslationService: ObservableObject {
             let decoded = try? JSONDecoder().decode(APIError.self, from: data)
             throw TranslationError.server(message: decoded?.error ?? "HTTP \(http.statusCode)", code: decoded?.code)
         }
-        let decoded = try JSONDecoder().decode(TranslateResponse.self, from: data)
+        let decoded = try await Task.detached(priority: .userInitiated) {
+            try JSONDecoder().decode(TranslateResponse.self, from: data)
+        }.value
         guard let entry = decoded.translations.first else { throw TranslationError.badResponse }
         if let error = entry.error { throw TranslationError.server(message: error, code: entry.code) }
         guard let translated = entry.text else { throw TranslationError.badResponse }

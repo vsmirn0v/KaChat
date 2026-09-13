@@ -227,21 +227,31 @@ struct GroupChatDetailView: View {
 
     /// Cheap fingerprint of everything `messages` derives from.
     ///
-    /// Integer folding over the raw array: no allocation, no comparator, no Calendar. Computing
+    /// O(1) over the raw array: no allocation, no comparator, no Calendar, and no walk. Computing
     /// this per body evaluation costs a fraction of what rebuilding the pipeline does, and it is
     /// what lets the pipeline be skipped when nothing it depends on actually moved - which, while
-    /// you are typing, is every single keystroke.
+    /// you are typing, is every single keystroke. The previous shape hashed every message in the
+    /// thread on every body pass, which on a long group thread was itself the per-keystroke cost
+    /// it existed to avoid.
     ///
-    /// Deliberately includes deliveryStatus: a message going pending -> sent mutates an element
-    /// without changing the count, and a key that missed it would freeze the checkmarks.
+    /// The array is append-only in chronological order, so an append moves the count and the
+    /// tail. Deliberately includes the tail's deliveryStatus and the newest pending message's
+    /// status: a message going pending -> sent mutates an element without changing the count,
+    /// and a key that missed it would freeze the checkmarks. Pending messages sit at the tail
+    /// (they are appended as you send), so only the last few elements are searched for one -
+    /// a bounded scan, where searching the whole thread would be the walk this replaces.
     private var messagesFingerprint: Int {
         var hasher = Hasher()
         let raw = groupChatService.groupMessages[group.id] ?? []
         hasher.combine(raw.count)
-        for message in raw {
-            hasher.combine(message.id)
-            hasher.combine(message.timestamp)
-            hasher.combine(message.deliveryStatus)
+        if let last = raw.last {
+            hasher.combine(last.txId)
+            hasher.combine(last.blockTime)
+            hasher.combine(last.deliveryStatus)
+        }
+        if let pending = raw.suffix(16).last(where: { $0.deliveryStatus != .sent }) {
+            hasher.combine(pending.txId)
+            hasher.combine(pending.deliveryStatus)
         }
         hasher.combine(groupChatService.hiddenMemberAddresses(for: group.id).count)
         hasher.combine(systemLineClock)
@@ -776,6 +786,8 @@ struct GroupChatDetailView: View {
         }
         .onDisappear {
             groupChatService.exitGroup()
+            // Voice-note playback is owned per bubble; the thread going away is what ends it.
+            LazyAudioBubble.stopAllPlayback()
         }
         .onChange(of: recorder.state) { state in
             if case .failed(let message) = state {

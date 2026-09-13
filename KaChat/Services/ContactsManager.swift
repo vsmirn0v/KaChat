@@ -555,6 +555,7 @@ final class ContactsManager: ObservableObject {
         Task { await MessageStore.shared.deleteConversation(contactAddress: address) }
         contacts.removeAll { $0.id == contact.id }
         saveContacts()
+        SystemContactAvatarStore.shared.removeCachedPhoto(forSystemContactId: contact.systemContactId)
     }
 
     func deleteAllContacts() {
@@ -1057,6 +1058,7 @@ final class ContactsManager: ObservableObject {
         contacts[index].systemMatchConfidence = nil
         contacts[index].systemLastSyncedAt = Date()
         saveContacts(syncShared: true, updatePush: false, publishContacts: true)
+        SystemContactAvatarStore.shared.removeCachedPhoto(forSystemContactId: previousId)
 
         let contactId = contact.id
         Task {
@@ -1958,23 +1960,96 @@ actor SystemContactsService {
 final class SystemContactAvatarStore: ObservableObject {
     static let shared = SystemContactAvatarStore()
 
-    /// systemContactId -> thumbnail. Published so avatar views refresh when a fetch lands.
-    @Published private(set) var images: [String: UIImage] = [:]
+    /// systemContactId -> thumbnail. An `NSCache` rather than a dictionary so the set of decoded
+    /// thumbnails is bounded (a large address book used to pin every photo it ever showed for the
+    /// life of the process) and so the system can shed them under pressure. Cost is pixel bytes,
+    /// which is what the decoded bitmap actually occupies.
+    private let images: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 256
+        cache.totalCostLimit = 24 * 1024 * 1024
+        return cache
+    }()
+    /// The change signal views observe. `NSCache` isn't observable, so every insert bumps this;
+    /// a view that read `nil` during body evaluation re-runs and finds the image on the next pass.
+    @Published private(set) var version = 0
     /// Ids already attempted this session (including photo-less contacts) - one CN fetch each.
-    private var attemptedIds = Set<String>()
+    /// Bounded like `KNSService.lastAttemptAt`: past the cap the oldest attempts are forgotten,
+    /// which at worst costs one extra disk read for a contact not seen in a long while.
+    private var attemptedAt: [String: Date] = [:]
+    private let maxAttemptEntries = 2_048
 
-    private init() {}
-
-    private var diskDirectory: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("ContactAvatars", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+    private init() {
+        // Nothing else in the app listens for memory warnings; the decoded thumbnails are the
+        // one cache here that is pure convenience (disk copy + Contacts app both still have
+        // the photo), so drop them first. The attempt set goes too, or a cleared image would
+        // read as "already tried, no photo" and never come back.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.purgeMemoryCache()
+            }
+        }
     }
+
+    private func purgeMemoryCache() {
+        images.removeAllObjects()
+        attemptedAt.removeAll()
+        version &+= 1
+    }
+
+    private lazy var diskDirectory: URL = {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        var dir = base.appendingPathComponent("ContactAvatars", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // Re-derivable from the Contacts app (CacheManager already classes this directory as
+        // cache), so it has no business in an iCloud/iTunes backup.
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? dir.setResourceValues(values)
+        return dir
+    }()
 
     private func diskURL(for id: String) -> URL {
         let safe = id.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_")
         return diskDirectory.appendingPathComponent(safe + ".jpg")
+    }
+
+    private static func cacheCost(for image: UIImage) -> Int {
+        if let cgImage = image.cgImage {
+            return cgImage.bytesPerRow * cgImage.height
+        }
+        let scale = max(1, image.scale)
+        return Int(image.size.width * scale * image.size.height * scale * 4)
+    }
+
+    private func setImage(_ image: UIImage, for id: String) {
+        images.setObject(image, forKey: id as NSString, cost: Self.cacheCost(for: image))
+        version &+= 1
+    }
+
+    private func markAttempted(_ id: String) {
+        attemptedAt[id] = Date()
+        guard attemptedAt.count > maxAttemptEntries else { return }
+        let overflow = attemptedAt.count - maxAttemptEntries
+        let oldestKeys = attemptedAt.sorted { $0.value < $1.value }.prefix(overflow).map(\.key)
+        for key in oldestKeys {
+            attemptedAt.removeValue(forKey: key)
+        }
+    }
+
+    /// Drops every trace of a system contact's photo (memory, attempt record, and the JPEG on
+    /// disk). Called when the app contact is unlinked or deleted - the file would otherwise sit
+    /// in Application Support forever, since nothing else ever prunes that directory.
+    func removeCachedPhoto(forSystemContactId id: String?) {
+        guard let id else { return }
+        images.removeObject(forKey: id as NSString)
+        attemptedAt.removeValue(forKey: id)
+        try? FileManager.default.removeItem(at: diskURL(for: id))
+        version &+= 1
     }
 
     /// The Contacts-app photo regardless of the user's per-contact choice (Chat Info picker
@@ -1982,7 +2057,7 @@ final class SystemContactAvatarStore: ObservableObject {
     /// store re-render when it lands.
     func rawImage(for contact: Contact?) -> UIImage? {
         guard let id = contact?.systemContactId else { return nil }
-        if let image = images[id] { return image }
+        if let image = images.object(forKey: id as NSString) { return image }
         fetchIfNeeded(id: id)
         return nil
     }
@@ -2009,8 +2084,8 @@ final class SystemContactAvatarStore: ObservableObject {
     /// Overwrites the cached photo (memory + disk) - used after writing a new photo into the
     /// system contact so the in-app avatar updates immediately.
     func storeImage(_ image: UIImage, data: Data, forSystemContactId id: String) {
-        images[id] = image
-        attemptedIds.insert(id)
+        setImage(image, for: id)
+        markAttempted(id)
         try? data.write(to: diskURL(for: id))
     }
 
@@ -2024,18 +2099,18 @@ final class SystemContactAvatarStore: ObservableObject {
     }
 
     private func fetchIfNeeded(id: String) {
-        guard !attemptedIds.contains(id) else { return }
-        attemptedIds.insert(id)
+        guard attemptedAt[id] == nil else { return }
+        markAttempted(id)
 
         // Everything - including the disk-cache hit - publishes from a detached task, never
         // synchronously: views ask for avatars during body evaluation, and a synchronous
-        // `images` write there is SwiftUI's "publishing changes from within view updates".
+        // `version` write there is SwiftUI's "publishing changes from within view updates".
         let targetURL = diskURL(for: id)
         let status = CNContactStore.authorizationStatus(for: .contacts)
         Task.detached(priority: .utility) {
             if let data = try? Data(contentsOf: targetURL), let image = UIImage(data: data) {
                 await MainActor.run {
-                    SystemContactAvatarStore.shared.images[id] = image
+                    SystemContactAvatarStore.shared.setImage(image, for: id)
                 }
                 return
             }
@@ -2047,7 +2122,7 @@ final class SystemContactAvatarStore: ObservableObject {
                   let image = UIImage(data: data) else { return }
             try? data.write(to: targetURL)
             await MainActor.run {
-                SystemContactAvatarStore.shared.images[id] = image
+                SystemContactAvatarStore.shared.setImage(image, for: id)
             }
         }
     }
