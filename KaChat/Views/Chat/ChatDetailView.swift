@@ -84,6 +84,40 @@ struct ChatDetailView: View {
     @State private var previousMessagesCount = 0
     @State private var lastMessageSnapshotDigest: Int?
     @State private var snapshotRebuildTask: Task<Void, Never>?
+    /// Bumped wherever `normalizedMessages` is assigned, so `DerivedMessagesCache`'s key follows
+    /// it exactly rather than trusting the digest (a forced rebuild can rewrite it unchanged).
+    @State private var normalizedMessagesVersion = 0
+
+    /// Memoized derived stages of the thread - `messages`, `displayedMessages` and
+    /// `displayedTimelineItems` - keyed on exactly the inputs that change them.
+    ///
+    /// These were computed properties, each recomputed from scratch on every read, and `body`
+    /// read them four to seven times per pass: the ForEach, three `onChange` keys and the
+    /// pagination spinner. The timestamp-reveal swipe writes `revealOffset` at 60-120Hz and every
+    /// composer keystroke re-evaluates `body`, so after "jump to chat start" on a long history
+    /// that was tens of thousands of struct copies and thousands of `uuidString` allocations per
+    /// frame - the "scrolling old history stutters, then freezes" shape.
+    ///
+    /// A reference type on purpose. SwiftUI forbids changing `@State` values during `body`, but
+    /// the value held here is the box itself, which never changes; memoizing inside it is the
+    /// standard shape for this. Keying on the inputs (rather than refreshing from `onChange`)
+    /// matters because several functions set `loadedMessageCount` and then read
+    /// `displayedMessages` synchronously to anchor the viewport - an `onChange` refresh would
+    /// hand them the previous window for one pass, and the viewport would jump.
+    private final class DerivedMessagesCache {
+        struct Key: Equatable {
+            let snapshotVersion: Int
+            let awaitingMyAcceptance: Bool
+            let initialLayoutReady: Bool
+            let loadedMessageCount: Int
+            let initialWindowSize: Int
+        }
+        var key: Key?
+        var messages: [ChatMessage] = []
+        var displayedMessages: [ChatMessage] = []
+        var timelineItems: [ChatTimelineItem] = []
+    }
+    @State private var derivedCache = DerivedMessagesCache()
     @State private var hasOutgoingHandshakeMessage = false
     @State private var hasIncomingHandshakeMessage = false
     /// "Genuine" = a real message either side actually sent (contextual/audio/payment), not a
@@ -251,7 +285,9 @@ struct ChatDetailView: View {
         !isSelfChat && hasIncomingHandshakeMessage && !hasOutgoingHandshakeMessage && !hasGenuineOutgoingMessage && !isDeclined
     }
 
-    private var messages: [ChatMessage] {
+    private var messages: [ChatMessage] { derived().messages }
+
+    private func computeMessages() -> [ChatMessage] {
         // "📤 Sent via another device" placeholders never render: they carry no readable
         // content (an outgoing tx from another device whose text hasn't synced), and showing
         // them added noise without information. The records stay in the store, so when
@@ -261,6 +297,26 @@ struct ChatDetailView: View {
         // anything you sent) — never their earlier messages.
         guard awaitingMyAcceptance else { return base }
         return base.filter { $0.isOutgoing || $0.messageType == .handshake }
+    }
+
+    /// The memoized stages, recomputed together only when one of their inputs has changed since
+    /// the last read. See `DerivedMessagesCache`.
+    private func derived() -> DerivedMessagesCache {
+        let key = DerivedMessagesCache.Key(
+            snapshotVersion: normalizedMessagesVersion,
+            awaitingMyAcceptance: awaitingMyAcceptance,
+            initialLayoutReady: initialLayoutReady,
+            loadedMessageCount: loadedMessageCount,
+            initialWindowSize: initialMessageWindowSize()
+        )
+        let cache = derivedCache
+        if cache.key != key {
+            cache.messages = computeMessages()
+            cache.displayedMessages = computeDisplayedMessages(from: cache.messages)
+            cache.timelineItems = ChatTimelineLayout.items(for: cache.displayedMessages)
+            cache.key = key
+        }
+        return cache
     }
 
     /// Drives the toolbar's quick-access chess icon - nil hides it entirely. Reuses
@@ -331,6 +387,7 @@ struct ChatDetailView: View {
         }
         let deduped = byTxId.values.sorted(by: isMessageOrderedBefore)
         normalizedMessages = deduped
+        normalizedMessagesVersion &+= 1
 
         if let myAddress {
             let gameIds = Set(deduped.compactMap { ChessCodec.parseAny(MessageReplyCodec.unwrappedText($0.content))?.gameId })
@@ -374,7 +431,9 @@ struct ChatDetailView: View {
         return lhs.txId < rhs.txId
     }
 
-    private var displayedMessages: [ChatMessage] {
+    private var displayedMessages: [ChatMessage] { derived().displayedMessages }
+
+    private func computeDisplayedMessages(from messages: [ChatMessage]) -> [ChatMessage] {
         guard initialLayoutReady else { return [] }
         guard !messages.isEmpty else { return [] }
         if loadedMessageCount <= 0 {
@@ -383,9 +442,7 @@ struct ChatDetailView: View {
         return Array(messages.suffix(min(loadedMessageCount, messages.count)))
     }
 
-    private var displayedTimelineItems: [ChatTimelineItem] {
-        ChatTimelineLayout.items(for: displayedMessages)
-    }
+    private var displayedTimelineItems: [ChatTimelineItem] { derived().timelineItems }
 
     private func shouldPrefer(_ candidate: ChatMessage, over existing: ChatMessage) -> Bool {
         let existingPlaceholder = isPlaceholderContent(existing.content)
