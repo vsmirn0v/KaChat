@@ -3007,6 +3007,9 @@ extension ChatService {
 
         if isNewMessage {
             AppLog.log("%@", "[ChatService] Added message \(message.txId.prefix(16))... to \(contactAddress.suffix(10)), type: \(message.messageType), isNew: \(isNewConversation)")
+            // A reply to a message this device never received is the one signal that a message
+            // was missed; act on it rather than leave a quote that opens onto nothing.
+            recoverMissingReplyOriginalIfNeeded(for: message, contactAddress: contactAddress)
             // Continuous Nextcloud sync: every message that lands - incoming or outgoing,
             // whatever the delivery path - marks the archive dirty and (re)arms the debounced
             // merge upload. No-op unless Automatic Sync is on and a server is connected.
@@ -3031,6 +3034,64 @@ extension ChatService {
         let isBackfilledHistory = message.blockTime > 0 && Int64(message.blockTime) <= importBaselineMs
         if isNewMessage && !message.isOutgoing && !isViewingConversation && !isBackfilledHistory {
             sendLocalNotification(for: message, from: contact)
+        }
+    }
+
+    // MARK: - Reply-original recovery
+
+    /// How far behind a reply to look for the message it replied to. A day is far past any
+    /// indexer lag and still a bounded window for the paged fetch (`getPaginated` stops at 20
+    /// pages); a from-genesis rewind on a long thread would stop hundreds of messages short of
+    /// the gap and never reach it.
+    private static let replyRecoveryRewindMs: UInt64 = 24 * 60 * 60 * 1000
+    /// Originals this session has already tried to recover, so one that is genuinely gone does
+    /// not rewind the contact's cursors on every re-fetch of its reply.
+    private static var replyRecoveryAttempted: Set<String> = []
+
+    /// A reply names the txId of the message it answers. When that message is on neither this
+    /// device's thread nor its store, the device KNOWS it missed one - the only positive signal
+    /// of a delivery gap the protocol offers - so it rewinds the contact's cursors to a day before
+    /// the reply and refetches; txId dedupe makes the overlap free. Run on ingest for every new
+    /// message, and on demand when a quote is tapped (`force`, which retries a known miss).
+    func recoverMissingReplyOriginalIfNeeded(for message: ChatMessage, contactAddress: String) {
+        guard let reply = MessageReplyCodec.parse(message.content), !reply.replyToId.isEmpty else { return }
+        recoverMissingReplyOriginal(
+            replyToId: reply.replyToId,
+            replyBlockTime: message.blockTime,
+            contactAddress: contactAddress,
+            force: false
+        )
+    }
+
+    func recoverMissingReplyOriginal(replyToId: String, replyBlockTime: UInt64, contactAddress: String, force: Bool) {
+        if !force, Self.replyRecoveryAttempted.contains(replyToId) { return }
+        Self.replyRecoveryAttempted.insert(replyToId)
+        Task { [weak self] in
+            guard let self else { return }
+            // In the thread, or in the store but trimmed from the memory window, is not missing.
+            if let index = self.conversations.firstIndex(where: { $0.contact.address == contactAddress }),
+               self.conversations[index].messages.contains(where: { $0.txId == replyToId }) {
+                return
+            }
+            if let key = self.messageEncryptionKey(),
+               await self.messageStore.fetchMessage(txId: replyToId, decryptionKey: key) != nil {
+                return
+            }
+            // Not while a sync is running: its fetches read the cursors this is about to move.
+            var waited = 0
+            while self.isSyncInProgress, waited < 60 {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                waited += 1
+            }
+            guard let myAddress = WalletManager.shared.currentWallet?.publicAddress,
+                  let privateKey = WalletManager.shared.getPrivateKey() else { return }
+            let floor = replyBlockTime > Self.replyRecoveryRewindMs ? replyBlockTime - Self.replyRecoveryRewindMs : 0
+            AppLog.log("[ChatService] A reply quotes %@, which this device never received - rewinding %@ to recover it",
+                       String(replyToId.prefix(16)), String(contactAddress.suffix(10)))
+            self.rewindSyncCursors(forContact: contactAddress, to: floor)
+            _ = await self.fetchContextualMessagesFromContact(
+                contactAddress: contactAddress, myAddress: myAddress, privateKey: privateKey
+            )
         }
     }
 

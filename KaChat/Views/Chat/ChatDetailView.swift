@@ -3054,7 +3054,18 @@ struct ChatDetailView: View {
             return
         }
         guard let targetIndex = messages.firstIndex(where: { $0.txId == txId }) else {
-            showToast("Original message not available.", style: .error)
+            // Not on this device. The reply that was tapped names the original, so the service
+            // can go and get it (see `recoverMissingReplyOriginal`) rather than just say no; the
+            // quote works once the fetch lands.
+            if let reply = messages.last(where: { MessageReplyCodec.parse($0.content)?.replyToId == txId }) {
+                chatService.recoverMissingReplyOriginal(
+                    replyToId: txId, replyBlockTime: reply.blockTime,
+                    contactAddress: contact.address, force: true
+                )
+                showToast("Original message isn't on this device yet - fetching it.", style: .error)
+            } else {
+                showToast("Original message not available.", style: .error)
+            }
             return
         }
         let target = messages[targetIndex]

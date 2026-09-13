@@ -962,23 +962,44 @@ extension ChatService {
     }
 
     /// `rewindMs` parameterizes the reorg rewind window by caller: the high-frequency live-tail
-    /// paths (open-chat poll, foreground sweep) pass `liveTailReorgBufferMs` (90s) so they stop
-    /// re-downloading the same 10-minute window every few seconds; catch-up syncs omit it and
-    /// keep the full `syncReorgBufferMs`. Cursors still only ever ADVANCE (see
-    /// `advanceSyncCursor`) - this only changes where a fetch STARTS, and txId dedupe at insert
-    /// remains the safety net either way.
+    /// paths (open-chat poll, foreground sweep) pass `liveTailReorgBufferMs` (90s) so they do not
+    /// re-download a 10-minute window every few seconds; catch-up syncs omit it and keep the full
+    /// `syncReorgBufferMs`. Cursors only ever ADVANCE on their own (see `advanceSyncCursor`) -
+    /// this only changes where a fetch STARTS, and txId dedupe at insert makes the overlap free.
+    ///
+    /// The rewind is unconditional. This used to start at `lastFetched + 1` once the cursor was
+    /// older than the buffer, on the theory that a quiet contact had nothing to re-download. But
+    /// the cursor is the newest block time the indexer has RETURNED, and the indexer does not
+    /// surface messages in block-time order - acceptance in the DAG is not monotonic, and an
+    /// indexer catching up serves what it has. A reply could be returned before the message it
+    /// replied to; the cursor advanced past the original; the buffer elapsed; and from then on
+    /// every fetch started strictly after it. One message missing from a thread for good, with
+    /// everything after it delivered - which is exactly what a user saw, tapping a quote whose
+    /// original their device had never received. The buffer bounds how late the indexer may be;
+    /// `recoverMissingReplyOriginalIfNeeded` covers anything later than that.
     func syncStartBlockTime(for objectKey: String, fallbackBlockTime: UInt64, nowMs: UInt64, rewindMs: UInt64? = nil) -> UInt64 {
         let reorgRewindMs = rewindMs ?? syncReorgBufferMs
         guard let cursor = syncObjectCursors[objectKey], cursor.lastFetchedBlockTime > 0 else {
             return fallbackBlockTime
         }
-
         let lastFetchedBlockTime = cursor.lastFetchedBlockTime
-        if nowMs > lastFetchedBlockTime, nowMs - lastFetchedBlockTime > reorgRewindMs {
-            return lastFetchedBlockTime == UInt64.max ? UInt64.max : lastFetchedBlockTime + 1
-        }
-
         return lastFetchedBlockTime > reorgRewindMs ? lastFetchedBlockTime - reorgRewindMs : 0
+    }
+
+    /// Pulls every sync cursor that belongs to a contact - both directions - back to `blockTime`,
+    /// so the next fetch re-covers a window the normal rewind has already left behind. The only
+    /// way a cursor ever moves backwards; see `recoverMissingReplyOriginalIfNeeded` for why.
+    func rewindSyncCursors(forContact contactAddress: String, to blockTime: UInt64) {
+        let suffix = "|\(contactAddress.lowercased())"
+        var rewound = false
+        for (key, cursor) in syncObjectCursors where key.hasPrefix("ctx|") && key.hasSuffix(suffix) {
+            guard cursor.lastFetchedBlockTime > blockTime else { continue }
+            syncObjectCursors[key] = SyncObjectCursor(lastFetchedBlockTime: blockTime)
+            rewound = true
+        }
+        guard rewound else { return }
+        syncObjectCursorsDirty = true
+        saveSyncObjectCursorsIfNeeded()
     }
 
     func advanceSyncCursor(for objectKey: String, maxBlockTime: UInt64?) {
