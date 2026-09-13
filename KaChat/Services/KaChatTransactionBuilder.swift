@@ -27,14 +27,19 @@ struct KasiaTransactionBuilder {
 
     // Kaspa constants
     static let handshakeAmount: UInt64 = 20_000_000 // 0.2 KAS handshake amount
-    /// Below this, an output's own KIP-9 storage mass alone (C / amount, C = 10^12) already
-    /// exceeds a safe standard-mass budget, regardless of how small/simple the rest of the
-    /// transaction is - a leftover change output anywhere near the old 10,000-sompi threshold
-    /// could single-handedly blow a transaction's total mass past the network's real 500,000
-    /// cap and get it flat-out rejected ("transaction storage mass ... larger than max allowed
-    /// size"), even for a plain 3-input send. Matches the proven, field-tested value from the
-    /// KasSigner firmware's own `kspt.rs` (DUST_THRESHOLD), not a value picked from this file
-    /// alone.
+    /// A sizing reference, no longer a rule. This was the floor every output and every change
+    /// had to clear, standing in for KIP-9 storage mass: an output of this size carved from a
+    /// large input costs C / amount = 50,000 grams, half the standard budget, so it was a safe
+    /// worst case. But storage mass is not a per-output minimum - it charges the change in the
+    /// UTXO set's harmonic cost, outputs minus inputs - and the same 0.198 KAS output spent
+    /// from a 0.2 KAS input costs 500 grams. Treating the worst case as the rule meant a wallet
+    /// whose only coin was a received handshake could neither accept it nor reply, and change
+    /// under this figure on any payment went to the miners as fee.
+    ///
+    /// Validity is decided by `fitsStorageMass` now, everywhere a transaction is built. What is
+    /// left of this constant is `ChatService.messageCompactionTargetOutputSompi`, which sizes a
+    /// consolidated coin as "this much plus a burst of message fees" - a reserve, where 0.2 KAS
+    /// is still a sensible amount to keep a chat funded.
     static let dustThreshold: UInt64 = 20_000_000 // 0.2 KAS
 
     /// Kaspa caps transaction mass (~100,000 grams); each input costs ~1,118 grams (dominated by
@@ -444,7 +449,7 @@ struct KasiaTransactionBuilder {
                 scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)
             )
         ]
-        if selection.change > dustThreshold {
+        if selection.keepsChange(withRecipientAmount: amount) {
             outputs.append(KaspaRpcTransactionOutput(
                 value: selection.change,
                 scriptPublicKey: KaspaScriptPublicKey(version: 0, script: changeScriptPubKey)
@@ -543,7 +548,7 @@ struct KasiaTransactionBuilder {
                 scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)
             )
         ]
-        if selection.change > dustThreshold {
+        if selection.keepsChange(withRecipientAmount: amount) {
             outputs.append(KaspaRpcTransactionOutput(
                 value: selection.change,
                 scriptPublicKey: KaspaScriptPublicKey(version: 0, script: changeScriptPubKey)
@@ -633,7 +638,7 @@ struct KasiaTransactionBuilder {
             )
         ]
         var changeSompi: UInt64 = 0
-        if selection.change > dustThreshold {
+        if selection.keepsChange(withRecipientAmount: amount) {
             changeSompi = selection.change
             outputs.append(KaspaRpcTransactionOutput(
                 value: selection.change,
@@ -723,7 +728,7 @@ struct KasiaTransactionBuilder {
         var outputs: [KaspaRpcTransactionOutput] = [
             KaspaRpcTransactionOutput(value: amount, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey))
         ]
-        if selection.change > dustThreshold {
+        if selection.keepsChange(withRecipientAmount: amount) {
             outputs.append(KaspaRpcTransactionOutput(value: selection.change, scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)))
         }
         return estimateFee(payload: Data(), inputCount: selection.utxos.count, outputs: outputs) + extraFeeSompi
@@ -745,7 +750,7 @@ struct KasiaTransactionBuilder {
                 scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)
             )
         ]
-        if selection.change > dustThreshold {
+        if selection.keepsChange(withRecipientAmount: amount) {
             outputs.append(KaspaRpcTransactionOutput(
                 value: selection.change,
                 scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
@@ -1059,7 +1064,7 @@ struct KasiaTransactionBuilder {
                 scriptPublicKey: KaspaScriptPublicKey(version: 0, script: commitScriptPubKey)
             )
         ]
-        if selection.change > dustThreshold {
+        if selection.keepsChange(withRecipientAmount: commitAmountSompi) {
             outputs.append(
                 KaspaRpcTransactionOutput(
                     value: selection.change,
@@ -1150,7 +1155,10 @@ struct KasiaTransactionBuilder {
         var outputs: [KaspaRpcTransactionOutput] = baseOutputs
         var change = commitContext.commitAmountSompi - commitContext.revealAmountSompi - feeWithChange
 
-        if change > dustThreshold {
+        // The reveal spends exactly one input, the commit output, so the shape is fully known
+        // here: that input against the reveal output (if any) plus this change.
+        let revealInputs = [commitContext.commitAmountSompi]
+        if fitsStorageMass(inputAmounts: revealInputs, outputAmounts: baseOutputs.map(\.value) + [change]) {
             outputs.append(
                 KaspaRpcTransactionOutput(
                     value: change,
@@ -1169,7 +1177,7 @@ struct KasiaTransactionBuilder {
                 throw KasiaError.networkError("Insufficient commit amount for KNS reveal fee")
             }
             change = commitContext.commitAmountSompi - commitContext.revealAmountSompi - feeNoChange
-            if change > dustThreshold {
+            if fitsStorageMass(inputAmounts: revealInputs, outputAmounts: baseOutputs.map(\.value) + [change]) {
                 outputs.append(
                     KaspaRpcTransactionOutput(
                         value: change,
@@ -1301,6 +1309,16 @@ struct KasiaTransactionBuilder {
     private struct PaymentSelection {
         let utxos: [UTXO]
         let change: UInt64
+
+        /// Whether `change` stands as its own output beside a `recipientAmount` output, by the
+        /// same storage-mass rule the selector used to produce it. False means the selector
+        /// already folded the remainder into the fee, and the builder must not emit it.
+        func keepsChange(withRecipientAmount recipientAmount: UInt64) -> Bool {
+            KasiaTransactionBuilder.fitsStorageMass(
+                inputAmounts: utxos.map(\.amount),
+                outputAmounts: [recipientAmount, change]
+            )
+        }
     }
 
     private struct ContextualSelection {
@@ -1549,7 +1567,10 @@ struct KasiaTransactionBuilder {
             guard selected.count >= 2 else { continue }
 
             let fee = estimateFee(payload: Data(), inputCount: selected.count, outputs: [outputTemplate]) + 3
-            guard total > fee && total - fee > dustThreshold else { continue }
+            // Many inputs into one output is the shape KIP-9 prices at almost nothing - the
+            // UTXO set only shrinks - so this is the storage-mass check, not a flat floor.
+            guard total > fee,
+                  fitsStorageMass(inputAmounts: selected.map(\.amount), outputAmounts: [total - fee]) else { continue }
 
             let outputAmount = total - fee
             let candidateSelection = MessageCompactionSelection(
