@@ -216,6 +216,30 @@ final class KaChatCoreTests: XCTestCase {
             "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon"))
     }
 
+    // MARK: - KIP-9 storage mass
+
+    func testStorageMassMatchesConsensusArithmetic() {
+        let kas: UInt64 = 100_000_000
+        // One 0.2 KAS coin spent into one 0.198 KAS self-output: C/0.198 - C/0.2 in sompi,
+        // 50505 - 50000. The shape a new account is in after receiving a handshake.
+        XCTAssertEqual(KasiaTransactionBuilder.storageMass(inputAmounts: [20_000_000], outputAmounts: [19_800_000]), 505)
+        XCTAssertTrue(KasiaTransactionBuilder.fitsStorageMass(inputAmounts: [20_000_000], outputAmounts: [19_800_000]))
+
+        // The same 0.198 output carved from a 1000 KAS coin is the expensive case the old flat
+        // floor was written for: 50505 - 10, still inside the budget.
+        XCTAssertEqual(KasiaTransactionBuilder.storageMass(inputAmounts: [1000 * kas], outputAmounts: [19_800_000]), 50_495)
+        // A 0.01 KAS output from that coin is not: C/0.01 is a million grams.
+        XCTAssertFalse(KasiaTransactionBuilder.fitsStorageMass(inputAmounts: [1000 * kas], outputAmounts: [1_000_000]))
+
+        // Three equal inputs into three equal outputs take the arithmetic path and cost nothing:
+        // the UTXO set's harmonic cost did not change.
+        XCTAssertEqual(KasiaTransactionBuilder.storageMass(inputAmounts: [10 * kas, 10 * kas, 10 * kas],
+                                                            outputAmounts: [10 * kas, 10 * kas, 10 * kas]), 0)
+
+        // A zero-value output never fits, whatever the arithmetic says.
+        XCTAssertFalse(KasiaTransactionBuilder.fitsStorageMass(inputAmounts: [20_000_000], outputAmounts: [19_800_000, 0]))
+    }
+
     // MARK: - Translation offer
 
     func testShortRepliesInAnotherLanguageAreDetected() {

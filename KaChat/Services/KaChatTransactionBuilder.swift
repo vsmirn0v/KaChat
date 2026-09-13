@@ -828,49 +828,62 @@ struct KasiaTransactionBuilder {
             throw KasiaError.invalidAddress
         }
 
-        let recipientOutput = KaspaRpcTransactionOutput(
+        let recipientTemplate = KaspaRpcTransactionOutput(
             value: handshakeAmount,
             scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)
         )
-
+        let changeTemplate = KaspaRpcTransactionOutput(
+            value: 0,
+            scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
+        )
+        // Output values do not change the estimate, so the templates serve both shapes.
         let feeWithChange = estimateFee(
             payload: kasiaPayload,
             inputCount: selectedUtxos.count,
-            outputs: [
-                recipientOutput,
-                KaspaRpcTransactionOutput(
-                    value: 0,
-                    scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
-                )
-            ]
+            outputs: [recipientTemplate, changeTemplate]
         ) + 3 // small buffer to avoid under-fee rejection
+        let feeNoChange = estimateFee(
+            payload: kasiaPayload,
+            inputCount: selectedUtxos.count,
+            outputs: [recipientTemplate]
+        ) + 3 // small buffer to avoid under-fee rejection
+        let inputAmounts = selectedUtxos.map(\.amount)
 
-        var outputs: [KaspaRpcTransactionOutput] = [recipientOutput]
+        // Decide the shape by what actually fits under KIP-9 (see `storageMass`), in order of
+        // preference: the full handshake with change, the full handshake with the remainder
+        // as fee, and - new - a handshake reduced to what is left after the fee.
+        //
+        // The last shape exists for the account whose only coin IS a handshake: someone sent
+        // them 0.2 KAS to open a conversation, and 0.2 KAS is exactly the handshake amount, so
+        // there was never room for a fee. That account could not accept the request that funded
+        // it. A handshake is recognised by its payload, not its amount, so one carrying a little
+        // under 0.2 KAS opens the conversation just as well.
+        var handshakeValue = handshakeAmount
+        var changeValue: UInt64 = 0
 
-        if totalInput <= handshakeAmount || totalInput - handshakeAmount <= feeWithChange {
+        if totalInput > handshakeAmount + feeWithChange,
+           fitsStorageMass(inputAmounts: inputAmounts, outputAmounts: [handshakeAmount, totalInput - handshakeAmount - feeWithChange]) {
+            changeValue = totalInput - handshakeAmount - feeWithChange
+        } else if totalInput > handshakeAmount + feeNoChange {
+            // The remainder is too small to stand as its own output; it goes to the fee.
+        } else if totalInput > feeNoChange,
+                  fitsStorageMass(inputAmounts: inputAmounts, outputAmounts: [totalInput - feeNoChange]) {
+            handshakeValue = totalInput - feeNoChange
+        } else {
             throw KasiaError.networkError("Insufficient funds for handshake")
         }
 
-        var change = totalInput - handshakeAmount - feeWithChange
-
-        if change > dustThreshold {
+        var outputs: [KaspaRpcTransactionOutput] = [
+            KaspaRpcTransactionOutput(
+                value: handshakeValue,
+                scriptPublicKey: KaspaScriptPublicKey(version: 0, script: recipientScriptPubKey)
+            )
+        ]
+        if changeValue > 0 {
             outputs.append(KaspaRpcTransactionOutput(
-                value: change,
+                value: changeValue,
                 scriptPublicKey: KaspaScriptPublicKey(version: 0, script: senderScriptPubKey)
             ))
-        } else {
-            let feeNoChange = estimateFee(
-                payload: kasiaPayload,
-                inputCount: selectedUtxos.count,
-                outputs: [recipientOutput]
-            ) + 3 // small buffer to avoid under-fee rejection
-            if totalInput <= handshakeAmount || totalInput - handshakeAmount <= feeNoChange {
-                throw KasiaError.networkError("Insufficient funds for handshake")
-            }
-            change = totalInput - handshakeAmount - feeNoChange
-            if change > 0 {
-                // Treat remainder as additional fee when change is dust
-            }
         }
 
         let unsignedTx = KaspaRpcTransaction(
@@ -1329,9 +1342,13 @@ struct KasiaTransactionBuilder {
             feeOverride ?? (estimateFee(payload: payload, inputCount: inputCount, outputs: [outputTemplate]) + 3)
         }
 
-        // Prefer chaining on a single pending self-change UTXO when it can cover fee+dust.
+        // Prefer chaining on a single pending self-change UTXO when it can cover the fee and the
+        // self-spend it leaves behind fits the storage-mass budget.
         let singleInputFee = feeFor(1)
-        if let pendingSingle = pending.first(where: { $0.amount > singleInputFee && ($0.amount - singleInputFee) > dustThreshold }) {
+        if let pendingSingle = pending.first(where: {
+            $0.amount > singleInputFee
+                && fitsStorageMass(inputAmounts: [$0.amount], outputAmounts: [$0.amount - singleInputFee])
+        }) {
             return ContextualSelection(utxos: [pendingSingle], totalInput: pendingSingle.amount, fee: singleInputFee)
         }
 
@@ -1359,8 +1376,12 @@ struct KasiaTransactionBuilder {
             let fee = feeFor(selected.count)
             guard total > fee else { continue }
 
+            // A message is a self-spend into one output, the cheapest shape KIP-9 has: what
+            // matters is the storage mass of this exact transaction, not a flat floor on the
+            // output. A wallet holding one 0.2 KAS coin can message (see `storageMass`); the
+            // old `> dustThreshold` rule said it could not.
             let outputAmount = total - fee
-            if outputAmount > dustThreshold {
+            if fitsStorageMass(inputAmounts: selected.map(\.amount), outputAmounts: [outputAmount]) {
                 return ContextualSelection(utxos: selected, totalInput: total, fee: fee)
             }
         }
@@ -1416,7 +1437,11 @@ struct KasiaTransactionBuilder {
             }
 
             var change = total - amount - feeWithChange
-            if change > dustThreshold {
+            // Keep the change whenever this transaction's own storage mass allows it (see
+            // `storageMass`). The flat `> dustThreshold` rule here handed up to 0.2 KAS of a
+            // user's change to the miners as fee whenever it fell under the floor - money gone,
+            // not a rounding error - for change the network would have accepted.
+            if fitsStorageMass(inputAmounts: selected.map(\.amount), outputAmounts: [amount, change]) {
                 return PaymentSelection(utxos: selected, change: change)
             }
 
@@ -1472,7 +1497,8 @@ struct KasiaTransactionBuilder {
 
         if total > amount, total - amount >= feeWithChange {
             let change = total - amount - feeWithChange
-            if change > dustThreshold {
+            // Same rule as the greedy selector: change stays when the shape fits under KIP-9.
+            if fitsStorageMass(inputAmounts: usable.map(\.amount), outputAmounts: [amount, change]) {
                 return PaymentSelection(utxos: usable, change: change)
             }
         }
@@ -2101,6 +2127,55 @@ struct KasiaTransactionBuilder {
 
     /// Storage mass parameter: C = SOMPI_PER_KAS * 10_000 = 1 trillion (KIP-0009)
     private static let storageMassParameter: UInt64 = 100_000_000 * 10_000
+
+    /// The standard transaction mass budget. Consensus rejects a standard transaction whose
+    /// storage mass exceeds this, independently of its compute mass.
+    static let maxStandardMass: UInt64 = 100_000
+
+    /// KIP-9 storage mass for a transaction shape, in the integer math of rusty-kaspa's
+    /// `calc_storage_mass` (mirrored from KasSigner's `storage_mass_estimate`, which is checked
+    /// against consensus). Every UTXO here is a standard P2PK entry, so plurality is 1 throughout.
+    ///
+    ///   harmonic term per element:  C / amount
+    ///   relaxed path (one output, or one input, or exactly two of each):
+    ///       max(0, harmonic_outs - harmonic_ins)
+    ///   otherwise:
+    ///       max(0, harmonic_outs - |I| * (C / mean_in))
+    ///
+    /// This is what decides whether a small output is acceptable - not a flat floor. Storage
+    /// mass charges the INCREASE in the UTXO set's harmonic cost, so one 0.2 KAS input spent
+    /// into one 0.198 KAS output costs about 500 grams of a 100,000 budget, while the same
+    /// 0.198 output carved out of a large input costs 50,000. The old rule, a flat 0.2 KAS
+    /// minimum per output, was right for the second case and wrong for the first - and the
+    /// first is exactly the shape of a new account whose only coin is the 0.2 KAS handshake it
+    /// just received. That account could neither accept the handshake nor send a message.
+    static func storageMass(inputAmounts: [UInt64], outputAmounts: [UInt64]) -> UInt64 {
+        let c = storageMassParameter
+        func harmonic(_ amounts: [UInt64]) -> UInt64 {
+            amounts.reduce(UInt64(0)) { partial, amount in
+                partial.addingReportingOverflow(c / max(amount, 1)).partialValue
+            }
+        }
+        let harmonicOuts = harmonic(outputAmounts)
+        let relaxed = outputAmounts.count == 1 || inputAmounts.count == 1
+            || (outputAmounts.count == 2 && inputAmounts.count == 2)
+        if relaxed {
+            let harmonicIns = harmonic(inputAmounts)
+            return harmonicOuts > harmonicIns ? harmonicOuts - harmonicIns : 0
+        }
+        let sumIns = inputAmounts.reduce(UInt64(0)) { $0.addingReportingOverflow($1).partialValue }
+        let meanIns = max(sumIns / UInt64(max(inputAmounts.count, 1)), 1)
+        let arithmeticIns = UInt64(inputAmounts.count).multipliedReportingOverflow(by: c / meanIns).partialValue
+        return harmonicOuts > arithmeticIns ? harmonicOuts - arithmeticIns : 0
+    }
+
+    /// Whether a transaction spending `inputAmounts` into `outputAmounts` stays within the
+    /// standard storage-mass budget. Every output must also be non-zero; a zero-value output is
+    /// never worth creating whatever the mass arithmetic says.
+    static func fitsStorageMass(inputAmounts: [UInt64], outputAmounts: [UInt64]) -> Bool {
+        guard outputAmounts.allSatisfy({ $0 > 0 }) else { return false }
+        return storageMass(inputAmounts: inputAmounts, outputAmounts: outputAmounts) <= maxStandardMass
+    }
 
     /// Compute non-contextual compute mass per consensus MassCalculator::calc_non_contextual_masses.
     private static func computeComputeMass(
