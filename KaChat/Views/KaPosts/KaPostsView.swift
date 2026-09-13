@@ -289,6 +289,11 @@ struct KaPostsView: View {
     /// Set when a reply notification opens the PARENT post's thread: once the thread's
     /// comment list contains this reply txid, the list scrolls it into view.
     @State private var pendingThreadScrollRemoteId: String?
+    /// The inline reply box under the post you opened (X's shape): you answer where you are
+    /// reading, and every reply sits below it. Replying to a specific REPLY still opens the
+    /// composer, where that reply renders under the editor.
+    @State private var replyText = ""
+    @FocusState private var replyFieldFocused: Bool
     /// Ancestor chains from `get-thread`, keyed by the post's txid and held root-first. What the
     /// in-memory walk cannot know: for a reply opened from a profile, nothing above it was ever
     /// loaded, so there was no chain to walk at all.
@@ -2984,6 +2989,7 @@ struct KaPostsView: View {
 
     /// Out of the thread entirely, however deep it went.
     private func closeThread() {
+        replyText = ""
         threadStack = []
         profileThreadStack = []
         detailTarget = nil
@@ -4074,39 +4080,57 @@ struct KaPostsView: View {
                     }
                     }
                     Divider()
-                    // Replying opens the composer, where the post being answered renders under
-                    // the editor - instead of a bar pinned below the thread with the post it
-                    // answers scrolled off behind the keyboard.
+                    // X's shape: a small reply box directly under the post you opened, with the
+                    // replies below it. Answering a SPECIFIC reply still opens the composer (see
+                    // threadCell's onComment), where that reply renders under the editor.
                     //
-                    // The zero-balance gate the bar carried comes with it: a reply costs KAS, so
-                    // with a confirmed 0 balance this presents the funding card rather than a
-                    // composer that could not submit. Reading the thread stays fully usable.
-                    Button {
-                        Haptics.impact(.light)
-                        if walletManager.hasConfirmedZeroChattingBalance {
-                            showReplyFundingSheet = true
-                        } else {
-                            threadReplyComposerTarget = post
+                    // The zero-balance gate stays: a reply costs KAS, so with a confirmed 0
+                    // balance a tap presents the funding card instead of the keyboard. Reading
+                    // the thread is untouched by it.
+                    KaPostMentionSuggestionBar(text: $replyText, selection: .constant(0...0))
+                    HStack(spacing: 10) {
+                        TextField("Post your reply", text: $replyText, axis: .vertical)
+                            .lineLimit(1...4)
+                            .focused($replyFieldFocused)
+                            .onChange(of: replyText) { newValue in
+                                if newValue.count > KaPostsView.postCharacterLimit {
+                                    replyText = String(newValue.prefix(KaPostsView.postCharacterLimit))
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            // A fixed radius, not a Capsule: a capsule's corners are half its
+                            // height, so a grown multi-line field curves into its own text.
+                            .background(RoundedRectangle(cornerRadius: 18).fill(Color.secondary.opacity(0.12)))
+                        KaPostCharacterMeter(count: replyText.count)
+                        Button {
+                            let trimmed = replyText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !trimmed.isEmpty else { return }
+                            Haptics.impact(.light)
+                            replyText = ""
+                            replyFieldFocused = false
+                            scheduleReply(to: post, text: trimmed)
+                        } label: {
+                            Image(systemName: "arrow.up.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? .secondary : .accentColor)
                         }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "bubble.left")
-                                .font(.subheadline.weight(.semibold))
-                            Text("Reply")
-                                .font(.subheadline.weight(.bold))
-                        }
-                        .foregroundColor(walletManager.hasConfirmedZeroChattingBalance ? .secondary : Color.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            Capsule().fill(walletManager.hasConfirmedZeroChattingBalance
-                                           ? Color.primary.opacity(0.08)
-                                           : Color.accentColor)
-                        )
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .grayscale(walletManager.hasConfirmedZeroChattingBalance ? 1 : 0)
+                    .opacity(walletManager.hasConfirmedZeroChattingBalance ? 0.45 : 1)
+                    .overlay {
+                        if walletManager.hasConfirmedZeroChattingBalance {
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    Haptics.impact(.light)
+                                    showReplyFundingSheet = true
+                                }
+                        }
+                    }
                     .animation(.easeInOut(duration: 0.25), value: walletManager.hasConfirmedZeroChattingBalance)
                 }
                 .navigationTitle("Post")
