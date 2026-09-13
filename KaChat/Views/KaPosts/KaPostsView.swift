@@ -293,7 +293,13 @@ struct KaPostsView: View {
     /// reading, and every reply sits below it. Replying to a specific REPLY still opens the
     /// composer, where that reply renders under the editor.
     @State private var replyText = ""
-    @FocusState private var replyFieldFocused: Bool
+    /// Caret / highlighted range in the inline reply box, in CHARACTER offsets. Completing an
+    /// @mention rewrites the text from outside the field, so the caret has to be moved with it -
+    /// without this it keeps its old offset and the next keystroke lands mid-sentence.
+    @State private var replySelection: ClosedRange<Int> = 0...0
+    /// A plain Bool, not @FocusState: the editor is a UIViewRepresentable and SwiftUI's focus
+    /// system cannot drive one.
+    @State private var isReplyFocused = false
     /// Ancestor chains from `get-thread`, keyed by the post's txid and held root-first. What the
     /// in-memory walk cannot know: for a reply opened from a profile, nothing above it was ever
     /// loaded, so there was no chain to walk at all.
@@ -4087,11 +4093,17 @@ struct KaPostsView: View {
                     // The zero-balance gate stays: a reply costs KAS, so with a confirmed 0
                     // balance a tap presents the funding card instead of the keyboard. Reading
                     // the thread is untouched by it.
-                    KaPostMentionSuggestionBar(text: $replyText, selection: .constant(0...0))
+                    KaPostMentionSuggestionBar(text: $replyText, selection: $replySelection)
                     HStack(spacing: 10) {
-                        TextField("Post your reply", text: $replyText, axis: .vertical)
-                            .lineLimit(1...4)
-                            .focused($replyFieldFocused)
+                        MarkdownComposerField(
+                            text: $replyText,
+                            selection: $replySelection,
+                            isFocused: $isReplyFocused,
+                            placeholder: "Post your reply",
+                            // Roughly four lines: past that the field scrolls instead of pushing
+                            // the post you are answering off the screen.
+                            maxHeight: 92
+                        )
                             .onChange(of: replyText) { newValue in
                                 if newValue.count > KaPostsView.postCharacterLimit {
                                     replyText = String(newValue.prefix(KaPostsView.postCharacterLimit))
@@ -4108,7 +4120,8 @@ struct KaPostsView: View {
                             guard !trimmed.isEmpty else { return }
                             Haptics.impact(.light)
                             replyText = ""
-                            replyFieldFocused = false
+                            replySelection = 0...0
+                            isReplyFocused = false
                             scheduleReply(to: post, text: trimmed)
                         } label: {
                             Image(systemName: "arrow.up.circle.fill")
