@@ -152,6 +152,13 @@ struct GroupChatDetailView: View {
     @State private var isSendingPhoto = false
     @State private var showNextcloudPicker = false
     @State private var showPlusSheet = false
+    /// The sender whose avatar was tapped; non-nil presents `senderSheet`.
+    @State private var senderSheetTarget: SenderSheetTarget?
+    private struct SenderSheetTarget: Identifiable {
+        let address: String
+        let isOwnMessage: Bool
+        var id: String { address }
+    }
     /// Drives the connected-state composer layout, mirroring 1:1 chat's `ChatDetailView`: with a
     /// Nextcloud server linked, the + menu drops Send Photo / Send Audio in favor of "Send from
     /// Nextcloud", and the message bar's camera/mic captures ride the Nextcloud auto-upload path.
@@ -1341,6 +1348,94 @@ struct GroupChatDetailView: View {
         .presentationDragIndicator(.visible)
     }
 
+    /// The sender half sheet a tapped avatar opens: what the avatar's popup menu used to offer,
+    /// with a line under each option saying what it does - the same shape as the composer's "+"
+    /// sheet and every other menu in the app that became a sheet. One sheet serves every row.
+    private func senderSheet(for target: SenderSheetTarget) -> some View {
+        let address = target.address
+        let isMuted = groupChatService.mutedMemberAddresses(for: group.id).contains(address)
+        // Dismiss first, then act: profile and chat present something of their own, and a sheet
+        // cannot present from underneath one that is still on its way out.
+        func dismissThen(_ action: @escaping () -> Void) {
+            senderSheetTarget = nil
+            DispatchQueue.main.async(execute: action)
+        }
+        return VStack(spacing: 12) {
+            VStack(spacing: 4) {
+                Text(target.isOwnMessage ? "You" : displayName(for: address))
+                    .font(.headline)
+                Text(address)
+                    .font(.caption.monospaced())
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 4)
+
+            ActionSheetRow(
+                title: "View Profile",
+                subtitle: "Their KNS profile, domains and address.",
+                systemImage: "person.crop.circle"
+            ) {
+                dismissThen { viewProfile(address) }
+            }
+            if !target.isOwnMessage {
+                ActionSheetRow(
+                    title: "Open Chat",
+                    subtitle: "Message them directly, one to one.",
+                    systemImage: "bubble.left.and.bubble.right"
+                ) {
+                    dismissThen { openChat(with: address) }
+                }
+                ActionSheetRow(
+                    title: "Pay in Kaspa",
+                    subtitle: "Open your chat with them in payment mode.",
+                    systemImage: "k.circle",
+                    customIcon: Image("KaspaLogo")
+                ) {
+                    dismissThen { openChat(with: address, paymentMode: true) }
+                }
+            }
+            ActionSheetRow(
+                title: "Copy Address",
+                subtitle: "Copy their Kaspa address.",
+                systemImage: "doc.on.doc"
+            ) {
+                senderSheetTarget = nil
+                copyAddress(address)
+            }
+            if !target.isOwnMessage {
+                ActionSheetRow(
+                    title: isMuted ? "Unmute User" : "Mute User",
+                    subtitle: isMuted
+                        ? "Get notified for their messages again."
+                        : "Their messages still show, but never notify you.",
+                    systemImage: isMuted ? "speaker.wave.2" : "speaker.slash"
+                ) {
+                    senderSheetTarget = nil
+                    muteSender(address)
+                }
+                ActionSheetRow(
+                    title: "Hide User",
+                    subtitle: "Stop seeing their messages in this group. Undo it in Group Info.",
+                    systemImage: "eye.slash",
+                    tint: .red
+                ) {
+                    senderSheetTarget = nil
+                    hideSender(address)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
     private var plusMenu: some View {
         Button {
             Haptics.impact(.light)
@@ -1355,6 +1450,7 @@ struct GroupChatDetailView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(Text("More options"))
         .sheet(isPresented: $showPlusSheet) { plusSheet }
+        .sheet(item: $senderSheetTarget) { senderSheet(for: $0) }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoPickerItem, matching: .images)
         .sheet(isPresented: $showNextcloudPicker) {
             NextcloudPickerView { url, _ in
@@ -2025,6 +2121,7 @@ struct GroupChatDetailView: View {
             onCopyAddress: copyAddress,
             onHideSender: { hideSender($0) },
             onMuteSender: { muteSender($0) },
+            onAvatarTap: { senderSheetTarget = SenderSheetTarget(address: $0, isOwnMessage: $0 == myAddress) },
             onRetry: { retry(message) },
             onReply: { groupChatService.startReplyTo(message) },
             onSelect: { enterSelectMode(with: message.txId) },
@@ -2142,6 +2239,9 @@ private struct GroupMessageBubbleRow: View {
     let onCopyAddress: (String) -> Void
     let onHideSender: (String) -> Void
     let onMuteSender: (String) -> Void
+    /// Tapping the avatar. The parent presents the sender half sheet for this address (see
+    /// `GroupChatDetailView.senderSheet`); the row itself no longer owns a menu.
+    let onAvatarTap: (String) -> Void
     let onRetry: () -> Void
     let onReply: () -> Void
     /// Enters the chat's message multi-select mode with this message pre-selected - nil disables
@@ -2594,53 +2694,13 @@ private struct GroupMessageBubbleRow: View {
         }
     }
 
-    /// Avatar with the same View Profile / Open Chat / Pay in Kaspa / Copy Address menu
-    /// `BroadcastChannelView`'s `avatarButton` offers for a tapped sender.
+    /// The sender's avatar. Tapping it opens the sender half sheet - View Profile / Open Chat /
+    /// Pay in Kaspa / Copy Address / Mute / Hide - presented by the parent, the same shape as
+    /// `BroadcastChannelView`'s. This was a popup `Menu` of bare labels; the sheet has room to
+    /// say what each option does, and one sheet serves every row.
     private var avatarButton: some View {
-        Menu {
-            if let address = message.senderAddress {
-                Button {
-                    onViewProfile(address)
-                } label: {
-                    Label("View Profile", systemImage: "person.crop.circle")
-                }
-                if !message.isOutgoing {
-                    Button {
-                        onOpenChat(address)
-                    } label: {
-                        Label("Open Chat", systemImage: "bubble.left.and.bubble.right")
-                    }
-                }
-                Button {
-                    onCopyAddress(address)
-                } label: {
-                    Label("Copy Address", systemImage: "doc.on.doc")
-                }
-                if !message.isOutgoing {
-                    Button {
-                        onPayInKaspa(address)
-                    } label: {
-                        Label {
-                            Text("Pay in Kaspa")
-                        } icon: {
-                            Image("KaspaLogo")
-                                .resizable()
-                                .scaledToFit()
-                        }
-                    }
-                    let isMuted = groupChatService.mutedMemberAddresses(for: group.id).contains(address)
-                    Button {
-                        onMuteSender(address)
-                    } label: {
-                        Label(isMuted ? "Unmute User" : "Mute User", systemImage: isMuted ? "speaker.wave.2" : "speaker.slash")
-                    }
-                    Button(role: .destructive) {
-                        onHideSender(address)
-                    } label: {
-                        Label("Hide User", systemImage: "eye.slash")
-                    }
-                }
-            }
+        Button {
+            if let address = message.senderAddress { onAvatarTap(address) }
         } label: {
             KNSAvatarView(
                 avatarURLString: message.isOutgoing ? myAvatarURLString : avatarURLString,
@@ -2649,7 +2709,7 @@ private struct GroupMessageBubbleRow: View {
                 contactAddress: message.isOutgoing ? nil : message.senderAddress
             )
         }
-        .tint(.accentColor)
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

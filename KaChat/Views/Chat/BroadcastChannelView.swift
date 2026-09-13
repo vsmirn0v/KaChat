@@ -37,6 +37,13 @@ struct BroadcastChannelView: View {
     @State private var toastMessage: String?
     /// Message whose reactor list is on screen.
     @State private var reactionsSheetTarget: ReactionsSheetTarget?
+    /// The sender whose avatar was tapped; non-nil presents `senderSheet`.
+    @State private var senderSheetTarget: SenderSheetTarget?
+    private struct SenderSheetTarget: Identifiable {
+        let address: String
+        let isOwnMessage: Bool
+        var id: String { address }
+    }
     @State private var toastToken = UUID()
     @State private var openContact: Contact?
     @State private var openContactInPaymentMode = false
@@ -168,6 +175,7 @@ struct BroadcastChannelView: View {
         .toast(message: toastMessage, style: .success)
         // Extracted, like the group screen's: inline, this closure inside an already-long
         // modifier chain is the kind of expression the type checker gives up on.
+        .sheet(item: $senderSheetTarget) { senderSheet(for: $0) }
         .sheet(item: $emojiPickerTarget) { target in
             emojiPickerSheet(targetTxId: target.id)
         }
@@ -575,6 +583,12 @@ struct BroadcastChannelView: View {
                 showToast(message.senderAddress.addressCopiedToastText)
             },
             onHideSender: { broadcastService.hideSender(message.senderAddress, inChannel: channelName) },
+            onAvatarTap: {
+                senderSheetTarget = SenderSheetTarget(
+                    address: message.senderAddress,
+                    isOwnMessage: message.senderAddress == myAddress
+                )
+            },
             onReply: { broadcastService.startReplyTo(message) },
             onCopyMessage: {
                 UIPasteboard.general.string = displayContent(for: message).text
@@ -1146,6 +1160,84 @@ struct BroadcastChannelView: View {
         }
     }
 
+    /// The sender half sheet a tapped avatar opens: what the avatar's popup menu used to offer,
+    /// with a line under each option saying what it does - the same shape as the group thread's
+    /// and every other menu in the app that became a sheet. One sheet serves every row.
+    private func senderSheet(for target: SenderSheetTarget) -> some View {
+        let address = target.address
+        // Dismiss first, then act: profile and chat present something of their own, and a sheet
+        // cannot present from underneath one that is still on its way out.
+        func dismissThen(_ action: @escaping () -> Void) {
+            senderSheetTarget = nil
+            DispatchQueue.main.async(execute: action)
+        }
+        return VStack(spacing: 12) {
+            VStack(spacing: 4) {
+                Text(target.isOwnMessage ? "You" : displayName(for: address))
+                    .font(.headline)
+                Text(address)
+                    .font(.caption.monospaced())
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(.top, 20)
+            .padding(.bottom, 4)
+
+            ActionSheetRow(
+                title: "View Profile",
+                subtitle: "Their KNS profile, domains and address.",
+                systemImage: "person.crop.circle"
+            ) {
+                dismissThen { viewProfile(address) }
+            }
+            if !target.isOwnMessage {
+                ActionSheetRow(
+                    title: "Open Chat",
+                    subtitle: "Message them directly, one to one.",
+                    systemImage: "bubble.left.and.bubble.right"
+                ) {
+                    dismissThen { openChat(with: address) }
+                }
+                ActionSheetRow(
+                    title: "Pay in Kaspa",
+                    subtitle: "Open your chat with them in payment mode.",
+                    systemImage: "k.circle",
+                    customIcon: Image("KaspaLogo")
+                ) {
+                    dismissThen { openChat(with: address, paymentMode: true) }
+                }
+            }
+            ActionSheetRow(
+                title: "Copy Address",
+                subtitle: "Copy their Kaspa address.",
+                systemImage: "doc.on.doc"
+            ) {
+                senderSheetTarget = nil
+                UIPasteboard.general.string = address
+                showToast(address.addressCopiedToastText)
+            }
+            if !target.isOwnMessage {
+                ActionSheetRow(
+                    title: "Hide User",
+                    subtitle: "Stop seeing their messages in this room. Undo it in Room Info.",
+                    systemImage: "eye.slash",
+                    tint: .red
+                ) {
+                    senderSheetTarget = nil
+                    broadcastService.hideSender(address, inChannel: channelName)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+    }
+
     private func openChat(with address: String, paymentMode: Bool = false) {
         guard address != myAddress else { return }
         let contact = contactsManager.getContact(byAddress: address)
@@ -1226,6 +1318,9 @@ private struct BroadcastMessageRow: View {
     let onPayInKaspa: () -> Void
     let onCopyAddress: () -> Void
     let onHideSender: () -> Void
+    /// Tapping the avatar. The parent presents the sender half sheet (see
+    /// `BroadcastChannelView.senderSheet`); the row itself no longer owns a menu.
+    let onAvatarTap: () -> Void
     let onReply: () -> Void
     let onCopyMessage: () -> Void
     let onRetry: () -> Void
@@ -1379,46 +1474,11 @@ private struct BroadcastMessageRow: View {
         }
     }
 
+    /// The sender's avatar. Tapping it opens the sender half sheet presented by the parent (see
+    /// `BroadcastChannelView.senderSheet`). This was a popup `Menu` of bare labels; the sheet
+    /// has room to say what each option does, and one sheet serves every row.
     private var avatarButton: some View {
-        Menu {
-            Button {
-                onViewProfile()
-            } label: {
-                Label("View Profile", systemImage: "person.crop.circle")
-            }
-            if !isOwnMessage {
-                Button {
-                    onOpenChat()
-                } label: {
-                    Label("Open Chat", systemImage: "bubble.left.and.bubble.right")
-                }
-            }
-            Button {
-                onCopyAddress()
-            } label: {
-                Label("Copy Address", systemImage: "doc.on.doc")
-            }
-            if !isOwnMessage {
-                Button {
-                    onPayInKaspa()
-                } label: {
-                    Label {
-                        Text("Pay in Kaspa")
-                    } icon: {
-                        Image("KaspaLogo")
-                            .resizable()
-                            .scaledToFit()
-                    }
-                }
-            }
-            if !isOwnMessage {
-                Button(role: .destructive) {
-                    onHideSender()
-                } label: {
-                    Label("Hide User", systemImage: "eye.slash")
-                }
-            }
-        } label: {
+        Button(action: onAvatarTap) {
             KNSAvatarView(
                 avatarURLString: avatarURLString,
                 fallbackText: displayName,
@@ -1426,7 +1486,7 @@ private struct BroadcastMessageRow: View {
                 contactAddress: isOwnMessage ? nil : message.senderAddress
             )
         }
-        .tint(.accentColor)
+        .buttonStyle(.plain)
     }
 
     private func replyQuoteView(_ reply: MessageReplyContent) -> some View {

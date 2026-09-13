@@ -25,15 +25,27 @@ struct ActionSheetRow: View {
     var tint: Color = .accentColor
     var isBusy: Bool = false
     var isDisabled: Bool = false
+    /// An asset image in place of the SF Symbol - the Kaspa logo on "Pay in Kaspa", which every
+    /// menu in the app shows with the logo rather than a stand-in glyph.
+    var customIcon: Image? = nil
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(tint)
-                    .frame(width: 28)
+                Group {
+                    if let customIcon {
+                        customIcon
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 22, height: 22)
+                    } else {
+                        Image(systemName: systemImage)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(tint)
+                    }
+                }
+                .frame(width: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
