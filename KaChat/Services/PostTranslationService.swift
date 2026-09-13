@@ -66,12 +66,22 @@ final class PostTranslationService: ObservableObject {
 
     // MARK: - Detection
 
-    /// Confidence floor for `NLLanguageRecognizer`. Short social-media text is genuinely hard to
-    /// identify, and a wrong guess is worse than no offer: it puts a "Translate from Portuguese"
-    /// link under a perfectly readable English post.
+    /// Confidence floor for `NLLanguageRecognizer` on Latin-script text of `minimumLetters` or
+    /// more. Short social-media text is genuinely hard to identify, and a wrong guess is worse
+    /// than no offer: it puts a "Translate from Portuguese" link under a perfectly readable
+    /// English post.
     private static let minimumConfidence = 0.55
-    /// Below this many letters, detection is guesswork. Emoji-only and "gm" posts fall out here.
+    /// The floor for Latin-script text SHORTER than `minimumLetters`. A short post has to be
+    /// nearly certain, but certainty is common: measured, "bom dia" scores 0.79 and "sehr gut"
+    /// 1.00, while "hola" scores 0.56 and "gm" 0.28. This used to be a hard letter floor instead,
+    /// which rejected "đang rất hóng" - eleven letters, Vietnamese at 1.00 - and "danke schön"
+    /// (ten, 1.00) before the recognizer ever ran, so a short reply in another language showed no
+    /// Translate link at all.
+    private static let shortTextConfidence = 0.75
+    /// Where the long-text floor takes over from the short-text one.
     private static let minimumLetters = 12
+    /// Below this the recognizer is not worth running: emoji-only and "gm" posts fall out here.
+    private static let minimumLettersToDetect = 4
 
     /// Stable per-post key. On-chain posts key by their txid so a translation survives the feed
     /// being re-sorted or re-paged; local session posts fall back to their UUID.
@@ -110,7 +120,8 @@ final class PostTranslationService: ObservableObject {
     /// as whatever language the URL's letters resemble.
     private static func computeDetectedLanguage(of text: String) -> Locale.Language? {
         let stripped = strippedForDetection(text)
-        guard stripped.filter(\.isLetter).count >= minimumLetters else { return nil }
+        let letterCount = stripped.filter(\.isLetter).count
+        guard letterCount >= minimumLettersToDetect else { return nil }
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(stripped)
         let hypotheses = recognizer.languageHypotheses(withMaximum: 8)
@@ -126,17 +137,22 @@ final class PostTranslationService: ObservableObject {
         // is simply the wrong answer, whatever probability was attached to it, so the best
         // hypothesis that IS written in that script wins instead.
         //
-        // No confidence floor on that branch. The floor exists to stop a coin-flip between two
-        // Latin-script languages putting "Translate from Portuguese" under readable English; it is
-        // not needed to know that Cyrillic text is not Swedish - the script already said so.
-        if let script = dominantScript(of: stripped),
-           script != Self.latinScript,
-           scriptCode(of: best.key) != script,
-           let sameScript = hypotheses.first(where: { scriptCode(of: $0.key) == script }) {
-            return Locale.Language(identifier: sameScript.key.rawValue)
+        // No confidence floor and no length floor on that branch. The floors exist to stop a
+        // coin-flip between two Latin-script languages putting "Translate from Portuguese" under
+        // readable English; neither is needed to know that Cyrillic text is not Swedish - the
+        // script already said so - and five letters of kana identify as Japanese at 1.00.
+        if let script = dominantScript(of: stripped), script != Self.latinScript {
+            if scriptCode(of: best.key) != script,
+               let sameScript = hypotheses.first(where: { scriptCode(of: $0.key) == script }) {
+                return Locale.Language(identifier: sameScript.key.rawValue)
+            }
+            return Locale.Language(identifier: best.key.rawValue)
         }
 
-        guard best.value >= minimumConfidence else { return nil }
+        // Latin script: the floor scales with length. Short text is where the coin-flips live,
+        // so it has to be nearly certain; from `minimumLetters` up the usual floor applies.
+        let floor = letterCount >= minimumLetters ? minimumConfidence : shortTextConfidence
+        guard best.value >= floor else { return nil }
         return Locale.Language(identifier: best.key.rawValue)
     }
 
