@@ -1933,6 +1933,21 @@ final class KNSDomainTransferService: ObservableObject {
         }
         let fundingAddress = sourceAddress
         let fundingPrivateKey = sourcePrivateKey
+        // A transfer funded by the PRIMARY spending address is a send out of it, so both
+        // transactions' change lands on a fresh index (past the all-time max: never revealed,
+        // funded or offered) and the primary rotates there once the reveal is accepted - the
+        // same rule as chat payments and withdrawals. The domain itself leaves anyway; the old
+        // address keeps any other domains it holds and stays listed in Manage Addresses. If
+        // the fresh address cannot be derived, change stays on the source and nothing rotates.
+        var freshChangeIndex: Int?
+        var changeAddress = fundingAddress
+        if let index = fromSpendingAddressIndex, index == walletManager.currentSpendingAddressIndex {
+            let candidate = max(walletManager.maxSpendingAddressIndex, index) + 1
+            if let fresh = walletManager.spendingAddress(at: candidate) {
+                freshChangeIndex = candidate
+                changeAddress = fresh
+            }
+        }
 
         let assetId = rawAssetId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !assetId.isEmpty else {
@@ -1993,11 +2008,19 @@ final class KNSDomainTransferService: ObservableObject {
             utxos: utxos,
             title: "kns",
             commitAmountSompi: commitSompi,
-            revealAmountSompi: revealSompi
+            revealAmountSompi: revealSompi,
+            changeAddress: changeAddress
         )
         await report(.submittingCommit)
         let (commitTxId, _) = try await nodePool.submitTransaction(commitTx, allowOrphan: false)
         log("COMMIT_SUBMITTED domain=\(domain) txId=\(commitTxId)")
+        if let freshChangeIndex {
+            // The commit is accepted and its change is already on the fresh address, so the
+            // primary follows it now. Should the reveal still fail, the commit output is
+            // recoverable from the source key either way, and the pointer no longer names an
+            // address that just spent.
+            await walletManager.setActiveSpendingAddress(freshChangeIndex)
+        }
         await report(.waitingForCommit)
         ChatService.shared.registerSuppressedPaymentTxIds(
             [commitTxId],
@@ -2007,7 +2030,7 @@ final class KNSDomainTransferService: ObservableObject {
         let revealTx = try KasiaTransactionBuilder.buildKNSAddProfileRevealTx(
             ownerAddress: sourceAddress,
             ownerPrivateKey: sourcePrivateKey,
-            changeAddress: fundingAddress,
+            changeAddress: changeAddress,
             commitTxId: commitTxId,
             commitContext: commitContext,
             revealTargetAddress: sourceAddress,

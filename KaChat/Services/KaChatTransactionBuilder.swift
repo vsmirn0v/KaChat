@@ -1018,7 +1018,9 @@ struct KasiaTransactionBuilder {
     /// output (UTXO inputs, change) and sign this transaction; they never touch ownership.
     /// Matches Android's buildAndSubmitCommit(fundingAddress:fundingPrivateKey:ownerPrivateKey:)
     /// split, letting a spending address fund domain/profile writes while the identity
-    /// address remains the resolved owner.
+    /// address remains the resolved owner. `changeAddress` redirects the funding change
+    /// (default: back to `fundingAddress`) - used when the primary spending address funds a
+    /// transfer and its change must land on a fresh address.
     static func buildKNSAddProfileCommitTx(
         ownerAddress: String,
         fundingAddress: String,
@@ -1027,7 +1029,8 @@ struct KasiaTransactionBuilder {
         utxos: [UTXO],
         title: String = "kns",
         commitAmountSompi: UInt64 = 200_000_000,
-        revealAmountSompi: UInt64 = 100_000_000
+        revealAmountSompi: UInt64 = 100_000_000,
+        changeAddress: String? = nil
     ) throws -> (transaction: KaspaRpcTransaction, context: KNSCommitContext) {
         guard commitAmountSompi > 0 else {
             throw KasiaError.networkError("KNS commit amount must be positive")
@@ -1035,6 +1038,15 @@ struct KasiaTransactionBuilder {
 
         guard let fundingScriptPubKey = KaspaAddress.scriptPublicKey(from: fundingAddress) else {
             throw KasiaError.invalidAddress
+        }
+        let changeScriptPubKey: Data
+        if let changeAddress {
+            guard let script = KaspaAddress.scriptPublicKey(from: changeAddress) else {
+                throw KasiaError.invalidAddress
+            }
+            changeScriptPubKey = script
+        } else {
+            changeScriptPubKey = fundingScriptPubKey
         }
 
         let redeemScript = try buildKNSRedeemScript(
@@ -1068,7 +1080,7 @@ struct KasiaTransactionBuilder {
             outputs.append(
                 KaspaRpcTransactionOutput(
                     value: selection.change,
-                    scriptPublicKey: KaspaScriptPublicKey(version: 0, script: fundingScriptPubKey)
+                    scriptPublicKey: KaspaScriptPublicKey(version: 0, script: changeScriptPubKey)
                 )
             )
         }

@@ -2541,9 +2541,15 @@ extension ChatService {
     }
 
     /// Sends a plain KAS transfer from a specific spending-chain address (Manage Addresses'
-    /// per-row Withdraw action). Change stays on the *same* spending address — unlike
-    /// advanceSpendingAddressIndex-driven sends, this is a scoped, explicit single-address
-    /// operation and doesn't rotate which address is "primary."
+    /// per-row Withdraw action).
+    ///
+    /// For a NON-primary index the change stays on the same address: that is a scoped,
+    /// explicit single-address operation, and the row's own balance is what the user is
+    /// managing. The primary is different. A send from it puts its change on a fresh index and
+    /// rotates the primary to that index - exactly what a chat payment does - so the address
+    /// you spend from and hand out next has never been used before. This path used to leave
+    /// the primary sitting on the address it had just spent from. The old primary keeps
+    /// whatever it still holds, listed in Manage Addresses like any other revealed slot.
     func sendFromSpendingAddress(index: Int, toAddress: String, amountSompi: UInt64, manualUtxos: [UTXO]? = nil, extraFeeSompi: UInt64 = 0) async throws -> String {
         guard amountSompi > 0 else {
             throw KasiaError.networkError("Amount must be greater than zero")
@@ -2554,6 +2560,24 @@ extension ChatService {
         guard let fromAddress = WalletManager.shared.spendingAddress(at: index),
               let privateKey = WalletManager.shared.spendingPrivateKey(at: index) else {
             throw KasiaError.keychainError("Could not derive this spending address")
+        }
+        // Fresh change index for the primary only: past the all-time max, so it has never been
+        // revealed, funded or offered (the same rule `sendPaymentInternal` uses). Decided up
+        // front and applied only after the node accepts the transaction, so a failed send moves
+        // nothing. If the fresh address cannot be derived this instant, change stays put and
+        // the primary stays put with it - rotating onto an address the change did not reach
+        // would strand the funds behind a pointer. A self-send (the Compound action) moves
+        // nothing out of the address, so it neither splits its consolidation onto a fresh
+        // address nor rotates.
+        var freshChangeIndex: Int?
+        var changeAddress: String?
+        let isSelfSend = toAddress.lowercased() == fromAddress.lowercased()
+        if !isSelfSend, index == WalletManager.shared.currentSpendingAddressIndex {
+            let candidate = max(WalletManager.shared.maxSpendingAddressIndex, index) + 1
+            if let address = WalletManager.shared.spendingAddress(at: candidate) {
+                freshChangeIndex = candidate
+                changeAddress = address
+            }
         }
 
         return try await enqueueOutgoingTxOperation {
@@ -2603,12 +2627,18 @@ extension ChatService {
                 utxos: spendable,
                 manualUtxos: resolvedManualUtxos,
                 extraFeeSompi: extraFeeSompi,
+                changeAddress: changeAddress,
                 virtualDaaScore: vds
             )
 
             AppLog.log("[ChatService] Submitting spending-address withdrawal via RPC manager...")
             let (txId, endpoint) = try await rpcManager.submitTransaction(tx, allowOrphan: false)
             AppLog.log("[ChatService] Spending-address withdrawal submitted: \(txId) via \(endpoint)")
+            if let freshChangeIndex {
+                // The primary follows its change onto the fresh address. Manage Addresses
+                // listens for this and moves its star at once.
+                await WalletManager.shared.setActiveSpendingAddress(freshChangeIndex)
+            }
             return txId
         }
     }
