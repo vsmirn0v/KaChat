@@ -421,7 +421,7 @@ final class NodePoolService: ObservableObject {
 
         var orderedEndpoints = activeCandidates
         if orderedEndpoints.isEmpty {
-            orderedEndpoints = await selector.pickBest(for: op, count: 5)
+            orderedEndpoints = await endpointsForRequest(op: op, count: 5)
         }
 
         let excluded = Set(orderedEndpoints.map(\.key))
@@ -590,11 +590,23 @@ final class NodePoolService: ObservableObject {
             }
 
             if txResponse.hasError && !txResponse.error.message.isEmpty {
-                throw KasiaError.networkError(txResponse.error.message)
+                throw NodeRejectedTransactionError(message: txResponse.error.message)
             }
 
             return (txId: txResponse.transactionID, endpoint: conn.endpoint.key)
         }
+    }
+
+    /// A node answered a submit by rejecting the TRANSACTION (bad fee, spent input, orphan,
+    /// already accepted...). That is a verdict on the transaction, not on the node, which just
+    /// proved it is up and answering - so `executeHedged` records it as a healthy response
+    /// instead of a failure. Counting these as failures used to trip breakers on the three
+    /// hedged nodes every time a doomed transaction was retried, until the pool had no
+    /// eligible node left and every send met "No suitable endpoints" for the next 30s.
+    /// Callers see the same `KasiaError.networkError(message)` they always did.
+    private struct NodeRejectedTransactionError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
     }
 
     /// Get mempool entry for a transaction (returns nil if not in mempool)
@@ -814,13 +826,45 @@ final class NodePoolService: ObservableObject {
 
     // MARK: - Request Execution
 
+    /// Endpoints for a user-facing request, never an empty list while any node could possibly
+    /// serve it. Strict selection first. If that is empty because the pool is still booting
+    /// (cold launch, or a wallet switch re-initialising it), wait up to six seconds for
+    /// quickBoot to profile something rather than fail a send the user tapped a second too
+    /// early. If it is empty on a ready pool - every node breaker-open after a burst, say -
+    /// widen to breaker-open and unprofiled nodes, then to anything not proven unfit. Only a
+    /// pool with no possible node at all yields the empty list callers turn into
+    /// "No suitable endpoints".
+    private func endpointsForRequest(op: OperationClass, count: Int) async -> [Endpoint] {
+        var endpoints = await selector.pickBest(for: op, count: count)
+        if endpoints.isEmpty && (isInitializing || !isReady) {
+            for _ in 0..<24 {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                endpoints = await selector.pickBest(for: op, count: count)
+                if !endpoints.isEmpty || (isReady && !isInitializing) { break }
+            }
+        }
+        if endpoints.isEmpty {
+            endpoints = await selector.pickBest(for: op, count: count, relaxation: .ignoreBreakers)
+            if !endpoints.isEmpty {
+                AppLog.log("[NodePool] No strictly eligible node for %@ - trying breaker-open/unprofiled nodes", String(describing: op))
+            }
+        }
+        if endpoints.isEmpty {
+            endpoints = await selector.pickBest(for: op, count: count, relaxation: .anyPossible)
+            if !endpoints.isEmpty {
+                AppLog.log("[NodePool] No eligible node for %@ - trying any node not proven unfit", String(describing: op))
+            }
+        }
+        return endpoints
+    }
+
     /// Execute a request with automatic failover
     /// Prioritizes already-connected endpoints
     private func executeWithFailover<T>(
         op: OperationClass,
         _ execute: (GRPCStreamConnection) async throws -> T
     ) async throws -> T {
-        let endpoints = await selector.pickBest(for: op, count: 5)
+        let endpoints = await endpointsForRequest(op: op, count: 5)
 
         guard !endpoints.isEmpty else {
             throw KasiaError.networkError("No suitable endpoints")
@@ -887,7 +931,7 @@ final class NodePoolService: ObservableObject {
         op: OperationClass,
         _ execute: @escaping (GRPCStreamConnection) async throws -> T
     ) async throws -> T {
-        let endpoints = await selector.pickBest(for: op, count: 5)  // Get more candidates
+        let endpoints = await endpointsForRequest(op: op, count: 5)  // Get more candidates
 
         guard !endpoints.isEmpty else {
             throw KasiaError.networkError("No suitable endpoints")
@@ -935,13 +979,13 @@ final class NodePoolService: ObservableObject {
                     }
 
                     let conn = await self.connectionPool.connection(for: endpoint)
+                    let startTime = Date()
 
                     do {
                         if await !conn.isConnected {
                             try await conn.connect()
                         }
 
-                        let startTime = Date()
                         let result = try await execute(conn)
                         let latencyMs = Date().timeIntervalSince(startTime) * 1000
 
@@ -954,6 +998,17 @@ final class NodePoolService: ObservableObject {
                         )
 
                         return .success(result)
+                    } catch let rejection as NodeRejectedTransactionError {
+                        // The node is fine; the transaction was refused. Healthy response.
+                        await self.registry.recordResult(
+                            endpoint: endpoint,
+                            epochId: await MainActor.run { self.epochMonitor.epochId },
+                            latencyMs: Date().timeIntervalSince(startTime) * 1000,
+                            isTimeout: false,
+                            isError: false
+                        )
+                        AppLog.log("[NodePool] %@ rejected the transaction: %@", endpoint.key, rejection.message)
+                        return .failure(KasiaError.networkError(rejection.message))
                     } catch {
                         let isTimeout = error.localizedDescription.lowercased().contains("timeout")
                         await self.registry.recordResult(

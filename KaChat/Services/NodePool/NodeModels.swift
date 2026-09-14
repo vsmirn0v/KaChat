@@ -491,25 +491,49 @@ struct NodeRecord: Codable, Identifiable {
         }
     }
 
-    /// Whether this node can handle the given operation
-    func canHandle(_ op: OperationClass) -> Bool {
-        // Can't use quarantined or circuit-open nodes
-        if health.isQuarantined || health.isCircuitOpen {
-            return false
+    /// Whether this node can handle the given operation.
+    ///
+    /// `.strict` is the everyday rule. The relaxed tiers exist for one situation: a user-facing
+    /// request (a send, a balance read) finds NOTHING eligible - every node breaker-open after
+    /// a burst of failures, or the pool freshly loaded with no node profiled yet. Refusing with
+    /// "No suitable endpoints" then made the user retry until a 30s breaker window lapsed.
+    /// Trying a node that is merely unproven or recently failed costs one request; a node
+    /// that PROVED unfit (reported unsynced, or without the UTXO index the call needs) is
+    /// still skipped at every tier, since it cannot answer correctly.
+    func canHandle(_ op: OperationClass, relaxation: SelectionRelaxation = .strict) -> Bool {
+        switch relaxation {
+        case .strict:
+            if health.isQuarantined || health.isCircuitOpen { return false }
+            if op.requiresSynced && profile.isSynced != true { return false }
+            if op.requiresUtxoIndex && profile.isUtxoIndexed != true { return false }
+            return true
+        case .ignoreBreakers:
+            // Breaker windows are 30s verdicts on a few failed requests; an unprofiled node's
+            // capabilities are simply unknown. Neither is proof the node cannot serve this.
+            if health.isQuarantined { return false }
+            if op.requiresSynced && profile.isSynced == false { return false }
+            if op.requiresUtxoIndex && profile.isUtxoIndexed == false { return false }
+            return true
+        case .anyPossible:
+            if op.requiresSynced && profile.isSynced == false { return false }
+            if op.requiresUtxoIndex && profile.isUtxoIndexed == false { return false }
+            return true
         }
+    }
+}
 
-        // Seeds can now be used for all operations if they meet capability requirements
-        // No longer restricting seeds to just discovery and profiling
+/// How far node selection may reach past its strict health rules when nothing strict is
+/// available - see `NodeRecord.canHandle(_:relaxation:)`. Ordered from strictest to loosest.
+enum SelectionRelaxation: Int, Comparable {
+    /// Healthy, breaker closed, capabilities proven.
+    case strict = 0
+    /// Breaker-open and unprofiled nodes too; quarantined and proven-unfit still out.
+    case ignoreBreakers = 1
+    /// Everything but proven-unfit, quarantine included.
+    case anyPossible = 2
 
-        // Check capability requirements
-        if op.requiresSynced && profile.isSynced != true {
-            return false
-        }
-        if op.requiresUtxoIndex && profile.isUtxoIndexed != true {
-            return false
-        }
-
-        return true
+    static func < (lhs: SelectionRelaxation, rhs: SelectionRelaxation) -> Bool {
+        lhs.rawValue < rhs.rawValue
     }
 }
 

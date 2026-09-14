@@ -76,11 +76,14 @@ actor NodeSelector {
     ///   - op: The operation type
     ///   - count: Number of nodes to return
     ///   - excluding: Endpoints to exclude (e.g., recently failed)
+    ///   - relaxation: How far past the strict health rules to reach (see
+    ///     `NodeRecord.canHandle(_:relaxation:)`); the score still ranks the healthiest first.
     /// - Returns: Array of best endpoints, sorted by score (best first)
     func pickBest(
         for op: OperationClass,
         count: Int = 1,
-        excluding: Set<String> = []
+        excluding: Set<String> = [],
+        relaxation: SelectionRelaxation = .strict
     ) async -> [Endpoint] {
         let nodes = await registry.allRecords()
 
@@ -90,7 +93,7 @@ actor NodeSelector {
             guard !excluding.contains(record.endpoint.key) else { return false }
 
             // Can handle this operation
-            return record.canHandle(op)
+            return record.canHandle(op, relaxation: relaxation)
         }
 
         // Score and sort
