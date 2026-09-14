@@ -363,9 +363,16 @@ struct LinkPreviewCardView: View {
 
     /// `hideLink` drops Copy Link, for a share the server says is revoked - the whole point of
     /// that tile is that the URL stops travelling any further.
+    ///
+    /// Every Nextcloud share hides it, revoked or not, and the menu decides that itself from the
+    /// URL rather than trusting each card state to pass the flag. A share link is the address of
+    /// someone's photo or file: the preview exists so the recipient can SEE it, and a long-press
+    /// that hands them the URL to forward defeats the sender's choice to share it in one place.
+    /// The check is a pure URL classification, so it holds for the tap-to-load placeholder too,
+    /// before anything about the share has been fetched.
     @ViewBuilder
     private func contextMenuItems(hideLink: Bool = false) -> some View {
-        if !hideLink {
+        if !hideLink, LinkPreviewService.nextcloudShareEndpoints(for: url) == nil {
             Button {
                 UIPasteboard.general.string = url.absoluteString
             } label: {

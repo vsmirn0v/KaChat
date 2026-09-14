@@ -1727,10 +1727,14 @@ private struct BroadcastMessageRow: View {
             } label: {
                 Label("Open Link", systemImage: "safari")
             }
-            Button {
-                UIPasteboard.general.string = firstLink.absoluteString
-            } label: {
-                Label("Copy Link", systemImage: "link")
+            // Not for a Nextcloud share: the link is the address of someone's file, and the
+            // preview card already refuses to hand it out - same rule here, same classifier.
+            if LinkPreviewService.nextcloudShareEndpoints(for: firstLink) == nil {
+                Button {
+                    UIPasteboard.general.string = firstLink.absoluteString
+                } label: {
+                    Label("Copy Link", systemImage: "link")
+                }
             }
         }
         if voicePayload == nil {
