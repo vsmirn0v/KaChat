@@ -2031,9 +2031,28 @@ struct ChatDetailView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 4)
 
-            // With "Send Media via Nextcloud" toggled on, the composer bar's own camera/mic
-            // buttons cover native capture (uploading via the server), so this offers only the
-            // server browser. Toggle off keeps the classic Send Photo / Send Audio entries.
+            // The on-chain options are always here. They used to disappear when "Send Media via
+            // Nextcloud" was on, on the theory that the composer bar's camera and mic covered
+            // capture - but those upload through the server, and a user who wants a photo or a
+            // voice note to live on chain rather than on their Nextcloud had no way left to send
+            // one. The two are different things, so both are offered, named for what they do.
+            ActionSheetRow(
+                title: "Send On-Chain Photo",
+                subtitle: "Pick an image from your library and send it on chain.",
+                systemImage: "photo"
+            ) {
+                showComposerPlusSheet = false
+                DispatchQueue.main.async { showPhotoPickerFromMenu = true }
+            }
+            ActionSheetRow(
+                title: "Send On-Chain Voice Message",
+                subtitle: "Record a voice message and send it on chain.",
+                systemImage: "mic.circle.fill"
+            ) {
+                showComposerPlusSheet = false
+                switchMode(.audio)
+                startRecording()
+            }
             if nextcloudService.isConnected {
                 ActionSheetRow(
                     title: "Send from Nextcloud",
@@ -2042,25 +2061,6 @@ struct ChatDetailView: View {
                 ) {
                     showComposerPlusSheet = false
                     DispatchQueue.main.async { showNextcloudPicker = true }
-                }
-            }
-            if !(nextcloudService.isConnected && nextcloudService.mediaSendEnabled) {
-                ActionSheetRow(
-                    title: "Send Photo",
-                    subtitle: "Pick an image from your library.",
-                    systemImage: "photo"
-                ) {
-                    showComposerPlusSheet = false
-                    DispatchQueue.main.async { showPhotoPickerFromMenu = true }
-                }
-                ActionSheetRow(
-                    title: "Send Audio Message",
-                    subtitle: "Record a voice message and send it.",
-                    systemImage: "mic.circle.fill"
-                ) {
-                    showComposerPlusSheet = false
-                    switchMode(.audio)
-                    startRecording()
                 }
             }
             // Send Kaspa left this menu: the Kaspa logo inside the input bubble is the
@@ -2091,7 +2091,9 @@ struct ChatDetailView: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(420)])
+        // Up to five rows now (both on-chain options, Nextcloud, chess, a handshake), so a fixed
+        // height no longer fits every case; medium expands to large for the tallest.
+        .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
 

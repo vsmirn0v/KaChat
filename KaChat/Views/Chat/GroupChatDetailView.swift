@@ -1306,9 +1306,27 @@ struct GroupChatDetailView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 4)
 
-            // With "Send Media via Nextcloud" toggled on, the composer bar's own camera/mic
-            // buttons cover native capture (uploading via the server), so this offers only the
-            // server browser. Toggle off keeps the classic Send Photo / Send Audio entries.
+            // The on-chain options are always here, as in 1:1 chats. They used to disappear when
+            // "Send Media via Nextcloud" was on, but a photo or a voice note sent through the
+            // server and one sent on chain are different things, and a member who wanted the
+            // on-chain one had no way left to send it.
+            ActionSheetRow(
+                title: "Send On-Chain Photo",
+                subtitle: "Pick an image from your library and send it on chain.",
+                systemImage: "photo"
+            ) {
+                showPlusSheet = false
+                DispatchQueue.main.async { showPhotoPicker = true }
+            }
+            ActionSheetRow(
+                title: "Send On-Chain Voice Message",
+                subtitle: "Record a voice message and send it to the group on chain.",
+                systemImage: "mic.circle.fill"
+            ) {
+                showPlusSheet = false
+                feeEstimateSompi = nil
+                recorder.start()
+            }
             if nextcloudService.isConnected {
                 ActionSheetRow(
                     title: "Send from Nextcloud",
@@ -1319,32 +1337,14 @@ struct GroupChatDetailView: View {
                     DispatchQueue.main.async { showNextcloudPicker = true }
                 }
             }
-            if !(nextcloudService.isConnected && nextcloudService.mediaSendEnabled) {
-                ActionSheetRow(
-                    title: "Send Photo",
-                    subtitle: "Pick an image from your library.",
-                    systemImage: "photo"
-                ) {
-                    showPlusSheet = false
-                    DispatchQueue.main.async { showPhotoPicker = true }
-                }
-                ActionSheetRow(
-                    title: "Send Audio Message",
-                    subtitle: "Record a voice message and send it to the group.",
-                    systemImage: "mic.circle.fill"
-                ) {
-                    showPlusSheet = false
-                    feeEstimateSompi = nil
-                    recorder.start()
-                }
-            }
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .presentationDetents([.height(320)])
+        // Three rows with two-line subtitles when Nextcloud is connected; 320 clipped the last.
+        .presentationDetents([.height(360)])
         .presentationDragIndicator(.visible)
     }
 
