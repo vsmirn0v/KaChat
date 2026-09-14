@@ -1503,7 +1503,7 @@ struct ConversationRow: View {
         // Check if content is a file JSON payload
         let trimmed = unwrapped.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("{"), trimmed.hasSuffix("}") else {
-            result = unwrapped
+            result = LinkSafePreview.apply(to: unwrapped)
             Self.previewCache.setObject(result as NSString, forKey: key)
             return result
         }
@@ -1522,7 +1522,7 @@ struct ConversationRow: View {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               json["type"] as? String == "file",
               let mimeType = json["mimeType"] as? String else {
-            result = unwrapped
+            result = LinkSafePreview.apply(to: unwrapped)
             Self.previewCache.setObject(result as NSString, forKey: key)
             return result
         }
@@ -1539,6 +1539,46 @@ struct ConversationRow: View {
         }
         Self.previewCache.setObject(result as NSString, forKey: key)
         return result
+    }
+}
+
+/// The preview a link-bearing message gets in the chat and group lists: never the link itself.
+///
+/// A raw URL in a list row is noise at best, and for Nextcloud media it was worse - the message
+/// IS a public share link, so the row showed the address of someone's photo to anyone glancing
+/// at the phone. Any message carrying an http(s) link previews as an attachment instead,
+/// whatever else it says. Only web links count: a message that is a `kaspa:` address must keep
+/// reading as one, and the detector would otherwise take that for a URL too.
+private enum LinkSafePreview {
+    static let sentALink = "📎 Sent a link"
+
+    /// Keyed the same way `formatPreview`'s cache is - the group row has no cache of its own and
+    /// renders its preview on every pass, and a detector scan per pass is exactly the kind of
+    /// per-row cost the chat list has been shedding.
+    private static let cache: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 512
+        return cache
+    }()
+
+    static func apply(to text: String) -> String {
+        let key = "\(text.utf8.count)|\(text.prefix(24))" as NSString
+        if let cached = cache.object(forKey: key) { return cached as String }
+        let result = containsWebLink(text) ? sentALink : text
+        cache.setObject(result as NSString, forKey: key)
+        return result
+    }
+
+    private static func containsWebLink(_ text: String) -> Bool {
+        guard let detector = SharedDetectors.link else { return false }
+        let range = NSRange(text.startIndex..., in: text)
+        var found = false
+        detector.enumerateMatches(in: text, options: [], range: range) { match, _, stop in
+            guard let scheme = match?.url?.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
+            found = true
+            stop.pointee = true
+        }
+        return found
     }
 }
 
@@ -1690,7 +1730,7 @@ struct GroupChatRow: View {
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                     } else if let lastMessage {
-                        Text(GroupMentionCodec.decodeForDisplay(MessageReplyCodec.previewText(for: lastMessage.content), members: group.members, resolveDisplayName: resolveDisplayName(for:)))
+                        Text(GroupMentionCodec.decodeForDisplay(LinkSafePreview.apply(to: MessageReplyCodec.previewText(for: lastMessage.content)), members: group.members, resolveDisplayName: resolveDisplayName(for:)))
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                             .lineLimit(1)

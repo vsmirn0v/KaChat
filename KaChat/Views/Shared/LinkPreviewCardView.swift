@@ -511,16 +511,20 @@ private struct NextcloudMediaViewerView: View {
                             Image(systemName: "exclamationmark.triangle")
                                 .font(.system(size: 32))
                                 .foregroundColor(.secondary)
+                            // No "Open in Nextcloud" escape hatch. A file that fails to load
+                            // here has almost always lost its share, and that link opened a
+                            // browser onto the same dead share - a second failure dressed as
+                            // an option.
                             Text("Could not load this file.")
                                 .foregroundColor(.secondary)
-                            Link("Open in Nextcloud", destination: target.shareURL)
                         }
                     } else {
                         ProgressView().tint(.white)
                     }
                 case .file:
-                    // Never presented (handleTap routes .file to the browser) — safe fallback.
-                    Link("Open in Nextcloud", destination: target.shareURL)
+                    // Never presented (handleTap routes .file to the browser) - safe fallback.
+                    Text("Could not load this file.")
+                        .foregroundColor(.secondary)
                 case .image:
                     if let image {
                         // Same pinch-zoom/pan component as the local chat-photo preview.
@@ -530,9 +534,12 @@ private struct NextcloudMediaViewerView: View {
                             Image(systemName: "exclamationmark.triangle")
                                 .font(.system(size: 32))
                                 .foregroundColor(.secondary)
+                            // No "Open in Nextcloud" escape hatch. A file that fails to load
+                            // here has almost always lost its share, and that link opened a
+                            // browser onto the same dead share - a second failure dressed as
+                            // an option.
                             Text("Could not load this file.")
                                 .foregroundColor(.secondary)
-                            Link("Open in Nextcloud", destination: target.shareURL)
                         }
                     } else {
                         ProgressView()
