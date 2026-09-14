@@ -6414,18 +6414,57 @@ final class KaPostsActionScheduler: ObservableObject {
 /// Followed poster addresses, persisted locally in UserDefaults. This is deliberately NOT wired
 /// to anything on-chain yet - it exists so Follow/Following state survives relaunch and the
 /// Following feed has something real to filter on once posts are wired.
+///
+/// Scoped per account: follows belong to the identity that made them, and every saved
+/// account is a different identity on KaPosts. One shared list used to follow the device
+/// instead, so a brand-new account opened KaPosts already "following" everyone the first
+/// account follows. `WalletManager` calls `setCurrentWallet` beside its other per-account
+/// stores on every load, switch, logout and delete.
 @MainActor
 final class KaPostsFollowStore: ObservableObject {
     static let shared = KaPostsFollowStore()
 
     @Published private(set) var following: Set<String> = []
 
-    private let defaultsKey = "kachat_kaposts_following"
+    /// The pre-scoping key. Adopted by the account when the device has only one (it is the
+    /// owner by construction); with more it is unassignable and left alone - the on-chain
+    /// graph rebuilds each account's set anyway (see `syncFromChain`).
+    private static let legacyDefaultsKey = "kachat_kaposts_following"
+    private var walletAddress: String?
+
+    private var defaultsKey: String? {
+        walletAddress.map { "kachat_kaposts_following_\($0)" }
+    }
 
     private init() {
+        setCurrentWallet(WalletManager.shared.currentWallet?.publicAddress)
+    }
+
+    /// Loads the given account's follow set (empty when logged out) and forgets the previous
+    /// account's chain sync so the new one gets its own.
+    func setCurrentWallet(_ address: String?) {
+        let normalized = address?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        walletAddress = (normalized?.isEmpty == false) ? normalized : nil
+        chainSyncStarted = false
+        guard let defaultsKey else {
+            following = []
+            return
+        }
         if let stored = UserDefaults.standard.stringArray(forKey: defaultsKey) {
             following = Set(stored)
+        } else if let legacy = UserDefaults.standard.stringArray(forKey: Self.legacyDefaultsKey),
+                  WalletManager.shared.savedAccounts.count <= 1 {
+            following = Set(legacy)
+            UserDefaults.standard.set(legacy, forKey: defaultsKey)
+            UserDefaults.standard.removeObject(forKey: Self.legacyDefaultsKey)
+        } else {
+            following = []
         }
+    }
+
+    private func persist() {
+        guard let defaultsKey else { return }
+        UserDefaults.standard.set(Array(following), forKey: defaultsKey)
     }
 
     func isFollowing(_ address: String) -> Bool {
@@ -6440,7 +6479,7 @@ final class KaPostsFollowStore: ObservableObject {
         } else {
             following.insert(address)
         }
-        UserDefaults.standard.set(Array(following), forKey: defaultsKey)
+        persist()
     }
 
     /// Scrubs a stale entry (used to drop any old self-follow left from before the
@@ -6448,7 +6487,7 @@ final class KaPostsFollowStore: ObservableObject {
     func removeIfPresent(_ address: String) {
         guard !address.isEmpty, following.contains(address) else { return }
         following.remove(address)
-        UserDefaults.standard.set(Array(following), forKey: defaultsKey)
+        persist()
     }
 
     /// One-shot per session: rebuild this LOCAL set from the on-chain follow graph. Every
@@ -6482,10 +6521,13 @@ final class KaPostsFollowStore: ObservableObject {
                     cursor = next
                 }
                 let myAddress = WalletManager.shared.currentWallet?.publicAddress
+                // The account may have switched while the pages loaded; this graph belongs
+                // to the one that asked for it.
+                guard myAddress?.lowercased() == walletAddress else { return }
                 let merged = following.union(chain).subtracting([myAddress ?? ""])
                 if merged != following {
                     following = merged
-                    UserDefaults.standard.set(Array(following), forKey: defaultsKey)
+                    persist()
                 }
             } catch {
                 chainSyncStarted = false // network miss — retry on the next KaPosts open
@@ -6499,18 +6541,48 @@ final class KaPostsFollowStore: ObservableObject {
 /// Muted + blocked poster addresses, persisted locally. Both hide the author's content
 /// everywhere in KaPosts; the distinction - a muted user can still interact with you, a blocked
 /// user cannot - takes effect when real feeds/interactions are wired.
+@MainActor
 final class KaPostsModerationStore: ObservableObject {
     static let shared = KaPostsModerationStore()
 
     @Published private(set) var muted: Set<String> = []
     @Published private(set) var blocked: Set<String> = []
 
-    private let mutedKey = "kachat_kaposts_muted"
-    private let blockedKey = "kachat_kaposts_blocked"
+    /// Per account, like `KaPostsFollowStore` - who you mute is a decision of one identity, not
+    /// of the device. Same legacy rule: the pre-scoping lists go to the account when it is the
+    /// only one saved; otherwise they are unassignable and left untouched.
+    private static let legacyMutedKey = "kachat_kaposts_muted"
+    private static let legacyBlockedKey = "kachat_kaposts_blocked"
+    private var walletAddress: String?
+
+    private var mutedKey: String? { walletAddress.map { "kachat_kaposts_muted_\($0)" } }
+    private var blockedKey: String? { walletAddress.map { "kachat_kaposts_blocked_\($0)" } }
 
     private init() {
-        muted = Set(UserDefaults.standard.stringArray(forKey: mutedKey) ?? [])
-        blocked = Set(UserDefaults.standard.stringArray(forKey: blockedKey) ?? [])
+        setCurrentWallet(WalletManager.shared.currentWallet?.publicAddress)
+    }
+
+    func setCurrentWallet(_ address: String?) {
+        let normalized = address?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        walletAddress = (normalized?.isEmpty == false) ? normalized : nil
+        guard let mutedKey, let blockedKey else {
+            muted = []
+            blocked = []
+            return
+        }
+        let defaults = UserDefaults.standard
+        let hasScoped = defaults.object(forKey: mutedKey) != nil || defaults.object(forKey: blockedKey) != nil
+        if !hasScoped, WalletManager.shared.savedAccounts.count <= 1,
+           defaults.object(forKey: Self.legacyMutedKey) != nil || defaults.object(forKey: Self.legacyBlockedKey) != nil {
+            muted = Set(defaults.stringArray(forKey: Self.legacyMutedKey) ?? [])
+            blocked = Set(defaults.stringArray(forKey: Self.legacyBlockedKey) ?? [])
+            persist()
+            defaults.removeObject(forKey: Self.legacyMutedKey)
+            defaults.removeObject(forKey: Self.legacyBlockedKey)
+            return
+        }
+        muted = Set(defaults.stringArray(forKey: mutedKey) ?? [])
+        blocked = Set(defaults.stringArray(forKey: blockedKey) ?? [])
     }
 
     func isHidden(_ address: String) -> Bool {
@@ -6542,6 +6614,7 @@ final class KaPostsModerationStore: ObservableObject {
     }
 
     private func persist() {
+        guard let mutedKey, let blockedKey else { return }
         UserDefaults.standard.set(Array(muted), forKey: mutedKey)
         UserDefaults.standard.set(Array(blocked), forKey: blockedKey)
     }
