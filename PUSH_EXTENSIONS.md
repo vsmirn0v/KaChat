@@ -105,6 +105,9 @@ Honor removal counter-actions: an `unvote`/`unquote` should not generate a push.
   default true) and skip the push server-side. Filtering on the device still wakes the phone
   and burns the push; skipping at the source is the real fix. Mentions are deliberately not
   switchable.
+  **The app SENDS these five fields as of 4.1**, on every register and update call, and
+  re-registers the moment a switch changes. Until the server honors them, a switched-off kind
+  still arrives in the background - see the delivery note below on why the device cannot stop it.
 - Body text (match the app's own in-app wording): `liked your post`, `disliked your post`,
   `replied to your post: <snippet>`, `quoted your post: <snippet>`, `reposted your post`,
   `followed you`. Snippets: marker-stripped (drop the leading U+2060), ~140 chars.
@@ -113,8 +116,14 @@ Honor removal counter-actions: an `unvote`/`unquote` should not generate a push.
 
 ## 4. Delivery notes (both)
 
-- Plain alert pushes — NO `mutable-content` needed; both content types are public/unencrypted
-  so there's nothing for the app's notification service extension to decrypt.
+- Plain alert pushes; both content types are public/unencrypted so there is nothing for the
+  app's notification service extension to decrypt. **But KaPosts pushes SHOULD carry
+  `mutable-content: 1` anyway**, until per-kind registration is honored: without it the
+  extension never runs, and the extension is where the app drops the kinds the reader switched
+  off (§3). Today that means the switches only suppress banners while the app is in the
+  foreground; a like arrives in the background no matter what the reader chose. With
+  `mutable-content: 1` the extension gate becomes a real backstop, and once the server filters
+  at the source the flag can go again.
 - The app SUPPRESSES its own local/scan-driven banners for broadcasts and its in-app KaPosts
   polling pings while in remote-push mode — the server is the ONLY notification source for
   these once this ships. Until it ships, users get no broadcast/KaPosts notifications when

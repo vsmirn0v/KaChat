@@ -425,6 +425,46 @@ struct KaChatApp: App {
 
 // MARK: - App Delegate for Notification and Background Task Handling
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    /// Which KaPosts pushes the reader still wants shown, by the five Settings switches.
+    ///
+    /// The same decision as `NotificationService.kaPostsPushAllowed` in the extension, kept in
+    /// step by hand because the two targets share no source. `kaposts_kind` is the field the
+    /// server should send; failing that the body is matched against the exact English phrases
+    /// PUSH_EXTENSIONS.md §3 specifies - server-generated and unlocalized, so a fixed set. An
+    /// unrecognised push is shown rather than swallowed.
+    static func kaPostsPushAllowed(userInfo: [AnyHashable: Any], body: String, settings: AppSettings) -> Bool {
+        let key: String
+        if let explicit = userInfo["kaposts_kind"] as? String {
+            switch explicit {
+            case "vote_up": key = "likes"
+            case "vote_down": key = "dislikes"
+            case "reply": key = "comments"
+            case "quote", "repost": key = "reposts"
+            case "follow": key = "follows"
+            case "mention": key = "mentions"
+            default: return true
+            }
+        } else {
+            let lowered = body.lowercased()
+            if lowered.contains("disliked your") { key = "dislikes" }
+            else if lowered.contains("liked your") { key = "likes" }
+            else if lowered.contains("replied to your") { key = "comments" }
+            else if lowered.contains("quoted your") || lowered.contains("reposted your") { key = "reposts" }
+            else if lowered.contains("followed you") { key = "follows" }
+            else if lowered.contains("mentioned you") { key = "mentions" }
+            else { return true }
+        }
+        switch key {
+        case "likes": return settings.kaPostsNotifyLikes
+        case "dislikes": return settings.kaPostsNotifyDislikes
+        case "comments": return settings.kaPostsNotifyComments
+        case "reposts": return settings.kaPostsNotifyReposts
+        case "follows": return settings.kaPostsNotifyFollows
+        case "mentions": return settings.kaPostsNotifyMentions
+        default: return true
+        }
+    }
+
     private var backgroundFlushTaskId: UIBackgroundTaskIdentifier = .invalid
 
     /// Orientation policy per device: iPhone is hard-locked to portrait; iPad may rotate to any
@@ -594,6 +634,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             // drops the broadcast channels + KaPosts pubkey (see PushNotificationManager), but a
             // push can still race the re-registration - suppress it client-side too.
             if settings.childModeEnabled, threadId == "kaposts" || threadId.hasPrefix("broadcast:") {
+                completionHandler([])
+                return
+            }
+            // The per-kind KaPosts switches. This is the only client-side gate that runs for
+            // these pushes: they carry no mutable-content, so the notification service
+            // extension's matching check never executes, and until the server honors the
+            // kinds sent at registration a switched-off like still arrives while the app is in
+            // the background. In the foreground, at least, it does not get a banner.
+            if threadId == "kaposts", !Self.kaPostsPushAllowed(userInfo: userInfo,
+                                                               body: notification.request.content.body,
+                                                               settings: settings) {
                 completionHandler([])
                 return
             }

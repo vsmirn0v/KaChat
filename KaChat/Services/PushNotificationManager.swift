@@ -377,6 +377,7 @@ final class PushNotificationManager: ObservableObject {
         let platform = "ios"
         #endif
 
+        let kinds = AppSettings.load()
         let request = PushRegistrationRequest(
             deviceToken: token,
             platform: platform,
@@ -385,6 +386,11 @@ final class PushNotificationManager: ObservableObject {
             watchedBroadcastChannels: collectWatchedBroadcastChannels(),
             hiddenBroadcastSenders: collectHiddenBroadcastSenders(),
             kapostsPubkey: collectKaPostsPubkey(),
+            kapostsNotifyLikes: kinds.kaPostsNotifyLikes,
+            kapostsNotifyDislikes: kinds.kaPostsNotifyDislikes,
+            kapostsNotifyComments: kinds.kaPostsNotifyComments,
+            kapostsNotifyReposts: kinds.kaPostsNotifyReposts,
+            kapostsNotifyFollows: kinds.kaPostsNotifyFollows,
             primaryAddress: primaryAddress,
             aliases: aliases,
             apnsEnvironment: ApnsEnvironment.current.rawValue,
@@ -659,6 +665,7 @@ final class PushNotificationManager: ObservableObject {
             return
         }
 
+        let kinds = AppSettings.load()
         let request = PushUpdateRequest(
             deviceToken: token,
             watchedAddresses: watchedAddresses,
@@ -666,6 +673,11 @@ final class PushNotificationManager: ObservableObject {
             watchedBroadcastChannels: collectWatchedBroadcastChannels(),
             hiddenBroadcastSenders: collectHiddenBroadcastSenders(),
             kapostsPubkey: collectKaPostsPubkey(),
+            kapostsNotifyLikes: kinds.kaPostsNotifyLikes,
+            kapostsNotifyDislikes: kinds.kaPostsNotifyDislikes,
+            kapostsNotifyComments: kinds.kaPostsNotifyComments,
+            kapostsNotifyReposts: kinds.kaPostsNotifyReposts,
+            kapostsNotifyFollows: kinds.kaPostsNotifyFollows,
             primaryAddress: primaryAddress,
             aliases: aliases,
             apnsEnvironment: ApnsEnvironment.current.rawValue,
@@ -2013,6 +2025,16 @@ struct PushRegistrationRequest: Codable {
     let watchedBroadcastChannels: [String]
     let hiddenBroadcastSenders: [String: [String]]
     let kapostsPubkey: String?
+    /// The reader's per-kind KaPosts switches, so the server can skip a push at the source
+    /// (PUSH_EXTENSIONS.md §3). KaPosts pushes are plain alerts with no mutable-content, so the
+    /// notification service extension never runs for them and cannot filter on the device;
+    /// registering the kinds is the only way a switched-off kind stops arriving in the background.
+    /// Mentions are deliberately not switchable.
+    let kapostsNotifyLikes: Bool
+    let kapostsNotifyDislikes: Bool
+    let kapostsNotifyComments: Bool
+    let kapostsNotifyReposts: Bool
+    let kapostsNotifyFollows: Bool
     let primaryAddress: String?
     let aliases: [String]
     /// "development" | "production" - which APNs endpoint this device's token is valid for.
@@ -2027,6 +2049,11 @@ struct PushRegistrationRequest: Codable {
         case watchedBroadcastChannels = "watched_broadcast_channels"
         case hiddenBroadcastSenders = "hidden_broadcast_senders"
         case kapostsPubkey = "kaposts_pubkey"
+        case kapostsNotifyLikes = "kaposts_notify_likes"
+        case kapostsNotifyDislikes = "kaposts_notify_dislikes"
+        case kapostsNotifyComments = "kaposts_notify_comments"
+        case kapostsNotifyReposts = "kaposts_notify_reposts"
+        case kapostsNotifyFollows = "kaposts_notify_follows"
         case primaryAddress = "primary_address"
         case aliases
         case apnsEnvironment = "apns_environment"
@@ -2041,6 +2068,12 @@ struct PushUpdateRequest: Codable {
     let watchedBroadcastChannels: [String]
     let hiddenBroadcastSenders: [String: [String]]
     let kapostsPubkey: String?
+    /// See PushRegistrationRequest: the same five switches, kept current on every update.
+    let kapostsNotifyLikes: Bool
+    let kapostsNotifyDislikes: Bool
+    let kapostsNotifyComments: Bool
+    let kapostsNotifyReposts: Bool
+    let kapostsNotifyFollows: Bool
     let primaryAddress: String?
     let aliases: [String]
     /// "development" | "production" - which APNs endpoint this device's token is valid for.
@@ -2054,6 +2087,11 @@ struct PushUpdateRequest: Codable {
         case watchedBroadcastChannels = "watched_broadcast_channels"
         case hiddenBroadcastSenders = "hidden_broadcast_senders"
         case kapostsPubkey = "kaposts_pubkey"
+        case kapostsNotifyLikes = "kaposts_notify_likes"
+        case kapostsNotifyDislikes = "kaposts_notify_dislikes"
+        case kapostsNotifyComments = "kaposts_notify_comments"
+        case kapostsNotifyReposts = "kaposts_notify_reposts"
+        case kapostsNotifyFollows = "kaposts_notify_follows"
         case primaryAddress = "primary_address"
         case aliases
         case apnsEnvironment = "apns_environment"

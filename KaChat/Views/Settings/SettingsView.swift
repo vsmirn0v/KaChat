@@ -1401,6 +1401,11 @@ struct KaPostsNotificationSettingsView: View {
                         // The extension reads these from the App Group; without this the switch
                         // only ever changed a value nothing downstream could see.
                         SharedDataManager.syncGroupsForExtension()
+                        // And the server reads them from the registration (PUSH_EXTENSIONS.md
+                        // §3). KaPosts pushes carry no mutable-content, so the extension never
+                        // runs for them and nothing on the device can stop a background push;
+                        // only a re-registration carrying the new switch does.
+                        Task { await PushNotificationManager.shared.forceReregister(reason: "kaposts notification kinds changed") }
                     }
                 Toggle("Reposts", isOn: $settingsViewModel.settings.kaPostsNotifyReposts)
                     .onChange(of: settingsViewModel.settings.kaPostsNotifyReposts) { _ in
@@ -1408,6 +1413,11 @@ struct KaPostsNotificationSettingsView: View {
                         // The extension reads these from the App Group; without this the switch
                         // only ever changed a value nothing downstream could see.
                         SharedDataManager.syncGroupsForExtension()
+                        // And the server reads them from the registration (PUSH_EXTENSIONS.md
+                        // §3). KaPosts pushes carry no mutable-content, so the extension never
+                        // runs for them and nothing on the device can stop a background push;
+                        // only a re-registration carrying the new switch does.
+                        Task { await PushNotificationManager.shared.forceReregister(reason: "kaposts notification kinds changed") }
                     }
                 Toggle("Follows", isOn: $settingsViewModel.settings.kaPostsNotifyFollows)
                     .onChange(of: settingsViewModel.settings.kaPostsNotifyFollows) { _ in
@@ -1415,6 +1425,11 @@ struct KaPostsNotificationSettingsView: View {
                         // The extension reads these from the App Group; without this the switch
                         // only ever changed a value nothing downstream could see.
                         SharedDataManager.syncGroupsForExtension()
+                        // And the server reads them from the registration (PUSH_EXTENSIONS.md
+                        // §3). KaPosts pushes carry no mutable-content, so the extension never
+                        // runs for them and nothing on the device can stop a background push;
+                        // only a re-registration carrying the new switch does.
+                        Task { await PushNotificationManager.shared.forceReregister(reason: "kaposts notification kinds changed") }
                     }
                 Toggle("Dislikes", isOn: $settingsViewModel.settings.kaPostsNotifyDislikes)
                     .onChange(of: settingsViewModel.settings.kaPostsNotifyDislikes) { _ in
@@ -1422,6 +1437,11 @@ struct KaPostsNotificationSettingsView: View {
                         // The extension reads these from the App Group; without this the switch
                         // only ever changed a value nothing downstream could see.
                         SharedDataManager.syncGroupsForExtension()
+                        // And the server reads them from the registration (PUSH_EXTENSIONS.md
+                        // §3). KaPosts pushes carry no mutable-content, so the extension never
+                        // runs for them and nothing on the device can stop a background push;
+                        // only a re-registration carrying the new switch does.
+                        Task { await PushNotificationManager.shared.forceReregister(reason: "kaposts notification kinds changed") }
                     }
                 Toggle("Comments", isOn: $settingsViewModel.settings.kaPostsNotifyComments)
                     .onChange(of: settingsViewModel.settings.kaPostsNotifyComments) { _ in
@@ -1429,6 +1449,11 @@ struct KaPostsNotificationSettingsView: View {
                         // The extension reads these from the App Group; without this the switch
                         // only ever changed a value nothing downstream could see.
                         SharedDataManager.syncGroupsForExtension()
+                        // And the server reads them from the registration (PUSH_EXTENSIONS.md
+                        // §3). KaPosts pushes carry no mutable-content, so the extension never
+                        // runs for them and nothing on the device can stop a background push;
+                        // only a re-registration carrying the new switch does.
+                        Task { await PushNotificationManager.shared.forceReregister(reason: "kaposts notification kinds changed") }
                     }
                 Toggle("Mentions", isOn: $settingsViewModel.settings.kaPostsNotifyMentions)
                     .onChange(of: settingsViewModel.settings.kaPostsNotifyMentions) { _ in
