@@ -179,13 +179,7 @@ final class SwapService: ObservableObject {
                         fromAmount: amountStr
                     )
                 case .get:
-                    response = try await ChangeNowAPIClient.shared.getReverseEstimatedAmount(
-                        fromCurrency: from.ticker,
-                        fromNetwork: from.network,
-                        toCurrency: to.ticker,
-                        toNetwork: to.network,
-                        toAmount: amountStr
-                    )
+                    response = try await reverseQuote(from: from, to: to, target: amount)
                 }
                 guard !Task.isCancelled else { return }
                 switch side {
@@ -202,6 +196,97 @@ final class SwapService: ObservableObject {
                 estimateState = EstimateUiState(status: .failed, errorMessage: error.localizedDescription)
             }
         }
+    }
+
+    // MARK: - Reverse quote on the standard flow
+
+    /// A standard-flow quote is a straight line in the send amount: `to = slope × from +
+    /// intercept` (rate applied after the deposit fee, then the withdrawal fee off the top) -
+    /// probes at 5, 50 and 500 USDC gave the same slope to seven figures. Two direct quotes
+    /// pin the line for a pair; cached briefly so retyping the target costs one confirming
+    /// quote, not three.
+    private struct LinearQuote {
+        let slope: Double
+        let intercept: Double
+        let minFrom: Double
+        let fetchedAt: Date
+
+        func from(forTarget target: Double) -> Double { (target - intercept) / slope }
+        func to(forFrom from: Double) -> Double { slope * from + intercept }
+    }
+    private var linearQuoteCache: [String: LinearQuote] = [:]
+    private static let linearQuoteTTL: TimeInterval = 60
+
+    private func linearQuote(from: SwapCoin, to: SwapCoin) async throws -> LinearQuote {
+        let key = "\(from.ticker)/\(from.network)>\(to.ticker)/\(to.network)"
+        if let cached = linearQuoteCache[key], Date().timeIntervalSince(cached.fetchedAt) < Self.linearQuoteTTL {
+            return cached
+        }
+        let client = ChangeNowAPIClient.shared
+        let minFrom = try await client.getMinAmount(
+            fromCurrency: from.ticker, fromNetwork: from.network,
+            toCurrency: to.ticker, toNetwork: to.network
+        )
+        // Two probes well inside the accepted range, a decade apart so fee rounding cannot
+        // tilt the slope.
+        let lowFrom = minFrom * 2
+        let highFrom = minFrom * 20
+        async let low = client.getEstimatedAmount(
+            fromCurrency: from.ticker, fromNetwork: from.network,
+            toCurrency: to.ticker, toNetwork: to.network,
+            fromAmount: Self.formatQuotedAmount(lowFrom)
+        )
+        async let high = client.getEstimatedAmount(
+            fromCurrency: from.ticker, fromNetwork: from.network,
+            toCurrency: to.ticker, toNetwork: to.network,
+            fromAmount: Self.formatQuotedAmount(highFrom)
+        )
+        let (lowQuote, highQuote) = try await (low, high)
+        let slope = (highQuote.toAmount - lowQuote.toAmount) / (highQuote.fromAmount - lowQuote.fromAmount)
+        guard slope > 0, slope.isFinite else {
+            throw KasiaError.apiError("ChangeNOW returned an unusable rate for this pair")
+        }
+        let model = LinearQuote(
+            slope: slope,
+            intercept: lowQuote.toAmount - slope * lowQuote.fromAmount,
+            minFrom: minFrom,
+            fetchedAt: Date()
+        )
+        linearQuoteCache[key] = model
+        return model
+    }
+
+    /// What to send to receive `target`, on the standard flow: solve the pair's line for the
+    /// send amount, then confirm it with a real direct quote at that amount - the response's
+    /// `toAmount` is what ChangeNOW itself says lands, and that is the figure shown in the rate
+    /// line. One refinement if the confirmation is off by more than 0.2% (a rate tick between
+    /// the probes and now); the send amount is rounded up at the eighth place so the payout
+    /// errs toward the target, not under it.
+    private func reverseQuote(from: SwapCoin, to: SwapCoin, target: Double) async throws -> ChangeNowEstimateResponse {
+        let model = try await linearQuote(from: from, to: to)
+        var sendAmount = (model.from(forTarget: target) * 100_000_000).rounded(.up) / 100_000_000
+        guard sendAmount >= model.minFrom else {
+            let minTo = model.to(forFrom: model.minFrom)
+            throw KasiaError.apiError(
+                "Minimum you can get is about \(Self.formatQuotedAmount(minTo)) \(to.displayName)"
+            )
+        }
+        let client = ChangeNowAPIClient.shared
+        var confirmed = try await client.getEstimatedAmount(
+            fromCurrency: from.ticker, fromNetwork: from.network,
+            toCurrency: to.ticker, toNetwork: to.network,
+            fromAmount: Self.formatQuotedAmount(sendAmount)
+        )
+        if abs(confirmed.toAmount - target) / target > 0.002 {
+            sendAmount += (target - confirmed.toAmount) / model.slope
+            sendAmount = max(model.minFrom, (sendAmount * 100_000_000).rounded(.up) / 100_000_000)
+            confirmed = try await client.getEstimatedAmount(
+                fromCurrency: from.ticker, fromNetwork: from.network,
+                toCurrency: to.ticker, toNetwork: to.network,
+                fromAmount: Self.formatQuotedAmount(sendAmount)
+            )
+        }
+        return confirmed
     }
 
     // MARK: - Execute swap
