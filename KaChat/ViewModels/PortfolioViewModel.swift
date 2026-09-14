@@ -66,6 +66,8 @@ final class PortfolioViewModel: ObservableObject {
     /// epoch at start and refuses to write results or clean up `priceHistoryTasks` once it's
     /// stale - same epoch pattern the chat send-menu gesture uses for ownership.
     private var priceHistoryEpoch = 0
+    /// The one in-flight refresh of `sevenDayPriceHistory` (dedup, like `priceHistoryTasks`).
+    private var sevenDayHistoryTask: Task<Void, Never>?
     private let coinGecko: CoinGeckoService
     private var activeWalletAddress: String?
     /// The one background price-backfill loop (see `startPriceBackfillIfNeeded`) — nil when
@@ -254,27 +256,46 @@ final class PortfolioViewModel: ObservableObject {
         priceHistoryEpoch += 1
         for task in priceHistoryTasks.values { task.cancel() }
         priceHistoryTasks.removeAll()
+        sevenDayHistoryTask?.cancel()
+        sevenDayHistoryTask = nil
     }
 
     /// Fetches (or refetches, on a currency change) the fixed 7-day window `sevenDayPriceHistory`
     /// relies on — independent of whatever range the visible chart is currently toggled to.
-    /// Served from the persisted 10-minute cache when fresh enough (the cards tolerate slight
-    /// staleness), and otherwise staggered behind the main chart's fetch — this call landing in
-    /// the same instant as the price + chart fetches was part of the launch burst that tripped
-    /// CoinGecko's keyless-tier throttle.
-    private func fetchSevenDayPriceHistoryForCards() {
+    ///
+    /// Stale-while-refresh, same as the chart: whatever 7-day curve is already persisted paints
+    /// at once, however old (the Value card's 24h figure from an hour-old curve is still the
+    /// right figure, and it beats "not available yet"), and a network refresh runs behind it
+    /// unless the copy is inside the 10-minute TTL. The refresh is staggered behind the launch
+    /// burst (price + stats + chart), which is exactly the burst that trips CoinGecko's
+    /// keyless-tier 429, and it retries on a growing backoff rather than giving up on the first
+    /// empty answer - one throttled reply used to leave the card blank until the next launch.
+    /// `force` (pull-to-refresh) skips the TTL early-out but still paints the stale copy first.
+    private func fetchSevenDayPriceHistoryForCards(force: Bool = false) {
         let currency = currentCurrency
-        if let persisted = readPersistedHistory(days: 7, currency: currency),
-           Date().timeIntervalSince(persisted.fetchedAt) < Self.historyCacheTTL {
+        if let persisted = readPersistedHistory(days: 7, currency: currency) {
             sevenDayPriceHistory = persisted.points
             publishWidgetSnapshot()
-            return
+            if !force, Date().timeIntervalSince(persisted.fetchedAt) < Self.historyCacheTTL {
+                return
+            }
         }
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            guard let self else { return }
-            let result = await self.coinGecko.getPriceHistory(days: 7, currency: currency)
-            guard !result.isEmpty else { return }
+        guard sevenDayHistoryTask == nil else { return }
+        // Same epoch ownership as the chart fetches: a refresh or currency switch bumps it, so
+        // a cancelled task can neither write results nor clear the slot from under its successor.
+        let epoch = priceHistoryEpoch
+        sevenDayHistoryTask = Task { [weak self] in
+            defer {
+                if let self, self.priceHistoryEpoch == epoch { self.sevenDayHistoryTask = nil }
+            }
+            var result: [PricePoint] = []
+            for delaySeconds in [1.5, 6.0, 15.0, 40.0] {
+                try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                guard let self, !Task.isCancelled, self.priceHistoryEpoch == epoch else { return }
+                result = await self.coinGecko.getPriceHistory(days: 7, currency: currency)
+                if !result.isEmpty { break }
+            }
+            guard let self, !Task.isCancelled, self.priceHistoryEpoch == epoch, !result.isEmpty else { return }
             self.persistHistory(result, days: 7, currency: currency)
             self.sevenDayPriceHistory = result
             self.publishWidgetSnapshot()
@@ -287,7 +308,7 @@ final class PortfolioViewModel: ObservableObject {
     func refreshPriceAsync() async {
         cancelPriceHistoryTasks()
         priceHistoryCache.removeAll()
-        fetchSevenDayPriceHistoryForCards()
+        fetchSevenDayPriceHistoryForCards(force: true)
         let currency = currentCurrency
         let coinGecko = self.coinGecko
         // Capture the range this refresh is fetching - a range tap mid-refresh must not
