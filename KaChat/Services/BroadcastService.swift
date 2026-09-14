@@ -1147,6 +1147,8 @@ final class BroadcastService: ObservableObject {
         let settings = AppSettings.load()
         guard settings.notificationsEnabled else { return }
         // Child Mode removes Broadcasts entirely - no local banners for them either.
+        // The remote push is the only banner source - see `ChatService.localBannersEnabled`.
+        guard ChatService.localBannersEnabled else { return }
         guard !settings.childModeEnabled else { return }
         // Indexed channels are covered by remote push (registered via
         // watched_broadcast_channels) while the app is backgrounded or closed - skip the

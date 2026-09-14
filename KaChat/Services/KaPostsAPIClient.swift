@@ -1008,6 +1008,9 @@ final class KaPostsNotificationService {
     }
 
     private func postLocal(_ notification: KaPostsAPIClient.KNotification) async {
+        // The remote push is the only banner source - see `ChatService.localBannersEnabled`.
+        // The in-app bell is fed separately (GlobalNotificationCenter) and is unaffected.
+        guard ChatService.localBannersEnabled else { return }
         guard let address = KaPostsAPIClient.kaspaAddress(fromPubkey: notification.userPublicKey),
               address != WalletManager.shared.currentWallet?.publicAddress,
               !KaPostsModerationStore.shared.isHidden(address) else { return }

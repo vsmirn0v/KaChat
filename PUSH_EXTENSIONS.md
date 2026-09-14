@@ -124,10 +124,14 @@ Honor removal counter-actions: an `unvote`/`unquote` should not generate a push.
   foreground; a like arrives in the background no matter what the reader chose. With
   `mutable-content: 1` the extension gate becomes a real backstop, and once the server filters
   at the source the flag can go again.
-- The app SUPPRESSES its own local/scan-driven banners for broadcasts and its in-app KaPosts
-  polling pings while in remote-push mode — the server is the ONLY notification source for
-  these once this ships. Until it ships, users get no broadcast/KaPosts notifications when
-  the app is closed, so this is the top-priority server item.
+- **The app posts NO local banners of its own, for anything** - not for 1:1 messages, group
+  messages or reactions, broadcasts, or KaPosts activity - whatever it discovers through its
+  subscription, sweep, polls, background fetch or a silent push (`ChatService.localBannersEnabled`,
+  as of 4.1). The server's alert push is the only notification source, foreground or
+  background, exactly as when the app is closed. Consequences the server side should know: a
+  message the push service misses notifies nothing; broadcast rooms that are not indexed for
+  push notify nothing; and the foreground no longer drops a push on the assumption the app will
+  banner it itself, so every push shows unless the reader is looking at that very stream.
 - APNs environment: production for TestFlight/App Store builds (see the CHANGENOW/secrets
   notes for the sandbox story on dev builds — same applies here).
 - Rate sanity: batch/coalesce bursts (a viral post's votes) — collapse-id already dedupes

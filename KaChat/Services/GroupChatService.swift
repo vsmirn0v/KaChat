@@ -562,6 +562,8 @@ final class GroupChatService: ObservableObject {
     /// txId across all paths via `claimGroupBannerSlot`.
     private func maybePostGroupLocalNotification(group: GroupChat, message: GroupMessage) {
         let settings = AppSettings.load()
+        // The remote push is the only banner source - see `ChatService.localBannersEnabled`.
+        guard ChatService.localBannersEnabled else { return }
         guard settings.notificationMode != .disabled else { return }
         guard !ChatService.shared.suppressNotificationsUntilSynced else { return }
         guard message.deliveryStatus != .pending else { return }
@@ -621,6 +623,8 @@ final class GroupChatService: ObservableObject {
         blockTime: Int64
     ) {
         let settings = AppSettings.load()
+        // The remote push is the only banner source - see `ChatService.localBannersEnabled`.
+        guard ChatService.localBannersEnabled else { return }
         guard settings.notificationMode != .disabled else { return }
         guard !ChatService.shared.suppressNotificationsUntilSynced else { return }
         if activeGroupId == group.id, UIApplication.shared.applicationState == .active { return }

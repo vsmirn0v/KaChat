@@ -3239,6 +3239,8 @@ extension ChatService {
     }
 
     func sendLocalNotification(for message: ChatMessage, from contact: Contact) {
+        // The remote push is the only banner source - see `localBannersEnabled`.
+        guard Self.localBannersEnabled else { return }
         let settings = currentSettings
         // Check if notifications are enabled
         guard settings.notificationsEnabled else { return }

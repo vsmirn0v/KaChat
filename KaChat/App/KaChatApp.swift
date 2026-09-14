@@ -662,56 +662,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
             // screen is open (thread id "broadcast:<channel>" on local banners and pushes alike).
             let isActiveBroadcast = threadId.hasPrefix("broadcast:") &&
                 BroadcastService.shared.isViewing(channel: String(threadId.dropFirst("broadcast:".count)))
-            // A push whose txId the main app ALREADY posted a local banner for (a foreground
-            // ingest path - subscription, sweep, open-chat poll, catch-up - won the race) must
-            // not banner twice; group and 1:1 ledgers alike. Local banners carry no "tx_id" in
-            // userInfo, so they can never suppress themselves here.
-            if let pushTxId = userInfo["tx_id"] as? String,
-               let shared = UserDefaults(suiteName: "group.com.kachat.app"),
-               (shared.stringArray(forKey: GroupChatService.localPostedTxIdsKey) ?? []).contains(pushTxId) ||
-               (shared.stringArray(forKey: ChatService.localPostedTxIdsKey) ?? []).contains(pushTxId) {
-                completionHandler([])
-                return
-            }
-            // KaPosts: the local poller (KaPostsNotificationService) is the foreground banner
-            // source - it alone applies the per-type Settings toggles, which the push payload
-            // cannot (no action type in userInfo). willPresent runs for LOCAL notifications
-            // too, so this must branch on the trigger: an earlier thread-id-only drop here
-            // swallowed the poller's own banners as well, killing every foreground KaPosts
-            // banner. willPresent never runs for a backgrounded app, so background push
-            // delivery is untouched throughout.
+            // The push is the only banner source now (see `ChatService.localBannersEnabled`).
+            // Three rules used to live here for the app's own local banners - dropping a push
+            // whose txId a local banner had already claimed, deferring KaPosts pushes to the
+            // in-app poller's banners, and dropping broadcast pushes in the foreground because
+            // the scan's banner covered them. With nothing posting locally, each of those would
+            // have swallowed the only notification left, so they are gone. What remains is the
+            // one rule that is about the reader, not the plumbing: no banner for the stream
+            // they are looking at.
             if threadId == "kaposts" {
-                let kaPosts = KaPostsNotificationService.shared
-                // Mirrors the open-conversation rule: no banner for the very stream the
-                // user is looking at (the Notifications screen shows these rows live).
                 if UIApplication.shared.applicationState == .active,
-                   kaPosts.isNotificationsScreenVisible {
+                   KaPostsNotificationService.shared.isNotificationsScreenVisible {
                     completionHandler([])
                     return
                 }
-                if notification.request.trigger is UNPushNotificationTrigger {
-                    // The push's request identifier is its apns-collapse-id: the ACTION's
-                    // txid (PUSH_EXTENSIONS.md) - the same key the poller's ledger claims.
-                    if kaPosts.hasDisplayed(actionId: notification.request.identifier) {
-                        completionHandler([])
-                        return
-                    }
-                    if UIApplication.shared.applicationState == .active, kaPosts.isPolling {
-                        // Poller alive: it banners this within its cadence, with the
-                        // per-type toggles applied. (Residual: if the indexer poll is
-                        // failing while pushes still flow, the banner waits for the poll
-                        // to recover - the push service is fed by that same indexer, so
-                        // in practice both sides fail together.)
-                        completionHandler([])
-                        return
-                    }
-                    // Poller stopped while foregrounded (the in-app browser powers it
-                    // down): the push is the only source, exactly the closed-app path.
-                    // Record it so the poller doesn't re-banner on resume.
-                    kaPosts.recordDisplayed(actionId: notification.request.identifier)
-                }
-                // Local banner from the poller (toggles already applied there), or a push
-                // that won the slot above.
                 var options: UNNotificationPresentationOptions = [.banner, .badge]
                 if settings.incomingNotificationSoundEnabled {
                     options.insert(.sound)
@@ -719,16 +683,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                     Haptics.impact(.light)
                 }
                 completionHandler(options)
-                return
-            }
-            // Broadcasts banner from the app's own scan path while active - drop only the
-            // REMOTE push here (it carries no "tx_id" to dedupe with); the scan's local
-            // banner falls through to the normal presentation below, where the
-            // open-broadcast-room suppression applies.
-            if notification.request.trigger is UNPushNotificationTrigger,
-               UIApplication.shared.applicationState == .active,
-               threadId.hasPrefix("broadcast:") {
-                completionHandler([])
                 return
             }
 
