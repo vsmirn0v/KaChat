@@ -2980,7 +2980,22 @@ struct ChatDetailView: View {
         let mine = reactions.first { $0.reactorAddress == myAddress }
         let action = mine?.emoji == emoji ? "remove" : "add"
         Task {
-            try? await chatService.sendReaction(to: contact, targetTxId: targetTxId, emoji: emoji, action: action)
+            await sendReactionShowingErrors(targetTxId: targetTxId, emoji: emoji, action: action)
+        }
+    }
+
+    /// Every reaction send, with its failure said out loud. The pill already turns red with a
+    /// Retry, but the error itself was swallowed (`try?`), so a reaction that failed instantly
+    /// every time gave no clue why - the same toast a failed copy or send uses shows the reason.
+    private func sendReactionShowingErrors(targetTxId: String, emoji: String, action: String, isRetry: Bool = false) async {
+        do {
+            if isRetry {
+                try await chatService.retryReaction(to: contact, targetTxId: targetTxId, emoji: emoji, action: action)
+            } else {
+                try await chatService.sendReaction(to: contact, targetTxId: targetTxId, emoji: emoji, action: action)
+            }
+        } catch {
+            showToast(error.localizedDescription, style: .error)
         }
     }
 
@@ -3198,7 +3213,7 @@ struct ChatDetailView: View {
             onRetry: retryOutgoingMessage,
             onRetryReaction: { reaction in
                 Task {
-                    try? await chatService.retryReaction(to: contact, targetTxId: reaction.targetTxId, emoji: reaction.emoji, action: reaction.failedAction ?? "add")
+                    await sendReactionShowingErrors(targetTxId: reaction.targetTxId, emoji: reaction.emoji, action: reaction.failedAction ?? "add", isRetry: true)
                 }
             },
             onAcceptHandshake: needsHandshakeResponse ? { acceptHandshake() } : nil,
@@ -3215,7 +3230,7 @@ struct ChatDetailView: View {
                 let existing = chatService.reactionsByTxId[message.txId]?.first { $0.reactorAddress == myAddress }
                 let action = existing?.emoji == emoji ? "remove" : "add"
                 Task {
-                    try? await chatService.sendReaction(to: contact, targetTxId: message.txId, emoji: emoji, action: action)
+                    await sendReactionShowingErrors(targetTxId: message.txId, emoji: emoji, action: action)
                 }
             },
             onMoreReactions: { emojiPickerTarget = IdentifiedTxId(id: message.txId) },

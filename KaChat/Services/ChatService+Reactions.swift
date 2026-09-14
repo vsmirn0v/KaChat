@@ -93,6 +93,8 @@ extension ChatService {
             // and a "Retry" appears under the message. For a failed "remove" this restores the
             // optimistically-deleted reaction (marked failed) so it isn't silently lost - Retry then
             // re-attempts the removal; for a failed "add" the optimistic reaction is kept, flagged.
+            AppLog.log("[ChatService] Reaction %@ %@ on %@ failed: %@",
+                       action, emoji, String(targetTxId.prefix(12)), error.localizedDescription)
             applyLocalReaction(targetTxId: targetTxId, reactorAddress: myAddress, emoji: emoji, deliveryStatus: .failed, failedAction: action)
             messageStore.upsertReaction(
                 targetTxId: targetTxId, reactorAddress: myAddress, contactAddress: contact.address,
