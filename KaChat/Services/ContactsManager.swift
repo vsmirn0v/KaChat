@@ -448,12 +448,15 @@ final class ContactsManager: ObservableObject {
             throw KasiaError.invalidAddress
         }
 
-        // Never one of the user's OWN accounts. Nothing stopped this before, so an address the
-        // user owns on another account could land in this account's contact list and read as a
-        // stranger - which is how a blank account turned up among the contacts of a real one.
-        // The auto-add paths make it easy to hit without noticing: tipping or opening a KaPost
-        // written from your own second account adds its author silently.
-        guard !isOwnAccountAddress(address) else {
+        // Never the account itself - there is no one to talk to. Another of the user's OWN
+        // accounts is refused only for the auto-add paths: tipping or opening a KaPost written
+        // from your second account would otherwise add its author silently, which is how a
+        // blank account turned up among the contacts of a real one, reading as a stranger.
+        // A deliberate add is different: chatting between your own accounts is a real thing
+        // to do (moving funds, trying the app from a fresh account), and the person typing the
+        // address knows whose it is.
+        let refused = isAutoAdded ? isOwnAccountAddress(address) : isActiveWalletAddress(address)
+        guard !refused else {
             // Its own error, not `invalidAddress`: the address is perfectly valid, and telling
             // someone their own address is malformed sends them looking for a typo that is not
             // there. The auto-add callers use `try?`, so for them this is simply a silent skip.
@@ -1156,6 +1159,12 @@ final class ContactsManager: ObservableObject {
         return WalletManager.shared.savedAccounts.contains {
             normalizeWalletAddress($0.publicAddress) == normalized
         }
+    }
+
+    /// The account in use right now - the one address that can never be a contact of itself.
+    private func isActiveWalletAddress(_ address: String) -> Bool {
+        guard let normalized = normalizeWalletAddress(address), let activeWalletAddress else { return false }
+        return activeWalletAddress == normalized
     }
 
     private var activeContactsKey: String? {

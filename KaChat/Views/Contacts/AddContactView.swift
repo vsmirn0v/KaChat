@@ -223,6 +223,20 @@ struct AddContactView: View {
                             // a face and a domain do.
                             contactPreviewCard
                         }
+
+                        // Why Add refused, right under the field that caused it. The same text
+                        // used to sit in a section at the very bottom of the form - below the
+                        // contacts picker, under the keyboard - where a refused add looked like
+                        // a tap that did nothing.
+                        if let error, !isGroupMode {
+                            HStack(alignment: .top, spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.red)
+                                Text(error)
+                                    .font(.caption)
+                                    .foregroundColor(.red)
+                            }
+                        }
                     }
 
                     HStack {
@@ -278,7 +292,7 @@ struct AddContactView: View {
                 }
                 }
 
-                if let error = error {
+                if let error, isGroupMode {
                     Section {
                         Text(error)
                             .foregroundColor(.red)
@@ -618,6 +632,7 @@ struct AddContactView: View {
         resolvedAddress = nil
         resolvedDomain = nil
         knsError = nil
+        error = nil
         isResolvingKNS = false
 
         guard !trimmed.isEmpty else {
