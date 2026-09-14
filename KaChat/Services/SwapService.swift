@@ -20,7 +20,17 @@ final class SwapService: ObservableObject {
     // the other coin and "You Get" starts on KAS.
     @Published var kasIsSendSide: Bool = false
     @Published var otherCoin: SwapCoin = .usdcPolygon
+    /// The "You Send" amount. Typed by the user when `editedSide == .send`; otherwise filled in
+    /// by the reverse quote for whatever they typed under "You Get".
     @Published var amountText: String = ""
+    /// The "You Get" amount - the mirror of `amountText`: typed when `editedSide == .get`, else
+    /// the direct quote's answer.
+    @Published var receiveAmountText: String = ""
+
+    /// Which amount the user last typed. The other one is a quote and gets overwritten by every
+    /// estimate; the typed one is the input the swap is created from.
+    enum AmountSide { case send, get }
+    @Published private(set) var editedSide: AmountSide = .send
     /// Where ChangeNOW should deliver the "to" coin — only asked for when that coin isn't KAS
     /// (KAS always comes back to this wallet automatically).
     @Published var payoutAddressText: String = ""
@@ -35,6 +45,9 @@ final class SwapService: ObservableObject {
     enum EstimateStatus { case idle, loading, success, failed }
     struct EstimateUiState {
         var status: EstimateStatus = .idle
+        /// Both sides of the quote once it succeeds - the typed one echoed back, the other one
+        /// ChangeNOW's answer.
+        var fromAmount: Double?
         var toAmount: Double?
         var errorMessage: String?
     }
@@ -62,17 +75,54 @@ final class SwapService: ObservableObject {
 
     func flipDirection() {
         kasIsSendSide.toggle()
+        clearQuotedAmount()
         rescheduleEstimate()
     }
 
     func setOtherCoin(_ coin: SwapCoin) {
         otherCoin = coin
+        clearQuotedAmount()
         rescheduleEstimate()
     }
 
+    /// The pair changed, so the quoted side's figure is for a different pair - blank it until
+    /// the new quote lands; the typed side stays as the input.
+    private func clearQuotedAmount() {
+        switch editedSide {
+        case .send: receiveAmountText = ""
+        case .get: amountText = ""
+        }
+    }
+
+    /// "You Send" typed: the "You Get" figure is now stale, so it clears until the quote lands.
     func setAmountText(_ text: String) {
         amountText = text
+        editedSide = .send
+        receiveAmountText = ""
         rescheduleEstimate()
+    }
+
+    /// "You Get" typed: the reverse quote will fill "You Send" with what that costs.
+    func setReceiveAmountText(_ text: String) {
+        receiveAmountText = text
+        editedSide = .get
+        amountText = ""
+        rescheduleEstimate()
+    }
+
+    /// The amount the user typed, whichever card it was.
+    private var editedAmountText: String {
+        editedSide == .send ? amountText : receiveAmountText
+    }
+
+    /// Plain decimal text for a quoted amount: up to 8 places, trailing zeros trimmed, never
+    /// scientific notation - it is shown in the card and, for a reverse quote, sent back to
+    /// ChangeNOW as the `fromAmount` the exchange is created with.
+    static func formatQuotedAmount(_ value: Double) -> String {
+        var text = String(format: "%.8f", value)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text
     }
 
     // MARK: - To spending address selection
@@ -102,27 +152,51 @@ final class SwapService: ObservableObject {
     /// explicit "Get Rate" tap.
     private func rescheduleEstimate() {
         estimateTask?.cancel()
-        guard let amount = Double(amountText), amount > 0 else {
+        guard let amount = Double(editedAmountText), amount > 0 else {
             estimateState = EstimateUiState()
             return
         }
         let from = fromCoin
         let to = toCoin
-        let amountStr = amountText
+        let side = editedSide
+        let amountStr = editedAmountText
         estimateTask = Task {
             try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled else { return }
             estimateState = EstimateUiState(status: .loading)
             do {
-                let response = try await ChangeNowAPIClient.shared.getEstimatedAmount(
-                    fromCurrency: from.ticker,
-                    fromNetwork: from.network,
-                    toCurrency: to.ticker,
-                    toNetwork: to.network,
-                    fromAmount: amountStr
-                )
+                // Direct quote answers "You Get" for a typed "You Send"; the reverse quote
+                // answers "You Send" for a typed "You Get". Either way the quoted side's card
+                // is filled from the response so both figures are ChangeNOW's, not ours.
+                let response: ChangeNowEstimateResponse
+                switch side {
+                case .send:
+                    response = try await ChangeNowAPIClient.shared.getEstimatedAmount(
+                        fromCurrency: from.ticker,
+                        fromNetwork: from.network,
+                        toCurrency: to.ticker,
+                        toNetwork: to.network,
+                        fromAmount: amountStr
+                    )
+                case .get:
+                    response = try await ChangeNowAPIClient.shared.getReverseEstimatedAmount(
+                        fromCurrency: from.ticker,
+                        fromNetwork: from.network,
+                        toCurrency: to.ticker,
+                        toNetwork: to.network,
+                        toAmount: amountStr
+                    )
+                }
                 guard !Task.isCancelled else { return }
-                estimateState = EstimateUiState(status: .success, toAmount: response.toAmount)
+                switch side {
+                case .send: receiveAmountText = Self.formatQuotedAmount(response.toAmount)
+                case .get: amountText = Self.formatQuotedAmount(response.fromAmount)
+                }
+                estimateState = EstimateUiState(
+                    status: .success,
+                    fromAmount: response.fromAmount,
+                    toAmount: response.toAmount
+                )
             } catch {
                 guard !Task.isCancelled else { return }
                 estimateState = EstimateUiState(status: .failed, errorMessage: error.localizedDescription)
@@ -133,6 +207,10 @@ final class SwapService: ObservableObject {
     // MARK: - Execute swap
 
     func executeSwap() {
+        // `amountText` is either what the user typed under "You Send" or the reverse quote's
+        // answer for what they typed under "You Get" - the exchange is always created from
+        // the send amount, so a "You Get" target rides on the standard flow: the deposit is
+        // the quoted figure and the payout floats with the rate, as with any typed send.
         guard let amount = Double(amountText), amount > 0 else { return }
         let from = fromCoin
         let to = toCoin
@@ -200,6 +278,8 @@ final class SwapService: ObservableObject {
 
                 createSwapState = CreateSwapUiState(status: .success, result: response)
                 amountText = ""
+                receiveAmountText = ""
+                editedSide = .send
                 estimateState = EstimateUiState()
                 toAddressOverrideIndex = nil
                 refreshToAddress()

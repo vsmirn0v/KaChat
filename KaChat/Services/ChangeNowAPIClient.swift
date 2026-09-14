@@ -115,6 +115,22 @@ final class ChangeNowAPIClient {
         return try await send(request)
     }
 
+    /// The reverse quote: how much `fromAmount` has to be sent to receive a given `toAmount`
+    /// right now (`type=reverse` - the response's `fromAmount` is the estimate, `toAmount`
+    /// echoes the target).
+    func getReverseEstimatedAmount(fromCurrency: String, fromNetwork: String, toCurrency: String, toNetwork: String, toAmount: String) async throws -> ChangeNowEstimateResponse {
+        let request = try makeRequest(path: "/v2/exchange/estimated-amount", queryItems: [
+            URLQueryItem(name: "fromCurrency", value: fromCurrency),
+            URLQueryItem(name: "fromNetwork", value: fromNetwork),
+            URLQueryItem(name: "toCurrency", value: toCurrency),
+            URLQueryItem(name: "toNetwork", value: toNetwork),
+            URLQueryItem(name: "toAmount", value: toAmount),
+            URLQueryItem(name: "flow", value: "standard"),
+            URLQueryItem(name: "type", value: "reverse")
+        ])
+        return try await send(request)
+    }
+
     /// Opens a new exchange — the response's `payinAddress` is where the "from" coin needs to
     /// arrive.
     func createTransaction(fromCurrency: String, fromNetwork: String, toCurrency: String, toNetwork: String, fromAmount: String, address: String) async throws -> ChangeNowTransactionResponse {

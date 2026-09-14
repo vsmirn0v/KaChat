@@ -42,6 +42,7 @@ struct SwapView: View {
 
     private enum FocusField: Hashable {
         case amount
+        case receiveAmount
         case payoutAddress
     }
 
@@ -204,11 +205,14 @@ struct SwapView: View {
     private var swapFormPage: some View {
         ScrollView {
             VStack(spacing: 12) {
+                // Both cards take input. Type under "You Send" and "You Get" is quoted; type
+                // under "You Get" and the reverse quote fills "You Send" with what that costs.
                 swapAmountCard(
                     label: "You Send",
                     coin: swapService.fromCoin,
                     amountText: swapService.amountText,
-                    editable: true,
+                    field: .amount,
+                    isQuoting: swapService.editedSide == .get && swapService.estimateState.status == .loading,
                     onAmountChange: { swapService.setAmountText($0) },
                     onMaxTap: nil
                 )
@@ -249,9 +253,10 @@ struct SwapView: View {
                 swapAmountCard(
                     label: "You Get",
                     coin: swapService.toCoin,
-                    amountText: estimatedAmountText,
-                    editable: false,
-                    onAmountChange: { _ in },
+                    amountText: swapService.receiveAmountText,
+                    field: .receiveAmount,
+                    isQuoting: swapService.editedSide == .send && swapService.estimateState.status == .loading,
+                    onAmountChange: { swapService.setReceiveAmountText($0) },
                     onMaxTap: nil
                 )
 
@@ -297,14 +302,6 @@ struct SwapView: View {
 
     private var swapButtonTitle: String { "Get Deposit Address" }
 
-    private var estimatedAmountText: String {
-        switch swapService.estimateState.status {
-        case .success: return formatKasTrimmed(UInt64(((swapService.estimateState.toAmount ?? 0) * 100_000_000).rounded()))
-        case .loading: return "..."
-        default: return ""
-        }
-    }
-
     private var rateCard: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Rate")
@@ -321,7 +318,8 @@ struct SwapView: View {
 
     private var rateText: String {
         if swapService.estimateState.status == .success {
-            let fromAmount = Double(swapService.amountText) ?? 0
+            // Both figures come from the quote itself, whichever side was typed.
+            let fromAmount = swapService.estimateState.fromAmount ?? 0
             let toAmount = swapService.estimateState.toAmount ?? 0
             guard fromAmount > 0 else { return "N/A" }
             let fromLabel = swapService.kasIsSendSide ? "KAS" : swapService.otherCoin.displayName
@@ -433,11 +431,15 @@ struct SwapView: View {
 
     // MARK: - Reusable pieces
 
+    /// One amount card. `isQuoting` marks the card whose figure is being fetched for the
+    /// other card's input - it shows a spinner where the number will land, instead of an
+    /// empty field that reads as "nothing entered".
     private func swapAmountCard(
         label: String,
         coin: SwapCoin,
         amountText: String,
-        editable: Bool,
+        field: FocusField,
+        isQuoting: Bool,
         onAmountChange: @escaping (String) -> Void,
         onMaxTap: (() -> Void)?
     ) -> some View {
@@ -446,23 +448,20 @@ struct SwapView: View {
                 .font(.caption)
                 .foregroundColor(.secondary)
             HStack(spacing: 12) {
-                if editable {
+                if isQuoting {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
                     TextField("0.00", text: Binding(get: { amountText }, set: onAmountChange))
                         .font(.title2.weight(.semibold))
                         .keyboardType(.decimalPad)
                         .numericKeyboardDoneButton()
-                        .focused($focusedField, equals: .amount)
-                    if let onMaxTap {
-                        Button("Max", action: onMaxTap)
-                            .font(.caption.weight(.semibold))
-                            .foregroundColor(.accentColor)
-                    }
-                } else {
-                    Text(amountText.isEmpty ? "0.00" : amountText)
-                        .font(.title2.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                    Spacer()
+                        .focused($focusedField, equals: field)
+                }
+                if let onMaxTap {
+                    Button("Max", action: onMaxTap)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(.accentColor)
                 }
                 coinBadge(coin)
             }
